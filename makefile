@@ -1,8 +1,5 @@
 # === Offline-friendly env ===
 export CHROMA_TELEMETRY_ENABLED=false
-export TRANSFORMERS_OFFLINE=1
-export HF_DATASETS_OFFLINE=1
-export HF_HUB_OFFLINE=1
 
 # === Config (override with: make VAR=...) ===
 VENV_NAME ?= venv
@@ -14,36 +11,50 @@ APP_MODULE?= app.main:app
 MODEL_ID  ?= sentence-transformers/all-MiniLM-L6-v2
 
 
-.PHONY: setup venv install fetch-model verify-offline run dev embed-dir clean test seed-prompts
+.PHONY: setup ensure-venv venv install fetch-model verify-offline run dev embed-dir clean test seed-prompts
 
 # ---------- ONLINE SETUP ----------
 setup: export TRANSFORMERS_OFFLINE=0
 setup: export HF_DATASETS_OFFLINE=0
 setup: export HF_HUB_OFFLINE=0
-setup: venv install fetch-model
+setup: ensure-venv install fetch-model
 
-venv:
-	$(PYTHON) -m venv $(VENV_NAME)
-	$(PIP) install --upgrade pip setuptools wheel
+ensure-venv:
+	@if [ ! -x "$(PY)" ] || ! "$(PY)" -c "import sys" >/dev/null 2>&1; then \
+	  echo "Creating Python virtualenv with $(PYTHON)..."; \
+	  rm -rf "$(VENV_NAME)"; \
+	  "$(PYTHON)" -m venv "$(VENV_NAME)"; \
+	fi
+	$(PIP) install --upgrade pip "setuptools<82" wheel
 
-install:
+venv: ensure-venv
+
+install: ensure-venv
 	$(PIP) install -r requirements.txt
 
 # Cache the embedding model into config.MODEL_DIR
-fetch-model:
+fetch-model: export TRANSFORMERS_OFFLINE=0
+fetch-model: export HF_DATASETS_OFFLINE=0
+fetch-model: export HF_HUB_OFFLINE=0
+fetch-model: export EMBEDDINGS_OFFLINE_ONLY=0
+fetch-model: ensure-venv
 	@echo "📥 Caching embedding model ($(MODEL_ID))..."
 	@PYTHONPATH=. $(PY) -c "from core.rag.embeddings import load_embedding_model; load_embedding_model(True); print('✓ cached via embeddings')" || \
 	( echo 'model_utils failed; falling back to huggingface_hub…' && \
-	  PYTHONPATH=. $(PYTHON) -c "from huggingface_hub import snapshot_download; from config import MODEL_DIR as MD; snapshot_download(repo_id='$(MODEL_ID)', local_dir=str(MD), local_dir_use_symlinks=False); print('✓ cached under', MD)" )
+	  PYTHONPATH=. $(PY) -c "from huggingface_hub import snapshot_download; from config import MODEL_DIR as MD; snapshot_download(repo_id='$(MODEL_ID)', local_dir=str(MD), local_dir_use_symlinks=False); print('✓ cached under', MD)" )
 
 # ---------- OFFLINE CHECK ----------
+verify-offline: export TRANSFORMERS_OFFLINE=1
+verify-offline: export HF_DATASETS_OFFLINE=1
+verify-offline: export HF_HUB_OFFLINE=1
+verify-offline: export EMBEDDINGS_OFFLINE_ONLY=1
 verify-offline:
 	@if [ -x "$(PY)" ]; then PYBIN="$(PY)"; else echo "⚠️  $(PY) missing; falling back to $(PYTHON)"; PYBIN="$(PYTHON)"; fi; \
 	PYTHONPATH=. $$PYBIN -c "from core.rag.embeddings import load_embedding_model as L; m=L(); print('offline OK:', m.get_sentence_embedding_dimension())" || \
 	PYTHONPATH=. $$PYBIN -c "from sentence_transformers import SentenceTransformer; from config import MODEL_DIR as MD; SentenceTransformer(str(MD)); print('offline OK via direct local model path ✓')"
 
 # ---------- RUN ----------
-run: verify-offline
+run: fetch-model
 	@if [ -x "$(UVICORN)" ]; then \
 	  $(UVICORN) $(APP_MODULE) --host 127.0.0.1 --port 8000; \
 	else \

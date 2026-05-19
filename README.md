@@ -26,9 +26,7 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 **Unix / macOS:**
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-python -m pip install -r requirements.txt
+make setup
 make run
 ```
 

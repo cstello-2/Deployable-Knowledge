@@ -16,13 +16,15 @@ from app.routes.api_sessions import router as sessions_router
 from app.routes.api_segments import router as segments_router
 from app.auth.session import setup_auth, load_settings_from_config
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    start_folder_watcher()
+    await start_folder_watcher()
     try:
         yield
     finally:
-        stop_folder_watcher()
+        await stop_folder_watcher()
+
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

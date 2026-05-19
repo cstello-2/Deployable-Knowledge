@@ -49,13 +49,20 @@ export async function initDocsController(winId = "win_docs") {
     listMode: "all",
     selectedIds: new Set(),
     toolbarTagKeys: new Set(),
+    syncedFolders: [],
+    folderGroups: [],
+    pendingFolderPath: "",
   };
 
   const input = win.querySelector(`#${winId}-upload`);
+  const chooseFolder = win.querySelector(`#${winId}-choose-folder-btn`);
   const choose = win.querySelector(`#${winId}-choose-btn`);
+  const syncFolderBtn = win.querySelector(`#${winId}-sync-folder-btn`);
   const list = win.querySelector(`#${winId}-upload-list`);
   const btn = win.querySelector(`#${winId}-upload-btn`);
   const uploadCount = win.querySelector(`#${winId}-upload-count`);
+  const syncedFolderRegistry = win.querySelector(`#${winId}-sync-folder-registry`);
+  const syncFolderStatus = win.querySelector(`#${winId}-sync-folder-status`);
   const filterInput = win.querySelector(`#${winId}-doc-filter`);
   const filterMeta = win.querySelector(`#${winId}-filter-meta`);
   const tagChipsHost = win.querySelector(`#${winId}-tag-filter-chips`);
@@ -63,9 +70,6 @@ export async function initDocsController(winId = "win_docs") {
   const bulkBar = win.querySelector(`#${winId}-bulk-bar`);
   const bulkLabel = win.querySelector(`#${winId}-bulk-label`);
   const ctxMenu = win.querySelector(`#${winId}-ctx-menu`);
-
-  const mockPickerOpen = win.querySelector(`#${winId}-mock-picker-open`);
-  const mockPickerStatus = win.querySelector(`#${winId}-mock-picker-status`);
 
   const mockPickerOverlay = document.querySelector(`#${winId}-mock-picker-overlay`);
   const mockPickerPanel = document.querySelector(`#${winId}-mock-picker-panel`);
@@ -148,6 +152,200 @@ export async function initDocsController(winId = "win_docs") {
     return docs;
   }
 
+  function createDocRow(doc) {
+    const row = el("div", { class: "list-item docs-doc-row", "data-id": doc.id });
+    if (state.selectedIds.has(doc.id)) row.classList.add("selected");
+
+    const cb = el("input", { type: "checkbox", class: "docs-row-cb" });
+    cb.checked = state.selectedIds.has(doc.id);
+    cb.addEventListener("click", (ev) => ev.stopPropagation());
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.selectedIds.add(doc.id);
+      else state.selectedIds.delete(doc.id);
+      updateBulkBar();
+      row.classList.toggle("selected", cb.checked);
+    });
+
+    const mid = el("div", { class: "docs-doc-main" });
+    const title = el("div", { class: "li-title" }, [doc.title || doc.id]);
+    const meta = el("div", { class: "li-meta" }, [`${doc.segments} segments`, doc.active === false ? " • inactive" : ""]);
+    const tagRow = el("div", { class: "docs-doc-tags" });
+    for (const t of doc.tags || []) {
+      tagRow.appendChild(el("span", { class: "tag-badge" }, [`#${t}`]));
+    }
+    mid.append(title, tagRow, meta);
+
+    const actions = el("div", { class: "li-actions" });
+    const tagsBtn = el("button", { class: "btn", type: "button", title: "Set tags from approved list" }, ["Tags…"]);
+    tagsBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!state.approvedTags.length) {
+        alert("Define approved tags first (Manage approved #tags).");
+        return;
+      }
+      const hint = `Comma-separated tags (approved: ${state.approvedTags.map((t) => "#" + t).join(", ")})\nCurrent: ${(doc.tags || []).map((t) => "#" + t).join(", ") || "(none)"}`;
+      const raw = prompt(hint, (doc.tags || []).join(", "));
+      if (raw == null) return;
+      const want = raw.split(/[,;\n]+/).map((s) => s.trim().replace(/^#/, "").toLowerCase()).filter(Boolean);
+      const approved = new Set(state.approvedTags);
+      const bad = want.filter((t) => !approved.has(t));
+      if (bad.length) {
+        alert("Unknown or unapproved tags: " + bad.join(", "));
+        return;
+      }
+      try {
+        await api.patchCorpusDocument({ source: doc.id, tags: want });
+        await refresh();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+    const toggleLabel = doc.active === false ? "Activate" : "Deactivate";
+    const toggleBtn = el("button", { class: "btn", type: "button" }, [toggleLabel]);
+    toggleBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      try {
+        await api.patchCorpusDocument({ source: doc.id, active: doc.active === false });
+        await refresh();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+    const remBtn = el("button", { class: "btn btn-danger", type: "button" }, ["Remove"]);
+    remBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm(`Remove "${doc.id}" from the library and vector store?`)) return;
+      try {
+        await api.removeDocument(doc.id);
+        await loadFolders();
+        await refresh();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+    actions.append(tagsBtn, toggleBtn, remBtn);
+
+    const left = el("div", { class: "docs-doc-left" });
+    left.append(cb, mid);
+    row.append(left, actions);
+
+    row.addEventListener("click", (ev) => {
+      if (ev.target === cb || ev.target.closest("button")) return;
+      bus.dispatchEvent(new CustomEvent("docs:select", { detail: { id: doc.id } }));
+      listHost.querySelectorAll(".list-item").forEach((r) => r.classList.remove("focus-row"));
+      row.classList.add("focus-row");
+    });
+
+    row.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      if (ev.ctrlKey || ev.metaKey) {
+        if (state.selectedIds.has(doc.id)) state.selectedIds.delete(doc.id);
+        else state.selectedIds.add(doc.id);
+      } else {
+        state.selectedIds.clear();
+        state.selectedIds.add(doc.id);
+      }
+      updateBulkBar();
+      renderDocList();
+      setTimeout(() => openCtxMenu(ev.clientX, ev.clientY), 0);
+    });
+
+    return row;
+  }
+
+  function shortFolderName(path) {
+    return fileLabel(path) || path;
+  }
+
+  async function removeSyncedFolder(path) {
+    if (!confirm(`Remove this synchronized folder and its synced documents from the library?\n${path}`)) return;
+    try {
+      await api.removeFolder(path, true);
+      if (syncFolderStatus) syncFolderStatus.textContent = "Folder and synced documents removed.";
+      await loadFolders();
+      await refresh();
+    } catch (e) {
+      alert("Folder removal failed: " + (e.message || String(e)));
+    }
+  }
+
+  async function syncSingleFolder(path) {
+    try {
+      const data = await api.syncFolder(path);
+      const sync = data?.sync || data || {};
+      if (syncFolderStatus) {
+        const added = sync?.added?.length || 0;
+        const removed = sync?.removed?.length || 0;
+        const skipped = sync?.skipped?.length || 0;
+        syncFolderStatus.textContent = `Synced folder: ${added} added, ${removed} removed, ${skipped} skipped`;
+      }
+      await loadFolders();
+      await loadTags();
+      await refresh();
+    } catch (e) {
+      alert("Folder synchronization failed: " + (e.message || String(e)));
+    }
+  }
+
+  function createFolderGroup(group, docsById, visibleIds, groupedIds) {
+    const groupDocIds = (group.documents || []).map((doc) => doc.source_name).filter((id) => docsById.has(id));
+    const visibleDocIds = groupDocIds.filter((id) => visibleIds.has(id));
+
+    for (const id of groupDocIds) groupedIds.add(id);
+
+    const section = el("div", { class: "docs-folder-group" });
+    const header = el("div", { class: "docs-folder-header" });
+    const cb = el("input", { type: "checkbox", class: "docs-row-cb" });
+    cb.checked = visibleDocIds.every((id) => state.selectedIds.has(id));
+    cb.indeterminate = !cb.checked && visibleDocIds.some((id) => state.selectedIds.has(id));
+    cb.addEventListener("change", () => {
+      for (const id of visibleDocIds) {
+        if (cb.checked) state.selectedIds.add(id);
+        else state.selectedIds.delete(id);
+      }
+      updateBulkBar();
+      renderDocList();
+    });
+
+    const title = el("div", { class: "docs-folder-title" });
+    title.append(
+      el("div", { class: "li-title", title: group.path }, [shortFolderName(group.path)]),
+      el("div", { class: "li-subtle", title: group.path }, [`${visibleDocIds.length} document${visibleDocIds.length === 1 ? "" : "s"} shown • ${group.path}`])
+    );
+
+    const actions = el("div", { class: "docs-folder-actions" });
+    const syncBtn = el("button", { class: "btn", type: "button" }, ["Sync"]);
+    syncBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      syncBtn.disabled = true;
+      syncBtn.textContent = "Syncing...";
+      await syncSingleFolder(group.path);
+      syncBtn.disabled = false;
+      syncBtn.textContent = "Sync";
+    });
+
+    const removeBtn = el("button", { class: "btn btn-danger", type: "button" }, ["Remove"]);
+    removeBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeSyncedFolder(group.path);
+    });
+    actions.append(syncBtn, removeBtn);
+
+    header.append(cb, title, actions);
+    section.appendChild(header);
+
+    const childList = el("div", { class: "docs-folder-docs" });
+    if (visibleDocIds.length) {
+      for (const id of visibleDocIds) {
+        childList.appendChild(createDocRow(docsById.get(id)));
+      }
+    } else {
+      childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
+    }
+    section.appendChild(childList);
+    return section;
+  }
+
   function renderDocList() {
     if (!listHost) return;
     const docs = filteredDocs();
@@ -156,104 +354,19 @@ export async function initDocsController(winId = "win_docs") {
     }
 
     listHost.innerHTML = "";
+
+    const docsById = new Map(state.allDocs.map((doc) => [doc.id, doc]));
+    const visibleIds = new Set(docs.map((doc) => doc.id));
+    const groupedIds = new Set();
+
+    for (const group of state.folderGroups) {
+      const groupEl = createFolderGroup(group, docsById, visibleIds, groupedIds);
+      if (groupEl) listHost.appendChild(groupEl);
+    }
+
     for (const doc of docs) {
-      const row = el("div", { class: "list-item docs-doc-row", "data-id": doc.id });
-      if (state.selectedIds.has(doc.id)) row.classList.add("selected");
-
-      const cb = el("input", { type: "checkbox", class: "docs-row-cb" });
-      cb.checked = state.selectedIds.has(doc.id);
-      cb.addEventListener("click", (ev) => ev.stopPropagation());
-      cb.addEventListener("change", () => {
-        if (cb.checked) state.selectedIds.add(doc.id);
-        else state.selectedIds.delete(doc.id);
-        updateBulkBar();
-        row.classList.toggle("selected", cb.checked);
-      });
-
-      const mid = el("div", { class: "docs-doc-main" });
-      const title = el("div", { class: "li-title" }, [doc.title || doc.id]);
-      const meta = el("div", { class: "li-meta" }, [`${doc.segments} segments`, doc.active === false ? " • inactive" : ""]);
-      const tagRow = el("div", { class: "docs-doc-tags" });
-      for (const t of doc.tags || []) {
-        tagRow.appendChild(el("span", { class: "tag-badge" }, [`#${t}`]));
-      }
-      mid.append(title, tagRow, meta);
-
-      const actions = el("div", { class: "li-actions" });
-      const tagsBtn = el("button", { class: "btn", type: "button", title: "Set tags from approved list" }, ["Tags…"]);
-      tagsBtn.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        if (!state.approvedTags.length) {
-          alert("Define approved tags first (Manage approved #tags).");
-          return;
-        }
-        const hint = `Comma-separated tags (approved: ${state.approvedTags.map((t) => "#" + t).join(", ")})\nCurrent: ${(doc.tags || []).map((t) => "#" + t).join(", ") || "(none)"}`;
-        const raw = prompt(hint, (doc.tags || []).join(", "));
-        if (raw == null) return;
-        const want = raw.split(/[,;\n]+/).map((s) => s.trim().replace(/^#/, "").toLowerCase()).filter(Boolean);
-        const approved = new Set(state.approvedTags);
-        const bad = want.filter((t) => !approved.has(t));
-        if (bad.length) {
-          alert("Unknown or unapproved tags: " + bad.join(", "));
-          return;
-        }
-        try {
-          await api.patchCorpusDocument({ source: doc.id, tags: want });
-          await refresh();
-        } catch (e) {
-          alert(e.message || String(e));
-        }
-      });
-      const toggleLabel = doc.active === false ? "Activate" : "Deactivate";
-      const toggleBtn = el("button", { class: "btn", type: "button" }, [toggleLabel]);
-      toggleBtn.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        try {
-          await api.patchCorpusDocument({ source: doc.id, active: doc.active === false });
-          await refresh();
-        } catch (e) {
-          alert(e.message || String(e));
-        }
-      });
-      const remBtn = el("button", { class: "btn btn-danger", type: "button" }, ["Remove"]);
-      remBtn.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        if (!confirm(`Remove "${doc.id}" from the library and vector store?`)) return;
-        try {
-          await api.removeDocument(doc.id);
-          await refresh();
-        } catch (e) {
-          alert(e.message || String(e));
-        }
-      });
-      actions.append(tagsBtn, toggleBtn, remBtn);
-
-      const left = el("div", { class: "docs-doc-left" });
-      left.append(cb, mid);
-      row.append(left, actions);
-
-      row.addEventListener("click", (ev) => {
-        if (ev.target === cb || ev.target.closest("button")) return;
-        bus.dispatchEvent(new CustomEvent("docs:select", { detail: { id: doc.id } }));
-        listHost.querySelectorAll(".list-item").forEach((r) => r.classList.remove("focus-row"));
-        row.classList.add("focus-row");
-      });
-
-      row.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        if (ev.ctrlKey || ev.metaKey) {
-          if (state.selectedIds.has(doc.id)) state.selectedIds.delete(doc.id);
-          else state.selectedIds.add(doc.id);
-        } else {
-          state.selectedIds.clear();
-          state.selectedIds.add(doc.id);
-        }
-        updateBulkBar();
-        renderDocList();
-        setTimeout(() => openCtxMenu(ev.clientX, ev.clientY), 0);
-      });
-
-      listHost.appendChild(row);
+      if (groupedIds.has(doc.id)) continue;
+      listHost.appendChild(createDocRow(doc));
     }
   }
 
@@ -282,7 +395,106 @@ export async function initDocsController(winId = "win_docs") {
     renderDocList();
   }
 
+  function fileLabel(name) {
+    const rel = String(name || "");
+    const parts = rel.split(/[\\/]+/).filter(Boolean);
+    return parts[parts.length - 1] || rel;
+  }
+
+  function renderFolderRegistry() {
+    if (!syncedFolderRegistry) return;
+
+    const registered = new Set(state.syncedFolders);
+    const pending = state.pendingFolderPath && !registered.has(state.pendingFolderPath)
+      ? state.pendingFolderPath
+      : "";
+    syncedFolderRegistry.innerHTML = "";
+
+    if (!state.syncedFolders.length && !pending) {
+      syncedFolderRegistry.appendChild(el("span", { class: "li-subtle" }, ["No folders registered."]));
+    }
+
+    for (const path of state.syncedFolders) {
+      const row = el("div", { class: "folder-sync-folder-row" });
+      const name = el("div", { class: "li-title", title: path }, [path]);
+      row.append(name);
+      syncedFolderRegistry.appendChild(row);
+    }
+
+    if (pending) {
+      const row = el("div", { class: "folder-sync-folder-row pending" });
+      const name = el("div", { class: "li-title", title: pending }, [pending]);
+      const removeBtn = el("button", { class: "btn", type: "button" }, ["Clear"]);
+      removeBtn.addEventListener("click", () => {
+        state.pendingFolderPath = "";
+        renderFolderRegistry();
+      });
+      row.append(name, removeBtn);
+      syncedFolderRegistry.appendChild(row);
+    }
+  }
+
+  async function loadFolders() {
+    try {
+      const data = await api.listFolders();
+      state.syncedFolders = Array.isArray(data?.folders) ? data.folders : [];
+      state.folderGroups = Array.isArray(data?.groups) ? data.groups : [];
+    } catch {
+      state.syncedFolders = [];
+      state.folderGroups = [];
+    }
+    renderFolderRegistry();
+  }
+
+  function renderSyncResult(data) {
+    const sync = data?.sync || data || {};
+    const added = Array.isArray(sync.added) ? sync.added : [];
+    const updated = Array.isArray(sync.updated) ? sync.updated : [];
+    const removed = Array.isArray(sync.removed) ? sync.removed : [];
+    const syncSkipped = Array.isArray(sync.skipped) ? sync.skipped : [];
+    const addSkipped = data?.sync && Array.isArray(data.skipped) ? data.skipped : [];
+    const skipped = [...syncSkipped, ...addSkipped];
+    const changed = [...added, ...updated, ...removed];
+    const total = changed.length;
+
+    if (!total && !skipped.length && (sync.message || data?.message)) {
+      if (syncFolderStatus) syncFolderStatus.textContent = sync.message || data.message;
+      return;
+    }
+    if (syncFolderStatus) {
+      syncFolderStatus.textContent = `Synced: ${added.length} added, ${updated.length} updated, ${removed.length} removed, ${skipped.length} skipped`;
+    }
+  }
+
+  async function syncRegisteredFolders() {
+    try {
+      return await api.syncFolders();
+    } catch {
+      return api.synchronizeFolder();
+    }
+  }
+
   choose?.addEventListener("click", () => input?.click());
+  chooseFolder?.addEventListener("click", () => openFolderPicker());
+  syncFolderBtn?.addEventListener("click", async () => {
+    syncFolderBtn.disabled = true;
+    syncFolderBtn.textContent = "Synchronizing...";
+    try {
+      const path = state.pendingFolderPath;
+      const data = path ? await api.addFolder(path) : await syncRegisteredFolders();
+      state.pendingFolderPath = "";
+      await loadFolders();
+      await loadTags();
+      await refresh();
+      renderSyncResult(data);
+    } catch (e) {
+      if (syncFolderStatus) syncFolderStatus.textContent = "Folder synchronization failed.";
+      alert("Folder synchronization failed: " + (e.message || String(e)));
+    } finally {
+      syncFolderBtn.disabled = false;
+      syncFolderBtn.textContent = "Synchronize";
+    }
+  });
 
   input?.addEventListener("change", () => {
     if (!list) return;
@@ -296,6 +508,7 @@ export async function initDocsController(winId = "win_docs") {
   // Custom file picker backed by the filesystem directory API.
   const mockPickerState = {
     currentPath: "",
+    currentAbsolutePath: "",
     parentPath: null,
     history: [],
   };
@@ -337,7 +550,7 @@ export async function initDocsController(winId = "win_docs") {
         if (item.kind === "folder") {
           await openMockPickerFolder(item.path);
         } else {
-          await selectMockPickerPath(item.path, item.kind);
+          setMockPickerMessage("Select a folder for synchronization.");
         }
       });
 
@@ -365,6 +578,7 @@ export async function initDocsController(winId = "win_docs") {
       const data = await api.listDirectory(path);
 
       mockPickerState.currentPath = data.path || "";
+      mockPickerState.currentAbsolutePath = data.absolute_path || "";
       mockPickerState.parentPath = data.parent;
 
       if (mockPickerPath) {
@@ -380,25 +594,37 @@ export async function initDocsController(winId = "win_docs") {
       }
 
       renderMockPickerItems(data.items || []);
-      setMockPickerMessage("Click a folder to open it, or click a file to select it.");
+      setMockPickerMessage("Open a folder, then select the current folder for synchronization.");
     } catch (e) {
       setMockPickerMessage(e.message || String(e));
     }
   }
 
-  function selectMockPickerPath(path, kind = "file") {
-    const selectedPath = path || "/";
-    if (mockPickerStatus) {
-      mockPickerStatus.textContent = `Selected ${kind}: ${selectedPath}`;
+  function selectMockPickerFolder() {
+    const selectedPath = mockPickerState.currentAbsolutePath;
+    if (!selectedPath) {
+      setMockPickerMessage("No folder selected.");
+      return;
     }
 
-    setMockPickerMessage(`Selected ${kind}: ${selectedPath}`);
+    const registered = new Set(state.syncedFolders);
+    state.pendingFolderPath = registered.has(selectedPath) ? "" : selectedPath;
+    renderFolderRegistry();
+
+    if (!state.pendingFolderPath && syncFolderStatus) {
+      syncFolderStatus.textContent = "Folder is already registered.";
+    } else if (syncFolderStatus) {
+      syncFolderStatus.textContent = "Folder ready to synchronize.";
+    }
+
+    setMockPickerMessage(`Selected folder: ${selectedPath}`);
+    mockPickerOverlay?.classList.add("hidden");
   }
 
-  mockPickerOpen?.addEventListener("click", async () => {
+  async function openFolderPicker() {
     mockPickerState.history = [];
     await openMockPickerFolder("", false);
-  });
+  }
 
   mockPickerClose?.addEventListener("click", () => {
     mockPickerOverlay?.classList.add("hidden");
@@ -422,7 +648,7 @@ export async function initDocsController(winId = "win_docs") {
   });
 
   mockPickerSelectFolder?.addEventListener("click", async () => {
-    selectMockPickerPath(mockPickerState.currentPath, "folder");
+    selectMockPickerFolder();
   });
 
   btn?.addEventListener("click", async () => {
@@ -614,6 +840,7 @@ export async function initDocsController(winId = "win_docs") {
   document.addEventListener("click", () => closeCtxMenu());
 
   await loadTags();
+  await loadFolders();
   await refresh();
   updateUploadCount();
   setMode("all");

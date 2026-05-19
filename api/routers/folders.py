@@ -1,27 +1,29 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.folder_sync import (
     add_folder,
+    list_folder_groups,
     list_folders,
     remove_folder,
-    _sync_all_folders_unlocked,
+    sync_all_folders,
+    sync_folder,
 )
-
-from core.folder_watcher import (
-    restart_folder_watcher,
-    start_folder_watcher,
-    stop_folder_watcher,
-    watcher_status,
-)
+from core.folder_watcher import restart_folder_watcher
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
 class FolderBody(BaseModel):
     path: str
+
+
+class SyncFolderBody(BaseModel):
+    path: str = ""
 
 
 class RemoveFolderBody(BaseModel):
@@ -32,67 +34,47 @@ class RemoveFolderBody(BaseModel):
 @router.get("")
 def get_folders():
     return {
-        "folders": list_folders()
+        "folders": list_folders(),
+        "groups": list_folder_groups(),
     }
 
 
 @router.post("/add")
-def post_add_folder(body: FolderBody):
-    try:
-        result = add_folder(body.path)
-        sync_result = _sync_all_folders_unlocked()
-        watch_result = restart_folder_watcher()
+async def post_add_folder(body: FolderBody):
+    if not body.path.strip():
+        raise HTTPException(status_code=400, detail="No folder path provided")
 
-        return {
-            **result,
-            "sync": sync_result,
-            "watcher": watch_result,
-        }
+    try:
+        result = await asyncio.to_thread(add_folder, body.path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    sync_result = await asyncio.to_thread(sync_folder, result["folder"])
+    watch_result = await restart_folder_watcher()
+    return {
+        **result,
+        "sync": sync_result,
+        "watcher": watch_result,
+    }
 
 
 @router.post("/sync")
-def post_sync_folders():
-    try:
-        return _sync_all_folders_unlocked()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+async def post_sync_folders(body: SyncFolderBody | None = None):
+    path = (body.path if body else "").strip()
+    if path:
+        return await asyncio.to_thread(sync_folder, path)
+    return await asyncio.to_thread(sync_all_folders)
 
 
 @router.delete("/remove")
-def delete_folder(body: RemoveFolderBody):
-    try:
-        result = remove_folder(
-            body.path,
-            remove_synced_documents=body.remove_synced_documents,
-        )
-        watch_result = restart_folder_watcher()
-
-        return {
-            **result,
-            "watcher": watch_result,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    
-@router.get("/watch/status")
-def get_watch_status():
-    return watcher_status()
-
-
-@router.post("/watch/start")
-def post_watch_start():
-    return start_folder_watcher()
-
-
-@router.post("/watch/stop")
-def post_watch_stop():
-    return stop_folder_watcher()
-
-
-@router.post("/watch/restart")
-def post_watch_restart():
-    return restart_folder_watcher()
+async def delete_folder(body: RemoveFolderBody):
+    result = await asyncio.to_thread(
+        remove_folder,
+        body.path,
+        body.remove_synced_documents,
+    )
+    watch_result = await restart_folder_watcher()
+    return {
+        **result,
+        "watcher": watch_result,
+    }

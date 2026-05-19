@@ -1,139 +1,118 @@
 from __future__ import annotations
 
-import threading
-import time
+import asyncio
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from watchfiles import Change, watch
+from watchfiles import Change, awatch
 
-from config import ALLOWED_DOCUMENT_EXTENSIONS
-from core.folder_sync import list_folders, _sync_all_folders_unlocked
+from core.folder_sync import list_folders, sync_all_folders
 
-
-_state_lock = threading.Lock()
-_stop_event: Optional[threading.Event] = None
-_thread: Optional[threading.Thread] = None
-_last_sync_result: Optional[Dict[str, Any]] = None
-_last_error: Optional[str] = None
+state_lock = asyncio.Lock()
+watch_task: Optional[asyncio.Task] = None
+last_sync_result: Optional[Dict[str, Any]] = None
+last_error: Optional[str] = None
+FOLDER_SYNC_EXTENSIONS = {".pdf"}
 
 
-def _is_supported_watch_path(path: str) -> bool:
+def is_supported_watch_path(path: str) -> bool:
     p = Path(path)
-
-    if p.name.startswith("."):
-        return False
-
-    if p.name.startswith("~$"):
-        return False
-
-    if p.suffix.lower() not in {e.lower() for e in ALLOWED_DOCUMENT_EXTENSIONS}:
-        return False
-
-    return True
+    return (
+        not p.name.startswith(".")
+        and not p.name.startswith("~$")
+        and p.suffix.lower() in FOLDER_SYNC_EXTENSIONS
+    )
 
 
-def _watch_filter(change: Change, path: str) -> bool:
-    return _is_supported_watch_path(path)
+def watch_filter(change: Change, path: str) -> bool:
+    return is_supported_watch_path(path)
 
 
-def _existing_folders() -> List[str]:
-    folders = []
-
+def existing_folders() -> List[str]:
+    folders: List[str] = []
     for folder in list_folders():
-        p = Path(folder).expanduser().resolve()
-        if p.exists() and p.is_dir():
-            folders.append(str(p))
-
+        path = Path(folder).expanduser().resolve()
+        if path.exists() and path.is_dir():
+            folders.append(str(path))
     return folders
 
 
-def _watch_loop(stop_event: threading.Event) -> None:
-    global _last_sync_result, _last_error
+async def run_sync() -> None:
+    global last_sync_result, last_error
 
-    while not stop_event.is_set():
-        folders = _existing_folders()
+    try:
+        last_sync_result = await asyncio.to_thread(sync_all_folders)
+        last_error = None
+    except Exception as e:
+        last_error = str(e)
 
+
+async def watch_loop() -> None:
+    global last_error
+
+    while True:
+        folders = existing_folders()
         if not folders:
-            stop_event.wait(2.0)
+            await asyncio.sleep(2.0)
             continue
 
         try:
-            for changes in watch(
+            await run_sync()
+            async for changes in awatch(
                 *folders,
-                watch_filter=_watch_filter,
+                watch_filter=watch_filter,
                 debounce=2000,
                 step=250,
-                stop_event=stop_event,
                 recursive=True,
                 raise_interrupt=False,
             ):
-                if stop_event.is_set():
-                    break
+                if changes:
+                    await run_sync()
 
-                if not changes:
-                    continue
-
-                # Small extra delay helps avoid syncing files that are still copying.
-                time.sleep(0.75)
-
-                try:
-                    _last_sync_result = sync_all_folders()
-                    _last_error = None
-                except Exception as e:
-                    _last_error = str(e)
-
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            _last_error = str(e)
-            stop_event.wait(2.0)
+            last_error = str(e)
+            await asyncio.sleep(2.0)
 
 
-def start_folder_watcher() -> Dict[str, Any]:
-    global _stop_event, _thread
+async def start_folder_watcher() -> Dict[str, Any]:
+    global watch_task
 
-    with _state_lock:
-        if _thread is not None and _thread.is_alive():
+    async with state_lock:
+        if watch_task is not None and not watch_task.done():
             return watcher_status()
 
-        _stop_event = threading.Event()
-        _thread = threading.Thread(
-            target=_watch_loop,
-            args=(_stop_event,),
-            name="folder-sync-watcher",
-            daemon=True,
-        )
-        _thread.start()
+        watch_task = asyncio.create_task(watch_loop(), name="folder-sync-watcher")
 
     return watcher_status()
 
 
-def stop_folder_watcher() -> Dict[str, Any]:
-    global _stop_event, _thread
+async def stop_folder_watcher() -> Dict[str, Any]:
+    global watch_task
 
-    with _state_lock:
-        if _stop_event is not None:
-            _stop_event.set()
-
-        if _thread is not None and _thread.is_alive():
-            _thread.join(timeout=5)
-
-        _stop_event = None
-        _thread = None
+    async with state_lock:
+        task = watch_task
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        watch_task = None
 
     return watcher_status()
 
 
-def restart_folder_watcher() -> Dict[str, Any]:
-    stop_folder_watcher()
-    return start_folder_watcher()
+async def restart_folder_watcher() -> Dict[str, Any]:
+    await stop_folder_watcher()
+    return await start_folder_watcher()
 
 
 def watcher_status() -> Dict[str, Any]:
-    alive = _thread is not None and _thread.is_alive()
-
+    alive = watch_task is not None and not watch_task.done()
     return {
         "running": alive,
-        "folders": _existing_folders(),
-        "last_sync_result": _last_sync_result,
-        "last_error": _last_error,
+        "folders": existing_folders(),
+        "last_sync_result": last_sync_result,
+        "last_error": last_error,
     }

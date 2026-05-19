@@ -226,6 +226,59 @@ html, body {
 }
 .docs-toolbar-row .input { flex: 1 1 200px; min-width: 160px; }
 .docs-mode-row .btn { flex: 0 0 auto; }
+.docs-sync-row,
+.docs-upload-controls {
+  display: grid;
+  gap: 8px;
+}
+.docs-sync-row .btn,
+.docs-upload-controls .btn {
+  width: 100%;
+}
+.docs-sync-row .li-subtle,
+.docs-upload-controls .li-subtle {
+  justify-self: start;
+}
+.folder-sync-section {
+  display: grid;
+  gap: 8px;
+}
+.folder-sync-folders {
+  display: grid;
+  gap: 6px;
+}
+.folder-sync-folder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.folder-sync-folder-row .btn {
+  width: auto;
+}
+.folder-sync-folder-row.pending .li-title {
+  color: var(--muted);
+}
+.folder-sync-files {
+  display: grid;
+  gap: 2px;
+  max-height: 72px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.folder-sync-status {
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.folder-sync-more {
+  color: var(--muted);
+}
 .docs-tag-chips {
   display: flex;
   flex-wrap: wrap;
@@ -268,16 +321,68 @@ html, body {
   border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
   background: color-mix(in oklab, var(--accent) 8%, hsl(var(--h) var(--sat) var(--l-panel)));
 }
-.docs-doc-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
+.docs-row-cb {
+  width: 16px;
+  height: 16px;
+  margin: 4px 0 0;
+  flex-shrink: 0;
+  justify-self: start;
+  align-self: start;
 }
-.docs-row-cb { margin-top: 4px; flex-shrink: 0; }
 .docs-doc-main { min-width: 0; }
 .docs-doc-tags { margin-top: 4px; }
-.docs-doc-row .li-actions { flex-wrap: wrap; justify-content: flex-end; }
+.list-item.docs-doc-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+}
+.docs-doc-row .docs-doc-left {
+  display: contents;
+}
+.docs-doc-row .docs-row-cb {
+  grid-column: 1;
+}
+.docs-doc-row .docs-doc-main {
+  grid-column: 2;
+  text-align: left;
+}
+.docs-doc-row .li-actions {
+  grid-column: 3;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.docs-folder-group {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in oklab, hsl(var(--h) var(--sat) var(--l-panel)) 88%, var(--text) 4%);
+}
+.docs-folder-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 2px 2px 8px;
+}
+.docs-folder-header .docs-row-cb {
+  margin-top: 2px;
+}
+.docs-folder-title {
+  min-width: 0;
+}
+.docs-folder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.docs-folder-docs {
+  display: grid;
+  gap: 6px;
+}
+.docs-folder-empty {
+  padding: 8px 2px;
+}
 .focus-row { outline: 2px solid color-mix(in oklab, var(--accent) 45%, transparent); outline-offset: 2px; }
 
 .context-menu {
@@ -316,6 +421,17 @@ html, body {
   border-radius: 12px; background: hsl(var(--h) var(--sat) var(--l-panel));
 }
 .list-item > div:first-child { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+.list-item.docs-doc-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+}
+.list-item.docs-doc-row > .docs-doc-left {
+  display: contents;
+}
+.docs-doc-row .li-meta {
+  grid-column: auto;
+  justify-self: start;
+}
 .li-meta { grid-column: 2; justify-self: end; color: var(--muted); font-size: 12px; align-self: center; }
 .list-item > div:first-child .li-subtle { grid-column: 1 / span 2; }
 .list-item:hover { border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%)); }
