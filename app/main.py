@@ -7,6 +7,7 @@ from api.routers.chat import router as chat_router
 from api.routers.search import router as search_router
 from api.routers.ingest import router as ingest_router
 from api.routers.settings import router as settings_router
+from api.routers.corpus import router as corpus_router
 from app.routes.api_sessions import router as sessions_router
 from app.routes.api_segments import router as segments_router
 from app.auth.session import setup_auth, load_settings_from_config
@@ -24,4 +25,5 @@ app.include_router(ingest_router)
 app.include_router(sessions_router)
 app.include_router(segments_router)
 app.include_router(settings_router)
+app.include_router(corpus_router)
 

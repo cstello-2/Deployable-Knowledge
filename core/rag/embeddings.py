@@ -31,13 +31,25 @@ def fetch_model_if_needed(model_id: str = EMBEDDING_MODEL_ID, model_dir: Path = 
         raise RuntimeError(f"Offline-only mode set, but model not found at {model_dir}")
     if snapshot_download is None:
         raise RuntimeError("huggingface_hub not available to fetch model.")
-    snapshot_download(
-        repo_id=model_id,
-        local_dir=str(model_dir),
-        local_dir_use_symlinks=False,
-        allow_patterns=None,
-        ignore_patterns=["*.safetensors.index.json"],
-    )
+    try:
+        snapshot_download(
+            repo_id=model_id,
+            local_dir=str(model_dir),
+            local_dir_use_symlinks=False,
+            allow_patterns=None,
+            ignore_patterns=["*.safetensors.index.json"],
+        )
+    except Exception as e:
+        msg = str(e).lower()
+        if "ssl" in msg or "certificate" in msg or "cert_verify" in msg:
+            raise RuntimeError(
+                "Embedding model download failed due to SSL certificate verification "
+                "(common on corporate networks). Options: (1) set environment variable "
+                "HF_HUB_DISABLE_SSL_VERIFICATION=1 for this session only, (2) set "
+                "SSL_CERT_FILE to your organization root CA bundle, or (3) copy a "
+                f"pre-downloaded model folder into {model_dir}."
+            ) from e
+        raise
     return model_dir
 
 
@@ -52,4 +64,9 @@ def load_embedding_model(force_fetch: bool = False) -> SentenceTransformer:
         if EMBEDDINGS_OFFLINE_ONLY:
             raise RuntimeError(f"Model cache missing at {model_dir} and offline-only is enabled.")
         fetch_model_if_needed()
+    if not _local_model_present(model_dir):
+        raise RuntimeError(
+            f"No embedding model files found under {model_dir}. "
+            "Run the launcher once with network access, or copy a cached model into that folder."
+        )
     return SentenceTransformer(str(model_dir), device=os.getenv("EMBEDDINGS_DEVICE", "cpu"))

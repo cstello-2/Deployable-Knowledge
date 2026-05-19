@@ -4,6 +4,7 @@ from typing import List, Dict, Optional, Any
 import inspect, re
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
+from core.corpus_registry import get_inactive_sources
 from .embeddings import load_embedding_model
 from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
@@ -242,14 +243,32 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]
     scores = results.get("distances", [[]])[0]
-    out = []
-    for doc, meta, score in zip(documents, metadatas, scores):
-        if exclude_sources and meta.get("source", "unknown") in exclude_sources:
+    ids = list(results.get("ids", [[]])[0] or [])
+    if len(ids) < len(documents):
+        ids.extend([None] * (len(documents) - len(ids)))
+    ids = ids[: len(documents)]
+    merged_exclude = set(exclude_sources or [])
+    merged_exclude.update(get_inactive_sources())
+    # Chroma returns ascending distance (best match first). Keep that order and
+    # expose score as a higher-is-better similarity so the UI matches user expectations.
+    rows: List[tuple[float, Dict]] = []
+    for doc, meta, dist, seg_id in zip(documents, metadatas, scores, ids):
+        src = meta.get("source", "unknown")
+        if src in merged_exclude:
             continue
-        out.append({
-            "text": doc.strip().replace("\n", " "),
-            "source": meta.get("source", "unknown"),
-            "score": score,
-            "page": meta.get("page", None),
-        })
-    return out
+        d = float(dist) if dist is not None else float("inf")
+        sim = None if d == float("inf") else 1.0 / (1.0 + d)
+        rows.append(
+            (
+                d,
+                {
+                    "text": doc.strip().replace("\n", " "),
+                    "source": src,
+                    "score": sim,
+                    "page": meta.get("page", None),
+                    "segment_id": seg_id,
+                },
+            )
+        )
+    rows.sort(key=lambda t: t[0])
+    return [item for _, item in rows]

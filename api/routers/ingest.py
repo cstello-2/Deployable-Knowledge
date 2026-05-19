@@ -1,14 +1,17 @@
+import logging
 import os
 from fastapi import APIRouter, UploadFile, BackgroundTasks, HTTPException, Form, File
 from fastapi.responses import JSONResponse
 from typing import List
 
 from core.rag.retriever import db, embed_directory, embed_file
+from core.corpus_registry import remove_source as registry_remove_source
 from core.rag.chunking import parse_pdf
 from api.utils import sanitize_filename
 from config import UPLOAD_DIR, PDF_DIR, ALLOWED_DOCUMENT_EXTENSIONS
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,6 +49,7 @@ async def remove_document(source: str = Form(...)):
     try:
         safe_name = sanitize_filename(source)
         db.delete_by_source(safe_name)
+        registry_remove_source(safe_name)
         file_path = UPLOAD_DIR / safe_name
         if file_path.exists():
             os.remove(file_path)
@@ -68,7 +72,7 @@ async def ingest_documents(background_tasks: BackgroundTasks):
                 parsed_text = parsed
             txt_file.write_text(parsed_text, encoding="utf-8")
         except Exception as e:
-            print(f"Failed to parse {pdf_file.name}: {e}")
+            _log.warning("Failed to parse %s: %s", pdf_file.name, e)
     background_tasks.add_task(
         embed_directory,
         data_dir=str(txt_dir),

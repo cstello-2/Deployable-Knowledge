@@ -39,14 +39,6 @@ function spawnWindow(cfg, init) {
       indicator.className = "down-indicator";
       indicator.textContent = "⌄";
       colEl.appendChild(indicator);
-if (!indicator) {
-  indicator = document.createElement("div");
-  indicator.className = "down-indicator";
-  indicator.textContent = "⌄";
-  colEl.appendChild(indicator);
-} else {
-  indicator.className = "down-indicator";  // Ensure consistent class handling
-}
     }
 
     const onScroll = () => {
@@ -72,7 +64,8 @@ for (const w of windows) {
 initDocsController("win_docs");
 initSessionsController("win_sessions");
 initChatController();
-initSegmentsController("win_segments");
+initSearchController("win_search");
+if (Store.lastQuery) runSearch(Store.lastQuery);
 
 // ensure we have a session at boot
 api.getOrCreateChatSession().then(id => Store.sessionId = id);
@@ -81,22 +74,19 @@ api.getUser().then(u => {
   if (btn && u?.user) btn.textContent = `${u.user} ▾`;
 });
 
+// Menu + Tools share one open-at-a-time group (top-left); User menu is independent.
+const headerLeftMenuPeerClosers = [];
+
 // header menu
 initMenu(async (action) => {
   if (action === "new-chat") {
     Store.sessionId = await api.startNewSession();
     // refresh sessions list
-    initSessionsController("win_sessions");
-  }
-  if (action === "toggle-search") {
-    const existing = document.getElementById("win_search");
-    if (existing) {
-      existing.remove();
-    } else {
-      const cfg = { id: "win_search", window_type: "window_search", title: "Search Documents", col: "right", unique: true };
-      spawnWindow(cfg, initSearchController);
-      if (Store.lastQuery) runSearch(Store.lastQuery);
-    }
+    window.dispatchEvent(new CustomEvent("sessions:refresh"));
+    const log = document.querySelector("#win_chat #chat_log");
+    const input = document.querySelector("#win_chat #chat_input");
+    if (log) log.innerHTML = "";
+    if (input) input.value = "";
   }
   if (action === "edit-persona") {
     openPersonaModal();
@@ -107,7 +97,7 @@ initMenu(async (action) => {
   if (action === "prompt-templates") {
     openPromptEditor();
   }
-});
+}, "menu-trigger", "menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });
 
 // user menu
 initMenu((action) => {
@@ -119,6 +109,16 @@ initMenu((action) => {
   if (action === "tool-chat") {
     spawnWindow({ id: "win_chat", window_type: "window_chat_ui", title: "Assistant Chat", col: "right", unique: true }, initChatController);
   }
+  if (action === "tool-search-context") {
+    const existing = document.getElementById("win_search");
+    if (existing) {
+      existing.remove();
+    } else {
+      const cfg = { id: "win_search", window_type: "window_search", title: "Search Context", col: "right", unique: true };
+      spawnWindow(cfg, initSearchController);
+      if (Store.lastQuery) runSearch(Store.lastQuery);
+    }
+  }
   if (action === "tool-docs") {
     spawnWindow({ id: "win_docs", window_type: "window_documents", title: "Document Library", col: "left", unique: true }, initDocsController);
   }
@@ -128,4 +128,4 @@ initMenu((action) => {
   if (action === "tool-segments") {
     spawnWindow({ id: "win_segments", window_type: "window_segments", title: "DB Segments", col: "right", unique: true }, initSegmentsController);
   }
-}, "tools-menu-trigger", "tools-menu-dropdown");
+}, "tools-menu-trigger", "tools-menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });

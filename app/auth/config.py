@@ -12,6 +12,6 @@ DEV_ALLOW_INSECURE_COOKIES = True         # allows HTTP-only on localhost
 SESSION_BIND_USER_AGENT = True
 SESSION_BIND_IP_PREFIX_CIDR = None        # e.g., 24 to bind /24
 
-AUTH_ALLOW_PATHS = {"/", "/begin", "/docs", "/openapi.json", "/healthz", "/favicon.ico"}
-AUTH_ALLOW_PATH_PREFIXES = {"/static"}
+AUTH_ALLOW_PATHS = {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"}
+AUTH_ALLOW_PATH_PREFIXES = {"/static", "/documents"}
 SESSION_DIR = "user_sessions"

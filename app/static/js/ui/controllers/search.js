@@ -1,6 +1,93 @@
-// ui/controllers/search.js — semantic search
+// ui/controllers/search.js — semantic search + passage cards (shared with chat citations)
 import { dkClient as api } from "../sdk/sdk.js";
 import { escapeHtml } from "../render.js";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isSegmentKey(s) {
+  return s && UUID_RE.test(String(s));
+}
+
+function docAtHref(segmentId) {
+  return "/static/doc_at.html?segment=" + encodeURIComponent(String(segmentId));
+}
+
+/**
+ * Append a result card (search window or chat citations).
+ * @param {HTMLElement} container
+ * @param {Record<string, unknown>} r — retriever row or Source JSON
+ * @param {{ compact?: boolean }} opts
+ */
+export function appendPassageCard(container, r, { compact = false } = {}) {
+  const segmentId = r.segment_id ?? r.id;
+  const source = String(r.source ?? r.title ?? r.filepath ?? "");
+  const page = r.page ?? "?";
+  const scoreLabel =
+    typeof r.score === "number" && !Number.isNaN(r.score)
+      ? r.score.toFixed(3)
+      : String(r.score ?? "");
+
+  const card = document.createElement("div");
+  card.className = compact ? "result-card result-card--compact" : "result-card";
+
+  const body = document.createElement("div");
+  let excerpt = String(r.text ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (compact && excerpt.length > 180) excerpt = `${excerpt.slice(0, 177)}…`;
+  body.textContent = excerpt;
+  if (compact) body.className = "result-card__excerpt";
+
+  const meta = document.createElement("div");
+  meta.className = "result-meta";
+  const srcSpan = document.createElement("span");
+  srcSpan.textContent = source ? `Source: ${source}` : "Source: —";
+  const metaSpan = document.createElement("span");
+  metaSpan.textContent = `Similarity: ${scoreLabel} • Page: ${page}`;
+  meta.append(srcSpan, metaSpan);
+
+  const actions = document.createElement("div");
+  actions.className = "result-actions";
+  if (isSegmentKey(segmentId)) {
+    const a = document.createElement("a");
+    a.className = "btn btn-sm";
+    a.href = docAtHref(segmentId);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Open in document";
+    actions.appendChild(a);
+  } else if (source) {
+    const a = document.createElement("a");
+    a.className = "btn btn-sm";
+    a.href = `/documents/${encodeURIComponent(source)}`;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Open file";
+    actions.appendChild(a);
+  }
+
+  card.append(body, meta);
+  if (actions.childNodes.length) card.appendChild(actions);
+  container.appendChild(card);
+}
+
+/**
+ * Small citation strip under an assistant message (top matches only).
+ */
+export function renderChatCitations(host, sources, { maxItems = 3 } = {}) {
+  if (!host) return;
+  host.innerHTML = "";
+  host.hidden = true;
+  const list = (sources || []).slice(0, maxItems);
+  if (!list.length) return;
+  host.hidden = false;
+  const label = document.createElement("div");
+  label.className = "msg-citations-label";
+  label.textContent = "Sources";
+  host.appendChild(label);
+  for (const r of list) appendPassageCard(host, r, { compact: true });
+}
 
 export async function runSearch(query, winId = "win_search") {
   const win = document.getElementById(winId);
@@ -28,26 +115,7 @@ export async function runSearch(query, winId = "win_search") {
       return;
     }
 
-    for (const r of arr) {
-      const card = document.createElement("div");
-      card.className = "result-card";
-
-      const text = escapeHtml(r?.text ?? "");
-      const source = escapeHtml(r?.source ?? "");
-      const score =
-        typeof r?.score === "number"
-          ? r.score.toFixed(3)
-          : escapeHtml(String(r?.score ?? ""));
-      const page = r?.page ?? "?";
-
-      card.innerHTML = `
-          <div>${text}</div>
-          <div class="result-meta">
-            <span>Source: ${source}</span>
-            <span>Score: ${score} • Page: ${page}</span>
-          </div>`;
-      results.appendChild(card);
-    }
+    for (const r of arr) appendPassageCard(results, r, { compact: false });
   } catch (e) {
     results.innerHTML = `<div class="li-subtle">Error: ${escapeHtml(
       e?.message || String(e)
@@ -66,24 +134,7 @@ export function showContext(sources = [], query, winId = "win_search") {
     results.innerHTML = `<div class="li-subtle">No context</div>`;
     return;
   }
-  for (const r of sources) {
-    const card = document.createElement("div");
-    card.className = "result-card";
-    const text = escapeHtml(r?.text ?? "");
-    const source = escapeHtml(r?.source ?? "");
-    const score =
-      typeof r?.score === "number"
-        ? r.score.toFixed(3)
-        : escapeHtml(String(r?.score ?? ""));
-    const page = r?.page ?? "?";
-    card.innerHTML = `
-        <div>${text}</div>
-        <div class="result-meta">
-          <span>Source: ${source}</span>
-          <span>Score: ${score} • Page: ${page}</span>
-        </div>`;
-    results.appendChild(card);
-  }
+  for (const r of sources) appendPassageCard(results, r, { compact: false });
 }
 
 export function initSearchController(winId = "win_search") {

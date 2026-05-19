@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from datetime import datetime
+from pydantic import BaseModel
 from core.sessions import ChatSession, SessionStore
 from api.utils import validate_session_id
 
@@ -8,6 +9,10 @@ SESSION_COOKIE_NAME = "chat_session_id"
 
 router = APIRouter()
 store = SessionStore()
+
+
+class RenameSessionBody(BaseModel):
+    title: str
 
 @router.get("/sessions")
 async def list_sessions():
@@ -58,6 +63,30 @@ async def get_session_data(session_id: str):
             "history": history_pairs,
         }
     )
+
+
+@router.patch("/sessions/{session_id}")
+async def rename_session(session_id: str, body: RenameSessionBody):
+    """Rename a stored chat session."""
+
+    session_id = validate_session_id(session_id)
+    session = store.load(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session.title = (body.title or "").strip()
+    store.save(session)
+    return JSONResponse({"status": "ok", "session_id": session_id, "title": session.title})
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a stored chat session file."""
+
+    session_id = validate_session_id(session_id)
+    if not store.exists(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    store.delete(session_id)
+    return JSONResponse({"status": "ok", "session_id": session_id})
 
 @router.get("/session")
 async def get_or_create_session(request: Request):

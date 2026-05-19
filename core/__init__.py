@@ -1,4 +1,4 @@
 """Core utilities for Deployable Knowledge."""
 
-__version__ = "0.9.0"
+__version__ = "A0.2.2"
 

@@ -1,5 +1,6 @@
 // ui/sdk/sdk.js — browser-side SDK for Deployable Knowledge
 const JSON_HEADERS = { "Accept": "application/json" };
+const JSON_POST = { ...JSON_HEADERS, "Content-Type": "application/json" };
 
 async function asJsonSafe(res) {
   const ct = res.headers.get("content-type") || "";
@@ -110,6 +111,74 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
+  async getCorpusTags() {
+    const res = await ok(await fetch("/corpus/tags", { headers: JSON_HEADERS, credentials: "same-origin" }));
+    return asJsonSafe(res);
+  }
+
+  async setCorpusTags(tags) {
+    const res = await ok(await fetch("/corpus/tags", {
+      method: "PUT",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ tags }),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async patchCorpusDocument({ source, tags, active }) {
+    const body = { source };
+    if (tags !== undefined) body.tags = tags;
+    if (active !== undefined) body.active = active;
+    const res = await ok(await fetch("/corpus/document", {
+      method: "PATCH",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async corpusBulk(payload) {
+    const res = await ok(await fetch("/corpus/bulk", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async activateCorpusByTags(tags) {
+    const res = await ok(await fetch("/corpus/activate-by-tags", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ tags }),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async deactivateAllCorpus() {
+    const res = await ok(await fetch("/corpus/deactivate-all", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: "{}",
+    }));
+    return asJsonSafe(res);
+  }
+
+  async clearCorpusAll() {
+    const res = await ok(await fetch("/corpus/clear-all", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: "{}",
+    }));
+    return asJsonSafe(res);
+  }
+
   async listSessions() {
     const res = await ok(await fetch("/sessions", { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);
@@ -117,6 +186,25 @@ export class DKClient {
 
   async getSession(id) {
     const res = await ok(await fetch(`/sessions/${encodeURIComponent(id)}`, { headers: JSON_HEADERS, credentials: "same-origin" }));
+    return asJsonSafe(res);
+  }
+
+  async renameSession(id, title) {
+    const res = await ok(await fetch(`/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ title }),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async deleteSession(id) {
+    const res = await ok(await fetch(`/sessions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
     return asJsonSafe(res);
   }
 
@@ -161,6 +249,11 @@ export class DKClient {
 
   async getSettings(userId) {
     const res = await ok(await fetch(`/api/settings/${encodeURIComponent(userId)}`, { headers: JSON_HEADERS, credentials: "same-origin" }));
+    return asJsonSafe(res);
+  }
+
+  async listOllamaModels() {
+    const res = await ok(await fetch(`/api/ollama-models`, { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);
   }
 

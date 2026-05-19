@@ -3,14 +3,16 @@ import { dkClient as api } from "../sdk/sdk.js";
 import { Store } from "../store.js";
 import { md, escapeHtml } from "../render.js";
 import { qs } from "../../dom.js";
-import { showContext } from "./search.js";
+import { showContext, renderChatCitations } from "./search.js";
 
 export function initChatController() {
   const chatWin = qs("#win_chat");
   if (!chatWin) return;
   const log = qs("#win_chat #chat_log");
   const input = qs("#win_chat #chat_input");
-  const sendBtn = qs("#win_chat .chat-input .btn");
+  const sendBtn = qs("#win_chat #win_chat-send");
+  const newChatBtn = qs("#win_chat #win_chat-new-chat");
+  let handlersBound = chatWin.dataset.handlersBound === "1";
 
   const pushUser = (text) => {
     const div = document.createElement("div");
@@ -19,13 +21,21 @@ export function initChatController() {
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   };
+
+  /** @returns {{ wrap: HTMLDivElement, mdEl: HTMLDivElement, citeEl: HTMLDivElement }} */
   const pushAssistantBubble = () => {
-    const div = document.createElement("div");
-    div.className = "msg assistant";
-    div.innerHTML = "…";
-    log.appendChild(div);
+    const wrap = document.createElement("div");
+    wrap.className = "msg assistant";
+    const mdEl = document.createElement("div");
+    mdEl.className = "msg-md";
+    mdEl.innerHTML = "…";
+    const citeEl = document.createElement("div");
+    citeEl.className = "msg-citations";
+    citeEl.hidden = true;
+    wrap.append(mdEl, citeEl);
+    log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
-    return div;
+    return { wrap, mdEl, citeEl };
   };
 
   let aborter = null;
@@ -52,11 +62,14 @@ export function initChatController() {
           signal: aborter.signal,
           onDelta(delta) {
             buf += delta;
-            bubble.innerHTML = md(buf);
+            bubble.mdEl.innerHTML = md(buf);
             log.scrollTop = log.scrollHeight;
           },
           onDone(data) {
-            if (data?.sources) showContext(data.sources, text);
+            if (data?.sources) {
+              showContext(data.sources, text);
+              renderChatCitations(bubble.citeEl, data.sources, { maxItems: 3 });
+            }
           },
         }
       );
@@ -69,14 +82,38 @@ export function initChatController() {
           inactive: Store.inactiveList(),
           persona: Store.persona,
         });
-        bubble.innerHTML = md(res.response ?? "(no response)");
-        if (res.context) showContext(res.context, text);
+        bubble.mdEl.innerHTML = md(res.response ?? "(no response)");
+        if (res.context) {
+          showContext(res.context, text);
+          renderChatCitations(bubble.citeEl, res.context, { maxItems: 3 });
+        }
       } catch (e2) {
-        bubble.innerHTML = `<em>Error:</em> ${escapeHtml(e2.message)}`;
+        bubble.mdEl.innerHTML = `<em>Error:</em> ${escapeHtml(e2.message)}`;
       }
     }
   };
 
-  sendBtn.addEventListener("click", send);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  const showNewChatStarted = () => {
+    const div = document.createElement("div");
+    div.className = "msg assistant";
+    const mdEl = document.createElement("div");
+    mdEl.className = "msg-md";
+    mdEl.textContent = "New chat started. How can I help?";
+    div.appendChild(mdEl);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  if (!handlersBound) {
+    sendBtn.addEventListener("click", send);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+    newChatBtn?.addEventListener("click", async () => {
+      Store.sessionId = await api.startNewSession();
+      log.innerHTML = "";
+      input.value = "";
+      showNewChatStarted();
+      window.dispatchEvent(new CustomEvent("sessions:refresh"));
+    });
+    chatWin.dataset.handlersBound = "1";
+  }
 }

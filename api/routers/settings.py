@@ -2,7 +2,9 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 import json, time, shutil
 from pathlib import Path
+import requests
 
+from config import BASE_DIR, OLLAMA_BASE_URL
 from core.settings import (
     UserSettings,
     load_settings,
@@ -47,7 +49,7 @@ def put_prompt(tid: str, payload: Dict[str, Any]):
             raise HTTPException(status_code=400, detail=f"missing {f}")
     if payload["id"] != tid:
         raise HTTPException(status_code=400, detail="id mismatch")
-    prompts_dir = Path("prompts")
+    prompts_dir = BASE_DIR / "prompts"
     prompts_dir.mkdir(exist_ok=True)
     backup_dir = prompts_dir / ".backup"
     backup_dir.mkdir(exist_ok=True)
@@ -58,3 +60,20 @@ def put_prompt(tid: str, payload: Dict[str, Any]):
         shutil.copy(target, backup_dir / f"{tid}.{int(time.time())}.json")
     tmp.replace(target)
     return {"status": "ok"}
+
+
+@router.get("/ollama-models")
+def list_ollama_models():
+    """List locally available Ollama models for local-only configuration UI."""
+    try:
+        resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        models = []
+        for m in data.get("models", []):
+            name = m.get("name")
+            if name:
+                models.append(name)
+        return {"models": models}
+    except Exception:
+        return {"models": []}

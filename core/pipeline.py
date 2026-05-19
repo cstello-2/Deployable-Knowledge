@@ -12,13 +12,15 @@ def _to_sources(blocks: List[dict]) -> List[Source]:
 
     out: List[Source] = []
     for i, b in enumerate(blocks):
+        seg = b.get("segment_id")
         out.append(
             Source(
-                id=str(i),
+                id=str(seg) if seg is not None else str(i),
                 title=b.get("source"),
                 filepath=b.get("source"),
                 page=b.get("page"),
                 score=b.get("score"),
+                text=b.get("text"),
             )
         )
     return out

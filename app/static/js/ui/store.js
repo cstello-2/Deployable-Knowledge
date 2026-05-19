@@ -24,6 +24,13 @@ export const Store = {
     localStorage.setItem("inactiveDocs", JSON.stringify(Array.from(state.inactiveDocs)));
   },
   inactiveList() { return Array.from(state.inactiveDocs); },
+  /** Sync inactive document IDs from server `active` flags (GET /documents). */
+  syncInactiveFromDocs(docs) {
+    if (!Array.isArray(docs)) return;
+    const inactive = docs.filter((d) => d.active === false).map((d) => d.id);
+    state.inactiveDocs = new Set(inactive);
+    localStorage.setItem("inactiveDocs", JSON.stringify(inactive));
+  },
   get llmTargetAddress() { return state.llmTargetAddress; },
   set llmTargetAddress(v) {
     state.llmTargetAddress = v;

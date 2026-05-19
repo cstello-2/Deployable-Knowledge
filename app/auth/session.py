@@ -55,21 +55,21 @@ class SessionSettings(BaseModel):
 
 def load_settings_from_config() -> "SessionSettings":
     try:
-        import app.auth.config
+        import app.auth.config as auth_config
         return SessionSettings(
-            idle_timeout_minutes=getattr(config, "SESSION_IDLE_TIMEOUT_MINUTES", 15),
-            absolute_ttl_hours=getattr(config, "SESSION_ABSOLUTE_TTL_HOURS", 8),
-            refresh_on_activity=getattr(config, "SESSION_REFRESH_ON_ACTIVITY", True),
-            cookie_name=getattr(config, "SESSION_COOKIE_NAME", "session_id"),
-            csrf_cookie_name=getattr(config, "CSRF_COOKIE_NAME", "csrf_token"),
-            samesite=getattr(config, "SESSION_COOKIE_SAMESITE", "Strict"),
-            secure_cookies=getattr(config, "SESSION_SECURE_COOKIES", True),
-            dev_allow_insecure_on_localhost=getattr(config, "DEV_ALLOW_INSECURE_COOKIES", True),
-            bind_user_agent=getattr(config, "SESSION_BIND_USER_AGENT", True),
-            bind_ip_prefix_cidr=getattr(config, "SESSION_BIND_IP_PREFIX_CIDR", None),
-            allow_paths=set(getattr(config, "AUTH_ALLOW_PATHS", {"/","/docs","/openapi.json","/healthz","/favicon.ico"})),
-            allow_path_prefixes=set(getattr(config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})),
-            session_dir=getattr(config, "SESSION_DIR", "user_sessions"),
+            idle_timeout_minutes=getattr(auth_config, "SESSION_IDLE_TIMEOUT_MINUTES", 15),
+            absolute_ttl_hours=getattr(auth_config, "SESSION_ABSOLUTE_TTL_HOURS", 8),
+            refresh_on_activity=getattr(auth_config, "SESSION_REFRESH_ON_ACTIVITY", True),
+            cookie_name=getattr(auth_config, "SESSION_COOKIE_NAME", "session_id"),
+            csrf_cookie_name=getattr(auth_config, "CSRF_COOKIE_NAME", "csrf_token"),
+            samesite=getattr(auth_config, "SESSION_COOKIE_SAMESITE", "Strict"),
+            secure_cookies=getattr(auth_config, "SESSION_SECURE_COOKIES", True),
+            dev_allow_insecure_on_localhost=getattr(auth_config, "DEV_ALLOW_INSECURE_COOKIES", True),
+            bind_user_agent=getattr(auth_config, "SESSION_BIND_USER_AGENT", True),
+            bind_ip_prefix_cidr=getattr(auth_config, "SESSION_BIND_IP_PREFIX_CIDR", None),
+            allow_paths=set(getattr(auth_config, "AUTH_ALLOW_PATHS", {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"})),
+            allow_path_prefixes=set(getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})),
+            session_dir=getattr(auth_config, "SESSION_DIR", "user_sessions"),
         )
     except Exception:
         return SessionSettings()

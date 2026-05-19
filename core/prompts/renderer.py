@@ -1,11 +1,12 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Iterable
 from dataclasses import dataclass
-import json, re
-from config import PROMPTS_DIR
+import re
 from core.sessions import ChatExchange
 from core.settings import get_prompt_template, load_settings
 from core.llm import make_llm
+
+from . import loader as prompt_loader
 
 @dataclass
 class Template:
@@ -26,10 +27,8 @@ def _load_template(tid: Optional[str]) -> Template:
     tid = tid or "rag_chat"
     tmpl = get_prompt_template(tid)
     if tmpl is None:
-        f = (PROMPTS_DIR / f"{tid}.json")
-        if f.exists():
-            data = json.loads(f.read_text(encoding="utf-8"))
-        else:
+        data = prompt_loader.load_template(tid)
+        if data is None:
             data = {
                 "id": "rag_chat",
                 "name": "RAG Chat (default)",

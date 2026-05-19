@@ -4,9 +4,10 @@ from typing import Optional, Dict, Any, List, Literal
 import json
 from pydantic import BaseModel, Field, ConfigDict
 
+from config import BASE_DIR
 from .prompts import loader as prompt_loader
 
-USERS_DIR = Path("users")
+USERS_DIR = BASE_DIR / "users"
 USERS_DIR.mkdir(parents=True, exist_ok=True)
 
 class UserSettings(BaseModel):
@@ -48,8 +49,8 @@ def update_settings(user_id: str, patch: Dict[str, Any]) -> UserSettings:
     save_settings(s)
     return s
 
-# Prompt template helpers
-PROMPTS_DIR = Path("prompts")
+# Prompt template helpers (same as config.PROMPTS_DIR for consistency)
+PROMPTS_DIR = BASE_DIR / "prompts"
 PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
 
 class PromptTemplate(BaseModel):

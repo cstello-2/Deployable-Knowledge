@@ -8,10 +8,12 @@ export function render(config, winId) {
     item_template: {
       elements: [
         { type: "text", bind: "title", class: "li-title" },
-        { type: "text", bind: "created_at", class: "li-right" }
+        { type: "text", bind: "created_at", class: "li-right" },
+        { type: "button", label: "Rename", action: "rename" },
+        { type: "button", label: "Delete", action: "delete", variant: "danger" }
       ]
     }
   });
-  layout.appendChild(listEl);
+  layout.append(listEl);
   return layout;
 }

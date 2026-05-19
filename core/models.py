@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Dict, Iterator, Literal
+from typing import List, Optional, Dict, Literal
 from pydantic import BaseModel, Field
 
 
@@ -11,14 +11,7 @@ class Source(BaseModel):
     filepath: Optional[str] = None
     page: Optional[int] = None
     score: Optional[float] = None
-
-
-class ContextChunk(BaseModel):
-    """A piece of text returned from retrieval along with its origin."""
-
-    text: str
-    source: Optional[Source] = None
-    score: Optional[float] = None
+    text: Optional[str] = None
 
 
 class ChatRequest(BaseModel):

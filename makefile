@@ -62,7 +62,7 @@ embed-dir:
 # ---------- housekeeping ----------
 clean:
 	rm -rf $(VENV_NAME)
-	rm -rf chroma/
+	rm -rf chroma_db/
 
 test:
 	pytest -q

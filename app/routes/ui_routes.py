@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from core.rag.retriever import db
 from core.sessions import ChatSession, SessionStore
+from core.corpus_registry import merge_document_list
 from api.utils import validate_session_id
 
 router = APIRouter()
@@ -16,16 +17,13 @@ SESSION_COOKIE_NAME = "chat_session_id"
 store = SessionStore()
 
 def get_documents():
-    """Return a summary of ingested documents and segment counts."""
-    raw = db.collection.get(include=["metadatas"])
-    doc_map = {}
-    for meta in raw.get("metadatas", []):
-        source = meta.get("source", "Untitled")
-        if source not in doc_map:
-            doc_map[source] = {"title": source, "count": 1}
-        else:
-            doc_map[source]["count"] += 1
-    return [{"title": k, "id": k, "segments": v["count"]} for k, v in doc_map.items()]
+    """Return a summary of ingested documents with segment counts, tags, and activation."""
+    try:
+        raw = db.collection.get(include=["metadatas"])
+        return merge_document_list(raw)
+    except Exception:
+        # e.g. embedding model missing or Chroma unavailable — still render the UI
+        return []
 
 @router.get("/documents")
 async def list_documents_json():
@@ -34,22 +32,7 @@ async def list_documents_json():
 
 @router.get("/", response_class=HTMLResponse)
 async def front_door(request: Request, q: str = ""):
-    """
-    Splash if no USER session; main index if user session is valid.
-    """
-    # 1) Is there a valid *user* session cookie? (no CSRF check on GET)
-    manager = request.app.state.session_manager
-    try:
-        _ = manager.fetch_valid_session(request, require_csrf=False)
-        has_user_session = True
-    except Exception:
-        has_user_session = False
-
-    # 2) If no user session -> show splash page (no cookies issued here)
-    if not has_user_session:
-        return templates.TemplateResponse("splash.html", {"request": request})
-
-    # 3) Otherwise proceed with your existing *chat* session logic
+    """Local-only entrypoint: auto-issue local session and render main UI."""
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
     try:
         session_id = validate_session_id(session_id) if session_id else None
@@ -75,6 +58,9 @@ async def front_door(request: Request, q: str = ""):
             "session_id": session_id,
         },
     )
+    # Local-only mode: always ensure a local auth session exists for API routes.
+    manager = request.app.state.session_manager
+    manager.ensure(request, response, user_id="local-user")
     # keep your existing chat-session cookie
     response.set_cookie(key=SESSION_COOKIE_NAME, value=session.session_id, httponly=True)
     return response
@@ -82,19 +68,14 @@ async def front_door(request: Request, q: str = ""):
 
 @router.get("/begin")
 async def begin(request: Request):
-    """
-    Issue the USER session (session_id + csrf_token) then bounce back to "/".
-    """
-    resp = RedirectResponse(url="/", status_code=303)
-    manager = request.app.state.session_manager
-    manager.issue(resp, request, user_id="local-user")  # swap to SSO later
-    return resp
+    """Legacy auth entrypoint retained for compatibility in local mode."""
+    return RedirectResponse(url="/", status_code=303)
 
 @router.get("/logout")
 async def logout(request: Request):
     """
     Kill the USER session (server-side + cookies) and the per-chat cookie,
-    then return to splash (/).
+    then return to local root (/), which auto-creates a local session.
     """
     resp = RedirectResponse("/", status_code=303)
     manager = request.app.state.session_manager

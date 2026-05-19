@@ -28,3 +28,6 @@ OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
 # === Prompt Templates ===
 PROMPTS_DIR = BASE_DIR / "prompts"
+
+# === Corpus metadata (tags, activation) ===
+CORPUS_REGISTRY_PATH = BASE_DIR / "corpus_registry.json"

@@ -16,9 +16,12 @@ export function render(config, winId) {
       `${seg.created_at || ""}${seg.updated_at ? ` • ${seg.updated_at}` : ""}`
     ])
   ]);
+  const tagStr = Array.isArray(seg.tags)
+    ? seg.tags.join(", ")
+    : (seg.metadata_tags || seg.tags || "");
   const tags = el("div", { class: "row" }, [
     el("label", {}, ["Tags"]),
-    el("span", { class: "li-subtle" }, [(seg.tags || []).join(", ")])
+    el("span", { class: "li-subtle" }, [tagStr || "—"])
   ]);
   const body = el("div", { class: "segment-text" });
   body.innerHTML = md(seg.text || "");
