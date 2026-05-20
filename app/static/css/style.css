@@ -243,10 +243,6 @@ html, body {
   display: grid;
   gap: 8px;
 }
-.folder-sync-folders {
-  display: grid;
-  gap: 6px;
-}
 .folder-sync-folder-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -356,7 +352,7 @@ html, body {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: color-mix(in oklab, hsl(var(--h) var(--sat) var(--l-panel)) 88%, var(--text) 4%);
+  background: hsl(var(--h) var(--sat) var(--l-panel));
 }
 .docs-folder-header {
   display: grid;
@@ -379,6 +375,9 @@ html, body {
 .docs-folder-docs {
   display: grid;
   gap: 6px;
+}
+.docs-folder-docs .list-item {
+  background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%));
 }
 .docs-folder-empty {
   padding: 8px 2px;

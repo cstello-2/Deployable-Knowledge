@@ -61,7 +61,6 @@ export async function initDocsController(winId = "win_docs") {
   const list = win.querySelector(`#${winId}-upload-list`);
   const btn = win.querySelector(`#${winId}-upload-btn`);
   const uploadCount = win.querySelector(`#${winId}-upload-count`);
-  const syncedFolderRegistry = win.querySelector(`#${winId}-sync-folder-registry`);
   const syncFolderStatus = win.querySelector(`#${winId}-sync-folder-status`);
   const filterInput = win.querySelector(`#${winId}-doc-filter`);
   const filterMeta = win.querySelector(`#${winId}-filter-meta`);
@@ -401,39 +400,6 @@ export async function initDocsController(winId = "win_docs") {
     return parts[parts.length - 1] || rel;
   }
 
-  function renderFolderRegistry() {
-    if (!syncedFolderRegistry) return;
-
-    const registered = new Set(state.syncedFolders);
-    const pending = state.pendingFolderPath && !registered.has(state.pendingFolderPath)
-      ? state.pendingFolderPath
-      : "";
-    syncedFolderRegistry.innerHTML = "";
-
-    if (!state.syncedFolders.length && !pending) {
-      syncedFolderRegistry.appendChild(el("span", { class: "li-subtle" }, ["No folders registered."]));
-    }
-
-    for (const path of state.syncedFolders) {
-      const row = el("div", { class: "folder-sync-folder-row" });
-      const name = el("div", { class: "li-title", title: path }, [path]);
-      row.append(name);
-      syncedFolderRegistry.appendChild(row);
-    }
-
-    if (pending) {
-      const row = el("div", { class: "folder-sync-folder-row pending" });
-      const name = el("div", { class: "li-title", title: pending }, [pending]);
-      const removeBtn = el("button", { class: "btn", type: "button" }, ["Clear"]);
-      removeBtn.addEventListener("click", () => {
-        state.pendingFolderPath = "";
-        renderFolderRegistry();
-      });
-      row.append(name, removeBtn);
-      syncedFolderRegistry.appendChild(row);
-    }
-  }
-
   async function loadFolders() {
     try {
       const data = await api.listFolders();
@@ -443,7 +409,6 @@ export async function initDocsController(winId = "win_docs") {
       state.syncedFolders = [];
       state.folderGroups = [];
     }
-    renderFolderRegistry();
   }
 
   function renderSyncResult(data) {
@@ -609,7 +574,6 @@ export async function initDocsController(winId = "win_docs") {
 
     const registered = new Set(state.syncedFolders);
     state.pendingFolderPath = registered.has(selectedPath) ? "" : selectedPath;
-    renderFolderRegistry();
 
     if (!state.pendingFolderPath && syncFolderStatus) {
       syncFolderStatus.textContent = "Folder is already registered.";
