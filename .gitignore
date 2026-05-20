@@ -16,6 +16,7 @@ venv/
 ENV/
 *.env
 *.env.*
+.envrc
 
 # --- Jupyter and notebook checkpoints ---
 .ipynb_checkpoints/
