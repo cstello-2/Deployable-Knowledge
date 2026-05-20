@@ -12,23 +12,22 @@ export function render(config, winId) {
   upWrap.append(el("label", {}, ["Upload Documents"]), chooseBtn, upBtn, uploadCount, upInput);
   const fileList = el("ul", { class: "upload-list", id: `${id}-upload-list` });
   layout.append(upWrap, fileList);
-  // TEMP DEMO ONLY: custom fake file picker.
-  // This is not connected to upload, sync, watchfiles, ingestion, or the model.
+  // Custom file picker backed by the filesystem directory API.
   const pickerRow = el("div", { class: "row" });
 
   const pickerBtn = el("button", {
     class: "btn",
     type: "button",
     id: `${id}-mock-picker-open`,
-  }, ["Open Custom File Picker"]);
+  }, ["Open File Picker"]);
 
   const pickerStatus = el("span", {
     class: "li-subtle",
     id: `${id}-mock-picker-status`,
-  }, ["No fake path selected"]);
+  }, ["No path selected"]);
 
   pickerRow.append(
-    el("label", {}, ["Custom Picker Demo"]),
+    el("label", {}, ["File Picker"]),
     pickerBtn,
     pickerStatus
   );
@@ -77,7 +76,7 @@ export function render(config, winId) {
   const pickerSelected = el("div", {
     class: "mock-picker-selected",
     id: `${id}-mock-picker-selected`,
-  }, ["Selected fake path will appear here."]);
+  }, ["Selected path will appear here."]);
 
   pickerPanel.append(pickerTop, pickerActions, pickerList, pickerSelected);
 

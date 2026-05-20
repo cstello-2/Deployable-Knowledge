@@ -468,7 +468,7 @@ html, body {
 .modal-backdrop { position: absolute; inset: 0; background: var(--backdrop); backdrop-filter: blur(2px); }
 .miniwin.modal { position: fixed; top: 15vh; left: calc(50% - 260px); width: 520px; margin: 0; z-index: 1001; }
 
-/* ===== TEMP: Mock Custom File Picker ===== */
+/* ===== Custom File Picker ===== */
 
 .mock-picker-overlay {
   position: fixed;

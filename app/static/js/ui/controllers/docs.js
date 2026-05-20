@@ -293,10 +293,9 @@ export async function initDocsController(winId = "win_docs") {
     updateUploadCount();
   });
 
-  // TEMP DEMO ONLY: custom fake file picker.
-  // This talks only to the mock backend routes and does not touch upload/sync/ingestion.
+  // Custom file picker backed by the filesystem directory API.
   const mockPickerState = {
-    currentPath: null,
+    currentPath: "",
     parentPath: null,
     history: [],
   };
@@ -314,7 +313,7 @@ export async function initDocsController(winId = "win_docs") {
 
     if (!items.length) {
       mockPickerList.appendChild(
-        el("div", { class: "mock-picker-empty" }, ["This fake folder is empty."])
+        el("div", { class: "mock-picker-empty" }, ["This folder is empty."])
       );
       return;
     }
@@ -331,7 +330,7 @@ export async function initDocsController(winId = "win_docs") {
       row.append(
         el("span", { class: "mock-picker-icon" }, [icon]),
         el("span", { class: "mock-picker-name" }, [item.name]),
-        ("span", { class: "mock-picker-kind" }, [item.kind])
+        el("span", { class: "mock-picker-kind" }, [item.kind])
       );
 
       row.addEventListener("click", async () => {
@@ -343,40 +342,6 @@ export async function initDocsController(winId = "win_docs") {
       });
 
       mockPickerList.appendChild(row);
-    }
-  }
-
-  async function openMockPickerRoots() {
-    const overlay = document.getElementById(`${winId}-mock-picker-overlay`)
-
-    if (!overlay) {
-      console.error(`Could not find overlay with id: $winId}-mock-picker-overlay`);
-      return;
-    }
-    overlay.classList.remove("hidden");
-
-    if (mockPickerPath) {
-      mockPickerPath.textContent = "Fake Computer";
-    }
-
-    if (mockPickerUp) {
-      mockPickerUp.disabled = true;
-    }
-
-    if (mockPickerSelectFolder) {
-      mockPickerSelectFolder.disabled = true;
-    }
-
-    mockPickerState.currentPath = null;
-    mockPickerState.parentPath = null;
-    mockPickerState.histiry = [];
-
-    try {
-      const data = await api.mockFilePickerRoots();
-      renderMockPickerItems(data.roots || []);
-      setMockPickerMessage("Choose a fake drive to begin.");
-    } catch (e) {
-      setMockPickerMessage(e.message || String(e));
     }
   }
 
@@ -393,22 +358,21 @@ export async function initDocsController(winId = "win_docs") {
     if (addToHistory) {
       mockPickerState.history.push({
         path: mockPickerState.currentPath,
-        isRootPage: mockPickerState.currentPath === null,
       });
     }
 
     try {
-      const data = await api.mockFilePickerList(path);
+      const data = await api.listDirectory(path);
 
-      mockPickerState.currentPath = data.path;
+      mockPickerState.currentPath = data.path || "";
       mockPickerState.parentPath = data.parent;
 
       if (mockPickerPath) {
-        mockPickerPath.textContent = data.path;
+        mockPickerPath.textContent = `DeployableKnowledge${data.path ? `/${data.path}` : ""}`;
       }
 
       if (mockPickerUp) {
-        mockPickerUp.disabled = mockPickerState.history.length === 0;
+        mockPickerUp.disabled = mockPickerState.history.length === 0 && !mockPickerState.currentPath;
       }
 
       if (mockPickerSelectFolder) {
@@ -422,24 +386,18 @@ export async function initDocsController(winId = "win_docs") {
     }
   }
 
-  async function selectMockPickerPath(path, kind = "file") {
-    try {
-      const data = await api.mockFilePickerSelect(path, kind);
-
-      if (mockPickerStatus) {
-      mockPickerStatus.textContent = `Selected ${data.kind}: ${data.selected_path}`;
-      }
-
-      setMockPickerMessage(`Selected ${data.kind}: ${data.selected_path}`);
-
-      console.log("Mock picker selected:", data);
-    } catch (e) {
-      setMockPickerMessage(e.message || String(e));
+  function selectMockPickerPath(path, kind = "file") {
+    const selectedPath = path || "/";
+    if (mockPickerStatus) {
+      mockPickerStatus.textContent = `Selected ${kind}: ${selectedPath}`;
     }
+
+    setMockPickerMessage(`Selected ${kind}: ${selectedPath}`);
   }
 
   mockPickerOpen?.addEventListener("click", async () => {
-  await openMockPickerRoots();
+    mockPickerState.history = [];
+    await openMockPickerFolder("", false);
   });
 
   mockPickerClose?.addEventListener("click", () => {
@@ -448,29 +406,23 @@ export async function initDocsController(winId = "win_docs") {
 
   mockPickerOverlay?.addEventListener("click", (e) => {
     if (e.target === mockPickerOverlay) {
-      mockPickerOverlay.classList.add("hidden);")
+      mockPickerOverlay.classList.add("hidden");
     }
   });
 
   mockPickerUp?.addEventListener("click", async () => {
     const previous = mockPickerState.history.pop();
 
-    if(!previous) {
-      await openMockPickerRoots();
+    if (!previous) {
+      await openMockPickerFolder("", false);
       return;
     }
-    
-    if (previous.isRootPage || previous.path === null) {
-      await openMockPickerRoots();
-    } else {
-      await openMockPickerFolder(previous.path, false);
-  
-    }
+
+    await openMockPickerFolder(previous.path || "", false);
   });
 
   mockPickerSelectFolder?.addEventListener("click", async () => {
-    if (!mockPickerState.currentPath) return;
-    await selectMockPickerPath(mockPickerState.currentPath, "folder");
+    selectMockPickerPath(mockPickerState.currentPath, "folder");
   });
 
   btn?.addEventListener("click", async () => {
