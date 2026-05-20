@@ -242,7 +242,7 @@ html, body {
   font-size: 11px;
   cursor: pointer;
 }
-.tag-chip:hover { color: var(--text); border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%))); }
+.tag-chip:hover { color: var(--text); border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%)); }
 .tag-chip.selected {
   border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
   background: color-mix(in oklab, var(--accent) 15%, hsl(var(--h) var(--sat) var(--l-panel)));
@@ -467,3 +467,131 @@ html, body {
 .modal-wrap { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; }
 .modal-backdrop { position: absolute; inset: 0; background: var(--backdrop); backdrop-filter: blur(2px); }
 .miniwin.modal { position: fixed; top: 15vh; left: calc(50% - 260px); width: 520px; margin: 0; z-index: 1001; }
+
+/* ===== Custom File Picker ===== */
+
+.mock-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  place-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.mock-picker-overlay.hidden {
+  display: none;
+}
+
+.mock-picker-modal {
+  width: min(720px, 92vw);
+  max-height: 82vh;
+}
+
+.mock-picker {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: hsl(var(--h) var(--sat) var(--l-panel));
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-height: 82vh;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+
+.mock-picker-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.mock-picker-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-picker-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mock-picker-list {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 180px;
+  max-height: 45vh;
+  overflow: auto;
+  background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 1%));
+  padding: 4px;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+}
+
+.mock-picker-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 6px;
+  min-height: 26;
+  max-height: 30;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.mock-picker-row:hover {
+  border-color: var(--border);
+  background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+}
+
+
+.mock-picker-icon {
+  text-align: center;
+}
+
+.mock-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-picker-kind {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mock-picker-selected {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.mock-picker-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px;
+}

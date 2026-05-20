@@ -64,6 +64,20 @@ export async function initDocsController(winId = "win_docs") {
   const bulkLabel = win.querySelector(`#${winId}-bulk-label`);
   const ctxMenu = win.querySelector(`#${winId}-ctx-menu`);
 
+  const mockPickerOpen = win.querySelector(`#${winId}-mock-picker-open`);
+  const mockPickerStatus = win.querySelector(`#${winId}-mock-picker-status`);
+
+  const mockPickerOverlay = document.querySelector(`#${winId}-mock-picker-overlay`);
+  const mockPickerPanel = document.querySelector(`#${winId}-mock-picker-panel`);
+  const mockPickerClose = document.querySelector(`#${winId}-mock-picker-close`);
+  const mockPickerPath = document.querySelector(`#${winId}-mock-picker-path`);
+  const mockPickerUp = document.querySelector(`#${winId}-mock-picker-up`);
+  const mockPickerSelectFolder = document.querySelector(`#${winId}-mock-picker-select-folder`);
+  const mockPickerList = document.querySelector(`#${winId}-mock-picker-list`);
+  const mockPickerSelected = document.querySelector(`#${winId}-mock-picker-selected`);
+ 
+  
+
   function updateUploadCount() {
     const n = input?.files?.length || 0;
     if (uploadCount) {
@@ -277,6 +291,138 @@ export async function initDocsController(winId = "win_docs") {
       list.appendChild(el("li", {}, [f.name]));
     }
     updateUploadCount();
+  });
+
+  // Custom file picker backed by the filesystem directory API.
+  const mockPickerState = {
+    currentPath: "",
+    parentPath: null,
+    history: [],
+  };
+
+  function setMockPickerMessage(message) {
+    if (mockPickerSelected) {
+      mockPickerSelected.textContent = message;
+    }
+  }
+
+  function renderMockPickerItems(items) {
+    if (!mockPickerList) return;
+
+    mockPickerList.innerHTML = "";
+
+    if (!items.length) {
+      mockPickerList.appendChild(
+        el("div", { class: "mock-picker-empty" }, ["This folder is empty."])
+      );
+      return;
+    }
+
+    for (const item of items) {
+      const icon = item.kind === "folder" ? "📁" : "📄";
+
+      const row = el("button", {
+        class: "mock-picker-row",
+        type: "button",
+        title: item.path,
+      });
+
+      row.append(
+        el("span", { class: "mock-picker-icon" }, [icon]),
+        el("span", { class: "mock-picker-name" }, [item.name]),
+        el("span", { class: "mock-picker-kind" }, [item.kind])
+      );
+
+      row.addEventListener("click", async () => {
+        if (item.kind === "folder") {
+          await openMockPickerFolder(item.path);
+        } else {
+          await selectMockPickerPath(item.path, item.kind);
+        }
+      });
+
+      mockPickerList.appendChild(row);
+    }
+  }
+
+  async function openMockPickerFolder(path, addToHistory = true) {
+    const overlay = document.getElementById(`${winId}-mock-picker-overlay`);
+
+    if (!overlay) {
+      console.error(`Could not find overlay with id: ${winId}-mock-picker-overlay`);
+      return;
+    }
+
+    overlay.classList.remove("hidden");
+
+    if (addToHistory) {
+      mockPickerState.history.push({
+        path: mockPickerState.currentPath,
+      });
+    }
+
+    try {
+      const data = await api.listDirectory(path);
+
+      mockPickerState.currentPath = data.path || "";
+      mockPickerState.parentPath = data.parent;
+
+      if (mockPickerPath) {
+        mockPickerPath.textContent = `DeployableKnowledge${data.path ? `/${data.path}` : ""}`;
+      }
+
+      if (mockPickerUp) {
+        mockPickerUp.disabled = mockPickerState.history.length === 0 && !mockPickerState.currentPath;
+      }
+
+      if (mockPickerSelectFolder) {
+        mockPickerSelectFolder.disabled = false;
+      }
+
+      renderMockPickerItems(data.items || []);
+      setMockPickerMessage("Click a folder to open it, or click a file to select it.");
+    } catch (e) {
+      setMockPickerMessage(e.message || String(e));
+    }
+  }
+
+  function selectMockPickerPath(path, kind = "file") {
+    const selectedPath = path || "/";
+    if (mockPickerStatus) {
+      mockPickerStatus.textContent = `Selected ${kind}: ${selectedPath}`;
+    }
+
+    setMockPickerMessage(`Selected ${kind}: ${selectedPath}`);
+  }
+
+  mockPickerOpen?.addEventListener("click", async () => {
+    mockPickerState.history = [];
+    await openMockPickerFolder("", false);
+  });
+
+  mockPickerClose?.addEventListener("click", () => {
+    mockPickerOverlay?.classList.add("hidden");
+  });
+
+  mockPickerOverlay?.addEventListener("click", (e) => {
+    if (e.target === mockPickerOverlay) {
+      mockPickerOverlay.classList.add("hidden");
+    }
+  });
+
+  mockPickerUp?.addEventListener("click", async () => {
+    const previous = mockPickerState.history.pop();
+
+    if (!previous) {
+      await openMockPickerFolder("", false);
+      return;
+    }
+
+    await openMockPickerFolder(previous.path || "", false);
+  });
+
+  mockPickerSelectFolder?.addEventListener("click", async () => {
+    selectMockPickerPath(mockPickerState.currentPath, "folder");
   });
 
   btn?.addEventListener("click", async () => {

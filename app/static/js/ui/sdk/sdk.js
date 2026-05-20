@@ -111,6 +111,15 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
+  async listDirectory(path = "") {
+    const relPath = String(path || "").replace(/^\/+|\/+$/g, "");
+    const url = relPath
+      ? `/directory/${relPath.split("/").map(encodeURIComponent).join("/")}`
+      : "/directory";
+    const res = await ok(await fetch(url, { headers: JSON_HEADERS, credentials: "same-origin" }));
+    return asJsonSafe(res);
+  }
+
   async getCorpusTags() {
     const res = await ok(await fetch("/corpus/tags", { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);
