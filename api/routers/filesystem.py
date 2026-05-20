@@ -48,6 +48,7 @@ async def list_directory(rel_path: str = ""):
                 {
                     "name": entry.name,
                     "path": entry_path,
+                    "absolute_path": str(entry),
                     "kind": "folder" if entry.is_dir() else "file",
                 }
             )
@@ -56,6 +57,7 @@ async def list_directory(rel_path: str = ""):
         return JSONResponse(
             {
                 "path": current_path,
+                "absolute_path": str(path),
                 "parent": parent_path,
                 "items": items,
             }

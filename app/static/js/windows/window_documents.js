@@ -6,32 +6,22 @@ export function render(config, winId) {
 
   const upWrap = el("div", { class: "row" });
   const upInput = el("input", { type: "file", multiple: true, id: `${id}-upload`, style: { display: "none" } });
+  const chooseFolderBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-folder-btn` }, ["Choose Folder"]);
+  const syncFolderBtn = el("button", { class: "btn", type: "button", id: `${id}-sync-folder-btn` }, ["Synchronize"]);
+  const syncFolderStatus = el("div", { class: "folder-sync-status", id: `${id}-sync-folder-status` });
+  const syncSection = el("div", { class: "folder-sync-section" });
+  const syncControls = el("div", { class: "docs-sync-row" });
+  syncControls.append(chooseFolderBtn, syncFolderBtn);
+  syncSection.append(el("label", {}, ["Synchronize Folder"]), syncControls, syncFolderStatus);
+
   const chooseBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-btn` }, ["Choose Files"]);
   const upBtn = el("button", { class: "btn", type: "button", id: `${id}-upload-btn` }, ["Upload"]);
   const uploadCount = el("span", { class: "li-subtle", id: `${id}-upload-count` }, ["0 files selected"]);
-  upWrap.append(el("label", {}, ["Upload Documents"]), chooseBtn, upBtn, uploadCount, upInput);
+  const uploadControls = el("div", { class: "docs-upload-controls" });
+  uploadControls.append(chooseBtn, upBtn, uploadCount);
+  upWrap.append(syncSection, el("label", {}, ["Upload Documents"]), uploadControls, upInput);
   const fileList = el("ul", { class: "upload-list", id: `${id}-upload-list` });
   layout.append(upWrap, fileList);
-  // Custom file picker backed by the filesystem directory API.
-  const pickerRow = el("div", { class: "row" });
-
-  const pickerBtn = el("button", {
-    class: "btn",
-    type: "button",
-    id: `${id}-mock-picker-open`,
-  }, ["Open File Picker"]);
-
-  const pickerStatus = el("span", {
-    class: "li-subtle",
-    id: `${id}-mock-picker-status`,
-  }, ["No path selected"]);
-
-  pickerRow.append(
-    el("label", {}, ["File Picker"]),
-    pickerBtn,
-    pickerStatus
-  );
-
   const pickerPanel = el("div", {
     class: "mock-picker",
     id: `${id}-mock-picker-panel`,
@@ -79,8 +69,6 @@ export function render(config, winId) {
   }, ["Selected path will appear here."]);
 
   pickerPanel.append(pickerTop, pickerActions, pickerList, pickerSelected);
-
-  layout.append(pickerRow);
 
   const pickerOverlay = el("div", {
     class: "mock-picker-overlay hidden",

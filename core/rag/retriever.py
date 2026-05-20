@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import inspect, re
+import pdfplumber
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
 from core.corpus_registry import get_inactive_sources
@@ -154,9 +155,21 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     if suffix == ".pdf":
         parsed = parse_pdf(str(file_path))
         if isinstance(parsed, list):
-            return parsed
+            if any((page.get("text") or "").strip() for page in parsed):
+                return parsed
+            with pdfplumber.open(file_path) as pdf:
+                return [
+                    {"page": idx + 1, "text": page.extract_text() or ""}
+                    for idx, page in enumerate(pdf.pages)
+                ]
         elif isinstance(parsed, str):
-            return [{"page": 1, "text": parsed}]
+            if parsed.strip():
+                return [{"page": 1, "text": parsed}]
+            with pdfplumber.open(file_path) as pdf:
+                return [
+                    {"page": idx + 1, "text": page.extract_text() or ""}
+                    for idx, page in enumerate(pdf.pages)
+                ]
         else:
             raise TypeError(f"parse_pdf returned unexpected type: {type(parsed)}")
     if suffix == ".txt":

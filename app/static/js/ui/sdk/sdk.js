@@ -16,7 +16,11 @@ async function asJsonSafe(res) {
 }
 
 async function ok(res) {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const data = await asJsonSafe(res);
+    const detail = typeof data?.detail === "string" ? data.detail : data?.response;
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
   return res;
 }
 
@@ -118,6 +122,66 @@ export class DKClient {
       : "/directory";
     const res = await ok(await fetch(url, { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);
+  }
+
+  async synchronizeFolder() {
+    const res = await ok(await fetch("/ingest", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
+    return asJsonSafe(res);
+  }
+
+  async listFolders() {
+    const res = await fetch("/folders", {
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    });
+    return asJsonSafe(await ok(res));
+  }
+
+  async addFolder(path) {
+    const res = await fetch("/folders/add", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ path }),
+    });
+    return asJsonSafe(await ok(res));
+  }
+
+  async syncFolders() {
+    const res = await fetch("/folders/sync", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: "{}",
+    });
+    return asJsonSafe(await ok(res));
+  }
+
+  async syncFolder(path) {
+    const res = await fetch("/folders/sync", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ path }),
+    });
+    return asJsonSafe(await ok(res));
+  }
+
+  async removeFolder(path, removeSyncedDocuments = false) {
+    const res = await fetch("/folders/remove", {
+      method: "DELETE",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({
+        path,
+        remove_synced_documents: removeSyncedDocuments,
+      }),
+    });
+    return asJsonSafe(await ok(res));
   }
 
   async getCorpusTags() {

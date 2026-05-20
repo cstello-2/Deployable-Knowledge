@@ -29,6 +29,7 @@ if (-not (Test-Path $serverLauncher)) {
 
 $args = @(
     "-NoProfile",
+    "-NoExit",
     "-ExecutionPolicy", "Bypass",
     "-File", "`"$serverLauncher`""
 )
@@ -53,4 +54,3 @@ if ($ready) {
         "Deployable Knowledge"
     )
 }
-

@@ -31,3 +31,4 @@ PROMPTS_DIR = BASE_DIR / "prompts"
 
 # === Corpus metadata (tags, activation) ===
 CORPUS_REGISTRY_PATH = BASE_DIR / "corpus_registry.json"
+FOLDER_SYNC_REGISTRY_PATH = BASE_DIR / "folder_sync_registry.json"
