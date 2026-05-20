@@ -10,7 +10,6 @@ from core.folder_sync import (
     list_folder_groups,
     list_folders,
     remove_folder,
-    sync_all_folders,
     sync_folder,
 )
 from core.folder_watcher import restart_folder_watcher
@@ -59,11 +58,11 @@ async def post_add_folder(body: FolderBody):
 
 
 @router.post("/sync")
-async def post_sync_folders(body: SyncFolderBody | None = None):
-    path = (body.path if body else "").strip()
-    if path:
-        return await asyncio.to_thread(sync_folder, path)
-    return await asyncio.to_thread(sync_all_folders)
+async def post_sync_folders(body: SyncFolderBody):
+    path = body.path.strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="No folder path provided")
+    return await asyncio.to_thread(sync_folder, path)
 
 
 @router.delete("/remove")

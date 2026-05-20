@@ -124,15 +124,6 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
-  async synchronizeFolder() {
-    const res = await ok(await fetch("/ingest", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      credentials: "same-origin",
-    }));
-    return asJsonSafe(res);
-  }
-
   async listFolders() {
     const res = await fetch("/folders", {
       headers: JSON_HEADERS,
@@ -147,16 +138,6 @@ export class DKClient {
       headers: JSON_POST,
       credentials: "same-origin",
       body: JSON.stringify({ path }),
-    });
-    return asJsonSafe(await ok(res));
-  }
-
-  async syncFolders() {
-    const res = await fetch("/folders/sync", {
-      method: "POST",
-      headers: JSON_POST,
-      credentials: "same-origin",
-      body: "{}",
     });
     return asJsonSafe(await ok(res));
   }

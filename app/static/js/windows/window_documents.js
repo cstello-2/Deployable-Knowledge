@@ -7,12 +7,14 @@ export function render(config, winId) {
   const upWrap = el("div", { class: "row" });
   const upInput = el("input", { type: "file", multiple: true, id: `${id}-upload`, style: { display: "none" } });
   const chooseFolderBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-folder-btn` }, ["Choose Folder"]);
-  const syncFolderBtn = el("button", { class: "btn", type: "button", id: `${id}-sync-folder-btn` }, ["Synchronize"]);
+  const syncInfoBtn = el("button", { class: "btn btn-icon", type: "button", id: `${id}-sync-info-btn`, title: "Folder synchronization info" }, ["?"]);
   const syncFolderStatus = el("div", { class: "folder-sync-status", id: `${id}-sync-folder-status` });
   const syncSection = el("div", { class: "folder-sync-section" });
+  const syncLabel = el("div", { class: "folder-sync-label" });
+  syncLabel.append(el("label", {}, ["Synchronize Folder"]), syncInfoBtn);
   const syncControls = el("div", { class: "docs-sync-row" });
-  syncControls.append(chooseFolderBtn, syncFolderBtn);
-  syncSection.append(el("label", {}, ["Synchronize Folder"]), syncControls, syncFolderStatus);
+  syncControls.append(chooseFolderBtn);
+  syncSection.append(syncLabel, syncControls, syncFolderStatus);
 
   const chooseBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-btn` }, ["Choose Files"]);
   const upBtn = el("button", { class: "btn", type: "button", id: `${id}-upload-btn` }, ["Upload"]);

@@ -243,6 +243,19 @@ html, body {
   display: grid;
   gap: 8px;
 }
+.folder-sync-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn.btn-icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
 .folder-sync-folder-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

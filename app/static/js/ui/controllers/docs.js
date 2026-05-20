@@ -56,8 +56,8 @@ export async function initDocsController(winId = "win_docs") {
 
   const input = win.querySelector(`#${winId}-upload`);
   const chooseFolder = win.querySelector(`#${winId}-choose-folder-btn`);
+  const syncInfoBtn = win.querySelector(`#${winId}-sync-info-btn`);
   const choose = win.querySelector(`#${winId}-choose-btn`);
-  const syncFolderBtn = win.querySelector(`#${winId}-sync-folder-btn`);
   const list = win.querySelector(`#${winId}-upload-list`);
   const btn = win.querySelector(`#${winId}-upload-btn`);
   const uploadCount = win.querySelector(`#${winId}-upload-count`);
@@ -431,34 +431,10 @@ export async function initDocsController(winId = "win_docs") {
     }
   }
 
-  async function syncRegisteredFolders() {
-    try {
-      return await api.syncFolders();
-    } catch {
-      return api.synchronizeFolder();
-    }
-  }
-
   choose?.addEventListener("click", () => input?.click());
   chooseFolder?.addEventListener("click", () => openFolderPicker());
-  syncFolderBtn?.addEventListener("click", async () => {
-    syncFolderBtn.disabled = true;
-    syncFolderBtn.textContent = "Synchronizing...";
-    try {
-      const path = state.pendingFolderPath;
-      const data = path ? await api.addFolder(path) : await syncRegisteredFolders();
-      state.pendingFolderPath = "";
-      await loadFolders();
-      await loadTags();
-      await refresh();
-      renderSyncResult(data);
-    } catch (e) {
-      if (syncFolderStatus) syncFolderStatus.textContent = "Folder synchronization failed.";
-      alert("Folder synchronization failed: " + (e.message || String(e)));
-    } finally {
-      syncFolderBtn.disabled = false;
-      syncFolderBtn.textContent = "Synchronize";
-    }
+  syncInfoBtn?.addEventListener("click", () => {
+    alert("Put files you want to sync in your Documents\\DeployableKnowledge folder. You can use subfolders. Open the folder that contains your files, then click Select Current Folder; syncing starts automatically.");
   });
 
   input?.addEventListener("change", () => {
@@ -565,24 +541,50 @@ export async function initDocsController(winId = "win_docs") {
     }
   }
 
-  function selectMockPickerFolder() {
+  async function synchronizePickedFolder(selectedPath) {
+    const registered = new Set(state.syncedFolders);
+    const data = registered.has(selectedPath)
+      ? await api.syncFolder(selectedPath)
+      : await api.addFolder(selectedPath);
+
+    state.pendingFolderPath = "";
+    await loadFolders();
+    await loadTags();
+    await refresh();
+    renderSyncResult(data);
+  }
+
+  async function selectMockPickerFolder() {
     const selectedPath = mockPickerState.currentAbsolutePath;
     if (!selectedPath) {
       setMockPickerMessage("No folder selected.");
       return;
     }
 
-    const registered = new Set(state.syncedFolders);
-    state.pendingFolderPath = registered.has(selectedPath) ? "" : selectedPath;
+    if (syncFolderStatus) {
+      syncFolderStatus.textContent = "Synchronizing folder...";
+    }
+    setMockPickerMessage(`Synchronizing folder: ${selectedPath}`);
 
-    if (!state.pendingFolderPath && syncFolderStatus) {
-      syncFolderStatus.textContent = "Folder is already registered.";
-    } else if (syncFolderStatus) {
-      syncFolderStatus.textContent = "Folder ready to synchronize.";
+    if (mockPickerSelectFolder) {
+      mockPickerSelectFolder.disabled = true;
+      mockPickerSelectFolder.textContent = "Synchronizing...";
     }
 
-    setMockPickerMessage(`Selected folder: ${selectedPath}`);
-    mockPickerOverlay?.classList.add("hidden");
+    try {
+      await synchronizePickedFolder(selectedPath);
+      setMockPickerMessage(`Synchronized folder: ${selectedPath}`);
+      mockPickerOverlay?.classList.add("hidden");
+    } catch (e) {
+      if (syncFolderStatus) syncFolderStatus.textContent = "Folder synchronization failed.";
+      setMockPickerMessage(e.message || String(e));
+      alert("Folder synchronization failed: " + (e.message || String(e)));
+    } finally {
+      if (mockPickerSelectFolder) {
+        mockPickerSelectFolder.disabled = false;
+        mockPickerSelectFolder.textContent = "Select Current Folder";
+      }
+    }
   }
 
   async function openFolderPicker() {
@@ -612,7 +614,7 @@ export async function initDocsController(winId = "win_docs") {
   });
 
   mockPickerSelectFolder?.addEventListener("click", async () => {
-    selectMockPickerFolder();
+    await selectMockPickerFolder();
   });
 
   btn?.addEventListener("click", async () => {
