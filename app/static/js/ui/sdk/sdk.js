@@ -111,6 +111,21 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
+  async mockFilePickerRoots() {
+    const res = await ok(await fetch("/mock-file-picker/roots", {headers: JSON_HEADERS, credentials: "same-origin"}));
+    return asJsonSafe(res);
+  }
+
+  async mockFilePickerList(path) {
+    const res = await ok(await fetch(`/mock-file-picker/list?path=${encodeURIComponent(path)}`, {headers: JSON_HEADERS, credentials: "same-origin"}));
+    return asJsonSafe(res);
+  }
+
+  async mockFilePickerSelect(path, kind = 'file') {
+    const res = await ok(await fetch("/mock-file-picker/select", {method: "POST", headers: JSON_POST, credentials: "same-origin", body:JSON>stringfy({ path, kind })}));
+    return asJsonSafe(res);
+  }
+
   async getCorpusTags() {
     const res = await ok(await fetch("/corpus/tags", { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);

@@ -12,6 +12,90 @@ export function render(config, winId) {
   upWrap.append(el("label", {}, ["Upload Documents"]), chooseBtn, upBtn, uploadCount, upInput);
   const fileList = el("ul", { class: "upload-list", id: `${id}-upload-list` });
   layout.append(upWrap, fileList);
+  // TEMP DEMO ONLY: custom fake file picker.
+  // This is not connected to upload, sync, watchfiles, ingestion, or the model.
+  const pickerRow = el("div", { class: "row" });
+
+  const pickerBtn = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-open`,
+  }, ["Open Custom File Picker"]);
+
+  const pickerStatus = el("span", {
+    class: "li-subtle",
+    id: `${id}-mock-picker-status`,
+  }, ["No fake path selected"]);
+
+  pickerRow.append(
+    el("label", {}, ["Custom Picker Demo"]),
+    pickerBtn,
+    pickerStatus
+  );
+
+  const pickerPanel = el("div", {
+    class: "mock-picker",
+    id: `${id}-mock-picker-panel`,
+  });
+
+  const pickerTop = el("div", { class: "mock-picker-top" });
+
+  const pickerPath = el("div", {
+    class: "mock-picker-path",
+    id: `${id}-mock-picker-path`,
+  }, ["No folder open"]);
+
+  const pickerClose = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-close`,
+  }, ["Close"]);
+
+  pickerTop.append(pickerPath, pickerClose);
+
+  const pickerActions = el("div", { class: "mock-picker-actions" });
+
+  const pickerUp = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-up`,
+  }, ["Back"]);
+
+  const pickerSelectFolder = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-select-folder`,
+  }, ["Select Current Folder"]);
+
+  pickerActions.append(pickerUp, pickerSelectFolder);
+
+  const pickerList = el("div", {
+    class: "mock-picker-list",
+    id: `${id}-mock-picker-list`,
+  });
+
+  const pickerSelected = el("div", {
+    class: "mock-picker-selected",
+    id: `${id}-mock-picker-selected`,
+  }, ["Selected fake path will appear here."]);
+
+  pickerPanel.append(pickerTop, pickerActions, pickerList, pickerSelected);
+
+  layout.append(pickerRow);
+
+  const pickerOverlay = el("div", {
+    class: "mock-picker-overlay hidden",
+    id: `${id}-mock-picker-overlay`,
+  });
+
+  const pickerModal = el("div", {
+    class: "mock-picker-modal",
+  });
+
+  pickerModal.append(pickerPanel);
+  pickerOverlay.append(pickerModal);
+
+  document.body.appendChild(pickerOverlay);
 
   const toolbar = el("div", { class: "docs-toolbar" });
   const filterRow = el("div", { class: "docs-toolbar-row" });
