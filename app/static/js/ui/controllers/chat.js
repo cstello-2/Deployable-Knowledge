@@ -4,6 +4,7 @@ import { Store } from "../store.js";
 import { md, escapeHtml } from "../render.js";
 import { qs } from "../../dom.js";
 import { showContext, renderChatCitations } from "./search.js";
+import { isAppBusy } from "../popups.js";
 
 export function initChatController() {
   const chatWin = qs("#win_chat");
@@ -13,7 +14,13 @@ export function initChatController() {
   const sendBtn = qs("#win_chat #win_chat-send");
   const newChatBtn = qs("#win_chat #win_chat-new-chat");
   let handlersBound = chatWin.dataset.handlersBound === "1";
-
+  function setChatBusyState(isBusy) {
+    if (input) input.disabled = isBusy;
+    if (sendBtn) sendBtn.disabled = isBusy;
+  }
+  window.addEventListener("dk:busy-change", (ev) => {
+    setChatBusyState(Boolean(ev.detail?.busy));
+  });
   const pushUser = (text) => {
     const div = document.createElement("div");
     div.className = "msg you";
@@ -40,6 +47,7 @@ export function initChatController() {
 
   let aborter = null;
   const send = async () => {
+    if (isAppBusy()) return;
     const text = input.value.trim();
     if (!text) return;
     input.value = "";

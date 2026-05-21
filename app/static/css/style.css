@@ -596,6 +596,68 @@ html, body {
 .modal-backdrop { position: absolute; inset: 0; background: var(--backdrop); backdrop-filter: blur(2px); }
 .miniwin.modal { position: fixed; top: 15vh; left: calc(50% - 260px); width: 520px; margin: 0; z-index: 1001; }
 
+/* ===== Shared Popup Layer ===== */
+
+#dk-popup-root {
+  position: relative;
+  z-index: 10000;
+}
+
+.dk-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: all;
+}
+
+.dk-popup-overlay.hidden {
+  display: none;
+}
+
+.dk-loading-modal {
+  width: min(340px, 90vw);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: hsl(var(--h) var(--sat) var(--l-panel));
+  color: var(--text);
+  padding: 24px;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.dk-spinner {
+  width: 48px;
+  height: 48px;
+  border: 5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: dk-spin 0.8s linear infinite;
+}
+
+.dk-loading-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.dk-loading-message {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@keyframes dk-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ===== Custom File Picker ===== */
 
 .mock-picker-overlay {

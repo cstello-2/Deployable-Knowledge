@@ -4,6 +4,7 @@ import { bus } from "../../components.js";
 import { Store } from "../store.js";
 import { qs } from "../../dom.js";
 import { el } from "../../ui.js";
+import { withLoadingPopup } from "../popups.js";
 
 /** Search / RAG context: server sends similarity scores (higher = better match). */
 
@@ -269,21 +270,23 @@ export async function initDocsController(winId = "win_docs") {
   }
 
   async function syncSingleFolder(path) {
-    try {
-      const data = await api.syncFolder(path);
-      const sync = data?.sync || data || {};
-      if (syncFolderStatus) {
-        const added = sync?.added?.length || 0;
-        const removed = sync?.removed?.length || 0;
-        const skipped = sync?.skipped?.length || 0;
-        syncFolderStatus.textContent = `Synced folder: ${added} added, ${removed} removed, ${skipped} skipped`;
+    await withLoadingPopup("Synchronizing files...", async() => {
+      try {
+        const data = await api.syncFolder(path);
+        const sync = data?.sync || data || {};
+        if (syncFolderStatus) {
+          const added = sync?.added?.length || 0;
+          const removed = sync?.removed?.length || 0;
+          const skipped = sync?.skipped?.length || 0;
+          syncFolderStatus.textContent = `Synced folder: ${added} added, ${removed} removed, ${skipped} skipped`;
+        }
+        await loadFolders();
+        await loadTags();
+        await refresh();
+      } catch (e) {
+        alert("Folder synchronization failed: " + (e.message || String(e)));
       }
-      await loadFolders();
-      await loadTags();
-      await refresh();
-    } catch (e) {
-      alert("Folder synchronization failed: " + (e.message || String(e)));
-    }
+    });
   }
 
   function createFolderGroup(group, docsById, visibleIds, groupedIds) {
@@ -572,7 +575,10 @@ export async function initDocsController(winId = "win_docs") {
     }
 
     try {
-      await synchronizePickedFolder(selectedPath);
+      await withLoadingPopup("Synchronizing and embedding files...", async() => {
+        await synchronizePickedFolder(selectedPath);
+      });
+
       setMockPickerMessage(`Synchronized folder: ${selectedPath}`);
       mockPickerOverlay?.classList.add("hidden");
     } catch (e) {
@@ -622,12 +628,14 @@ export async function initDocsController(winId = "win_docs") {
     btn.disabled = true;
     btn.textContent = "Uploading…";
     try {
-      await api.uploadDocuments(input.files);
-      input.value = "";
-      if (list) list.innerHTML = "";
-      updateUploadCount();
-      await loadTags();
-      await refresh();
+      await withLoadingPopup("Uploading and embedding files...", async () => {
+        await api.uploadDocuments(input.files);
+        input.value = "";
+        if (list) list.innerHTML = "";
+        updateUploadCount();
+        await loadTags();
+        await refresh();
+      });
     } catch (e) {
       alert("Upload failed: " + (e.message || String(e)));
     } finally {
