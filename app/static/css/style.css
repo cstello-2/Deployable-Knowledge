@@ -231,6 +231,10 @@ html, body {
   display: grid;
   gap: 8px;
 }
+.docs-upload-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+}
 .docs-sync-row .btn,
 .docs-upload-controls .btn {
   width: 100%;
@@ -238,6 +242,9 @@ html, body {
 .docs-sync-row .li-subtle,
 .docs-upload-controls .li-subtle {
   justify-self: start;
+}
+.docs-upload-controls .li-subtle {
+  grid-column: 1 / -1;
 }
 .folder-sync-section {
   display: grid;

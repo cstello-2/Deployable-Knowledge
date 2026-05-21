@@ -60,17 +60,27 @@ def safe_part(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", text)
 
 
-def safe_source_name(folder: Path, source_path: Path) -> str:
-    try:
-        rel = source_path.relative_to(folder)
-    except ValueError:
-        rel = Path(source_path.name)
-
-    rel_text = "__".join(safe_part(part) for part in rel.parts)
-    name = f"{safe_part(folder.name)}__{rel_text}"
+def safe_source_name(source_path: Path) -> str:
+    name = safe_part(source_path.name)
     if name in {"", ".", ".."}:
         raise ValueError("Invalid synced filename")
     return name
+
+
+def unique_source_name(source_path: Path, reserved_sources: set[str]) -> str:
+    name = safe_source_name(source_path)
+    if name not in reserved_sources:
+        return name
+
+    parsed = Path(name)
+    stem = parsed.stem or "document"
+    suffix = parsed.suffix
+    counter = 2
+    while True:
+        candidate = f"{stem}_{counter}{suffix}"
+        if candidate not in reserved_sources:
+            return candidate
+        counter += 1
 
 
 def remove_synced_source(source_name: str) -> None:
@@ -210,7 +220,7 @@ def sync_folder_into_registry(
 
     current_source_paths = set()
 
-    for source_path in folder.rglob("*"):
+    for source_path in sorted(folder.rglob("*"), key=lambda p: str(p).lower()):
         if not supported_file(source_path):
             continue
 
@@ -219,20 +229,29 @@ def sync_folder_into_registry(
         current_source_paths.add(source_path_str)
 
         previous = file_registry.get(source_path_str)
+        previous_source_name = previous.get("source_name") if previous else None
+        reserved_sources = set(existing_sources)
+        if previous_source_name:
+            reserved_sources.discard(previous_source_name)
+        source_name = unique_source_name(source_path, reserved_sources)
 
         if previous:
-            source_name = previous.get("source_name")
-            destination = UPLOAD_DIR / source_name if source_name else None
+            destination = (
+                UPLOAD_DIR / previous_source_name if previous_source_name else None
+            )
 
-            if source_name in existing_sources and destination and destination.exists():
+            if (
+                previous_source_name == source_name
+                and source_name in existing_sources
+                and destination
+                and destination.exists()
+            ):
                 continue
-            if source_name:
-                remove_synced_source(source_name)
-                existing_sources.discard(source_name)
+            if previous_source_name:
+                remove_synced_source(previous_source_name)
+                existing_sources.discard(previous_source_name)
 
             file_registry.pop(source_path_str, None)
-        else:
-            source_name = safe_source_name(folder, source_path)
 
         if not source_name:
             continue
