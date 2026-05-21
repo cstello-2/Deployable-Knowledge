@@ -6,12 +6,85 @@ export function render(config, winId) {
 
   const upWrap = el("div", { class: "row" });
   const upInput = el("input", { type: "file", multiple: true, id: `${id}-upload`, style: { display: "none" } });
+  const chooseFolderBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-folder-btn` }, ["Choose Folder"]);
+  const syncInfoBtn = el("button", { class: "btn btn-icon", type: "button", id: `${id}-sync-info-btn`, title: "Folder synchronization info" }, ["?"]);
+  const syncFolderStatus = el("div", { class: "folder-sync-status", id: `${id}-sync-folder-status` });
+  const syncSection = el("div", { class: "folder-sync-section" });
+  const syncLabel = el("div", { class: "folder-sync-label" });
+  syncLabel.append(el("label", {}, ["Synchronize Folder"]), syncInfoBtn);
+  const syncControls = el("div", { class: "docs-sync-row" });
+  syncControls.append(chooseFolderBtn);
+  syncSection.append(syncLabel, syncControls, syncFolderStatus);
+
   const chooseBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-btn` }, ["Choose Files"]);
   const upBtn = el("button", { class: "btn", type: "button", id: `${id}-upload-btn` }, ["Upload"]);
   const uploadCount = el("span", { class: "li-subtle", id: `${id}-upload-count` }, ["0 files selected"]);
-  upWrap.append(el("label", {}, ["Upload Documents"]), chooseBtn, upBtn, uploadCount, upInput);
+  const uploadControls = el("div", { class: "docs-upload-controls" });
+  uploadControls.append(chooseBtn, upBtn, uploadCount);
+  upWrap.append(syncSection, el("label", {}, ["Upload Documents"]), uploadControls, upInput);
   const fileList = el("ul", { class: "upload-list", id: `${id}-upload-list` });
   layout.append(upWrap, fileList);
+  const pickerPanel = el("div", {
+    class: "mock-picker",
+    id: `${id}-mock-picker-panel`,
+  });
+
+  const pickerTop = el("div", { class: "mock-picker-top" });
+
+  const pickerPath = el("div", {
+    class: "mock-picker-path",
+    id: `${id}-mock-picker-path`,
+  }, ["No folder open"]);
+
+  const pickerClose = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-close`,
+  }, ["Close"]);
+
+  pickerTop.append(pickerPath, pickerClose);
+
+  const pickerActions = el("div", { class: "mock-picker-actions" });
+
+  const pickerUp = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-up`,
+  }, ["Back"]);
+
+  const pickerSelectFolder = el("button", {
+    class: "btn",
+    type: "button",
+    id: `${id}-mock-picker-select-folder`,
+  }, ["Select Current Folder"]);
+
+  pickerActions.append(pickerUp, pickerSelectFolder);
+
+  const pickerList = el("div", {
+    class: "mock-picker-list",
+    id: `${id}-mock-picker-list`,
+  });
+
+  const pickerSelected = el("div", {
+    class: "mock-picker-selected",
+    id: `${id}-mock-picker-selected`,
+  }, ["Selected path will appear here."]);
+
+  pickerPanel.append(pickerTop, pickerActions, pickerList, pickerSelected);
+
+  const pickerOverlay = el("div", {
+    class: "mock-picker-overlay hidden",
+    id: `${id}-mock-picker-overlay`,
+  });
+
+  const pickerModal = el("div", {
+    class: "mock-picker-modal",
+  });
+
+  pickerModal.append(pickerPanel);
+  pickerOverlay.append(pickerModal);
+
+  document.body.appendChild(pickerOverlay);
 
   const toolbar = el("div", { class: "docs-toolbar" });
   const filterRow = el("div", { class: "docs-toolbar-row" });
