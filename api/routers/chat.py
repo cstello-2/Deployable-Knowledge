@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, Query
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 import json
@@ -7,15 +7,25 @@ import markdown2
 from core.models import ChatRequest
 from core import pipeline
 from core.sessions import SessionStore, ChatSession
-from core.prompts import renderer
 from api.utils import validate_session_id, clamp_int
 from config import MIN_TOP_K, MAX_TOP_K
 
 router = APIRouter()
 store = SessionStore()
 
+
+def _update_session_metadata(session: ChatSession, message: str) -> None:
+    """Update metadata without making extra LLM calls in the response path."""
+
+    if not session.title:
+        title = " ".join(message.split())
+        session.title = title[:80] or "New chat"
+        store.save(session)
+
+
 @router.post("/chat")
 async def chat(
+    request: Request,
     message: str = Form(...),
     session_id: str = Form(...),
     persona: str = Form(""),
@@ -52,9 +62,14 @@ async def chat(
     """
 
     session_id = validate_session_id(session_id)
-    session = store.load(session_id) or ChatSession.new(session_id=session_id, user_id="default")
+    user_id = getattr(request.state, "user_id", "default")
+    session = store.load(session_id) or ChatSession.new(session_id=session_id, user_id=user_id)
+
+    if session.user_id == "default" and user_id != "default":
+        session.user_id = user_id
     if inactive:
         session.inactive_sources = json.loads(inactive)
+
     req = ChatRequest(
         user_id=session.user_id,
         message=message,
@@ -75,10 +90,8 @@ async def chat(
             html_response=html_response,
         )
         session.trim_history(20)
-        if not session.title:
-            session.title = renderer.generate_title(f"User: {message}\nAssistant: {resp.text}")
-        session.summary = renderer.update_summary(session.summary, message, resp.text)
         store.save(session)
+        _update_session_metadata(session, message)
         return JSONResponse(
             {
                 "response": html_response,
@@ -107,19 +120,13 @@ async def chat(
                         html_response=html_response,
                     )
                     session.trim_history(20)
-                    if not session.title:
-                        session.title = renderer.generate_title(
-                            f"User: {message}\nAssistant: {assistant}"
-                        )
-                    session.summary = renderer.update_summary(
-                        session.summary, message, assistant
-                    )
                     store.save(session)
                     payload = {
                         "sources": [s.model_dump() for s in (chunk.sources or [])],
                         "usage": chunk.usage or {},
                     }
                     yield f"event: done\ndata: {json.dumps(payload)}\n\n"
+                    _update_session_metadata(session, message)
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
@@ -128,6 +135,7 @@ async def chat(
 
 @router.post("/chat-stream")
 async def chat_stream(
+    request: Request,
     message: str = Form(...),
     session_id: str = Form(...),
     persona: str = Form(""),
@@ -138,6 +146,7 @@ async def chat_stream(
     """Convenience wrapper that forces streaming mode."""
 
     return await chat(
+        request=request,
         message=message,
         session_id=session_id,
         persona=persona,

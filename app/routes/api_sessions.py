@@ -100,10 +100,10 @@ async def get_or_create_session(request: Request):
     if session_id and store.exists(session_id):
         session = store.load(session_id)
         if not session or not session.history:
-            session = ChatSession.new(user_id="default")
+            session = ChatSession.new(user_id=getattr(request.state, "user_id", "default"))
             store.save(session)
     else:
-        session = ChatSession.new(user_id="default")
+        session = ChatSession.new(user_id=getattr(request.state, "user_id", "default"))
         store.save(session)
 
     response = JSONResponse({"session_id": session.session_id})
@@ -112,10 +112,10 @@ async def get_or_create_session(request: Request):
 
 
 @router.post("/session")
-async def create_session():
+async def create_session(request: Request):
     """Always create and return a new chat session."""
 
-    session = ChatSession.new(user_id="default")
+    session = ChatSession.new(user_id=getattr(request.state, "user_id", "default"))
     store.save(session)
 
     response = JSONResponse({"session_id": session.session_id})

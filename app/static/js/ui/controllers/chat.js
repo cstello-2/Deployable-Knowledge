@@ -71,6 +71,10 @@ export function initChatController() {
               renderChatCitations(bubble.citeEl, data.sources, { maxItems: 3 });
             }
           },
+          onError(data) {
+            const msg = data?.error || "Stream failed";
+            bubble.mdEl.innerHTML = `<em>Error:</em> ${escapeHtml(msg)}`;
+          },
         }
       );
     } catch (e) {
