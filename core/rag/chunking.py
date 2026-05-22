@@ -5,6 +5,98 @@ from collections import Counter
 import re
 
 
+def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
+    """
+    Extract embedded images from a PDF locally.
+
+    This does not connect to any API.
+    It can either:
+    - print image information to the console
+    - optionally save the extracted image files to a folder
+
+    Args:
+        pdf_path (str or Path): Path to the PDF file.
+        output_dir (str or Path | None): Optional folder to save images.
+        print_to_console (bool): Whether to print image info.
+
+    Returns:
+        List[Dict]: Information about extracted images.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise RuntimeError(
+            "PyMuPDF is required for image extraction. Install it with: pip install pymupdf"
+        )
+
+    pdf_path = Path(pdf_path)
+    assert pdf_path.exists(), f"File does not exist: {pdf_path}"
+
+    output_path = None
+    if output_dir:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+    extracted_images = []
+
+    with fitz.open(pdf_path) as doc:
+        for page_index in range(len(doc)):
+            page = doc[page_index]
+            image_list = page.get_images(full=True)
+
+            if print_to_console:
+                print(f"\nPage {page_index + 1}: found {len(image_list)} embedded image(s)")
+
+            for image_index, image_info in enumerate(image_list, start=1):
+                xref = image_info[0]
+                width = image_info[2]
+                height = image_info[3]
+                bits_per_component = image_info[4]
+                colorspace = image_info[5]
+
+                saved_file = None
+
+                if output_path:
+                    image_data = doc.extract_image(xref)
+                    image_bytes = image_data["image"]
+                    image_ext = image_data.get("ext", "png")
+
+                    saved_file = output_path / (
+                        f"{pdf_path.stem}_page_{page_index + 1:03d}_"
+                        f"image_{image_index:03d}_xref_{xref}.{image_ext}"
+                    )
+
+                    with open(saved_file, "wb") as f:
+                        f.write(image_bytes)
+
+                image_record = {
+                    "page": page_index + 1,
+                    "image_index": image_index,
+                    "xref": xref,
+                    "width": width,
+                    "height": height,
+                    "bits_per_component": bits_per_component,
+                    "colorspace": colorspace,
+                    "saved_file": str(saved_file) if saved_file else None,
+                }
+
+                extracted_images.append(image_record)
+
+                if print_to_console:
+                    print(
+                        f"  Image {image_index}: "
+                        f"xref={xref}, "
+                        f"size={width}x{height}, "
+                        f"bpc={bits_per_component}, "
+                        f"colorspace={colorspace}, "
+                        f"saved={saved_file if saved_file else 'not saved'}"
+                    )
+
+    if print_to_console:
+        print(f"\nDone. Total images found: {len(extracted_images)}")
+
+    return extracted_images
+
 def safe_sent_tokenize(text: str):
     """Lightweight sentence tokenizer based on punctuation."""
 
@@ -244,6 +336,9 @@ if __name__ == "__main__":
     parser.add_argument("--margin_left", type=int, default=50, help="Left margin in points (default: 50)")
     parser.add_argument("--margin_right", type=int, default=50, help="Right margin in points (default: 50)")
 
+    parser.add_argument("--extract_images", action="store_true", help="Print embedded PDF image information to the console")
+    parser.add_argument("--image_output_dir", type=str, default=None, help="Optional folder to save extracted images")
+
     args = parser.parse_args()
 
     cleaned_text = parse_pdf(
@@ -260,3 +355,10 @@ if __name__ == "__main__":
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(full_text)
     print(f"Extracted text saved to {output_path}")
+
+    if args.extract_images:
+        extract_pdf_images(
+            args.input_pdf,
+            output_dir=args.image_output_dir,
+            print_to_console=True
+        )

@@ -1,7 +1,7 @@
 from typing import Any, Iterator
 import json
 import requests
-from config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE
 from .base import BaseLLM
 
 CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
@@ -17,6 +17,7 @@ class OllamaLLM(BaseLLM):
             "model": self.model,
             "prompt": prompt,
             "stream": stream,
+            "keep_alive": OLLAMA_KEEP_ALIVE
         }
 
     def generate_text(self, prompt: str, **kwargs: Any) -> str:
@@ -24,6 +25,7 @@ class OllamaLLM(BaseLLM):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
+            "keep_alive": OLLAMA_KEEP_ALIVE
         }
 
         timeout = kwargs.get("timeout", 120)
@@ -50,6 +52,7 @@ class OllamaLLM(BaseLLM):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
+            "keep_alive": OLLAMA_KEEP_ALIVE
         }
         timeout = kwargs.get("timeout", None)
         try:
