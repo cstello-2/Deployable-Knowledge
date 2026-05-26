@@ -17,6 +17,7 @@ ENV/
 *.env
 *.env.*
 .envrc
+.direnv/
 
 # --- Jupyter and notebook checkpoints ---
 .ipynb_checkpoints/
@@ -58,3 +59,6 @@ pdfs/
 test_queries.txt
 *.md.bak
 refactor_test.py
+
+# --- Agents --- 
+.codex

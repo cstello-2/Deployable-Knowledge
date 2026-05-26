@@ -2,20 +2,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import inspect, re
-import pdfplumber
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
 from core.corpus_registry import get_inactive_sources
-from .embeddings import load_embedding_model
 from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
-from core.ocr.pdf_visual_ocr import extract_pdf_visual_ocr_segments
-from core.ocr.rapidocr_service import make_image_ocr_tag
 
-# --- DB Manager (lightweight wrapper around ChromaDB) ---
-import chromadb
-from chromadb.config import Settings
 import uuid
+
 
 def sanitize_metadata_for_chroma(metadata: dict) -> dict:
     """
@@ -40,13 +34,29 @@ def sanitize_metadata_for_chroma(metadata: dict) -> dict:
 
     return clean
 
+
+def _load_embedding_model():
+    from .embeddings import load_embedding_model
+
+    return load_embedding_model()
+
+
+def _extract_pdf_visual_ocr_segments(file_path: Path) -> List[Dict[str, Any]]:
+    from core.ocr.pdf_visual_ocr import extract_pdf_visual_ocr_segments
+
+    return extract_pdf_visual_ocr_segments(file_path)
+
+
 class DBManager:
     """Minimal wrapper around ChromaDB providing embedding utilities."""
 
     def __init__(self, persist_dir: str, collection_name: str, model=None):
+        import chromadb
+        from chromadb.config import Settings
+
         self.client = chromadb.PersistentClient(path=str(persist_dir), settings=Settings(anonymized_telemetry=False))
         self.collection = self.client.get_or_create_collection(collection_name)
-        self.model = model or load_embedding_model()
+        self.model = model
 
     def clear_collection(self, batch_size: int = 500) -> None:
         """Remove all records from the collection in batches."""
@@ -63,6 +73,8 @@ class DBManager:
         embeddings: List[List[float]] = []
         current_batch: List[str] = []
         current_tokens = 0
+        if self.model is None:
+            self.model = _load_embedding_model()
         tokenizer = self.model.tokenizer
         for doc in docs:
             tokens = tokenizer.encode(doc, truncation=True, max_length=512)
@@ -154,8 +166,7 @@ def get_db() -> DBManager:
 
     global _db
     if _db is None:
-        model = load_embedding_model()
-        _db = DBManager(persist_dir=CHROMA_DB_DIR, collection_name=COLLECTION_NAME, model=model)
+        _db = DBManager(persist_dir=CHROMA_DB_DIR, collection_name=COLLECTION_NAME)
     return _db
 
 class LazyDB:
@@ -173,6 +184,30 @@ def chunk_text(text: str) -> List[Any]:
 
     return pagerank_chunk_text(text, model=get_db().model, sim_threshold=0.7)
 
+
+def is_table_chunk(text: str) -> bool:
+    return text.lstrip().startswith("[Table:")
+
+
+def extract_table_chunks(text: str) -> List[Any]:
+    """Return inline table markers as standalone chunks."""
+
+    chunks = []
+    for idx, match in enumerate(re.finditer(r"\[Table: .*?\]", text, flags=re.DOTALL)):
+        chunks.append(
+            (
+                match.group(0),
+                {
+                    "chunk_idx": idx,
+                    "char_range": match.span(),
+                    "num_sentences": 1,
+                    "table": True,
+                },
+            )
+        )
+    return chunks
+
+
 def is_all_caps(text: str, threshold: float = 0.8) -> bool:
     """Heuristic to filter shouty text segments."""
 
@@ -189,6 +224,14 @@ def has_repeated_substring(text: str, patterns: Optional[List[str]] = None) -> b
     patterns = patterns or [r'\.{3,}', r'-{3,}', r'_{3,}']
     return any(re.search(p, chars) for p in patterns)
 
+
+def keep_chunk(chunk: str, filter_chunks: bool) -> bool:
+    if is_table_chunk(chunk):
+        return True
+    if filter_chunks and (is_all_caps(chunk) or has_repeated_substring(chunk)):
+        return False
+    return len(chunk.split()) >= 5
+
 def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     """Extract raw text and page numbers from ``file_path``."""
 
@@ -196,21 +239,9 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     if suffix == ".pdf":
         parsed = parse_pdf(str(file_path))
         if isinstance(parsed, list):
-            if any((page.get("text") or "").strip() for page in parsed):
-                return parsed
-            with pdfplumber.open(file_path) as pdf:
-                return [
-                    {"page": idx + 1, "text": page.extract_text() or ""}
-                    for idx, page in enumerate(pdf.pages)
-                ]
+            return parsed
         elif isinstance(parsed, str):
-            if parsed.strip():
-                return [{"page": 1, "text": parsed}]
-            with pdfplumber.open(file_path) as pdf:
-                return [
-                    {"page": idx + 1, "text": page.extract_text() or ""}
-                    for idx, page in enumerate(pdf.pages)
-                ]
+            return [{"page": 1, "text": parsed}]
         else:
             raise TypeError(f"parse_pdf returned unexpected type: {type(parsed)}")
     if suffix == ".txt":
@@ -234,11 +265,11 @@ def _db_add_segments_compat(db_obj: DBManager,
     if "metadata" in params:
         kwargs["metadata"] = metadata
     if "positions" in params:
-            kwargs["positions"] = positions
+        kwargs["positions"] = positions
     if "page" in params:
-            kwargs["page"] = pages
+        kwargs["page"] = pages
     elif "pages" in params:
-            kwargs["pages"] = pages
+        kwargs["pages"] = pages
     return db_obj.add_segments(**kwargs)
 
 def embed_file(file_path: Path,
@@ -251,46 +282,44 @@ def embed_file(file_path: Path,
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
-    source = source_name or file_path.name
-    base_tags = tags or ["embedded"]
     pages_dicts = extract_text(file_path)
     all_chunks: List[Any] = []
 
-    #Normal text chunks
+    # Normal text and table chunks.
     for page in pages_dicts:
         page_num = page.get("page") or 1
         page_text = page.get("text", "")
-        chunks_with_meta = chunk_text(page_text)
+        chunks_with_meta = chunk_text(page_text) + extract_table_chunks(page_text)
+        seen_page_chunks = set()
         for chunk_text_, meta in chunks_with_meta:
+            if chunk_text_ in seen_page_chunks:
+                continue
+            seen_page_chunks.add(chunk_text_)
             meta["page"] = page_num
-            meta["cntent_type"] = "text"
+            meta["content_type"] = "table" if meta.get("table") else "text"
             all_chunks.append((chunk_text_, meta))
 
-    if filter_chunks:
-        all_chunks = [
-            (chunk, meta) for chunk, meta in all_chunks
-            if not is_all_caps(chunk) and not has_repeated_substring(chunk)
-        ]
     all_chunks = [
-        (chunk, meta) for chunk, meta in all_chunks if len(chunk.split()) >= 5
+        (chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)
     ]
 
-    #separate visual OCR chunks
+    # Separate visual OCR chunks.
     if include_visual_ocr and file_path.suffix.lower() == ".pdf":
         try:
-            visual_ocr_segments = extract_pdf_visual_ocr_segments(file_path)
+            visual_ocr_segments = _extract_pdf_visual_ocr_segments(file_path)
             for visual_segment in visual_ocr_segments:
                 visual_text = visual_segment.get("text", "")
                 if not visual_text.strip():
                     continue
 
-            visual_meta = {
-                "page": visual_segment.get("page"),
-                "content_type": visual_segment.get("content_type", "image_ocr"),
-                "visual_type": visual_segment.get("visual_type"),
-                "visual_index": visual_segment.get("visual_index"),
-            }
-            all_chunks.append((visual_text, visual_meta))
+                visual_meta = {
+                    "page": visual_segment.get("page"),
+                    "content_type": visual_segment.get("content_type", "image_ocr"),
+                    "visual_type": visual_segment.get("visual_type"),
+                    "visual_index": visual_segment.get("visual_index"),
+                    "source_file": visual_segment.get("source_file"),
+                }
+                all_chunks.append((visual_text, visual_meta))
         except Exception as e:
             print(f"[WARN] Visual OCR failed for {file_path}: {e}")
 
@@ -303,7 +332,7 @@ def embed_file(file_path: Path,
             positions.append(char_range)
         else:
             positions.append((-1, -1))   
-    
+
     pages = [meta.get("page") for _, meta in all_chunks]
     metadata = []
     for _, meta in all_chunks:
@@ -316,6 +345,10 @@ def embed_file(file_path: Path,
             item["visual_type"] = meta.get("visual_type")
         if meta.get("visual_index") is not None:
             item["visual_index"] = meta.get("visual_index")
+        if meta.get("source_file") is not None:
+            item["source_file"] = meta.get("source_file")
+        if meta.get("table") is not None:
+            item["table"] = meta.get("table")
         char_range = meta.get("char_range")
         if isinstance(char_range, tuple) and len(char_range) == 2:
             start_char, end_char = char_range
@@ -324,7 +357,7 @@ def embed_file(file_path: Path,
             if end_char is not None:
                 item["end_char"] = end_char
 
-    metadata.append(item)        
+        metadata.append(item)
 
     _db_add_segments_compat(
         db_obj=get_db(),
@@ -335,6 +368,48 @@ def embed_file(file_path: Path,
         pages=pages,
         metadata=metadata,
     )
+
+
+def _exact_query_terms(query: str) -> List[str]:
+    return [
+        term
+        for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9-]{4,}[A-Za-z0-9]", query)
+        if any(char.isdigit() for char in term)
+    ]
+
+
+def _exact_search(query: str, top_k: int, exclude_sources: Optional[set] = None) -> List[Dict]:
+    terms = [term.lower() for term in _exact_query_terms(query)]
+    if not terms:
+        return []
+
+    merged_exclude = set(exclude_sources or [])
+    merged_exclude.update(get_inactive_sources())
+    data = get_db().collection.get(include=["documents", "metadatas"])
+    documents = data.get("documents", []) or []
+    metadatas = data.get("metadatas", []) or []
+    ids = data.get("ids", []) or []
+    matches = []
+    for doc, meta, seg_id in zip(documents, metadatas, ids):
+        src = meta.get("source", "unknown")
+        if src in merged_exclude:
+            continue
+        text = doc or ""
+        lowered = text.lower()
+        if not all(term in lowered for term in terms):
+            continue
+        matches.append(
+            {
+                "text": text.strip().replace("\n", " "),
+                "source": src,
+                "score": 1.0,
+                "page": meta.get("page", None),
+                "segment_id": seg_id,
+            }
+        )
+        if len(matches) >= top_k:
+            break
+    return matches
 
 def embed_directory(data_dir: str, clear_collection: bool = False, default_tags: Optional[List[str]] = None, filter_chunks: bool = False) -> None:
     """Embed all supported files under ``data_dir``."""
@@ -360,6 +435,7 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
 
     if top_k <= 0:
         return []
+    exact_matches = _exact_search(query, top_k, exclude_sources)
     embedding = get_db().embed([query])[0]
     results = get_db().collection.query(query_embeddings=[embedding], n_results=top_k)
     documents = results.get("documents", [[]])[0]
@@ -393,4 +469,16 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
             )
         )
     rows.sort(key=lambda t: t[0])
-    return [item for _, item in rows]
+    vector_matches = [item for _, item in rows]
+    seen = {item.get("segment_id") for item in exact_matches if item.get("segment_id")}
+    merged = list(exact_matches)
+    for item in vector_matches:
+        segment_id = item.get("segment_id")
+        if segment_id and segment_id in seen:
+            continue
+        merged.append(item)
+        if segment_id:
+            seen.add(segment_id)
+        if len(merged) >= top_k:
+            break
+    return merged[:top_k]

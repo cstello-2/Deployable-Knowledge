@@ -1,8 +1,18 @@
-import pdfplumber
 from pathlib import Path
 import argparse
 from collections import Counter
+import csv
+import io
+import logging
 import re
+
+logger = logging.getLogger(__name__)
+
+
+def _table_debug(message, *args):
+    formatted = message % args if args else message
+    logger.debug(formatted)
+    print(f"[pdf-table-debug] {formatted}", flush=True)
 
 
 def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
@@ -26,7 +36,7 @@ def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
         import fitz  # PyMuPDF
     except ImportError:
         raise RuntimeError(
-            "PyMuPDF is required for image extraction. Install it with: pip install pymupdf"
+            "PyMuPDF and its runtime libraries are required for image extraction."
         )
 
     pdf_path = Path(pdf_path)
@@ -213,6 +223,130 @@ def remove_frequent_lines(pages, threshold=0.9):
         })
     return filtered_pages
 
+def serialize_table_rows(rows):
+    """Serialize PyMuPDF table rows to CSV text."""
+
+    if not rows:
+        return ""
+
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    for row in rows:
+        writer.writerow(["" if cell is None else cell for cell in row])
+    return output.getvalue().rstrip("\n")
+
+
+def _table_marker(csv_data):
+    return f"[Table: {csv_data}]"
+
+
+def _rect_sort_key(rect):
+    return (rect.y0, rect.x0)
+
+
+def _rects_overlap(rect_a, rect_b):
+    x_overlap = min(rect_a.x1, rect_b.x1) > max(rect_a.x0, rect_b.x0)
+    y_overlap = min(rect_a.y1, rect_b.y1) > max(rect_a.y0, rect_b.y0)
+    return x_overlap and y_overlap
+
+
+def _is_rect_within_margins(rect, page, is_landscape, margin_top, margin_bottom, margin_left, margin_right):
+    page_rect = page.rect
+    if is_landscape:
+        return margin_left < rect.x0 < (page_rect.width - margin_right)
+    return margin_top < rect.y0 < (page_rect.height - margin_bottom)
+
+
+def _extract_tables_from_page(page, fitz_module):
+    page_number = getattr(page, "number", "unknown")
+    if isinstance(page_number, int):
+        page_number += 1
+    _table_debug("Running PDF table extraction for page %s", page_number)
+
+    tables = []
+    if not hasattr(page, "find_tables"):
+        _table_debug("PDF table extraction unavailable for page %s", page_number)
+        return tables
+
+    finder = page.find_tables()
+    for table_index, table in enumerate(getattr(finder, "tables", []) or [], start=1):
+        csv_data = serialize_table_rows(table.extract())
+        if not csv_data:
+            _table_debug(
+                "PDF table extraction output for page %s table %s was empty; ignoring",
+                page_number,
+                table_index,
+            )
+            continue
+        _table_debug(
+            "PDF table extraction output for page %s table %s:\n%s",
+            page_number,
+            table_index,
+            csv_data,
+        )
+        tables.append(
+            {
+                "bbox": fitz_module.Rect(table.bbox),
+                "text": _table_marker(csv_data),
+            }
+        )
+    return tables
+
+
+def _page_blocks(page, fitz_module, table_rects, margin_top, margin_bottom, margin_left, margin_right):
+    is_landscape = page.rect.width > page.rect.height or page.rotation in [90, 270]
+    blocks = []
+    for block in page.get_text("blocks") or []:
+        if len(block) < 5:
+            continue
+        rect = fitz_module.Rect(block[:4])
+        text = str(block[4]).strip()
+        if not text:
+            continue
+        if not _is_rect_within_margins(
+            rect,
+            page,
+            is_landscape,
+            margin_top,
+            margin_bottom,
+            margin_left,
+            margin_right,
+        ):
+            continue
+        if any(_rects_overlap(rect, table_rect) for table_rect in table_rects):
+            continue
+        blocks.append({"bbox": rect, "text": text})
+    return blocks
+
+
+def _parse_pdf_document(doc, fitz_module, margin_top, margin_bottom, margin_left, margin_right):
+    pages = []
+
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        tables = _extract_tables_from_page(page, fitz_module)
+        table_rects = [table["bbox"] for table in tables]
+        items = _page_blocks(
+            page,
+            fitz_module,
+            table_rects,
+            margin_top,
+            margin_bottom,
+            margin_left,
+            margin_right,
+        )
+        items.extend(tables)
+        items.sort(key=lambda item: _rect_sort_key(item["bbox"]))
+        pages.append(
+            {
+                "page": page_idx + 1,
+                "text": "\n".join(item["text"] for item in items),
+            }
+        )
+
+    return pages
+
+
 def parse_pdf(pdf_path, margin_top=50, margin_bottom=50, margin_left=50, margin_right=50):
     """
     Extracts clean text from a PDF, removing headers and footers based on layout.
@@ -232,99 +366,26 @@ def parse_pdf(pdf_path, margin_top=50, margin_bottom=50, margin_left=50, margin_
     pdf_path = Path(pdf_path)
     assert pdf_path.exists(), f"File does not exist: {pdf_path}"
 
-    all_cleaned_text = []
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyMuPDF and its runtime libraries are required for PDF extraction."
+        ) from exc
 
-    with pdfplumber.open(pdf_path) as pdf:
-        for page_idx, page in enumerate(pdf.pages):
-            words = page.extract_words()
-            if not words:
-                continue
-
-            is_landscape = page.width > page.height or page.rotation in [90, 270]
-
-            cleaned_words = []
-            for word in words:
-                # margin information
-                # print(f"{word['text']:30} top: {word['top']:.1f} bottom: {word['bottom']:.1f}")
-                if is_within_margins(word, page, is_landscape, margin_top, margin_bottom, margin_left, margin_right):
-                    key = word['x0'] if is_landscape else word['top']
-                    cleaned_words.append((key, word['text']))
-                else:
-                    #testing margin work
-                    #print(f"Skipping word '{word['text']}' at {word['x0'] if is_landscape else word['top']} due to margin constraints.")
-                    continue
-
-            # Sort words by vertical (portrait) or horizontal (landscape) position
-            cleaned_words.sort(key=lambda x: x[0])
-            grouped_lines = group_words_by_line(cleaned_words, is_landscape)
-            all_cleaned_text.append({
-            "page": page_idx + 1,
-            "text": "\n".join(grouped_lines)
-        })
+    with fitz.open(pdf_path) as doc:
+        all_cleaned_text = _parse_pdf_document(
+            doc,
+            fitz,
+            margin_top,
+            margin_bottom,
+            margin_left,
+            margin_right,
+        )
 
     all_cleaned_text = remove_frequent_lines(all_cleaned_text)  # update this function if needed
 
     return all_cleaned_text
-
-
-def is_within_margins(word, page, is_landscape, margin_top, margin_bottom, margin_left, margin_right):
-    """
-    Check if a word is within the specified margins of the page.
-
-    Args:
-        word (Dict): A dictionary representing a word with keys 'x0', 'top', 'bottom', etc.
-        page (pdfplumber.page.Page): The page object from which the word was extracted.
-        is_landscape (bool): Whether the page is in landscape orientation.
-        margin_top (int): Top margin in points.
-        margin_bottom (int): Bottom margin in points.
-        margin_left (int): Left margin in points.
-        margin_right (int): Right margin in points.
-    
-    Returns:
-        bool: True if the word is within the margins, False otherwise.
-    """
-    if is_landscape:
-        return (
-            margin_left < word['x0'] < (page.width - margin_right)
-        )
-    else:
-        return (
-            margin_top < word['top'] < (page.height - margin_bottom)
-        )
-
-
-def group_words_by_line(words_with_key, is_landscape, line_tol=5):
-    """
-    Groups words into lines by vertical (portrait) or horizontal (landscape) proximity.
-
-    Args:
-        words_with_key (List[Tuple[float, str]]): List of tuples where each
-            tuple contains a key (x0 or top) and the word text.
-        is_landscape (bool): Whether the page is in landscape orientation.
-        line_tol (int): Tolerance in points for grouping words into lines.
-    
-    Returns:
-        List[str]: List of strings where each string is a line of text.
-    """
-    lines = []
-    current_line = []
-    current_key = None
-
-    for key, word in words_with_key:
-        if current_key is None or abs(key - current_key) <= line_tol:
-            current_line.append(word)
-            if current_key is None:
-                current_key = key
-        else:
-            lines.append(" ".join(current_line))
-            current_line = [word]
-            current_key = key
-
-    if current_line:
-        lines.append(" ".join(current_line))
-
-    return lines
-
 
 # Replace input_pdf and output_txt with desired file paths
 if __name__ == "__main__":
