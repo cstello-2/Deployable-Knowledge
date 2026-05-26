@@ -1,18 +1,10 @@
 from pathlib import Path
 import argparse
 from collections import Counter
+import contextlib
 import csv
 import io
-import logging
 import re
-
-logger = logging.getLogger(__name__)
-
-
-def _table_debug(message, *args):
-    formatted = message % args if args else message
-    logger.debug(formatted)
-    print(f"[pdf-table-debug] {formatted}", flush=True)
 
 
 def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
@@ -258,32 +250,16 @@ def _is_rect_within_margins(rect, page, is_landscape, margin_top, margin_bottom,
 
 
 def _extract_tables_from_page(page, fitz_module):
-    page_number = getattr(page, "number", "unknown")
-    if isinstance(page_number, int):
-        page_number += 1
-    _table_debug("Running PDF table extraction for page %s", page_number)
-
     tables = []
     if not hasattr(page, "find_tables"):
-        _table_debug("PDF table extraction unavailable for page %s", page_number)
         return tables
 
-    finder = page.find_tables()
+    with contextlib.redirect_stdout(io.StringIO()):
+        finder = page.find_tables()
     for table_index, table in enumerate(getattr(finder, "tables", []) or [], start=1):
         csv_data = serialize_table_rows(table.extract())
         if not csv_data:
-            _table_debug(
-                "PDF table extraction output for page %s table %s was empty; ignoring",
-                page_number,
-                table_index,
-            )
             continue
-        _table_debug(
-            "PDF table extraction output for page %s table %s:\n%s",
-            page_number,
-            table_index,
-            csv_data,
-        )
         tables.append(
             {
                 "bbox": fitz_module.Rect(table.bbox),
