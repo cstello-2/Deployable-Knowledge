@@ -9,11 +9,36 @@ from core.corpus_registry import get_inactive_sources
 from .embeddings import load_embedding_model
 from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
+from core.ocr.pdf_visual_ocr import extract_pdf_visual_ocr_segments
+from core.ocr.rapidocr_service import make_image_ocr_tag
 
 # --- DB Manager (lightweight wrapper around ChromaDB) ---
 import chromadb
 from chromadb.config import Settings
 import uuid
+
+def sanitize_metadata_for_chroma(metadata: dict) -> dict:
+    """
+    Chroma metadata values must be str, int, float, or bool.
+    This removes None values and converts unsupported values to strings.
+    """
+    clean = {}
+
+    for key, value in metadata.items():
+        if value is None:
+            continue
+
+        if isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+            continue
+
+        if isinstance(value, (list, tuple, dict)):
+            clean[key] = str(value)
+            continue
+
+        clean[key] = str(value)
+
+    return clean
 
 class DBManager:
     """Minimal wrapper around ChromaDB providing embedding utilities."""
@@ -57,7 +82,7 @@ class DBManager:
             embeddings.extend(self.model.encode(current_batch))
         return embeddings
 
-    def build_entry(self, segment_text: str, segment_index: int, source: str, tags: Optional[List[str]] = None, start: Optional[int] = None, end: Optional[int] = None):
+    def build_entry(self, segment_text: str, segment_index: int, source: str, tags: Optional[List[str]] = None, start: Optional[int] = None, end: Optional[int] = None, extra_metadata: Optional[Dict[str, Any]] = None,):
         """Build the ID, document and metadata tuple for a segment."""
 
         segment_uuid = str(uuid.uuid4())
@@ -71,9 +96,14 @@ class DBManager:
         if start is not None and end is not None:
             metadata["start_char"] = start
             metadata["end_char"] = end
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
+        
+        metadata = sanitize_metadata_for_chroma(metadata)
         return segment_uuid, segment_text, metadata
 
-    def add_segments(self, segments: List[str], source: str, tags: Optional[List[str]] = None, positions: Optional[List[tuple]] = None, page: Optional[List[Optional[int]]] = None) -> None:
+    def add_segments(self, segments: List[str], source: str, tags: Optional[List[str]] = None, positions: Optional[List[tuple]] = None, page: Optional[List[Optional[int]]] = None, metadata: Optional[List[Dict[str, Any]]] = None) -> None:
         """Add many text ``segments`` to the collection."""
 
         ids: List[str] = []
@@ -82,9 +112,20 @@ class DBManager:
         for i, segment in enumerate(segments):
             start, end = (positions[i] if positions else (-1, -1))
             p = page[i] if page else None
-            _id, doc, meta = self.build_entry(segment, i, source, tags, start, end)
+            extra_meta = metadata[i] if metadata and i < len(metadata) else{}
             if p is not None:
-                meta["page"] = p
+                extra_meta = dict(extra_meta)
+                extra_meta["page"] = p
+            _id, doc, meta = self.build_entry(
+            segment_text=segment,
+            segment_index=i,
+            source=source,
+            tags=tags,
+            start=start,
+            end=end,
+            extra_metadata=extra_meta,
+        )                
+            
             ids.append(_id)
             docs.append(doc)
             metas.append(meta)
@@ -177,7 +218,14 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
         return [{"page": 1, "text": text}]
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
-def _db_add_segments_compat(db_obj: DBManager, segments: List[str], source: str, tags: List[str], positions: List[Any], pages: List[Optional[int]], metadata: List[Dict[str, Any]]):
+def _db_add_segments_compat(db_obj: DBManager,
+    segments: List[str],
+    source: str,
+    tags: List[str],
+    positions: List[Any],
+    pages: List[Optional[int]],
+    metadata: List[Dict[str, Any]],
+    ):
     """Invoke ``db_obj.add_segments`` handling legacy signatures."""
 
     sig = inspect.signature(db_obj.add_segments)
@@ -185,29 +233,39 @@ def _db_add_segments_compat(db_obj: DBManager, segments: List[str], source: str,
     kwargs = dict(segments=segments, source=source, tags=tags)
     if "metadata" in params:
         kwargs["metadata"] = metadata
-    else:
-        if "positions" in params:
+    if "positions" in params:
             kwargs["positions"] = positions
-        if "page" in params:
+    if "page" in params:
             kwargs["page"] = pages
-        elif "pages" in params:
+    elif "pages" in params:
             kwargs["pages"] = pages
     return db_obj.add_segments(**kwargs)
 
-def embed_file(file_path: Path, source_name: Optional[str] = None, tags: Optional[List[str]] = None, filter_chunks: bool = True) -> None:
+def embed_file(file_path: Path,
+    source_name: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    filter_chunks: bool = True,
+    include_visual_ocr: bool = True,
+    ) -> None:
     """Embed a single file into the vector store."""
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
+    source = source_name or file_path.name
+    base_tags = tags or ["embedded"]
     pages_dicts = extract_text(file_path)
     all_chunks: List[Any] = []
+
+    #Normal text chunks
     for page in pages_dicts:
         page_num = page.get("page") or 1
         page_text = page.get("text", "")
         chunks_with_meta = chunk_text(page_text)
         for chunk_text_, meta in chunks_with_meta:
             meta["page"] = page_num
+            meta["cntent_type"] = "text"
             all_chunks.append((chunk_text_, meta))
+
     if filter_chunks:
         all_chunks = [
             (chunk, meta) for chunk, meta in all_chunks
@@ -216,13 +274,58 @@ def embed_file(file_path: Path, source_name: Optional[str] = None, tags: Optiona
     all_chunks = [
         (chunk, meta) for chunk, meta in all_chunks if len(chunk.split()) >= 5
     ]
+
+    #separate visual OCR chunks
+    if include_visual_ocr and file_path.suffix.lower() == ".pdf":
+        try:
+            visual_ocr_segments = extract_pdf_visual_ocr_segments(file_path)
+            for visual_segment in visual_ocr_segments:
+                visual_text = visual_segment.get("text", "")
+                if not visual_text.strip():
+                    continue
+
+            visual_meta = {
+                "page": visual_segment.get("page"),
+                "content_type": visual_segment.get("content_type", "image_ocr"),
+                "visual_type": visual_segment.get("visual_type"),
+                "visual_index": visual_segment.get("visual_index"),
+            }
+            all_chunks.append((visual_text, visual_meta))
+        except Exception as e:
+            print(f"[WARN] Visual OCR failed for {file_path}: {e}")
+
     segments = [chunk for chunk, _ in all_chunks]
-    positions = [meta.get("char_range", (None, None)) for _, meta in all_chunks]
+    positions = []
+    for _, meta in all_chunks:
+        char_range = meta.get("char_range")
+
+        if isinstance(char_range, tuple) and len(char_range) == 2:
+            positions.append(char_range)
+        else:
+            positions.append((-1, -1))   
+    
     pages = [meta.get("page") for _, meta in all_chunks]
-    metadata = [
-        {"char_range": meta.get("char_range"), "page": meta.get("page")}
-        for _, meta in all_chunks
-    ]
+    metadata = []
+    for _, meta in all_chunks:
+        item = {
+            "content_type": meta.get("content_type", "text"),
+        }
+        if meta.get("page") is not None:
+            item["page"] = meta.get("page")
+        if meta.get("visual_type") is not None:
+            item["visual_type"] = meta.get("visual_type")
+        if meta.get("visual_index") is not None:
+            item["visual_index"] = meta.get("visual_index")
+        char_range = meta.get("char_range")
+        if isinstance(char_range, tuple) and len(char_range) == 2:
+            start_char, end_char = char_range
+            if start_char is not None:
+                item["start_char"] = start_char
+            if end_char is not None:
+                item["end_char"] = end_char
+
+    metadata.append(item)        
+
     _db_add_segments_compat(
         db_obj=get_db(),
         segments=segments,
@@ -244,7 +347,13 @@ def embed_directory(data_dir: str, clear_collection: bool = False, default_tags:
     for file_path in data_path.iterdir():
         if file_path.suffix.lower() not in {".txt", ".pdf"}:
             continue
-        embed_file(file_path=file_path, source_name=file_path.name, tags=default_tags or ["embedded"], filter_chunks=filter_chunks)
+        embed_file(
+            file_path=file_path,
+            source_name=file_path.name,
+            tags=default_tags or ["embedded"],
+            filter_chunks=filter_chunks,
+            include_visual_ocr=True,
+        )
 
 def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) -> List[Dict]:
     """Perform a vector similarity search over embedded segments."""

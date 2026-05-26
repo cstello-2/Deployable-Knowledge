@@ -14,6 +14,8 @@ from api.routers.filesystem import router as filesystem_router
 from api.routers.folders import router as folders_router
 from app.routes.api_sessions import router as sessions_router
 from app.routes.api_segments import router as segments_router
+from api.routers.ocr import router as ocr_router
+
 from app.auth.session import setup_auth, load_settings_from_config
 
 
@@ -42,3 +44,4 @@ app.include_router(settings_router)
 app.include_router(corpus_router)
 app.include_router(filesystem_router)
 app.include_router(folders_router)
+app.include_router(ocr_router)
