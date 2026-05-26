@@ -6,7 +6,10 @@ let
     with pkgs;
     (lib.makeLibraryPath [
       stdenv.cc.cc.lib
+      glib
       zlib
+      libGL
+      libxcb
     ]);
 in
 pkgs.mkShell {

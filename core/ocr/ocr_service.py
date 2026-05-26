@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import re
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -13,12 +14,7 @@ _ocr_engine: Optional[RapidOCR] = None
 
 
 def get_ocr_engine() -> RapidOCR:
-    """
-    Lazily load RapidOCR once and reuse it.
-
-    This prevents the app from reinitializing the OCR engine every time
-    a file is processed.
-    """
+    """Return the shared OCR engine."""
     global _ocr_engine
 
     if _ocr_engine is None:
@@ -27,13 +23,8 @@ def get_ocr_engine() -> RapidOCR:
     return _ocr_engine
 
 
-def _extract_rapidocr_output(result: Any, min_confidence: float) -> List[Dict[str, Any]]:
-    """
-    Normalize RapidOCR 3.x output into a simple list of dictionaries.
-
-    The app should not depend directly on RapidOCR's internal output shape.
-    This keeps the OCR layer easier to connect to ingestion later.
-    """
+def _extract_text_lines(result: Any, min_confidence: float) -> List[Dict[str, Any]]:
+    """Return text lines from an OCR result."""
     lines: List[Dict[str, Any]] = []
 
     boxes = getattr(result, "boxes", None)
@@ -60,17 +51,12 @@ def _extract_rapidocr_output(result: Any, min_confidence: float) -> List[Dict[st
 
     return lines
 
-def ocr_image_with_rapidocr(
+
+def read_image_text(
     image_path: str | Path,
     min_confidence: float = 0.50,
 ) -> Dict[str, Any]:
-    """
-    Run RapidOCR on a single image file and return structured OCR output.
-
-    This function does NOT embed anything.
-    It only extracts OCR text and metadata so image/drawing extraction logic
-    can attach OCR context later.
-    """
+    """Return OCR text and line metadata for an image."""
     image_path = Path(image_path)
 
     if not image_path.exists():
@@ -82,7 +68,7 @@ def ocr_image_with_rapidocr(
     img_np = np.array(img)
 
     result = ocr(img_np)
-    lines = _extract_rapidocr_output(result, min_confidence=min_confidence)
+    lines = _extract_text_lines(result, min_confidence=min_confidence)
 
     text = "\n".join(line["text"] for line in lines if line.get("text"))
 
@@ -95,79 +81,58 @@ def ocr_image_with_rapidocr(
     }
 
 
-def summarize_ocr_text(
+def clean_ocr_text(
     text: str,
-    max_chars: int = 500,
 ) -> str:
-    """
-    Clean and shorten OCR output so it can be safely attached to image/drawing output.
-    """
-    cleaned = " ".join(text.split())
-
-    if not cleaned:
-        return ""
-
-    if len(cleaned) > max_chars:
-        return cleaned[:max_chars].rstrip() + "..."
-
-    return cleaned
+    """Normalize OCR text for storage."""
+    return " ".join(text.split())
 
 
-def make_image_ocr_tag(
+def image_text_tag(
     image_path: str | Path,
     min_confidence: float = 0.50,
-    max_chars: int = 500,
+    min_chars: int = 10,
 ) -> str:
-    """
-    Return OCR output wrapped in the image OCR tag format.
-
-    Example:
-    [Image<TACTICAL COMBAT CASUALTY CARE HANDBOOK Appendix E ...>]
-
-    If OCR fails or no text is found, this returns an empty string.
-    """
+    """Return image OCR text in chunk format."""
     try:
-        result = ocr_image_with_rapidocr(
+        result = read_image_text(
             image_path=image_path,
             min_confidence=min_confidence,
         )
 
-        summary = summarize_ocr_text(
+        summary = clean_ocr_text(
             result.get("text", ""),
-            max_chars=max_chars,
         )
 
         if not summary:
             return ""
+        if len(re.sub(r"\W+", "", summary)) < min_chars:
+            return ""
 
-        return f"[Image<{summary}>]"
+        return f"[Image: {summary}]"
 
     except Exception as e:
         # Do not crash image extraction if OCR fails.
-        return f"[Image<OCR unavailable: {e}>]"
-    
-    
-def ocr_pdf_with_rapidocr(
-    pdf_path: str | Path,
-    dpi: int = 150,
-    min_confidence: float = 0.50,
-) -> Dict[str, Any]:
-    """
-    Run OCR on a PDF and return structured OCR output.
+        return f"[Image: OCR unavailable: {e}]"
 
-    This function does NOT embed anything.
-    It only extracts OCR text and metadata so another developer can later
-    connect it to chunking/embedding.
-    """
+
+def read_pdf_image_text(
+    pdf_path: str | Path,
+    min_confidence: float = 0.50,
+    min_width: int = 300,
+    min_height: int = 300,
+) -> Dict[str, Any]:
+    """Return OCR text for images embedded in a PDF."""
     pdf_path = Path(pdf_path)
 
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     if pdf_path.suffix.lower() != ".pdf":
-        raise ValueError(f"RapidOCR PDF route only supports PDFs, got: {pdf_path.suffix}")
+        raise ValueError(
+            f"RapidOCR PDF route only supports PDFs, got: {pdf_path.suffix}"
+        )
 
-    ocr = get_ocr_engine()
     doc = fitz.open(pdf_path)
 
     pages: List[Dict[str, Any]] = []
@@ -175,22 +140,51 @@ def ocr_pdf_with_rapidocr(
     try:
         for page_index in range(len(doc)):
             page = doc[page_index]
+            image_results: List[Dict[str, Any]] = []
 
-            pix = page.get_pixmap(dpi=dpi)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            img_np = np.array(img)
+            for image_index, image_info in enumerate(
+                page.get_images(full=True), start=1
+            ):
+                xref = image_info[0]
+                pix = fitz.Pixmap(doc, xref)
 
-            result = ocr(img_np)
-            lines = _extract_rapidocr_output(result, min_confidence=min_confidence)
+                if pix.width < min_width or pix.height < min_height:
+                    continue
 
-            page_text = "\n".join(line["text"] for line in lines if line.get("text"))
+                if pix.alpha or pix.n > 3:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+
+                mode = "L" if pix.n == 1 else "RGB"
+                img = Image.frombytes(
+                    mode, [pix.width, pix.height], pix.samples
+                ).convert("RGB")
+                img_np = np.array(img)
+
+                result = get_ocr_engine()(img_np)
+                lines = _extract_text_lines(result, min_confidence=min_confidence)
+                image_text = "\n".join(
+                    line["text"] for line in lines if line.get("text")
+                )
+
+                image_results.append(
+                    {
+                        "image_index": image_index,
+                        "text": image_text,
+                        "lines": lines,
+                        "width": pix.width,
+                        "height": pix.height,
+                    }
+                )
+
+            page_text = "\n\n".join(
+                image["text"] for image in image_results if image.get("text")
+            )
 
             pages.append(
                 {
                     "page": page_index + 1,
                     "text": page_text,
-                    "lines": lines,
-                    "dpi": dpi,
+                    "images": image_results,
                     "min_confidence": min_confidence,
                 }
             )
@@ -206,7 +200,6 @@ def ocr_pdf_with_rapidocr(
     return {
         "source": str(pdf_path),
         "engine": "rapidocr",
-        "dpi": dpi,
         "min_confidence": min_confidence,
         "page_count": len(pages),
         "text": combined_text,
