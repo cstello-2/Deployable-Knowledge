@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable
 import inspect, re
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
@@ -9,6 +9,7 @@ from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
 
 import uuid
+ProgressCallback = Callable[[int, int, str], None]
 
 
 def sanitize_metadata_for_chroma(metadata: dict) -> dict:
@@ -134,12 +135,15 @@ class DBManager:
         positions: Optional[List[tuple]] = None,
         page: Optional[List[Optional[int]]] = None,
         metadata: Optional[List[Dict[str, Any]]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> None:
         """Add many text ``segments`` to the collection."""
 
         ids: List[str] = []
         docs: List[str] = []
         metas: List[dict] = []
+        total_segments = len(segments)
+
         for i, segment in enumerate(segments):
             start, end = positions[i] if positions else (-1, -1)
             p = page[i] if page else None
@@ -160,11 +164,18 @@ class DBManager:
             ids.append(_id)
             docs.append(doc)
             metas.append(meta)
-        batch_size = 5000
+        batch_size = 1000
+        completed = 0
         for i in range(0, len(docs), batch_size):
             batch_ids = ids[i : i + batch_size]
             batch_docs = docs[i : i + batch_size]
             batch_metas = metas[i : i + batch_size]
+            if progress_callback:
+                progress_callback(
+                    completed,
+                    total_segments,
+                    f"Embedding chunks for {source}",
+                )
             batch_embeddings = self.embed(batch_docs)
             self.collection.add(
                 ids=batch_ids,
@@ -172,6 +183,14 @@ class DBManager:
                 metadatas=batch_metas,
                 embeddings=batch_embeddings,
             )
+
+            completed += len(batch_docs)
+            if progress_callback:
+                progress_callback(
+                    completed,
+                    total_segments,
+                    f"Embedded {completed}/{total_segments} chunks from {source}"
+                )
 
     def delete_by_source(self, source_name: str, batch_size: int = 500) -> None:
         """Remove all segments originating from ``source_name``."""
@@ -284,7 +303,6 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
         return [{"page": 1, "text": text}]
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
-
 def _db_add_segments_compat(
     db_obj: DBManager,
     segments: List[str],
@@ -293,12 +311,14 @@ def _db_add_segments_compat(
     positions: List[Any],
     pages: List[Optional[int]],
     metadata: List[Dict[str, Any]],
+    progress_callback: Optional[ProgressCallback] = None,
 ):
     """Invoke ``db_obj.add_segments`` handling legacy signatures."""
 
     sig = inspect.signature(db_obj.add_segments)
     params = sig.parameters
     kwargs = dict(segments=segments, source=source, tags=tags)
+
     if "metadata" in params:
         kwargs["metadata"] = metadata
     if "positions" in params:
@@ -307,6 +327,9 @@ def _db_add_segments_compat(
         kwargs["page"] = pages
     elif "pages" in params:
         kwargs["pages"] = pages
+    if "progress_callback" in params:
+        kwargs["progress_callback"] = progress_callback
+
     return db_obj.add_segments(**kwargs)
 
 
@@ -316,12 +339,18 @@ def embed_file(
     tags: Optional[List[str]] = None,
     filter_chunks: bool = True,
     include_image_ocr: bool = True,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> None:
     """Embed a single file into the vector store."""
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
+    source = source_name or file_path.name
+    if progress_callback:
+        progress_callback(0, 100, f"Extracting text from {source}")
     pages_dicts = extract_text(file_path)
+    if progress_callback:
+        progress_callback(10, 100, f"Chunking text from {source}")
     all_chunks: List[Any] = []
 
     # Normal text and table chunks.
@@ -345,6 +374,9 @@ def embed_file(
     # Separate image OCR chunks.
     if include_image_ocr and file_path.suffix.lower() == ".pdf":
         try:
+            if progress_callback:
+                progress_callback(35, 100, f"Running image OCR for {source}")
+
             image_segments = _extract_pdf_image_segments(file_path)
             for image_segment in image_segments:
                 image_text = image_segment.get("text", "")
@@ -395,6 +427,14 @@ def embed_file(
 
         metadata.append(item)
 
+    if not segments:
+        if progress_callback:
+            progress_callback(100, 100, f"No usable chunks found in {source}")
+        return
+
+    if progress_callback:
+        progress_callback(45, 100, f"Preparing {len(segments)} chunks from {source}")
+
     _db_add_segments_compat(
         db_obj=get_db(),
         segments=segments,
@@ -403,7 +443,15 @@ def embed_file(
         positions=positions,
         pages=pages,
         metadata=metadata,
+        progress_callback=lambda current, total, message: progress_callback(
+            current,
+            total,
+            message,
+        ) if progress_callback else None,
     )
+
+    if progress_callback:
+        progress_callback(100, 100, f"Finished embedding {source}")
 
 
 def _exact_query_terms(query: str) -> List[str]:
