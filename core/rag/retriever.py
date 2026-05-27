@@ -2,26 +2,63 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import inspect, re
-import pdfplumber
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
 from core.corpus_registry import get_inactive_sources
-from .embeddings import load_embedding_model
 from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
 
-# --- DB Manager (lightweight wrapper around ChromaDB) ---
-import chromadb
-from chromadb.config import Settings
 import uuid
+
+
+def sanitize_metadata_for_chroma(metadata: dict) -> dict:
+    """
+    Chroma metadata values must be str, int, float, or bool.
+    This removes None values and converts unsupported values to strings.
+    """
+    clean = {}
+
+    for key, value in metadata.items():
+        if value is None:
+            continue
+
+        if isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+            continue
+
+        if isinstance(value, (list, tuple, dict)):
+            clean[key] = str(value)
+            continue
+
+        clean[key] = str(value)
+
+    return clean
+
+
+def _load_embedding_model():
+    from .embeddings import load_embedding_model
+
+    return load_embedding_model()
+
+
+def _extract_pdf_image_segments(file_path: Path) -> List[Dict[str, Any]]:
+    from core.ocr.pdf_image_ocr import extract_pdf_image_segments
+
+    return extract_pdf_image_segments(file_path)
+
 
 class DBManager:
     """Minimal wrapper around ChromaDB providing embedding utilities."""
 
     def __init__(self, persist_dir: str, collection_name: str, model=None):
-        self.client = chromadb.PersistentClient(path=str(persist_dir), settings=Settings(anonymized_telemetry=False))
+        import chromadb
+        from chromadb.config import Settings
+
+        self.client = chromadb.PersistentClient(
+            path=str(persist_dir), settings=Settings(anonymized_telemetry=False)
+        )
         self.collection = self.client.get_or_create_collection(collection_name)
-        self.model = model or load_embedding_model()
+        self.model = model
 
     def clear_collection(self, batch_size: int = 500) -> None:
         """Remove all records from the collection in batches."""
@@ -29,7 +66,7 @@ class DBManager:
         all_ids = self.collection.get()["ids"]
         total = len(all_ids)
         for i in range(0, total, batch_size):
-            batch = all_ids[i:i + batch_size]
+            batch = all_ids[i : i + batch_size]
             self.collection.delete(ids=batch)
 
     def embed(self, docs: List[str], max_batch_tokens: int = 5120):
@@ -38,6 +75,8 @@ class DBManager:
         embeddings: List[List[float]] = []
         current_batch: List[str] = []
         current_tokens = 0
+        if self.model is None:
+            self.model = _load_embedding_model()
         tokenizer = self.model.tokenizer
         for doc in docs:
             tokens = tokenizer.encode(doc, truncation=True, max_length=512)
@@ -57,7 +96,16 @@ class DBManager:
             embeddings.extend(self.model.encode(current_batch))
         return embeddings
 
-    def build_entry(self, segment_text: str, segment_index: int, source: str, tags: Optional[List[str]] = None, start: Optional[int] = None, end: Optional[int] = None):
+    def build_entry(
+        self,
+        segment_text: str,
+        segment_index: int,
+        source: str,
+        tags: Optional[List[str]] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ):
         """Build the ID, document and metadata tuple for a segment."""
 
         segment_uuid = str(uuid.uuid4())
@@ -71,51 +119,86 @@ class DBManager:
         if start is not None and end is not None:
             metadata["start_char"] = start
             metadata["end_char"] = end
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        metadata = sanitize_metadata_for_chroma(metadata)
         return segment_uuid, segment_text, metadata
 
-    def add_segments(self, segments: List[str], source: str, tags: Optional[List[str]] = None, positions: Optional[List[tuple]] = None, page: Optional[List[Optional[int]]] = None) -> None:
+    def add_segments(
+        self,
+        segments: List[str],
+        source: str,
+        tags: Optional[List[str]] = None,
+        positions: Optional[List[tuple]] = None,
+        page: Optional[List[Optional[int]]] = None,
+        metadata: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         """Add many text ``segments`` to the collection."""
 
         ids: List[str] = []
         docs: List[str] = []
         metas: List[dict] = []
         for i, segment in enumerate(segments):
-            start, end = (positions[i] if positions else (-1, -1))
+            start, end = positions[i] if positions else (-1, -1)
             p = page[i] if page else None
-            _id, doc, meta = self.build_entry(segment, i, source, tags, start, end)
+            extra_meta = metadata[i] if metadata and i < len(metadata) else {}
             if p is not None:
-                meta["page"] = p
+                extra_meta = dict(extra_meta)
+                extra_meta["page"] = p
+            _id, doc, meta = self.build_entry(
+                segment_text=segment,
+                segment_index=i,
+                source=source,
+                tags=tags,
+                start=start,
+                end=end,
+                extra_metadata=extra_meta,
+            )
+
             ids.append(_id)
             docs.append(doc)
             metas.append(meta)
         batch_size = 5000
         for i in range(0, len(docs), batch_size):
-            batch_ids = ids[i:i + batch_size]
-            batch_docs = docs[i:i + batch_size]
-            batch_metas = metas[i:i + batch_size]
+            batch_ids = ids[i : i + batch_size]
+            batch_docs = docs[i : i + batch_size]
+            batch_metas = metas[i : i + batch_size]
             batch_embeddings = self.embed(batch_docs)
-            self.collection.add(ids=batch_ids, documents=batch_docs, metadatas=batch_metas, embeddings=batch_embeddings)
+            self.collection.add(
+                ids=batch_ids,
+                documents=batch_docs,
+                metadatas=batch_metas,
+                embeddings=batch_embeddings,
+            )
 
     def delete_by_source(self, source_name: str, batch_size: int = 500) -> None:
         """Remove all segments originating from ``source_name``."""
 
         all_data = self.collection.get(include=["metadatas"])
-        to_delete = [id_ for id_, meta in zip(all_data["ids"], all_data["metadatas"]) if meta.get("source") == source_name]
+        to_delete = [
+            id_
+            for id_, meta in zip(all_data["ids"], all_data["metadatas"])
+            if meta.get("source") == source_name
+        ]
         for i in range(0, len(to_delete), batch_size):
-            batch = to_delete[i:i + batch_size]
+            batch = to_delete[i : i + batch_size]
             self.collection.delete(ids=batch)
+
 
 # --- Lazy loader ---
 _db: Optional[DBManager] = None
+
 
 def get_db() -> DBManager:
     """Return a singleton instance of :class:`DBManager`."""
 
     global _db
     if _db is None:
-        model = load_embedding_model()
-        _db = DBManager(persist_dir=CHROMA_DB_DIR, collection_name=COLLECTION_NAME, model=model)
+        _db = DBManager(persist_dir=CHROMA_DB_DIR, collection_name=COLLECTION_NAME)
     return _db
+
 
 class LazyDB:
     """Proxy object lazily instantiating :class:`DBManager` on access."""
@@ -123,30 +206,66 @@ class LazyDB:
     def __getattr__(self, name):
         return getattr(get_db(), name)
 
+
 db = LazyDB()
 
 # --- Chunking helpers from embedding_and_storing ---
+
 
 def chunk_text(text: str) -> List[Any]:
     """Split ``text`` into ranked chunks for ingestion."""
 
     return pagerank_chunk_text(text, model=get_db().model, sim_threshold=0.7)
 
+
+def is_table_chunk(text: str) -> bool:
+    return text.lstrip().startswith("[Table:")
+
+
+def extract_table_chunks(text: str) -> List[Any]:
+    """Return inline table markers as standalone chunks."""
+
+    chunks = []
+    for idx, match in enumerate(re.finditer(r"\[Table: .*?\]", text, flags=re.DOTALL)):
+        chunks.append(
+            (
+                match.group(0),
+                {
+                    "chunk_idx": idx,
+                    "char_range": match.span(),
+                    "num_sentences": 1,
+                    "table": True,
+                },
+            )
+        )
+    return chunks
+
+
 def is_all_caps(text: str, threshold: float = 0.8) -> bool:
     """Heuristic to filter shouty text segments."""
 
-    cleaned = re.sub(r'[\W\d_]+', '', text)
+    cleaned = re.sub(r"[\W\d_]+", "", text)
     if not cleaned:
         return False
     upper_count = sum(1 for c in cleaned if c.isupper())
     return (upper_count / len(cleaned)) >= threshold
 
+
 def has_repeated_substring(text: str, patterns: Optional[List[str]] = None) -> bool:
     """Detect visually noisy substrings such as ellipses or dashes."""
 
-    chars = re.sub(r'\s+', '', text)
-    patterns = patterns or [r'\.{3,}', r'-{3,}', r'_{3,}']
+    chars = re.sub(r"\s+", "", text)
+    patterns = patterns or [r"\.{3,}", r"-{3,}", r"_{3,}"]
     return any(re.search(p, chars) for p in patterns)
+
+
+def keep_chunk(chunk: str, filter_chunks: bool) -> bool:
+    if is_table_chunk(chunk):
+        return True
+    if filter_chunks and (is_all_caps(chunk) or has_repeated_substring(chunk)):
+        return False
+    return len(chunk.split()) >= 5
+
 
 def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     """Extract raw text and page numbers from ``file_path``."""
@@ -155,21 +274,9 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     if suffix == ".pdf":
         parsed = parse_pdf(str(file_path))
         if isinstance(parsed, list):
-            if any((page.get("text") or "").strip() for page in parsed):
-                return parsed
-            with pdfplumber.open(file_path) as pdf:
-                return [
-                    {"page": idx + 1, "text": page.extract_text() or ""}
-                    for idx, page in enumerate(pdf.pages)
-                ]
+            return parsed
         elif isinstance(parsed, str):
-            if parsed.strip():
-                return [{"page": 1, "text": parsed}]
-            with pdfplumber.open(file_path) as pdf:
-                return [
-                    {"page": idx + 1, "text": page.extract_text() or ""}
-                    for idx, page in enumerate(pdf.pages)
-                ]
+            return [{"page": 1, "text": parsed}]
         else:
             raise TypeError(f"parse_pdf returned unexpected type: {type(parsed)}")
     if suffix == ".txt":
@@ -177,7 +284,16 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
         return [{"page": 1, "text": text}]
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
-def _db_add_segments_compat(db_obj: DBManager, segments: List[str], source: str, tags: List[str], positions: List[Any], pages: List[Optional[int]], metadata: List[Dict[str, Any]]):
+
+def _db_add_segments_compat(
+    db_obj: DBManager,
+    segments: List[str],
+    source: str,
+    tags: List[str],
+    positions: List[Any],
+    pages: List[Optional[int]],
+    metadata: List[Dict[str, Any]],
+):
     """Invoke ``db_obj.add_segments`` handling legacy signatures."""
 
     sig = inspect.signature(db_obj.add_segments)
@@ -185,44 +301,100 @@ def _db_add_segments_compat(db_obj: DBManager, segments: List[str], source: str,
     kwargs = dict(segments=segments, source=source, tags=tags)
     if "metadata" in params:
         kwargs["metadata"] = metadata
-    else:
-        if "positions" in params:
-            kwargs["positions"] = positions
-        if "page" in params:
-            kwargs["page"] = pages
-        elif "pages" in params:
-            kwargs["pages"] = pages
+    if "positions" in params:
+        kwargs["positions"] = positions
+    if "page" in params:
+        kwargs["page"] = pages
+    elif "pages" in params:
+        kwargs["pages"] = pages
     return db_obj.add_segments(**kwargs)
 
-def embed_file(file_path: Path, source_name: Optional[str] = None, tags: Optional[List[str]] = None, filter_chunks: bool = True) -> None:
+
+def embed_file(
+    file_path: Path,
+    source_name: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    filter_chunks: bool = True,
+    include_image_ocr: bool = True,
+) -> None:
     """Embed a single file into the vector store."""
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
     pages_dicts = extract_text(file_path)
     all_chunks: List[Any] = []
+
+    # Normal text and table chunks.
     for page in pages_dicts:
         page_num = page.get("page") or 1
         page_text = page.get("text", "")
-        chunks_with_meta = chunk_text(page_text)
+        chunks_with_meta = chunk_text(page_text) + extract_table_chunks(page_text)
+        seen_page_chunks = set()
         for chunk_text_, meta in chunks_with_meta:
+            if chunk_text_ in seen_page_chunks:
+                continue
+            seen_page_chunks.add(chunk_text_)
             meta["page"] = page_num
+            meta["content_type"] = "table" if meta.get("table") else "text"
             all_chunks.append((chunk_text_, meta))
-    if filter_chunks:
-        all_chunks = [
-            (chunk, meta) for chunk, meta in all_chunks
-            if not is_all_caps(chunk) and not has_repeated_substring(chunk)
-        ]
+
     all_chunks = [
-        (chunk, meta) for chunk, meta in all_chunks if len(chunk.split()) >= 5
+        (chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)
     ]
+
+    # Separate image OCR chunks.
+    if include_image_ocr and file_path.suffix.lower() == ".pdf":
+        try:
+            image_segments = _extract_pdf_image_segments(file_path)
+            for image_segment in image_segments:
+                image_text = image_segment.get("text", "")
+                if not image_text.strip():
+                    continue
+
+                image_meta = {
+                    "page": image_segment.get("page"),
+                    "content_type": image_segment.get("content_type", "image_ocr"),
+                    "image_index": image_segment.get("image_index"),
+                    "source_file": image_segment.get("source_file"),
+                }
+                all_chunks.append((image_text, image_meta))
+        except Exception as e:
+            print(f"[WARN] Image OCR failed for {file_path}: {e}")
+
     segments = [chunk for chunk, _ in all_chunks]
-    positions = [meta.get("char_range", (None, None)) for _, meta in all_chunks]
+    positions = []
+    for _, meta in all_chunks:
+        char_range = meta.get("char_range")
+
+        if isinstance(char_range, tuple) and len(char_range) == 2:
+            positions.append(char_range)
+        else:
+            positions.append((-1, -1))
+
     pages = [meta.get("page") for _, meta in all_chunks]
-    metadata = [
-        {"char_range": meta.get("char_range"), "page": meta.get("page")}
-        for _, meta in all_chunks
-    ]
+    metadata = []
+    for _, meta in all_chunks:
+        item = {
+            "content_type": meta.get("content_type", "text"),
+        }
+        if meta.get("page") is not None:
+            item["page"] = meta.get("page")
+        if meta.get("image_index") is not None:
+            item["image_index"] = meta.get("image_index")
+        if meta.get("source_file") is not None:
+            item["source_file"] = meta.get("source_file")
+        if meta.get("table") is not None:
+            item["table"] = meta.get("table")
+        char_range = meta.get("char_range")
+        if isinstance(char_range, tuple) and len(char_range) == 2:
+            start_char, end_char = char_range
+            if start_char is not None:
+                item["start_char"] = start_char
+            if end_char is not None:
+                item["end_char"] = end_char
+
+        metadata.append(item)
+
     _db_add_segments_compat(
         db_obj=get_db(),
         segments=segments,
@@ -233,7 +405,155 @@ def embed_file(file_path: Path, source_name: Optional[str] = None, tags: Optiona
         metadata=metadata,
     )
 
-def embed_directory(data_dir: str, clear_collection: bool = False, default_tags: Optional[List[str]] = None, filter_chunks: bool = False) -> None:
+
+def _exact_query_terms(query: str) -> List[str]:
+    return [
+        term
+        for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9-]{4,}[A-Za-z0-9]", query)
+        if any(char.isdigit() for char in term)
+    ]
+
+
+def _exact_search(
+    query: str, top_k: int, exclude_sources: Optional[set] = None
+) -> List[Dict]:
+    terms = [term.lower() for term in _exact_query_terms(query)]
+    if not terms:
+        return []
+
+    merged_exclude = set(exclude_sources or [])
+    merged_exclude.update(get_inactive_sources())
+    data = get_db().collection.get(include=["documents", "metadatas"])
+    documents = data.get("documents", []) or []
+    metadatas = data.get("metadatas", []) or []
+    ids = data.get("ids", []) or []
+    matches = []
+    for doc, meta, seg_id in zip(documents, metadatas, ids):
+        src = meta.get("source", "unknown")
+        if src in merged_exclude:
+            continue
+        text = doc or ""
+        lowered = text.lower()
+        if not all(term in lowered for term in terms):
+            continue
+        matches.append(
+            {
+                "text": text.strip().replace("\n", " "),
+                "source": src,
+                "score": 1.0,
+                "page": meta.get("page", None),
+                "content_type": meta.get("content_type", "text"),
+                "image_index": meta.get("image_index", None),
+                "segment_id": seg_id,
+            }
+        )
+        if len(matches) >= top_k:
+            break
+    return matches
+
+
+def _normalize_for_lexical_search(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _lexical_query_terms(query: str) -> List[str]:
+    stopwords = {
+        "about",
+        "also",
+        "and",
+        "are",
+        "can",
+        "for",
+        "from",
+        "get",
+        "give",
+        "into",
+        "that",
+        "the",
+        "this",
+        "with",
+        "you",
+    }
+    terms = []
+    seen = set()
+    for term in _normalize_for_lexical_search(query).split():
+        if term in stopwords:
+            continue
+        if len(term) < 3 and not term.isdigit():
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def _result_from_doc(
+    doc: str, meta: Dict[str, Any], seg_id: Optional[str], score: Optional[float]
+) -> Dict:
+    return {
+        "text": doc.strip().replace("\n", " "),
+        "source": meta.get("source", "unknown"),
+        "score": score,
+        "page": meta.get("page", None),
+        "content_type": meta.get("content_type", "text"),
+        "image_index": meta.get("image_index", None),
+        "segment_id": seg_id,
+    }
+
+
+def _lexical_search(
+    query: str, top_k: int, exclude_sources: Optional[set] = None
+) -> List[Dict]:
+    terms = _lexical_query_terms(query)
+    if not terms:
+        return []
+
+    merged_exclude = set(exclude_sources or [])
+    merged_exclude.update(get_inactive_sources())
+    query_text = " ".join(terms)
+    min_matches = min(2, len(terms))
+
+    data = get_db().collection.get(include=["documents", "metadatas"])
+    documents = data.get("documents", []) or []
+    metadatas = data.get("metadatas", []) or []
+    ids = data.get("ids", []) or []
+    matches: List[tuple[float, Dict]] = []
+
+    for doc, meta, seg_id in zip(documents, metadatas, ids):
+        src = meta.get("source", "unknown")
+        if src in merged_exclude:
+            continue
+
+        text = doc or ""
+        normalized = _normalize_for_lexical_search(text)
+        if not normalized:
+            continue
+
+        term_hits = [
+            term for term in terms if re.search(rf"\b{re.escape(term)}\b", normalized)
+        ]
+        if len(term_hits) < min_matches:
+            continue
+
+        weighted_hits = sum(1.5 if term.isdigit() else 1.0 for term in term_hits)
+        coverage = len(term_hits) / len(terms)
+        phrase_bonus = 1.0 if query_text in normalized else 0.0
+        image_bonus = 0.35 if meta.get("content_type") == "image_ocr" else 0.0
+        score = weighted_hits + coverage + phrase_bonus + image_bonus
+
+        matches.append((score, _result_from_doc(text, meta, seg_id, score)))
+
+    matches.sort(key=lambda item: (-item[0], item[1].get("page") or 0))
+    return [item for _, item in matches[:top_k]]
+
+
+def embed_directory(
+    data_dir: str,
+    clear_collection: bool = False,
+    default_tags: Optional[List[str]] = None,
+    filter_chunks: bool = False,
+) -> None:
     """Embed all supported files under ``data_dir``."""
 
     data_path = Path(data_dir)
@@ -244,13 +564,24 @@ def embed_directory(data_dir: str, clear_collection: bool = False, default_tags:
     for file_path in data_path.iterdir():
         if file_path.suffix.lower() not in {".txt", ".pdf"}:
             continue
-        embed_file(file_path=file_path, source_name=file_path.name, tags=default_tags or ["embedded"], filter_chunks=filter_chunks)
+        embed_file(
+            file_path=file_path,
+            source_name=file_path.name,
+            tags=default_tags or ["embedded"],
+            filter_chunks=filter_chunks,
+            include_image_ocr=True,
+        )
 
-def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) -> List[Dict]:
+
+def search(
+    query: str, top_k: int = 5, exclude_sources: Optional[set] = None
+) -> List[Dict]:
     """Perform a vector similarity search over embedded segments."""
 
     if top_k <= 0:
         return []
+    exact_matches = _exact_search(query, top_k, exclude_sources)
+    lexical_matches = _lexical_search(query, top_k, exclude_sources)
     embedding = get_db().embed([query])[0]
     results = get_db().collection.query(query_embeddings=[embedding], n_results=top_k)
     documents = results.get("documents", [[]])[0]
@@ -274,14 +605,29 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
         rows.append(
             (
                 d,
-                {
-                    "text": doc.strip().replace("\n", " "),
-                    "source": src,
-                    "score": sim,
-                    "page": meta.get("page", None),
-                    "segment_id": seg_id,
-                },
+                _result_from_doc(doc, meta, seg_id, sim),
             )
         )
     rows.sort(key=lambda t: t[0])
-    return [item for _, item in rows]
+    vector_matches = [item for _, item in rows]
+    seen = {item.get("segment_id") for item in exact_matches if item.get("segment_id")}
+    merged = list(exact_matches)
+    for item in lexical_matches:
+        segment_id = item.get("segment_id")
+        if segment_id and segment_id in seen:
+            continue
+        merged.append(item)
+        if segment_id:
+            seen.add(segment_id)
+        if len(merged) >= top_k:
+            break
+    for item in vector_matches:
+        segment_id = item.get("segment_id")
+        if segment_id and segment_id in seen:
+            continue
+        merged.append(item)
+        if segment_id:
+            seen.add(segment_id)
+        if len(merged) >= top_k:
+            break
+    return merged[:top_k]
