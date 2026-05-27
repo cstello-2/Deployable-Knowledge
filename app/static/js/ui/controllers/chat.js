@@ -29,20 +29,36 @@ export function initChatController() {
     log.scrollTop = log.scrollHeight;
   };
 
-  /** @returns {{ wrap: HTMLDivElement, mdEl: HTMLDivElement, citeEl: HTMLDivElement }} */
+  /** @returns {{ wrap: HTMLDivElement, mdEl: HTMLDivElement, citeEl: HTMLDivElement, clearPending: () => void }} */
   const pushAssistantBubble = () => {
     const wrap = document.createElement("div");
     wrap.className = "msg assistant";
     const mdEl = document.createElement("div");
-    mdEl.className = "msg-md";
-    mdEl.innerHTML = "…";
+    mdEl.className = "msg-md msg-pending";
+    mdEl.setAttribute("role", "status");
+    mdEl.setAttribute("aria-live", "polite");
+    mdEl.innerHTML = `
+      <span class="typing-indicator" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </span>
+      <span class="typing-text">Generating response...</span>
+    `;
     const citeEl = document.createElement("div");
     citeEl.className = "msg-citations";
     citeEl.hidden = true;
     wrap.append(mdEl, citeEl);
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
-    return { wrap, mdEl, citeEl };
+    return {
+      wrap,
+      mdEl,
+      citeEl,
+      clearPending() {
+        mdEl.classList.remove("msg-pending");
+        mdEl.removeAttribute("role");
+        mdEl.removeAttribute("aria-live");
+      },
+    };
   };
 
   let aborter = null;
@@ -70,10 +86,13 @@ export function initChatController() {
           signal: aborter.signal,
           onDelta(delta) {
             buf += delta;
+            bubble.clearPending();
             bubble.mdEl.innerHTML = md(buf);
             log.scrollTop = log.scrollHeight;
           },
           onDone(data) {
+            bubble.clearPending();
+            if (!buf) bubble.mdEl.innerHTML = md("(no response)");
             if (data?.sources) {
               showContext(data.sources, text);
               renderChatCitations(bubble.citeEl, data.sources, { maxItems: 3 });
@@ -81,12 +100,17 @@ export function initChatController() {
           },
           onError(data) {
             const msg = data?.error || "Stream failed";
+            bubble.clearPending();
             bubble.mdEl.innerHTML = `<em>Error:</em> ${escapeHtml(msg)}`;
           },
         }
       );
     } catch (e) {
-      if (e.name === "AbortError") return;
+      if (e.name === "AbortError") {
+        bubble.clearPending();
+        if (!buf) bubble.wrap.remove();
+        return;
+      }
       try {
         const res = await api.chat({
           message: text,
@@ -94,12 +118,14 @@ export function initChatController() {
           inactive: Store.inactiveList(),
           persona: Store.persona,
         });
+        bubble.clearPending();
         bubble.mdEl.innerHTML = md(res.response ?? "(no response)");
         if (res.context) {
           showContext(res.context, text);
           renderChatCitations(bubble.citeEl, res.context, { maxItems: 3 });
         }
       } catch (e2) {
+        bubble.clearPending();
         bubble.mdEl.innerHTML = `<em>Error:</em> ${escapeHtml(e2.message)}`;
       }
     }
