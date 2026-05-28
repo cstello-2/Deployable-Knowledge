@@ -56,6 +56,24 @@ async def post_add_folder(body: FolderBody):
         "watcher": watch_result,
     }
 
+@router.post("/start-sync")
+async def post_start_sync_folder(body: FolderBody):
+    if not body.path.strip():
+        raise HTTPException(status_code=400, detail="No folder path provided")
+
+    try:
+        result = await asyncio.to_thread(add_folder, body.path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    sync_result = await asyncio.to_thread(sync_folder, result["folder"])
+    watch_result = await restart_folder_watcher()
+
+    return {
+        **result,
+        "sync": sync_result,
+        "watcher": watch_result,
+    }
 
 @router.post("/sync")
 async def post_sync_folders(body: SyncFolderBody):

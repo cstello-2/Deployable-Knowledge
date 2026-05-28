@@ -18,7 +18,7 @@ FOLDER_SYNC_EXTENSIONS = {".pdf"}
 
 
 def default_registry() -> Dict[str, Any]:
-    return {"folders": [], "files": {}}
+    return {"folders": [], "files": {}, "ignored_files": {}}
 
 
 def load_raw() -> Dict[str, Any]:
@@ -36,6 +36,7 @@ def load_raw() -> Dict[str, Any]:
 
     data.setdefault("folders", [])
     data.setdefault("files", {})
+    data.setdefault("ignored_files", {})
     return data
 
 
@@ -55,6 +56,25 @@ def supported_file(path: Path) -> bool:
         and path.suffix.lower() in FOLDER_SYNC_EXTENSIONS
     )
 
+def file_signature(path: Path) -> Dict[str, int]:
+    """
+    Return a cheap signature for detecting whether a synced file changed.
+
+    st_mtime_ns tracks the file's last modification time.
+    st_size catches cases where the content size changed.
+    """
+    stat = path.stat()
+    return {
+        "mtime_ns": stat.st_mtime_ns,
+        "size": stat.st_size,
+    }
+
+
+def signatures_match(previous: Dict[str, Any], current: Dict[str, int]) -> bool:
+    return (
+        previous.get("mtime_ns") == current.get("mtime_ns")
+        and previous.get("size") == current.get("size")
+    )
 
 def safe_part(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", text)
@@ -87,6 +107,42 @@ def remove_synced_source(source_name: str) -> None:
     db.delete_by_source(source_name)
     registry_remove_source(source_name)
     (UPLOAD_DIR / source_name).unlink(missing_ok=True)
+
+
+def forget_synced_source(source_name: str, mark_ignored: bool = True) -> Dict[str, Any]:
+    """
+    Used when a synced document is manually removed from the document library.
+
+    This removes the current synced-file registry entry and optionally marks the
+    original folder file as ignored so the watcher does not immediately re-add it.
+    """
+    ignored_paths: List[str] = []
+
+    with registry_lock:
+        data = load_raw()
+        files = data.setdefault("files", {})
+        ignored_files = data.setdefault("ignored_files", {})
+
+        for source_path, meta in list(files.items()):
+            if meta.get("source_name") != source_name:
+                continue
+
+            if mark_ignored:
+                ignored_files[source_path] = {
+                    "folder": meta.get("folder"),
+                    "source_name": source_name,
+                    "reason": "manually_removed_from_library",
+                }
+                ignored_paths.append(source_path)
+
+            files.pop(source_path, None)
+
+        save_raw(data)
+
+    return {
+        "source_name": source_name,
+        "ignored_paths": ignored_paths,
+    }
 
 
 def chroma_sources() -> set[str]:
@@ -166,31 +222,36 @@ def remove_folder(path: str, remove_synced_documents: bool = False) -> Dict[str,
     folder_str = str(Path(path).expanduser().resolve())
     removed_sources: List[str] = []
 
-    with sync_lock:
-        with registry_lock:
-            data = load_raw()
-            data["folders"] = [f for f in data.get("folders", []) if f != folder_str]
+    with registry_lock:
+        data = load_raw()
+        data["folders"] = [f for f in data.get("folders", []) if f != folder_str]
 
-            if remove_synced_documents:
-                files = data.get("files", {})
-                for source_path, meta in list(files.items()):
-                    if meta.get("folder") == folder_str:
-                        source_name = meta.get("source_name")
-                        if source_name:
-                            removed_sources.append(source_name)
-                        files.pop(source_path, None)
+        files = data.setdefault("files", {})
+        ignored_files = data.setdefault("ignored_files", {})
 
-            save_raw(data)
+        # Remove ignored/tombstoned records for this folder too.
+        for source_path, meta in list(ignored_files.items()):
+            if meta.get("folder") == folder_str:
+                ignored_files.pop(source_path, None)
 
-        for source_name in removed_sources:
-            remove_synced_source(source_name)
+        if remove_synced_documents:
+            for source_path, meta in list(files.items()):
+                if meta.get("folder") == folder_str:
+                    source_name = meta.get("source_name")
+                    if source_name:
+                        removed_sources.append(source_name)
+                    files.pop(source_path, None)
+
+        save_raw(data)
+
+    for source_name in removed_sources:
+        remove_synced_source(source_name)
 
     return {
         "status": "ok",
         "removed_folder": folder_str,
         "removed_documents": removed_sources,
     }
-
 
 def empty_sync_result() -> Dict[str, Any]:
     return {
@@ -211,6 +272,7 @@ def sync_folder_into_registry(
     folder_str: str,
     file_registry: Dict[str, Any],
     existing_sources: set[str],
+    ignored_files: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
     result = empty_sync_result()
     folder = Path(folder_str).expanduser().resolve()
@@ -219,18 +281,25 @@ def sync_folder_into_registry(
         return result
 
     current_source_paths = set()
+    ignored_files = ignored_files or {}
 
     for source_path in sorted(folder.rglob("*"), key=lambda p: str(p).lower()):
         if not supported_file(source_path):
             continue
-
-        source_path = source_path.resolve()
+        try:
+            source_path = source_path.resolve()
+            current_signature = file_signature(source_path)
+        except OSError as e:
+            result["skipped"].append({"file": str(source_path), "reason": str(e)})
+            continue
         source_path_str = str(source_path)
         current_source_paths.add(source_path_str)
-
+        if source_path_str in ignored_files:
+            continue
         previous = file_registry.get(source_path_str)
         previous_source_name = previous.get("source_name") if previous else None
         reserved_sources = set(existing_sources)
+        was_update = previous is not None
         if previous_source_name:
             reserved_sources.discard(previous_source_name)
         source_name = unique_source_name(source_path, reserved_sources)
@@ -240,12 +309,14 @@ def sync_folder_into_registry(
                 UPLOAD_DIR / previous_source_name if previous_source_name else None
             )
 
-            if (
+            file_is_unchanged = (
                 previous_source_name == source_name
                 and source_name in existing_sources
                 and destination
                 and destination.exists()
-            ):
+                and signatures_match(previous, current_signature)
+            )
+            if file_is_unchanged:
                 continue
             if previous_source_name:
                 remove_synced_source(previous_source_name)
@@ -275,8 +346,14 @@ def sync_folder_into_registry(
         file_registry[source_path_str] = {
             "folder": str(folder),
             "source_name": source_name,
+            **current_signature,
         }
-        result["added"].append(source_name)
+
+        if was_update:
+            result["updated"].append(source_name)
+        else:
+            result["added"].append(source_name)
+        
         existing_sources.add(source_name)
 
     for source_path, meta in list(file_registry.items()):
@@ -295,15 +372,21 @@ def sync_folder_into_registry(
     return result
 
 
-def sync_folder(path: str) -> Dict[str, Any]:
+def sync_folder(path: str, restore_ignored: bool = False) -> Dict[str, Any]:
+    folder_str = str(Path(path).expanduser().resolve())
+
+    if restore_ignored:
+        clear_ignored_files_for_folder(folder_str)
+
     with sync_lock:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
         with registry_lock:
             data = load_raw()
             file_registry = dict(data.get("files") or {})
+            ignored_files = dict(data.get("ignored_files") or {})
 
-        result = sync_folder_into_registry(path, file_registry, chroma_sources())
+        result = sync_folder_into_registry(path, file_registry, chroma_sources(), ignored_files)
 
         with registry_lock:
             data = load_raw()
@@ -321,13 +404,14 @@ def sync_all_folders() -> Dict[str, Any]:
             data = load_raw()
             folder_paths = list(data.get("folders") or [])
             file_registry = dict(data.get("files") or {})
+            ignored_files = dict(data.get("ignored_files") or {})
 
         result = empty_sync_result()
         existing_sources = chroma_sources()
         for folder_str in folder_paths:
             merge_sync_result(
                 result,
-                sync_folder_into_registry(folder_str, file_registry, existing_sources),
+                sync_folder_into_registry(folder_str, file_registry, existing_sources, ignored_files),
             )
 
         with registry_lock:
@@ -336,3 +420,30 @@ def sync_all_folders() -> Dict[str, Any]:
             save_raw(data)
 
         return result
+
+def clear_ignored_files_for_folder(folder_str: str) -> Dict[str, Any]:
+    """
+    Clears ignored/tombstoned files for a folder.
+
+    This is used when the user manually clicks sync on a folder and wants files
+    from that folder to be eligible for syncing again.
+    """
+    folder_str = str(Path(folder_str).expanduser().resolve())
+    restored_paths: List[str] = []
+
+    with registry_lock:
+        data = load_raw()
+        ignored_files = data.setdefault("ignored_files", {})
+
+        for source_path, meta in list(ignored_files.items()):
+            if meta.get("folder") == folder_str:
+                restored_paths.append(source_path)
+                ignored_files.pop(source_path, None)
+
+        save_raw(data)
+
+    return {
+        "folder": folder_str,
+        "restored_paths": restored_paths,
+        "restored_count": len(restored_paths),
+    }

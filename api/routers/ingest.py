@@ -6,6 +6,7 @@ from typing import List
 
 from core.rag.retriever import db, embed_directory, embed_file
 from core.corpus_registry import remove_source as registry_remove_source
+from core.folder_sync import forget_synced_source
 from core.rag.chunking import parse_pdf
 from api.utils import sanitize_filename
 from config import UPLOAD_DIR, PDF_DIR, ALLOWED_DOCUMENT_EXTENSIONS
@@ -48,12 +49,23 @@ async def remove_document(source: str = Form(...)):
     """Remove a document and its embeddings from the store."""
     try:
         safe_name = sanitize_filename(source)
+
+        # If this document came from a synced folder, remember that the user
+        # manually removed it so the folder watcher does not re-add it later.
+        forget_info = forget_synced_source(safe_name, mark_ignored=True)
+
         db.delete_by_source(safe_name)
         registry_remove_source(safe_name)
+
         file_path = UPLOAD_DIR / safe_name
         if file_path.exists():
             os.remove(file_path)
-        return JSONResponse({"status": "success", "message": f"{safe_name} removed."})
+
+        return JSONResponse({
+            "status": "success",
+            "message": f"{safe_name} removed.",
+            "folder_sync": forget_info,
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
