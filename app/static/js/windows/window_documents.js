@@ -17,7 +17,7 @@ export function render(config, winId) {
   syncSection.append(syncLabel, syncControls, syncFolderStatus);
 
   const chooseBtn = el("button", { class: "btn", type: "button", id: `${id}-choose-btn` }, ["Choose Files"]);
-  const upBtn = el("button", { class: "btn", type: "button", id: `${id}-upload-btn` }, ["Upload"]);
+  const upBtn = el("button", { class: "btn", type: "button", id: `${id}-upload-btn` }, ["Embed"]);
   const uploadCount = el("span", { class: "li-subtle", id: `${id}-upload-count` }, ["0 files selected"]);
   const uploadControls = el("div", { class: "docs-upload-controls" });
   uploadControls.append(chooseBtn, upBtn, uploadCount);

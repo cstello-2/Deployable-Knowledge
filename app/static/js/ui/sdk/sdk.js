@@ -115,6 +115,86 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
+  async startUploadJob() {
+    const res = await fetch("/upload/start", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: "{}",
+    });
+
+    return asJsonSafe(await ok(res));
+  }
+
+  uploadDocumentsWithProgress(files, jobId, { onUploadProgress } = {}) {
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+
+      for (const file of files) {
+        fd.append("files", file);
+      }
+
+      const xhr = new XMLHttpRequest();
+
+      xhr.open("POST", `/upload-progress/${encodeURIComponent(jobId)}`, true);
+      xhr.responseType = "text";
+      xhr.withCredentials = true;
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+
+        if (onUploadProgress) {
+          onUploadProgress({
+            current: event.loaded,
+            total: event.total,
+            percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0,
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        const fakeResponse = {
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: {
+            get(name) {
+              if (String(name).toLowerCase() === "content-type") {
+                return xhr.getResponseHeader("content-type") || "";
+              }
+              return xhr.getResponseHeader(name);
+            },
+          },
+          async text() {
+            return xhr.responseText || "";
+          },
+        };
+
+        if (!fakeResponse.ok) {
+          asJsonSafe(fakeResponse)
+            .then((data) => {
+              const detail = typeof data?.detail === "string" ? data.detail : data?.response;
+              reject(new Error(detail || `${xhr.status} ${xhr.statusText}`));
+            })
+            .catch(() => reject(new Error(`${xhr.status} ${xhr.statusText}`)));
+          return;
+        }
+
+        asJsonSafe(fakeResponse).then(resolve).catch(reject);
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Upload failed because the network request failed."));
+      };
+
+      xhr.onabort = () => {
+        reject(new Error("Upload was canceled."));
+      };
+
+      xhr.send(fd);
+    });
+  }
+
   async listDirectory(path = "") {
     const relPath = String(path || "").replace(/^\/+|\/+$/g, "");
     const url = relPath
@@ -149,6 +229,28 @@ export class DKClient {
       credentials: "same-origin",
       body: JSON.stringify({ path }),
     });
+    return asJsonSafe(await ok(res));
+  }
+  async startFolderSync(path, registerFolder = false) {
+    const res = await fetch("/folders/start-sync", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({
+        path,
+        register_folder: registerFolder,
+      }),
+    });
+
+    return asJsonSafe(await ok(res));
+  }
+
+  async getProgress(jobId) {
+    const res = await fetch(`/progress/${encodeURIComponent(jobId)}`, {
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    });
+
     return asJsonSafe(await ok(res));
   }
 
