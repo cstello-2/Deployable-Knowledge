@@ -12,11 +12,11 @@ class OllamaLLM(BaseLLM):
     def __init__(self, model: str | None = None, **kwargs: Any) -> None:
         super().__init__(model or OLLAMA_MODEL)
 
-    def list_models(self, refresh: bool = False, **kwargs: Any) -> list[ModelInfo]:
+    def list_models(self, refresh: bool = True, **kwargs: Any) -> list[ModelInfo]:
         if not refresh:
             return super().list_models(refresh=refresh, **kwargs)
 
-        timeout = kwargs.get("timeout", 2)
+        timeout = kwargs.get("timeout", 0.75)
         try:
             resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=timeout)
             resp.raise_for_status()

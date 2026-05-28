@@ -8,6 +8,7 @@ from config import (
     MODEL_DIR,
 )
 from core.llm import list_model_providers as provider_model_list
+from core.llm.ollama_llm import OllamaLLM
 from core.settings import (
     UserSettings,
     load_settings,
@@ -75,4 +76,15 @@ def list_model_providers(refresh: bool = False):
         ],
         "embedding_model_id": EMBEDDING_MODEL_ID,
         "embedding_model_path": str(MODEL_DIR),
+    }
+
+
+@router.get("/ollama-models")
+def list_ollama_models():
+    """List locally available Ollama model IDs."""
+
+    return {
+        "models": [
+            model.id for model in OllamaLLM().list_models(refresh=True)
+        ]
     }

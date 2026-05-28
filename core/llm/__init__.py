@@ -22,7 +22,7 @@ def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
         ProviderInfo(
             id="ollama",
             label="Ollama",
-            models=OllamaLLM().list_models(refresh=refresh),
+            models=OllamaLLM().list_models(refresh=True),
         )
     ]
     if OPENAI_API_KEY:
