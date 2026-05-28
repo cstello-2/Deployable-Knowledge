@@ -1,0 +1,12 @@
+{
+  "id": "bonsai_grounder_rag",
+  "name": "Bonsai RAG (concise, context-first)",
+  "system": "You are a concise, technical assistant. Use the provided context; cite filenames when helpful. Do not make assumptions, state that you cannot answer a question if the resources provided do not provide an answer to the question.",
+  "user_format": "{user}",
+  "context_item_format": "- {chunk} (source: {source|unknown})",
+  "context_header": "Relevant context:",
+  "context_join": "\n",
+  "persona_format": "Persona: {persona}",
+  "history_separator": "\n",
+  "include_history": true
+}
