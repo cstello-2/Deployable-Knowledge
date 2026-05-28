@@ -6,7 +6,7 @@ import re
 import shutil
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from config import FOLDER_SYNC_REGISTRY_PATH, UPLOAD_DIR
 from core.corpus_registry import remove_source as registry_remove_source
@@ -56,6 +56,7 @@ def supported_file(path: Path) -> bool:
         and path.suffix.lower() in FOLDER_SYNC_EXTENSIONS
     )
 
+
 def file_signature(path: Path) -> Dict[str, int]:
     """
     Return a cheap signature for detecting whether a synced file changed.
@@ -75,6 +76,33 @@ def signatures_match(previous: Dict[str, Any], current: Dict[str, int]) -> bool:
         previous.get("mtime_ns") == current.get("mtime_ns")
         and previous.get("size") == current.get("size")
     )
+
+
+def folder_total_bytes(path: str) -> int:
+    """
+    Return the total byte size of supported files in a folder.
+
+    This is useful for progress bars that want to show folder-sync progress
+    based on file size.
+    """
+    folder = Path(path).expanduser().resolve()
+
+    if not folder.exists() or not folder.is_dir():
+        return 0
+
+    total = 0
+
+    for file_path in folder.rglob("*"):
+        if not supported_file(file_path):
+            continue
+
+        try:
+            total += file_path.stat().st_size
+        except OSError:
+            pass
+
+    return total
+
 
 def safe_part(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", text)
@@ -172,7 +200,7 @@ def list_folder_groups() -> List[Dict[str, Any]]:
         files = data.get("files") or {}
 
     # Maps each synced folder path to the source records copied from that folder.
-    grouped: Dict[str, List[Dict[str, str]]] = {folder: [] for folder in folders}
+    grouped: Dict[str, List[Dict[str, Any]]] = {folder: [] for folder in folders}
 
     for source_path, meta in files.items():
         folder = meta.get("folder")
@@ -186,6 +214,9 @@ def list_folder_groups() -> List[Dict[str, Any]]:
             {
                 "source_path": source_path,
                 "source_name": source_name,
+                "has_segments": bool(meta.get("has_segments", True)),
+                "mtime_ns": meta.get("mtime_ns"),
+                "size": meta.get("size"),
             }
         )
 
@@ -253,6 +284,7 @@ def remove_folder(path: str, remove_synced_documents: bool = False) -> Dict[str,
         "removed_documents": removed_sources,
     }
 
+
 def empty_sync_result() -> Dict[str, Any]:
     return {
         "status": "ok",
@@ -268,14 +300,48 @@ def merge_sync_result(target: Dict[str, Any], source: Dict[str, Any]) -> None:
         target[key].extend(source.get(key) or [])
 
 
+def _embed_file_with_optional_progress(
+    *,
+    file_path: Path,
+    source_name: str,
+    tags: List[str],
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> None:
+    """
+    Call embed_file with progress_callback when the retriever supports it.
+
+    This keeps folder_sync compatible with older embed_file versions while also
+    supporting the loading bar version that accepts progress_callback.
+    """
+    if progress_callback is None:
+        embed_file(file_path=file_path, source_name=source_name, tags=tags)
+        return
+
+    try:
+        embed_file(
+            file_path=file_path,
+            source_name=source_name,
+            tags=tags,
+            progress_callback=progress_callback,
+        )
+    except TypeError as e:
+        if "progress_callback" not in str(e):
+            raise
+
+        # Older embed_file() did not accept progress_callback.
+        embed_file(file_path=file_path, source_name=source_name, tags=tags)
+
+
 def sync_folder_into_registry(
     folder_str: str,
     file_registry: Dict[str, Any],
     existing_sources: set[str],
-    ignored_files: Dict[str, Any] | None = None
+    ignored_files: Dict[str, Any] | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> Dict[str, Any]:
     result = empty_sync_result()
     folder = Path(folder_str).expanduser().resolve()
+
     if not folder.exists() or not folder.is_dir():
         result["skipped"].append({"folder": str(folder), "reason": "folder missing"})
         return result
@@ -286,22 +352,32 @@ def sync_folder_into_registry(
     for source_path in sorted(folder.rglob("*"), key=lambda p: str(p).lower()):
         if not supported_file(source_path):
             continue
+
         try:
             source_path = source_path.resolve()
             current_signature = file_signature(source_path)
         except OSError as e:
             result["skipped"].append({"file": str(source_path), "reason": str(e)})
             continue
+
         source_path_str = str(source_path)
         current_source_paths.add(source_path_str)
+
+        file_size = int(current_signature.get("size") or 0)
+
         if source_path_str in ignored_files:
+            if progress_callback:
+                progress_callback(file_size, f"Ignored {source_path.name}")
             continue
+
         previous = file_registry.get(source_path_str)
         previous_source_name = previous.get("source_name") if previous else None
-        reserved_sources = set(existing_sources)
         was_update = previous is not None
+
+        reserved_sources = set(existing_sources)
         if previous_source_name:
             reserved_sources.discard(previous_source_name)
+
         source_name = unique_source_name(source_path, reserved_sources)
 
         if previous:
@@ -316,8 +392,12 @@ def sync_folder_into_registry(
                 and destination.exists()
                 and signatures_match(previous, current_signature)
             )
+
             if file_is_unchanged:
+                if progress_callback:
+                    progress_callback(file_size, f"Skipped unchanged {source_path.name}")
                 continue
+
             if previous_source_name:
                 remove_synced_source(previous_source_name)
                 existing_sources.discard(previous_source_name)
@@ -325,27 +405,71 @@ def sync_folder_into_registry(
             file_registry.pop(source_path_str, None)
 
         if not source_name:
+            if progress_callback:
+                progress_callback(file_size, f"Skipped {source_path.name}")
             continue
+
         destination = UPLOAD_DIR / source_name
+        embedded_bytes = 0
 
         try:
+            if progress_callback:
+                progress_callback(0, f"Copying {source_path.name}")
+
             shutil.copy2(source_path, destination)
-            embed_file(file_path=destination, source_name=source_name, tags=["synced"])
+
+            if progress_callback:
+                progress_callback(0, f"Embedding {source_path.name}")
+
+            def on_embed_progress(current: int, total: int, message: str) -> None:
+                nonlocal embedded_bytes
+
+                if not progress_callback:
+                    return
+
+                next_bytes = int(file_size * (current / max(total, 1)))
+                delta_bytes = max(0, next_bytes - embedded_bytes)
+                embedded_bytes = next_bytes
+
+                if delta_bytes or message:
+                    progress_callback(delta_bytes, message)
+
+            _embed_file_with_optional_progress(
+                file_path=destination,
+                source_name=source_name,
+                tags=["synced"],
+                progress_callback=on_embed_progress,
+            )
+
+            if progress_callback:
+                remaining_bytes = max(0, file_size - embedded_bytes)
+                progress_callback(remaining_bytes, f"Embedded {source_path.name}")
+
         except Exception as e:
             result["skipped"].append({"file": str(source_path), "reason": str(e)})
+
+            if progress_callback:
+                remaining_bytes = max(0, file_size - embedded_bytes)
+                progress_callback(remaining_bytes, f"Skipped {source_path.name}")
+
             destination.unlink(missing_ok=True)
             continue
 
-        if not source_has_segments(source_name):
+        has_segments = source_has_segments(source_name)
+
+        if not has_segments:
             result["skipped"].append(
-                {"file": str(source_path), "reason": "No text segments extracted from PDF"}
+                {
+                    "file": str(source_path),
+                    "source_name": source_name,
+                    "reason": "No text segments extracted from PDF; file was still registered.",
+                }
             )
-            destination.unlink(missing_ok=True)
-            continue
 
         file_registry[source_path_str] = {
             "folder": str(folder),
             "source_name": source_name,
+            "has_segments": has_segments,
             **current_signature,
         }
 
@@ -353,12 +477,13 @@ def sync_folder_into_registry(
             result["updated"].append(source_name)
         else:
             result["added"].append(source_name)
-        
+
         existing_sources.add(source_name)
 
     for source_path, meta in list(file_registry.items()):
         if meta.get("folder") != str(folder):
             continue
+
         if source_path in current_source_paths:
             continue
 
@@ -367,12 +492,17 @@ def sync_folder_into_registry(
             remove_synced_source(source_name)
             result["removed"].append(source_name)
             existing_sources.discard(source_name)
+
         file_registry.pop(source_path, None)
 
     return result
 
 
-def sync_folder(path: str, restore_ignored: bool = False) -> Dict[str, Any]:
+def sync_folder(
+    path: str,
+    restore_ignored: bool = False,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> Dict[str, Any]:
     folder_str = str(Path(path).expanduser().resolve())
 
     if restore_ignored:
@@ -386,7 +516,13 @@ def sync_folder(path: str, restore_ignored: bool = False) -> Dict[str, Any]:
             file_registry = dict(data.get("files") or {})
             ignored_files = dict(data.get("ignored_files") or {})
 
-        result = sync_folder_into_registry(path, file_registry, chroma_sources(), ignored_files)
+        result = sync_folder_into_registry(
+            folder_str,
+            file_registry,
+            chroma_sources(),
+            ignored_files=ignored_files,
+            progress_callback=progress_callback,
+        )
 
         with registry_lock:
             data = load_raw()
@@ -396,7 +532,9 @@ def sync_folder(path: str, restore_ignored: bool = False) -> Dict[str, Any]:
         return result
 
 
-def sync_all_folders() -> Dict[str, Any]:
+def sync_all_folders(
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> Dict[str, Any]:
     with sync_lock:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -408,10 +546,17 @@ def sync_all_folders() -> Dict[str, Any]:
 
         result = empty_sync_result()
         existing_sources = chroma_sources()
+
         for folder_str in folder_paths:
             merge_sync_result(
                 result,
-                sync_folder_into_registry(folder_str, file_registry, existing_sources, ignored_files),
+                sync_folder_into_registry(
+                    folder_str,
+                    file_registry,
+                    existing_sources,
+                    ignored_files=ignored_files,
+                    progress_callback=progress_callback,
+                ),
             )
 
         with registry_lock:
@@ -420,6 +565,7 @@ def sync_all_folders() -> Dict[str, Any]:
             save_raw(data)
 
         return result
+
 
 def clear_ignored_files_for_folder(folder_str: str) -> Dict[str, Any]:
     """
