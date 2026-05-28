@@ -1,9 +1,3 @@
-[submodule "Bonsai-demo"]
-	path = Bonsai-demo
-	url = https://github.com/PrismML-Eng/Bonsai-demo/
-[submodule "core/--force"]
-	path = core/--force
-	url = https://github.com/PrismML-Eng/Bonsai-demo/
 [submodule "core/Bonsai"]
 	path = core/Bonsai
 	url = https://github.com/PrismML-Eng/Bonsai-demo/
