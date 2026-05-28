@@ -147,7 +147,12 @@ def stream_llm(prompt: str, user_id: Optional[str] = None) -> Iterable[str]:
     provider = getattr(s, "llm_provider", "ollama")
     model = getattr(s, "llm_model", "") or None
     llm = make_llm(provider, model)
-    return llm.stream_text(prompt)
+    return llm.stream_text(
+        prompt,
+        max_tokens=getattr(s, "max_tokens", 512),
+        temperature=getattr(s, "temperature", 0.2),
+        top_p=getattr(s, "top_p", 0.95),
+    )
 
 def ask_llm(prompt: str, user_id: Optional[str] = None) -> str:
     """Return a complete text response from the LLM."""
@@ -156,7 +161,12 @@ def ask_llm(prompt: str, user_id: Optional[str] = None) -> str:
     provider = getattr(s, "llm_provider", "ollama")
     model = getattr(s, "llm_model", "") or None
     llm = make_llm(provider, model)
-    return llm.generate_text(prompt)
+    return llm.generate_text(
+        prompt,
+        max_tokens=getattr(s, "max_tokens", 512),
+        temperature=getattr(s, "temperature", 0.2),
+        top_p=getattr(s, "top_p", 0.95),
+    )
 
 def update_summary(old_summary: str, last_user: str, last_assistant: str, user_id: Optional[str]=None) -> str:
     """Use the LLM to generate an updated conversation summary."""
@@ -178,4 +188,3 @@ def generate_title(first_interaction: str, user_id: Optional[str]=None) -> str:
         "Given this chat interaction, provide a snappy short title we can use for it."
     )
     return (ask_llm(prompt, user_id=user_id) or "").strip()[:80]
-

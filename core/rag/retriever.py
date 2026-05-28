@@ -628,8 +628,10 @@ def search(
 
     if top_k <= 0:
         return []
-    exact_matches = _exact_search(query, top_k, exclude_sources)
-    lexical_matches = _lexical_search(query, top_k, exclude_sources)
+    exact_matches = []
+    if _exact_query_terms(query):
+        exact_matches = _exact_search(query, top_k, exclude_sources)
+
     embedding = get_db().embed([query])[0]
     results = get_db().collection.query(query_embeddings=[embedding], n_results=top_k)
     documents = results.get("documents", [[]])[0]
@@ -658,17 +660,9 @@ def search(
         )
     rows.sort(key=lambda t: t[0])
     vector_matches = [item for _, item in rows]
+
     seen = {item.get("segment_id") for item in exact_matches if item.get("segment_id")}
     merged = list(exact_matches)
-    for item in lexical_matches:
-        segment_id = item.get("segment_id")
-        if segment_id and segment_id in seen:
-            continue
-        merged.append(item)
-        if segment_id:
-            seen.add(segment_id)
-        if len(merged) >= top_k:
-            break
     for item in vector_matches:
         segment_id = item.get("segment_id")
         if segment_id and segment_id in seen:
@@ -678,4 +672,15 @@ def search(
             seen.add(segment_id)
         if len(merged) >= top_k:
             break
+
+    if len(merged) < top_k:
+        for item in _lexical_search(query, top_k, exclude_sources):
+            segment_id = item.get("segment_id")
+            if segment_id and segment_id in seen:
+                continue
+            merged.append(item)
+            if segment_id:
+                seen.add(segment_id)
+            if len(merged) >= top_k:
+                break
     return merged[:top_k]

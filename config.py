@@ -13,7 +13,9 @@ COLLECTION_NAME = "default_collection"
 
 # === Embedding Model ===
 # Always point to a local directory for offline model loading
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", str(MODEL_DIR))
+EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "sentence-transformers/all-MiniLM-L6-v2")
+EMBEDDINGS_DEVICE = os.getenv("EMBEDDINGS_DEVICE", "cpu")
+EMBEDDINGS_OFFLINE_ONLY = os.getenv("EMBEDDINGS_OFFLINE_ONLY", "0") == "1"
 
 # === Security ===
 ALLOWED_DOCUMENT_EXTENSIONS = {".txt", ".pdf", ".md", ".html"}
@@ -26,6 +28,17 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE","30m")
 # Backwards compatibility for legacy code expecting OLLAMA_URL
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
+
+# === OpenAI ===
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+
+# === Anthropic ===
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-4-5-haiku-20251001")
+ANTHROPIC_VERSION = os.getenv("ANTHROPIC_VERSION", "2023-06-01")
 
 # === Prompt Templates ===
 PROMPTS_DIR = BASE_DIR / "prompts"

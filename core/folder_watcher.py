@@ -58,7 +58,6 @@ async def watch_loop() -> None:
             continue
 
         try:
-            await run_sync()
             async for changes in awatch(
                 *folders,
                 watch_filter=watch_filter,

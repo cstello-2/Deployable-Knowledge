@@ -1,10 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 import json, time, shutil
-from pathlib import Path
-import requests
 
-from config import BASE_DIR, OLLAMA_BASE_URL
+from config import (
+    BASE_DIR,
+    EMBEDDING_MODEL_ID,
+    MODEL_DIR,
+)
+from core.llm import list_model_providers as provider_model_list
 from core.settings import (
     UserSettings,
     load_settings,
@@ -62,18 +65,14 @@ def put_prompt(tid: str, payload: Dict[str, Any]):
     return {"status": "ok"}
 
 
-@router.get("/ollama-models")
-def list_ollama_models():
-    """List locally available Ollama models for local-only configuration UI."""
-    try:
-        resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        models = []
-        for m in data.get("models", []):
-            name = m.get("name")
-            if name:
-                models.append(name)
-        return {"models": models}
-    except Exception:
-        return {"models": []}
+@router.get("/model-providers")
+def list_model_providers(refresh: bool = False):
+    """List configured chat providers through provider implementations."""
+
+    return {
+        "chat_providers": [
+            provider.as_dict() for provider in provider_model_list(refresh=refresh)
+        ],
+        "embedding_model_id": EMBEDDING_MODEL_ID,
+        "embedding_model_path": str(MODEL_DIR),
+    }
