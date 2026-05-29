@@ -352,7 +352,8 @@ export async function initDocsController(winId = "win_docs") {
         childList.appendChild(createDocRow(docsById.get(id)));
       }
     } else {
-      childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
+        return; //Fixes folder being visible while its elements are filtered out
+      //childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
     }
     section.appendChild(childList);
     return section;
