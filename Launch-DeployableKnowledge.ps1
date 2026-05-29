@@ -7,6 +7,7 @@ $venvPath = Join-Path $repoRoot "venv"
 $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 $pipExe = Join-Path $venvPath "Scripts\pip.exe"
 $modelDir = Join-Path $repoRoot "tmp_model"
+$onebitDir = Join-Path $repoRoot "core\Bonsai-demo\setup.ps1"
 
 Write-Host "== Deployable Knowledge Launcher ==" -ForegroundColor Cyan
 Write-Host "Repo: $repoRoot"
@@ -52,6 +53,13 @@ if ($modelMissing) {
         }
     }
 }
+
+#Onebit LLM env setup
+Write-Host "Setting up Bonsai 1B LLM environment" -ForegroundColor Green
+$env:BONSAI_MODEL = "4B" #Model size, options are 1.7B, 4B, 8B
+$env:BONSAI_FAMILY = "bonsai" #1 bit vs 1.48 bit. 'bonsai' = 1 bit, 'ternary' = 1.58 bit
+& Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& $onebitDir
 
 # Runtime env
 $env:PYTHONPATH = "."

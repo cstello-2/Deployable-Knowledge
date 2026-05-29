@@ -22,6 +22,11 @@ ALLOWED_DOCUMENT_EXTENSIONS = {".txt", ".pdf", ".md", ".html"}
 MIN_TOP_K = 1
 MAX_TOP_K = 20
 
+# === LLM Provider ===
+DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "ollama")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)
+
+
 # === Ollama ===
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
