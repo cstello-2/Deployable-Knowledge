@@ -15,13 +15,13 @@ class RenameSessionBody(BaseModel):
     title: str
 
 @router.get("/sessions")
-async def list_sessions():
+async def list_sessions(request: Request):
     """Return lightweight metadata for all stored sessions."""
     store.prune_empty()
     summaries = []
     for entry in store.list_sessions():
         session = store.load(entry["id"])
-        if not session or not session.history:
+        if not session or not session.history or not _owns_session(request, session):
             continue
         summaries.append(
             {
@@ -33,7 +33,7 @@ async def list_sessions():
     return JSONResponse(content=summaries)
 
 @router.get("/sessions/{session_id}")
-async def get_session_data(session_id: str):
+async def get_session_data(request: Request, session_id: str):
     """Return the chat history for ``session_id``.
 
     The frontend expects the history to be a list of ``[user, assistant]``
@@ -41,9 +41,9 @@ async def get_session_data(session_id: str):
     structure here.
     """
 
-    session_id = validate_session_id(session_id)
+    session_id = _validate_session_id(session_id)
     session = store.load(session_id)
-    if not session:
+    if not session or not _owns_session(request, session):
         raise HTTPException(status_code=404, detail="Session not found")
 
     history_pairs = [[ex.user, ex.assistant] for ex in session.history]
@@ -66,12 +66,12 @@ async def get_session_data(session_id: str):
 
 
 @router.patch("/sessions/{session_id}")
-async def rename_session(session_id: str, body: RenameSessionBody):
+async def rename_session(request: Request, session_id: str, body: RenameSessionBody):
     """Rename a stored chat session."""
 
-    session_id = validate_session_id(session_id)
+    session_id = _validate_session_id(session_id)
     session = store.load(session_id)
-    if not session:
+    if not session or not _owns_session(request, session):
         raise HTTPException(status_code=404, detail="Session not found")
     session.title = (body.title or "").strip()
     store.save(session)
@@ -79,11 +79,12 @@ async def rename_session(session_id: str, body: RenameSessionBody):
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(request: Request, session_id: str):
     """Delete a stored chat session file."""
 
-    session_id = validate_session_id(session_id)
-    if not store.exists(session_id):
+    session_id = _validate_session_id(session_id)
+    session = store.load(session_id)
+    if not session or not _owns_session(request, session):
         raise HTTPException(status_code=404, detail="Session not found")
     store.delete(session_id)
     return JSONResponse({"status": "ok", "session_id": session_id})
@@ -99,7 +100,7 @@ async def get_or_create_session(request: Request):
         session_id = None
     if session_id and store.exists(session_id):
         session = store.load(session_id)
-        if not session or not session.history:
+        if not session or not session.history or not _owns_session(request, session):
             session = ChatSession.new(user_id=getattr(request.state, "user_id", "default"))
             store.save(session)
     else:
@@ -128,5 +129,16 @@ async def create_session(request: Request):
 @router.get("/user")
 async def get_user(request: Request):
     """Return the authenticated user's identifier."""
-    user = getattr(request.state, "user_id", "user")
+    user = getattr(request.state, "user_id", "default")
     return {"user": user}
+
+
+def _owns_session(request: Request, session: ChatSession) -> bool:
+    return session.user_id == getattr(request.state, "user_id", "default")
+
+
+def _validate_session_id(session_id: str) -> str:
+    try:
+        return validate_session_id(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

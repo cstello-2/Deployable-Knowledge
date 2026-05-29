@@ -5,6 +5,7 @@ import json
 from pydantic import BaseModel, Field, ConfigDict
 
 from config import BASE_DIR
+from .validation import validate_identifier
 from .prompts import loader as prompt_loader
 
 USERS_DIR = BASE_DIR / "users"
@@ -22,6 +23,7 @@ class UserSettings(BaseModel):
 def _user_path(user_id: str) -> Path:
     """Location of the settings file for ``user_id``."""
 
+    user_id = validate_identifier(user_id, "user id")
     return USERS_DIR / f"{user_id}.json"
 
 def load_settings(user_id: str) -> UserSettings:

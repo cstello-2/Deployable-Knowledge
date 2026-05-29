@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 import json
@@ -7,7 +7,7 @@ import markdown2
 from core.models import ChatRequest
 from core import pipeline
 from core.sessions import SessionStore, ChatSession
-from api.utils import validate_session_id, clamp_int
+from api.utils import validate_identifier, validate_session_id, clamp_int
 from config import MIN_TOP_K, MAX_TOP_K
 
 router = APIRouter()
@@ -61,14 +61,24 @@ async def chat(
         response or an SSE stream of incremental tokens.
     """
 
-    session_id = validate_session_id(session_id)
     user_id = getattr(request.state, "user_id", "default")
-    session = store.load(session_id) or ChatSession.new(session_id=session_id, user_id=user_id)
+    try:
+        session_id = validate_session_id(session_id)
+        validate_identifier(template_id, "prompt template id")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-    if session.user_id == "default" and user_id != "default":
-        session.user_id = user_id
+    session = store.load(session_id)
+    if session and session.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not session:
+        session = ChatSession.new(session_id=session_id, user_id=user_id)
+
     if inactive:
-        session.inactive_sources = json.loads(inactive)
+        try:
+            session.inactive_sources = json.loads(inactive)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail="Invalid inactive sources") from e
 
     req = ChatRequest(
         user_id=session.user_id,
