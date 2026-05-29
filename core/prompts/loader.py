@@ -3,11 +3,13 @@ from pathlib import Path
 from typing import Optional, List, Dict
 import json
 from config import PROMPTS_DIR
+from core.validation import validate_identifier
 
 
 def load_template(tid: str) -> Optional[Dict]:
     """Load a prompt template by identifier."""
 
+    validate_identifier(tid, "prompt template id")
     f = PROMPTS_DIR / f"{tid}.json"
     if not f.exists():
         return None

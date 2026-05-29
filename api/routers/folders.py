@@ -64,7 +64,6 @@ async def post_add_folder(body: FolderBody):
         "watcher": watch_result,
     }
 
-
 @router.post("/sync")
 async def post_sync_folders(body: SyncFolderBody):
     path = body.path.strip()

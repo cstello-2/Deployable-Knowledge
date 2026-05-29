@@ -4,11 +4,15 @@ from pathlib import Path
 from typing import Iterable
 from uuid import UUID
 
+from core.validation import validate_identifier
+
 
 _FILENAME_CLEAN_PATTERN = re.compile(r"[^A-Za-z0-9._-]")
 
 
-def sanitize_filename(filename: str, allowed_extensions: Iterable[str] | None = None) -> str:
+def sanitize_filename(
+    filename: str, allowed_extensions: Iterable[str] | None = None
+) -> str:
     """Return a filesystem-safe version of ``filename``.
 
     Parameters
