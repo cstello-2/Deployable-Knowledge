@@ -57,6 +57,32 @@ def supported_file(path: Path) -> bool:
     )
 
 
+def folder_total_bytes(path: str) -> int:
+    """
+    Return the total byte size of supported files in a folder.
+
+    This is used by the loading bar so folder sync progress is based on the
+    actual synced document size rather than fake 0B/100B values.
+    """
+    folder = Path(path).expanduser().resolve()
+
+    if not folder.exists() or not folder.is_dir():
+        return 0
+
+    total = 0
+
+    for file_path in folder.rglob("*"):
+        if not supported_file(file_path):
+            continue
+
+        try:
+            total += file_path.stat().st_size
+        except OSError:
+            pass
+
+    return total
+
+
 def file_signature(path: Path) -> Dict[str, int]:
     """
     Return a cheap signature for detecting whether a synced file changed.
@@ -76,32 +102,6 @@ def signatures_match(previous: Dict[str, Any], current: Dict[str, int]) -> bool:
         previous.get("mtime_ns") == current.get("mtime_ns")
         and previous.get("size") == current.get("size")
     )
-
-
-def folder_total_bytes(path: str) -> int:
-    """
-    Return the total byte size of supported files in a folder.
-
-    This is useful for progress bars that want to show folder-sync progress
-    based on file size.
-    """
-    folder = Path(path).expanduser().resolve()
-
-    if not folder.exists() or not folder.is_dir():
-        return 0
-
-    total = 0
-
-    for file_path in folder.rglob("*"):
-        if not supported_file(file_path):
-            continue
-
-        try:
-            total += file_path.stat().st_size
-        except OSError:
-            pass
-
-    return total
 
 
 def safe_part(text: str) -> str:
@@ -124,6 +124,7 @@ def unique_source_name(source_path: Path, reserved_sources: set[str]) -> str:
     stem = parsed.stem or "document"
     suffix = parsed.suffix
     counter = 2
+
     while True:
         candidate = f"{stem}_{counter}{suffix}"
         if candidate not in reserved_sources:
@@ -141,8 +142,8 @@ def forget_synced_source(source_name: str, mark_ignored: bool = True) -> Dict[st
     """
     Used when a synced document is manually removed from the document library.
 
-    This removes the current synced-file registry entry and optionally marks the
-    original folder file as ignored so the watcher does not immediately re-add it.
+    This removes the synced-file registry entry and optionally marks the original
+    folder file as ignored so the watcher does not immediately re-add it.
     """
     ignored_paths: List[str] = []
 
@@ -199,7 +200,6 @@ def list_folder_groups() -> List[Dict[str, Any]]:
         folders = list(data.get("folders") or [])
         files = data.get("files") or {}
 
-    # Maps each synced folder path to the source records copied from that folder.
     grouped: Dict[str, List[Dict[str, Any]]] = {folder: [] for folder in folders}
 
     for source_path, meta in files.items():
@@ -233,17 +233,21 @@ def list_folder_groups() -> List[Dict[str, Any]]:
 
 def add_folder(path: str) -> Dict[str, Any]:
     folder = Path(path).expanduser().resolve()
+
     if not folder.exists():
         raise ValueError(f"Path does not exist: {folder}")
     if not folder.is_dir():
         raise ValueError(f"Path is not a folder: {folder}")
 
     folder_str = str(folder)
+
     with registry_lock:
         data = load_raw()
         folders = data.setdefault("folders", [])
+
         if folder_str not in folders:
             folders.append(folder_str)
+
         save_raw(data)
 
     return {"status": "ok", "folder": folder_str}
@@ -260,18 +264,20 @@ def remove_folder(path: str, remove_synced_documents: bool = False) -> Dict[str,
         files = data.setdefault("files", {})
         ignored_files = data.setdefault("ignored_files", {})
 
-        # Remove ignored/tombstoned records for this folder too.
         for source_path, meta in list(ignored_files.items()):
             if meta.get("folder") == folder_str:
                 ignored_files.pop(source_path, None)
 
         if remove_synced_documents:
             for source_path, meta in list(files.items()):
-                if meta.get("folder") == folder_str:
-                    source_name = meta.get("source_name")
-                    if source_name:
-                        removed_sources.append(source_name)
-                    files.pop(source_path, None)
+                if meta.get("folder") != folder_str:
+                    continue
+
+                source_name = meta.get("source_name")
+                if source_name:
+                    removed_sources.append(source_name)
+
+                files.pop(source_path, None)
 
         save_raw(data)
 
@@ -308,7 +314,7 @@ def _embed_file_with_optional_progress(
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> None:
     """
-    Call embed_file with progress_callback when the retriever supports it.
+    Call embed_file with progress_callback when retriever.py supports it.
 
     This keeps folder_sync compatible with older embed_file versions while also
     supporting the loading bar version that accepts progress_callback.
@@ -328,7 +334,6 @@ def _embed_file_with_optional_progress(
         if "progress_callback" not in str(e):
             raise
 
-        # Older embed_file() did not accept progress_callback.
         embed_file(file_path=file_path, source_name=source_name, tags=tags)
 
 
@@ -341,13 +346,15 @@ def sync_folder_into_registry(
 ) -> Dict[str, Any]:
     result = empty_sync_result()
     folder = Path(folder_str).expanduser().resolve()
+    folder_str = str(folder)
+    ignored_files = ignored_files or {}
 
     if not folder.exists() or not folder.is_dir():
-        result["skipped"].append({"folder": str(folder), "reason": "folder missing"})
+        result["skipped"].append({"folder": folder_str, "reason": "folder missing"})
         return result
 
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     current_source_paths = set()
-    ignored_files = ignored_files or {}
 
     for source_path in sorted(folder.rglob("*"), key=lambda p: str(p).lower()):
         if not supported_file(source_path):
@@ -362,7 +369,6 @@ def sync_folder_into_registry(
 
         source_path_str = str(source_path)
         current_source_paths.add(source_path_str)
-
         file_size = int(current_signature.get("size") or 0)
 
         if source_path_str in ignored_files:
@@ -388,7 +394,7 @@ def sync_folder_into_registry(
             file_is_unchanged = (
                 previous_source_name == source_name
                 and source_name in existing_sources
-                and destination
+                and destination is not None
                 and destination.exists()
                 and signatures_match(previous, current_signature)
             )
@@ -467,7 +473,7 @@ def sync_folder_into_registry(
             )
 
         file_registry[source_path_str] = {
-            "folder": str(folder),
+            "folder": folder_str,
             "source_name": source_name,
             "has_segments": has_segments,
             **current_signature,
@@ -481,7 +487,7 @@ def sync_folder_into_registry(
         existing_sources.add(source_name)
 
     for source_path, meta in list(file_registry.items()):
-        if meta.get("folder") != str(folder):
+        if meta.get("folder") != folder_str:
             continue
 
         if source_path in current_source_paths:

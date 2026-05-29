@@ -408,8 +408,8 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
-  async listOllamaModels() {
-    const res = await ok(await fetch(`/api/ollama-models`, { headers: JSON_HEADERS, credentials: "same-origin" }));
+  async listModelProviders() {
+    const res = await ok(await fetch(`/api/model-providers`, { headers: JSON_HEADERS, credentials: "same-origin" }));
     return asJsonSafe(res);
   }
 

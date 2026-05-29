@@ -1,8 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
-import os
-from typing import Optional
 from sentence_transformers import SentenceTransformer
 
 try:
@@ -10,10 +8,7 @@ try:
 except Exception:
     snapshot_download = None
 
-from config import MODEL_DIR
-
-EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "sentence-transformers/all-MiniLM-L6-v2")
-EMBEDDINGS_OFFLINE_ONLY = os.getenv("EMBEDDINGS_OFFLINE_ONLY", "0") == "1"
+from config import EMBEDDING_MODEL_ID, EMBEDDINGS_DEVICE, EMBEDDINGS_OFFLINE_ONLY, MODEL_DIR
 
 
 def _local_model_present(model_dir: Path) -> bool:
@@ -69,4 +64,4 @@ def load_embedding_model(force_fetch: bool = False) -> SentenceTransformer:
             f"No embedding model files found under {model_dir}. "
             "Run the launcher once with network access, or copy a cached model into that folder."
         )
-    return SentenceTransformer(str(model_dir), device=os.getenv("EMBEDDINGS_DEVICE", "cpu"))
+    return SentenceTransformer(str(model_dir), device=EMBEDDINGS_DEVICE)
