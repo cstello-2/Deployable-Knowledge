@@ -8,7 +8,7 @@ export async function openSettingsModal() {
   const [settings, prompts, providersData] = await Promise.all([
     api.getSettings(userId),
     api.listPromptTemplates(),
-    api.listModelProviders(),
+    api.listModelProviders({ refresh: true }),
   ]);
 
   const promptOptions = [{ value: "", label: "(default)" }];

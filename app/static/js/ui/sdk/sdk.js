@@ -408,8 +408,15 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
-  async listModelProviders() {
-    const res = await ok(await fetch(`/api/model-providers`, { headers: JSON_HEADERS, credentials: "same-origin" }));
+  async listModelProviders({ refresh = false } = {}) {
+    const params = new URLSearchParams();
+    if (refresh) params.set("refresh", "true");
+    const query = params.toString();
+    const url = `/api/model-providers${query ? `?${query}` : ""}`;
+    const res = await ok(await fetch(url, {
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
     return asJsonSafe(res);
   }
 

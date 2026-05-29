@@ -13,7 +13,7 @@ USERS_DIR.mkdir(parents=True, exist_ok=True)
 
 class UserSettings(BaseModel):
     user_id: str
-    llm_provider: Literal["ollama", "openai", "anthropic"] = "ollama"
+    llm_provider: Literal["ollama", "openai", "anthropic", "gemini"] = "ollama"
     llm_model: str = ""
     prompt_template_id: Optional[str] = None
     temperature: float = 0.2
