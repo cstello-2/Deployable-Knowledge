@@ -286,7 +286,7 @@ export async function initDocsController(winId = "win_docs") {
           const updated = sync?.updated?.length || 0;
           const removed = sync?.removed?.length || 0;
           const skipped = sync?.skipped?.length || 0;
-          syncFolderStatus.textContent = `Synced folder: ${added} added, ${updated} updated, ${removed} removed, ${skipped} skipped`;
+          syncFolderStatus.textContent = "Synced folder: ${added} added, ${updated} updated, ${removed} removed, ${skipped} skipped";
         }
 
         await loadFolders();
@@ -352,7 +352,9 @@ export async function initDocsController(winId = "win_docs") {
         childList.appendChild(createDocRow(docsById.get(id)));
       }
     } else {
-      childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
+      return;
+      //childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
+      //The return here fixes the bug that would still display the folder group even when all its elements would be disabled.
     }
     section.appendChild(childList);
     return section;
