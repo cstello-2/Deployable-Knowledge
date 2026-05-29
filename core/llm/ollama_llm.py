@@ -2,7 +2,7 @@ from typing import Any, Iterator
 import json
 import requests
 from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE
-from .base import BaseLLM
+from .base import BaseLLM, ModelInfo
 
 CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
@@ -11,6 +11,27 @@ GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 class OllamaLLM(BaseLLM):
     def __init__(self, model: str | None = None, **kwargs: Any) -> None:
         super().__init__(model or OLLAMA_MODEL)
+
+    def list_models(self, refresh: bool = True, **kwargs: Any) -> list[ModelInfo]:
+        if not refresh:
+            return super().list_models(refresh=refresh, **kwargs)
+
+        timeout = kwargs.get("timeout", 0.75)
+        try:
+            resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return super().list_models(refresh=False)
+
+        models = [
+            model["name"]
+            for model in data.get("models", [])
+            if isinstance(model, dict) and isinstance(model.get("name"), str)
+        ]
+        return [ModelInfo.from_id(model) for model in models] or super().list_models(
+            refresh=False
+        )
 
     def _generate_payload(self, prompt: str, stream: bool) -> dict[str, Any]:
         return {

@@ -4,7 +4,11 @@ import { bus } from "../../components.js";
 import { Store } from "../store.js";
 import { qs } from "../../dom.js";
 import { el } from "../../ui.js";
-import { withLoadingPopup } from "../popups.js";
+import {
+  updateProgressPopup,
+  updateUploadProgressPopup,
+  withProgressPopup,
+} from "../popups.js";
 
 /** Search / RAG context: server sends similarity scores (higher = better match). */
 
@@ -270,16 +274,21 @@ export async function initDocsController(winId = "win_docs") {
   }
 
   async function syncSingleFolder(path) {
-    await withLoadingPopup("Synchronizing files...", async() => {
+    await withProgressPopup("Synchronizing files...", async () => {
       try {
-        const data = await api.syncFolder(path);
+        const started = await api.startFolderSync(path, false);
+        const data = await pollProgress(started.job_id);
+
         const sync = data?.sync || data || {};
+
         if (syncFolderStatus) {
           const added = sync?.added?.length || 0;
+          const updated = sync?.updated?.length || 0;
           const removed = sync?.removed?.length || 0;
           const skipped = sync?.skipped?.length || 0;
-          syncFolderStatus.textContent = `Synced folder: ${added} added, ${removed} removed, ${skipped} skipped`;
+          syncFolderStatus.textContent = `Synced folder: ${added} added, ${updated} updated, ${removed} removed, ${skipped} skipped`;
         }
+
         await loadFolders();
         await loadTags();
         await refresh();
@@ -288,6 +297,7 @@ export async function initDocsController(winId = "win_docs") {
       }
     });
   }
+
 
   function createFolderGroup(group, docsById, visibleIds, groupedIds) {
     const groupDocIds = (group.documents || []).map((doc) => doc.source_name).filter((id) => docsById.has(id));
@@ -395,6 +405,36 @@ export async function initDocsController(winId = "win_docs") {
     state.allDocs = Array.isArray(docs) ? docs : [];
     syncStoreInactive();
     renderDocList();
+  }
+
+  async function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function pollProgress(jobId, shouldStop = () => false) {
+    while (!shouldStop()) {
+      const job = await api.getProgress(jobId);
+      updateProgressPopup(job);
+
+      if (job.status === "done") {
+        updateProgressPopup({
+          ...job,
+          percent: 100,
+          current: job.total,
+          message: "Complete",
+        });
+
+        await sleep(350);
+        return job.result;
+      }
+
+      if (job.status === "error") {
+        throw new Error(job.error || job.message || "Background job failed");
+      }
+
+      await sleep(2000);
+    }
+    throw new Error("Progress polling stopped because upload failed.");
   }
 
   function fileLabel(name) {
@@ -546,9 +586,10 @@ export async function initDocsController(winId = "win_docs") {
 
   async function synchronizePickedFolder(selectedPath) {
     const registered = new Set(state.syncedFolders);
-    const data = registered.has(selectedPath)
-      ? await api.syncFolder(selectedPath)
-      : await api.addFolder(selectedPath);
+    const registerFolder = !registered.has(selectedPath);
+
+    const started = await api.startFolderSync(selectedPath, registerFolder);
+    const data = await pollProgress(started.job_id);
 
     state.pendingFolderPath = "";
     await loadFolders();
@@ -575,7 +616,7 @@ export async function initDocsController(winId = "win_docs") {
     }
 
     try {
-      await withLoadingPopup("Synchronizing and embedding files...", async() => {
+      await withProgressPopup("Synchronizing and embedding files...", async() => {
         await synchronizePickedFolder(selectedPath);
       });
 
@@ -625,22 +666,57 @@ export async function initDocsController(winId = "win_docs") {
 
   btn?.addEventListener("click", async () => {
     if (!input?.files?.length) return;
+
+    const selectedFiles = Array.from(input.files);
+
     btn.disabled = true;
-    btn.textContent = "Uploading…";
+    btn.textContent = "Embedding…";
+
     try {
-      await withLoadingPopup("Uploading and embedding files...", async () => {
-        await api.uploadDocuments(input.files);
+      await withProgressPopup("Uploading and embedding files...", async () => {
+        const started = await api.startUploadJob();
+        const jobId = started.job_id;
+
+        await api.uploadDocumentsWithProgress(selectedFiles, jobId, {
+          onUploadProgress({ current, total }) {
+            updateUploadProgressPopup({
+              label: "Uploading",
+              current,
+              total,
+              message: "Uploading selected files",
+            });
+          },
+        });
+
+        const data = await pollProgress(jobId);
+
+        const failed = data?.uploads?.filter((item) => item.status === "error") || [];
+
+        if (failed.length) {
+          const details = failed
+            .map((item) => `${item.filename}: ${item.message || "Unknown error"}`)
+            .join("\n");
+
+          throw new Error(details);
+        }
+
         input.value = "";
-        if (list) list.innerHTML = "";
+
+        if (list) {
+          list.innerHTML = "";
+        }
+
         updateUploadCount();
         await loadTags();
         await refresh();
+
+        return data;
       });
     } catch (e) {
       alert("Upload failed: " + (e.message || String(e)));
     } finally {
       btn.disabled = false;
-      btn.textContent = "Upload";
+      btn.textContent = "Embed";
     }
   });
 

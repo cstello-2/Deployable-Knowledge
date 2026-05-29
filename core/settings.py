@@ -12,7 +12,7 @@ USERS_DIR.mkdir(parents=True, exist_ok=True)
 
 class UserSettings(BaseModel):
     user_id: str
-    llm_provider: Literal["ollama", "openai"] = "ollama"
+    llm_provider: Literal["ollama", "openai", "anthropic"] = "ollama"
     llm_model: str = ""
     prompt_template_id: Optional[str] = None
     temperature: float = 0.2
@@ -45,7 +45,7 @@ def update_settings(user_id: str, patch: Dict[str, Any]) -> UserSettings:
     """Apply ``patch`` to a user's settings and persist the result."""
 
     s = load_settings(user_id)
-    s = s.model_copy(update=patch)
+    s = UserSettings.model_validate({**s.model_dump(), **patch, "user_id": user_id})
     save_settings(s)
     return s
 

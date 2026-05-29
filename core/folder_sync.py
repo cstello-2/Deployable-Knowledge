@@ -6,7 +6,7 @@ import re
 import shutil
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from config import FOLDER_SYNC_REGISTRY_PATH, UPLOAD_DIR
 from core.corpus_registry import remove_source as registry_remove_source
@@ -55,6 +55,24 @@ def supported_file(path: Path) -> bool:
         and path.suffix.lower() in FOLDER_SYNC_EXTENSIONS
     )
 
+def folder_total_bytes(path: str) -> int:
+    folder = Path(path).expanduser().resolve()
+
+    if not folder.exists() or not folder.is_dir():
+        return 0
+
+    total = 0
+
+    for file_path in folder.rglob("*"):
+        if not supported_file(file_path):
+            continue
+
+        try:
+            total += file_path.stat().st_size
+        except OSError:
+            pass
+
+    return total
 
 def safe_part(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", text)
@@ -211,6 +229,7 @@ def sync_folder_into_registry(
     folder_str: str,
     file_registry: Dict[str, Any],
     existing_sources: set[str],
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> Dict[str, Any]:
     result = empty_sync_result()
     folder = Path(folder_str).expanduser().resolve()
@@ -256,12 +275,52 @@ def sync_folder_into_registry(
         if not source_name:
             continue
         destination = UPLOAD_DIR / source_name
+        file_size = 0
+        embedded_bytes = 0
 
         try:
+            if progress_callback:
+                progress_callback(0, f"Copying {source_path.name}")
             shutil.copy2(source_path, destination)
-            embed_file(file_path=destination, source_name=source_name, tags=["synced"])
+
+            if progress_callback:
+                progress_callback(0, f"Embedding {source_path.name}")
+
+            file_size = source_path.stat().st_size
+
+            def on_embed_progress(current: int, total: int, message: str) -> None:
+                nonlocal embedded_bytes
+                if not progress_callback:
+                    return
+
+                next_bytes = int(file_size * (current / max(total, 1)))
+                delta_bytes = max(0, next_bytes - embedded_bytes)
+                embedded_bytes = next_bytes
+                progress_callback(delta_bytes, message)
+
+            embed_file(
+                file_path=destination,
+                source_name=source_name,
+                tags=["synced"],
+                progress_callback=on_embed_progress,
+            )
+
+            if progress_callback:
+                remaining_bytes = max(0, file_size - embedded_bytes)
+                progress_callback(remaining_bytes, f"Embedded {source_path.name}")
+
         except Exception as e:
             result["skipped"].append({"file": str(source_path), "reason": str(e)})
+
+            if progress_callback:
+                try:
+                    remaining_bytes = max(
+                        0,
+                        (file_size or source_path.stat().st_size) - embedded_bytes,
+                    )
+                    progress_callback(remaining_bytes, f"Skipped {source_path.name}")
+                except OSError:
+                    progress_callback(0, f"Skipped {source_path.name}")
             destination.unlink(missing_ok=True)
             continue
 
@@ -295,7 +354,10 @@ def sync_folder_into_registry(
     return result
 
 
-def sync_folder(path: str) -> Dict[str, Any]:
+def sync_folder(
+    path: str,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> Dict[str, Any]:
     with sync_lock:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -303,7 +365,12 @@ def sync_folder(path: str) -> Dict[str, Any]:
             data = load_raw()
             file_registry = dict(data.get("files") or {})
 
-        result = sync_folder_into_registry(path, file_registry, chroma_sources())
+        result = sync_folder_into_registry(
+            path,
+            file_registry,
+            chroma_sources(),
+            progress_callback=progress_callback,
+        )
 
         with registry_lock:
             data = load_raw()
