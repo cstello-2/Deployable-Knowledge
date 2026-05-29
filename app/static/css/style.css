@@ -39,7 +39,7 @@ html, body {
   color: var(--text); border-radius: 10px; padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
 .menu-dropdown {
-  position: absolute; top: calc(100% + 6px); left: 0; min-width: 220px;
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px;
   background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
   border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
   padding: 6px; display: none; z-index: 50;
