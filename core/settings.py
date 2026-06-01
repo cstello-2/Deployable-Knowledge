@@ -19,6 +19,7 @@ class UserSettings(BaseModel):
     temperature: float = 0.2
     top_p: float = 0.95
     max_tokens: int = 512
+    top_k: int = 40
 
 def _user_path(user_id: str) -> Path:
     """Location of the settings file for ``user_id``."""

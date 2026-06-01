@@ -31,8 +31,21 @@ class ProviderInfo:
 
 class BaseLLM:
     """Minimal LLM interface the app expects."""
-    def __init__(self, model: str | None = None, **kwargs: Any) -> None:
+
+    def __init__(
+        self,
+        model: str | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> None:
         self.model = model
+        self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
+        self.max_tokens = max_tokens
 
     def generate_text(self, prompt: str, **kwargs: Any) -> str:
         """Return a full string completion."""

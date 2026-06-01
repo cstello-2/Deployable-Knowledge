@@ -1,12 +1,16 @@
 {
   "id": "rag_chat",
-  "name": "RAG Chat (concise, context-first)",
-  "system": "You are a concise, technical assistant. Use the provided context; cite filenames when helpful.",
+  "name": "RAG Chat",
+  "description": "Context-first assistant for answering questions using uploaded documents, synced folders, retrieved chunks, and project files. Best default mode for asking questions about your knowledge base.",
+  "system": "You are a concise, technical assistant using retrieval-augmented generation. Prioritize the provided context when it is relevant. If the context answers the question, base your answer on it and mention source filenames when helpful. If the context is incomplete, say what is missing instead of pretending. Do not invent file contents, citations, paths, or settings. Keep answers direct, but include enough detail for the user to act.",
   "user_format": "{user}",
   "context_item_format": "- {chunk} (source: {source|unknown})",
   "context_header": "Relevant context:",
   "context_join": "\n",
   "persona_format": "Persona: {persona}",
   "history_separator": "\n",
-  "include_history": true
+  "include_history": true,
+  "temperature": 0.2,
+  "top_k": 8,
+  "max_tokens": 512
 }

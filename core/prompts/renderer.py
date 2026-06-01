@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Iterable
+from typing import List, Dict, Optional, Iterable, Any
 from dataclasses import dataclass
 import re
 import requests
@@ -21,6 +21,9 @@ class Template:
     persona_format: str = "Persona: {persona}"
     history_separator: str = "\n"
     include_history: bool = True
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_k: int | None = None
 
 def _load_template(tid: Optional[str]) -> Template:
     """Resolve ``tid`` to a :class:`Template` instance."""
@@ -40,7 +43,10 @@ def _load_template(tid: Optional[str]) -> Template:
                 "context_join": "\n",
                 "persona_format": "Persona: {persona}",
                 "history_separator": "\n",
-                "include_history": True
+                "include_history": True,
+                "temperature": 0.2,
+                "top_k": 8,
+                "max_tokens": 512,
             }
     else:
         data = {
@@ -54,6 +60,9 @@ def _load_template(tid: Optional[str]) -> Template:
             "persona_format": getattr(tmpl, "persona_format", "") or "Persona: {persona}",
             "history_separator": getattr(tmpl, "history_separator", "") or "\n",
             "include_history": bool(getattr(tmpl, "include_history", True)),
+            "temperature": getattr(tmpl, "temperature", None),
+            "top_k": getattr(tmpl, "top_k", None),
+            "max_tokens": getattr(tmpl, "max_tokens", None),
         }
     return Template(**data)
 
@@ -141,12 +150,38 @@ def _resolve_settings(user_id: Optional[str]):
             pass
     return s
 
-def _generation_kwargs(s) -> Dict:
+
+def _generation_values(s, t: Template) -> Dict[str, Any]:
+    """Resolve generation settings, allowing template values to override user settings."""
+
+    settings_temperature = getattr(s, "temperature", 0.2)
+    settings_top_p = getattr(s, "top_p", 0.95)
+    settings_top_k = getattr(s, "top_k", 8)
+    settings_max_tokens = getattr(s, "max_tokens", 512)
+
+    temperature = (
+        t.temperature
+        if getattr(t, "temperature", None) is not None
+        else settings_temperature
+    )
+    top_k = (
+        t.top_k
+        if getattr(t, "top_k", None) is not None
+        else settings_top_k
+    )
+    max_tokens = (
+        t.max_tokens
+        if getattr(t, "max_tokens", None) is not None
+        else settings_max_tokens
+    )
+
     return {
-        "max_tokens": getattr(s, "max_tokens", 512),
-        "temperature": getattr(s, "temperature", 0.2),
-        "top_p": getattr(s, "top_p", 0.95),
+        "temperature": temperature,
+        "top_p": settings_top_p,
+        "top_k": top_k,
+        "max_tokens": max_tokens,
     }
+
 
 def _should_fallback_to_ollama(exc: Exception) -> bool:
     if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
@@ -155,57 +190,85 @@ def _should_fallback_to_ollama(exc: Exception) -> bool:
         return True
     return False
 
-def stream_llm(prompt: str, user_id: Optional[str] = None) -> Iterable[str]:
+
+def stream_llm(
+    prompt: str,
+    user_id: Optional[str] = None,
+    template_id: Optional[str] = None,
+) -> Iterable[str]:
     """Stream tokens from the configured LLM provider."""
 
     s = _resolve_settings(user_id)
+    t = _load_template(template_id)
+
     provider = getattr(s, "llm_provider", "ollama")
     model = getattr(s, "llm_model", "") or None
-    llm = make_llm(provider, model)
-    kwargs = _generation_kwargs(s)
+    gen = _generation_values(s, t)
+
+    llm = make_llm(
+        provider,
+        model,
+        temperature=gen["temperature"],
+        top_p=gen["top_p"],
+        top_k=gen["top_k"],
+        max_tokens=gen["max_tokens"],
+    )
 
     def tokens():
         try:
-            yield from llm.stream_text(prompt, **kwargs)
+            yield from llm.stream_text(prompt)
         except Exception as exc:
             if provider == "ollama" or not _should_fallback_to_ollama(exc):
                 raise
-            yield from make_llm("ollama", None).stream_text(prompt, **kwargs)
+
+            fallback = make_llm(
+                "ollama",
+                None,
+                temperature=gen["temperature"],
+                top_p=gen["top_p"],
+                top_k=gen["top_k"],
+                max_tokens=gen["max_tokens"],
+            )
+            yield from fallback.stream_text(prompt)
 
     return tokens()
 
-def ask_llm(prompt: str, user_id: Optional[str] = None) -> str:
+
+def ask_llm(
+    prompt: str,
+    user_id: Optional[str] = None,
+    template_id: Optional[str] = None,
+) -> str:
     """Return a complete text response from the LLM."""
 
     s = _resolve_settings(user_id)
+    t = _load_template(template_id)
+
     provider = getattr(s, "llm_provider", "ollama")
     model = getattr(s, "llm_model", "") or None
-    llm = make_llm(provider, model)
-    kwargs = _generation_kwargs(s)
+    gen = _generation_values(s, t)
+
+    llm = make_llm(
+        provider,
+        model,
+        temperature=gen["temperature"],
+        top_p=gen["top_p"],
+        top_k=gen["top_k"],
+        max_tokens=gen["max_tokens"],
+    )
+
     try:
-        return llm.generate_text(prompt, **kwargs)
+        return llm.generate_text(prompt)
     except Exception as exc:
         if provider == "ollama" or not _should_fallback_to_ollama(exc):
             raise
-        return make_llm("ollama", None).generate_text(prompt, **kwargs)
 
-def update_summary(old_summary: str, last_user: str, last_assistant: str, user_id: Optional[str]=None) -> str:
-    """Use the LLM to generate an updated conversation summary."""
-
-    instr = (
-        "Update the running summary of this conversation. Keep it concise and factual.\n"
-        f"Old summary: {old_summary}\n"
-        f"Last user: {last_user}\n"
-        f"Last assistant: {last_assistant}\n"
-        "New concise summary:"
-    )
-    return ask_llm(instr, user_id=user_id)
-
-def generate_title(first_interaction: str, user_id: Optional[str]=None) -> str:
-    """Produce a short title summarising the chat session."""
-
-    prompt = (
-        f"{first_interaction}\n"
-        "Given this chat interaction, provide a snappy short title we can use for it."
-    )
-    return (ask_llm(prompt, user_id=user_id) or "").strip()[:80]
+        fallback = make_llm(
+            "ollama",
+            None,
+            temperature=gen["temperature"],
+            top_p=gen["top_p"],
+            top_k=gen["top_k"],
+            max_tokens=gen["max_tokens"],
+        )
+        return fallback.generate_text(prompt)

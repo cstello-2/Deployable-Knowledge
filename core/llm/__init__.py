@@ -8,15 +8,51 @@ from .openai_llm import OpenAILLM
 
 DEFAULT_PROVIDER = "ollama"
 
-def make_llm(provider: str, model: Optional[str]) -> BaseLLM:
+
+def make_llm(
+    provider: str,
+    model: Optional[str],
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+) -> BaseLLM:
     if provider == "ollama":
-        return OllamaLLM(model=model)
+        return OllamaLLM(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            max_tokens=max_tokens,
+        )
+
     if provider == "openai":
-        return OpenAILLM(model=model)
+        return OpenAILLM(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            max_tokens=max_tokens,
+        )
+
     if provider == "anthropic":
-        return AnthropicLLM(model=model)
+        return AnthropicLLM(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            max_tokens=max_tokens,
+        )
+
     if provider == "gemini":
-        return GeminiLLM(model=model)
+        return GeminiLLM(
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            max_tokens=max_tokens,
+        )
+
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
@@ -28,6 +64,7 @@ def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
             models=OllamaLLM().list_models(refresh=True),
         )
     ]
+
     if OPENAI_API_KEY:
         providers.append(
             ProviderInfo(
@@ -36,6 +73,7 @@ def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
                 models=OpenAILLM().list_models(refresh=refresh),
             )
         )
+
     if ANTHROPIC_API_KEY:
         providers.append(
             ProviderInfo(
@@ -44,6 +82,7 @@ def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
                 models=AnthropicLLM().list_models(refresh=refresh),
             )
         )
+
     if GEMINI_API_KEY:
         providers.append(
             ProviderInfo(
@@ -52,4 +91,5 @@ def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
                 models=GeminiLLM().list_models(refresh=refresh),
             )
         )
+
     return providers
