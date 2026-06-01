@@ -5,7 +5,6 @@ import time
 import uuid
 from typing import Any, Dict
 
-
 _jobs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
 _COMPLETED_JOB_TTL_SECONDS = 60 * 30

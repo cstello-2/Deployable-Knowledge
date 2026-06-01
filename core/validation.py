@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
