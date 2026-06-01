@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 import app.main as main
 from core import pipeline
 from core.models import ChatResponse, Source
-from core.prompts import renderer
 from core.rag import retriever
 from app.auth.session import SessionValidationMiddleware
 
@@ -24,8 +23,6 @@ def test_chat_endpoint(monkeypatch):
     def fake_chat_once(req):
         return ChatResponse(text="hi", sources=[Source(id="1")], usage={})
     monkeypatch.setattr(pipeline, "chat_once", fake_chat_once)
-    monkeypatch.setattr(renderer, "generate_title", lambda s: "title")
-    monkeypatch.setattr(renderer, "update_summary", lambda old, u, a: "summary")
     res = client.post(
         "/chat",
         data={"message": "hi", "session_id": "12345678-1234-1234-1234-123456789012"},

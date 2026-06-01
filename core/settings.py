@@ -3,13 +3,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Literal
 import json
 from pydantic import BaseModel, Field, ConfigDict
+from sqlmodel import Session
 
 from config import BASE_DIR
+from core.database import engine, init_db
+from core.database.models import UserSettingsRecord, utc_now
 from .validation import validate_identifier
 from .prompts import loader as prompt_loader
 
-USERS_DIR = BASE_DIR / "users"
-USERS_DIR.mkdir(parents=True, exist_ok=True)
+LEGACY_USERS_DIR = BASE_DIR / "users"
 
 class UserSettings(BaseModel):
     user_id: str
@@ -22,27 +24,65 @@ class UserSettings(BaseModel):
     top_k: int = 40
 
 def _user_path(user_id: str) -> Path:
-    """Location of the settings file for ``user_id``."""
+    """Legacy settings file location for ``user_id``."""
 
     user_id = validate_identifier(user_id, "user id")
-    return USERS_DIR / f"{user_id}.json"
+    return LEGACY_USERS_DIR / f"{user_id}.json"
+
+def _to_settings(record: UserSettingsRecord) -> UserSettings:
+    return UserSettings(
+        user_id=record.user_id,
+        llm_provider=record.llm_provider,
+        llm_model=record.llm_model,
+        prompt_template_id=record.prompt_template_id,
+        temperature=record.temperature,
+        top_p=record.top_p,
+        max_tokens=record.max_tokens,
+        top_k=record.top_k,
+    )
+
+def _record_from_settings(settings: UserSettings) -> UserSettingsRecord:
+    return UserSettingsRecord(**settings.model_dump())
+
+def _load_legacy_settings(user_id: str) -> Optional[UserSettings]:
+    """Load old JSON settings if present, without recreating the old folder."""
+
+    legacy_path = _user_path(user_id)
+    if not legacy_path.exists():
+        return None
+    data = json.loads(legacy_path.read_text(encoding="utf-8"))
+    return UserSettings.model_validate({**data, "user_id": user_id})
 
 def load_settings(user_id: str) -> UserSettings:
-    """Load settings for ``user_id`` creating defaults if necessary."""
+    """Load SQL-backed settings for ``user_id`` creating defaults if necessary."""
 
-    p = _user_path(user_id)
-    if not p.exists():
-        s = UserSettings(user_id=user_id)
-        save_settings(s)
-        return s
-    data = json.loads(p.read_text(encoding="utf-8"))
-    return UserSettings(**data)
+    user_id = validate_identifier(user_id, "user id")
+    init_db()
+    with Session(engine) as session:
+        record = session.get(UserSettingsRecord, user_id)
+        if record is not None:
+            return _to_settings(record)
+
+    settings = _load_legacy_settings(user_id) or UserSettings(user_id=user_id)
+    save_settings(settings)
+    return settings
 
 def save_settings(s: UserSettings) -> None:
-    """Persist ``s`` to its JSON file."""
+    """Persist ``s`` to the SQL database."""
 
-    p = _user_path(s.user_id)
-    p.write_text(s.model_dump_json(indent=2), encoding="utf-8")
+    settings = UserSettings.model_validate(s.model_dump())
+    settings.user_id = validate_identifier(settings.user_id, "user id")
+    init_db()
+    with Session(engine) as session:
+        record = session.get(UserSettingsRecord, settings.user_id)
+        if record is None:
+            record = _record_from_settings(settings)
+        else:
+            for key, value in settings.model_dump().items():
+                setattr(record, key, value)
+            record.updated_at = utc_now()
+        session.add(record)
+        session.commit()
 
 def update_settings(user_id: str, patch: Dict[str, Any]) -> UserSettings:
     """Apply ``patch`` to a user's settings and persist the result."""

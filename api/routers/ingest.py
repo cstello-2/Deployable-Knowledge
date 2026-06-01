@@ -164,15 +164,21 @@ async def upload_files_with_progress(
                             message=f"Embedding {safe_name}",
                         )
 
-                        def on_embed_progress(current: int, total: int, message: str):
+                        def on_embed_progress(
+                            current: int,
+                            total: int,
+                            message: str,
+                            current_file_size: int = file_size,
+                            base_completed_bytes: int = completed_file_bytes,
+                        ):
                             file_fraction = current / max(total, 1)
-                            file_progress_bytes = int(file_size * file_fraction)
+                            file_progress_bytes = int(current_file_size * file_fraction)
 
                             update_job(
                                 job_id,
                                 label="Embedding",
                                 phase="embedding",
-                                current=completed_file_bytes + file_progress_bytes,
+                                current=base_completed_bytes + file_progress_bytes,
                                 total=embedding_total_bytes,
                                 message=message,
                             )

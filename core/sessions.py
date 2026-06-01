@@ -7,7 +7,7 @@ import json
 from typing import Dict, List, Optional
 import uuid
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from core.database import engine, init_db
 from core.database.models import ChatExchangeRecord, ChatSessionRecord, utc_now
@@ -219,7 +219,7 @@ class SessionStore:
 
         with Session(engine) as db_session:
             rows = db_session.exec(
-                select(ChatSessionRecord).order_by(ChatSessionRecord.updated_at.desc())
+                select(ChatSessionRecord).order_by(col(ChatSessionRecord.updated_at).desc())
             ).all()
             return [
                 {

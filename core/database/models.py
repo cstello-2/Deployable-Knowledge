@@ -81,3 +81,33 @@ class ChatExchangeRecord(SQLModel, table=True):
     rag_prompt: str = ""
     assistant: str = ""
     html_response: str = ""
+
+
+class AuthSessionRecord(SQLModel, table=True):
+    __tablename__ = "auth_sessions"
+
+    session_id: str = Field(primary_key=True)
+    user_id: str = Field(index=True)
+    issued_at: datetime
+    expires_at: datetime = Field(index=True)
+    last_seen: datetime
+    ua_hash: Optional[str] = None
+    ip_net: Optional[str] = None
+    attrs_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class UserSettingsRecord(SQLModel, table=True):
+    __tablename__ = "user_settings"
+
+    user_id: str = Field(primary_key=True)
+    llm_provider: str = "ollama"
+    llm_model: str = ""
+    prompt_template_id: Optional[str] = None
+    temperature: float = 0.2
+    top_p: float = 0.95
+    max_tokens: int = 512
+    top_k: int = 40
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

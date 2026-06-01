@@ -74,6 +74,7 @@ embed-dir:
 clean:
 	rm -rf $(VENV_NAME)
 	rm -rf chroma_db/
+	rm -rf app.db
 
 test:
 	pytest -q

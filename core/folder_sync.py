@@ -504,13 +504,18 @@ def sync_folder_into_registry(
             if progress_callback:
                 progress_callback(0, f"Embedding {source_path.name}")
 
-            def on_embed_progress(current: int, total: int, message: str) -> None:
+            def on_embed_progress(
+                current: int,
+                total: int,
+                message: str,
+                current_file_size: int = file_size,
+            ) -> None:
                 nonlocal embedded_bytes
 
                 if not progress_callback:
                     return
 
-                next_bytes = int(file_size * (current / max(total, 1)))
+                next_bytes = int(current_file_size * (current / max(total, 1)))
                 delta_bytes = max(0, next_bytes - embedded_bytes)
                 embedded_bytes = next_bytes
 

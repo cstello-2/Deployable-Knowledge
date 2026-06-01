@@ -1,12 +1,22 @@
 from __future__ import annotations
-import os, json, secrets, hmac, hashlib, base64, re
+import base64
+import hashlib
+import hmac
+import json
+from pathlib import Path
+import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Set
 
 from fastapi import APIRouter, Request, Response, HTTPException
 from fastapi.responses import PlainTextResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
+from sqlmodel import Session as DBSession
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from core.database import engine, init_db
+from core.database.models import AuthSessionRecord, utc_now
 
 UTC = timezone.utc
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
@@ -48,7 +58,7 @@ class SessionSettings(BaseModel):
     allow_paths: Set[str] = {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"}
     allow_path_prefixes: Set[str] = {"/static", "/documents"}
 
-    session_dir: str = "user_sessions"
+    legacy_session_dir: Optional[str] = "user_sessions"
 
     class Config:
         arbitrary_types_allowed = True
@@ -69,7 +79,11 @@ def load_settings_from_config() -> "SessionSettings":
             bind_ip_prefix_cidr=getattr(auth_config, "SESSION_BIND_IP_PREFIX_CIDR", None),
             allow_paths=set(getattr(auth_config, "AUTH_ALLOW_PATHS", {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"})),
             allow_path_prefixes=set(getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})),
-            session_dir=getattr(auth_config, "SESSION_DIR", "user_sessions"),
+            legacy_session_dir=getattr(
+                auth_config,
+                "LEGACY_SESSION_DIR",
+                getattr(auth_config, "SESSION_DIR", "user_sessions"),
+            ),
         )
     except Exception:
         return SessionSettings()
@@ -91,34 +105,102 @@ class SessionStore:
     def put(self, sess: "Session") -> None: ...
     def delete(self, sid: str) -> None: ...
 
-class FileSessionStore(SessionStore):
-    def __init__(self, base_dir: str):
-        self.base_dir = base_dir
-        os.makedirs(base_dir, exist_ok=True)
-    def _path(self, sid: str) -> str:
+class SQLSessionStore(SessionStore):
+    def __init__(self, legacy_dir: Optional[str] = None):
+        self.legacy_dir = Path(legacy_dir) if legacy_dir else None
+        init_db()
+
+    def _legacy_path(self, sid: str) -> Optional[Path]:
+        if self.legacy_dir is None:
+            return None
         safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", sid)
-        return os.path.join(self.base_dir, f"{safe}.json")
+        return self.legacy_dir / f"{safe}.json"
+
+    def import_legacy_sessions(self) -> None:
+        if self.legacy_dir is None or not self.legacy_dir.exists():
+            return
+        for path in self.legacy_dir.glob("*.json"):
+            try:
+                session = self._load_legacy_path(path)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            self.put(session)
+
     def get(self, sid: str) -> Optional["Session"]:
-        p = self._path(sid)
-        if not os.path.exists(p): return None
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for k in ("issued_at","expires_at","last_seen"):
-            data[k] = datetime.fromisoformat(data[k])
-        return Session(**data)
+        with DBSession(engine) as db_session:
+            record = db_session.get(AuthSessionRecord, sid)
+            if record is not None:
+                return _session_from_record(record)
+
+        legacy_path = self._legacy_path(sid)
+        if legacy_path is None or not legacy_path.exists():
+            return None
+
+        session = self._load_legacy_path(legacy_path)
+        self.put(session)
+        return session
+
     def put(self, sess: "Session") -> None:
-        p = self._path(sess.session_id)
-        tmp = p + ".tmp"
-        data = sess.model_dump()
-        for k in ("issued_at","expires_at","last_seen"):
-            data[k] = data[k].isoformat()
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        os.replace(tmp, p)
+        now = utc_now()
+        with DBSession(engine) as db_session:
+            record = db_session.get(AuthSessionRecord, sess.session_id)
+            if record is None:
+                record = AuthSessionRecord(
+                    session_id=sess.session_id,
+                    user_id=sess.user_id,
+                    issued_at=sess.issued_at,
+                    expires_at=sess.expires_at,
+                    last_seen=sess.last_seen,
+                    created_at=now,
+                )
+            record.user_id = sess.user_id
+            record.issued_at = sess.issued_at
+            record.expires_at = sess.expires_at
+            record.last_seen = sess.last_seen
+            record.ua_hash = sess.ua_hash
+            record.ip_net = sess.ip_net
+            record.attrs_json = json.dumps(sess.attrs or {})
+            record.updated_at = now
+            db_session.add(record)
+            db_session.commit()
+
     def delete(self, sid: str) -> None:
-        p = self._path(sid)
-        try: os.remove(p)
-        except FileNotFoundError: pass
+        with DBSession(engine) as db_session:
+            record = db_session.get(AuthSessionRecord, sid)
+            if record is not None:
+                db_session.delete(record)
+                db_session.commit()
+
+    def _load_legacy_path(self, path: Path) -> "Session":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for key in ("issued_at", "expires_at", "last_seen"):
+            data[key] = _ensure_utc(datetime.fromisoformat(data[key]))
+        return Session(**data)
+
+
+def _ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _session_from_record(record: AuthSessionRecord) -> Session:
+    try:
+        attrs = json.loads(record.attrs_json or "{}")
+    except json.JSONDecodeError:
+        attrs = {}
+    if not isinstance(attrs, dict):
+        attrs = {}
+    return Session(
+        session_id=record.session_id,
+        user_id=record.user_id,
+        issued_at=_ensure_utc(record.issued_at),
+        expires_at=_ensure_utc(record.expires_at),
+        last_seen=_ensure_utc(record.last_seen),
+        ua_hash=record.ua_hash,
+        ip_net=record.ip_net,
+        attrs=attrs,
+    )
 
 class SessionManager:
     def __init__(self, store: SessionStore, settings: SessionSettings):
@@ -241,7 +323,8 @@ def build_session_router() -> APIRouter:
 
 def setup_auth(app, settings: Optional[SessionSettings] = None):
     settings = settings or load_settings_from_config()
-    store = FileSessionStore(settings.session_dir)
+    store = SQLSessionStore(settings.legacy_session_dir)
+    store.import_legacy_sessions()
     manager = SessionManager(store, settings)
     app.add_middleware(SessionValidationMiddleware, manager=manager, settings=settings)
     app.include_router(build_session_router())

@@ -33,6 +33,8 @@ Embeddings are configured through `config.py` and environment variables only. Th
 settings UI displays `EMBEDDING_MODEL_ID` and the local `MODEL_DIR` as read-only
 status.
 
-Secrets and user chat preferences are stored under `users/` as JSON files.
+User chat preferences and auth sessions are stored in the SQL database. Legacy
+`users/*.json` settings are imported on first access when present. Legacy
+`user_sessions/*.json` auth sessions are imported on startup when present.
 
 Return to [docs](README.md).

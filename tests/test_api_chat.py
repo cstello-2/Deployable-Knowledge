@@ -4,7 +4,6 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient
 from core.models import ChatChunk
 from core import pipeline
-from core.prompts import renderer
 import app.main as main
 
 client = TestClient(main.app)
@@ -17,13 +16,11 @@ def test_sse_stream(monkeypatch):
         yield ChatChunk(type="done", sources=[], usage={})
 
     monkeypatch.setattr(pipeline, "chat_stream", fake_stream)
-    monkeypatch.setattr(renderer, "generate_title", lambda s: "title")
-    monkeypatch.setattr(renderer, "update_summary", lambda old, u, a: "summary")
 
     with client.stream(
         "POST",
         "/chat?stream=true",
-        data={"message": "hi", "session_id": "12345678-1234-1234-1234-123456789012"},
+        data={"message": "test stream", "session_id": "12345678-1234-1234-1234-123456789012"},
         cookies={"session": "test"},
     ) as res:
         assert res.status_code == 200
