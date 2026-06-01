@@ -88,6 +88,17 @@ export class DKClient {
     }
   }
 
+  async listModelProviders(refresh = false) {
+    const url = `/api/model-providers?refresh=${refresh ? "true" : "false"}`;
+
+    const res = await ok(await fetch(url, {
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
+
+    return asJsonSafe(res);
+  }
+  
   async search(q, topK=5) {
     const res = await ok(await fetch(`/search?q=${encodeURIComponent(q)}&top_k=${encodeURIComponent(topK)}`, {
       headers: JSON_HEADERS,
@@ -447,6 +458,16 @@ export class DKClient {
       credentials: "same-origin",
       body: JSON.stringify(payload)
     }));
+    return asJsonSafe(res);
+  }
+
+  async deletePromptTemplate(id) {
+    const res = await ok(await fetch(`/api/prompt-templates/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
+
     return asJsonSafe(res);
   }
 }

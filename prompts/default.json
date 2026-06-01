@@ -1,7 +1,16 @@
 {
   "id": "default",
-  "name": "Plain Relay",
-  "description": "Minimal pass-through of the user's message.",
-  "content": "{message}",
-  "inputs": ["message"]
+  "name": "Plain Chat",
+  "description": "General-purpose assistant mode with no special retrieval behavior. Good for normal questions, explanations, and quick help.",
+  "system": "You are a helpful, clear, and practical assistant. Answer the user's request directly. Use simple wording unless the user asks for technical depth. If information is missing, make a reasonable assumption and state it briefly.",
+  "user_format": "{user}",
+  "context_item_format": "- {chunk} (source: {source|unknown})",
+  "context_header": "Relevant context:",
+  "context_join": "\n",
+  "persona_format": "Persona: {persona}",
+  "history_separator": "\n",
+  "include_history": true,
+  "temperature": 0.2,
+  "top_k": 8,
+  "max_tokens": 512
 }

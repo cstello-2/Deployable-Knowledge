@@ -75,6 +75,39 @@ def put_prompt(tid: str, payload: Dict[str, Any]):
     tmp.replace(target)
     return {"status": "ok"}
 
+@router.delete("/prompt-templates/{tid}")
+def delete_prompt_template(tid: str):
+    """Delete a user-made prompt template JSON file."""
+
+    protected = {
+        "default",
+        "rag_chat",
+        "tech_helper",
+        "title_summarizer",
+    }
+
+    if tid in protected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to delete protected built-in template: {tid}",
+        )
+
+    prompts_dir = BASE_DIR / "prompts"
+    target = prompts_dir / f"{tid}.json"
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Prompt template not found.")
+
+    backup_dir = prompts_dir / ".backup"
+    backup_dir.mkdir(exist_ok=True)
+
+    shutil.copy(target, backup_dir / f"{tid}.{int(time.time())}.deleted.json")
+    target.unlink()
+
+    return {
+        "status": "deleted",
+        "id": tid,
+    }
 
 @router.get("/model-providers")
 def list_model_providers(refresh: bool = False):

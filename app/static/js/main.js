@@ -11,9 +11,7 @@ import { initSessionsController } from "./ui/controllers/sessions.js";
 import { initChatController }     from "./ui/controllers/chat.js";
 import { initSearchController, runSearch }   from "./ui/controllers/search.js";
 import { initSegmentsController } from "./ui/controllers/segments.js";
-import { openPersonaModal }       from "./ui/controllers/persona.js";
-import { openSettingsModal }      from "./ui/controllers/settings.js";
-import { openPromptEditor }       from "./ui/controllers/prompt_editor.js";
+import { initPromptEditor, openPromptEditor } from "./ui/controllers/prompt_editor.js";
 
 import { dkClient as api } from "./ui/sdk/sdk.js";
 import { Store } from "./ui/store.js";
@@ -65,6 +63,8 @@ initDocsController("win_docs");
 initSessionsController("win_sessions");
 initChatController();
 initSearchController("win_search");
+initPromptEditor("win_prompt_editor");
+
 if (Store.lastQuery) runSearch(Store.lastQuery);
 
 // ensure we have a session at boot
@@ -87,12 +87,6 @@ initMenu(async (action) => {
     const input = document.querySelector("#win_chat #chat_input");
     if (log) log.innerHTML = "";
     if (input) input.value = "";
-  }
-  if (action === "edit-persona") {
-    openPersonaModal();
-  }
-  if (action === "settings") {
-    openSettingsModal();
   }
   if (action === "prompt-templates") {
     openPromptEditor();

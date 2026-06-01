@@ -5,6 +5,7 @@ import { md, escapeHtml } from "../render.js";
 import { qs } from "../../dom.js";
 import { showContext, renderChatCitations } from "./search.js";
 import { isAppBusy } from "../popups.js";
+import { getSelectedPromptTemplateId } from "./prompt_editor.js";
 
 export function initChatController() {
   const chatWin = qs("#win_chat");
@@ -81,6 +82,7 @@ export function initChatController() {
           session_id: Store.sessionId,
           inactive: Store.inactiveList(),
           persona: Store.persona,
+          template_id: getSelectedPromptTemplateId(),
         },
         {
           signal: aborter.signal,
@@ -117,6 +119,7 @@ export function initChatController() {
           session_id: Store.sessionId,
           inactive: Store.inactiveList(),
           persona: Store.persona,
+          template_id: getSelectedPromptTemplateId(),
         });
         bubble.clearPending();
         bubble.mdEl.innerHTML = md(res.response ?? "(no response)");

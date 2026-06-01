@@ -9,8 +9,53 @@ GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
 
 class OllamaLLM(BaseLLM):
-    def __init__(self, model: str | None = None, **kwargs: Any) -> None:
-        super().__init__(model or OLLAMA_MODEL)
+    def __init__(
+        self,
+        model: str | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            model or OLLAMA_MODEL,
+            temperature=temperature,
+            top_p=top_p,
+            top_k = top_k,
+            max_tokens=max_tokens,
+        )
+
+    def _ollama_options(self) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+
+        if self.temperature is not None:
+            options["temperature"] = self.temperature
+
+        if self.top_p is not None:
+            options["top_p"] = self.top_p
+        
+        if self.top_k is not None:
+            options["top_k"] = self.top_k
+
+        if self.max_tokens is not None:
+            options["num_predict"] = self.max_tokens
+
+        return options
+
+    def _chat_payload(self, prompt: str, stream: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": stream,
+            "keep_alive": OLLAMA_KEEP_ALIVE,
+        }
+
+        options = self._ollama_options()
+        if options:
+            payload["options"] = options
+
+        return payload
 
     def list_models(self, refresh: bool = True, **kwargs: Any) -> list[ModelInfo]:
         if not refresh:
@@ -34,21 +79,21 @@ class OllamaLLM(BaseLLM):
         )
 
     def _generate_payload(self, prompt: str, stream: bool) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
             "stream": stream,
-            "keep_alive": OLLAMA_KEEP_ALIVE
+            "keep_alive": OLLAMA_KEEP_ALIVE,
         }
+
+        options = self._ollama_options()
+        if options:
+            payload["options"] = options
+
+        return payload
 
     def generate_text(self, prompt: str, **kwargs: Any) -> str:
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
-            "keep_alive": OLLAMA_KEEP_ALIVE
-        }
-
+        payload = self._chat_payload(prompt, stream=False)
         timeout = kwargs.get("timeout", 120)
 
         try:
@@ -58,6 +103,7 @@ class OllamaLLM(BaseLLM):
         except requests.HTTPError as exc:
             if exc.response is None or exc.response.status_code != 404:
                 raise
+
             resp = requests.post(
                 GENERATE_URL,
                 json=self._generate_payload(prompt, False),
@@ -66,24 +112,26 @@ class OllamaLLM(BaseLLM):
             resp.raise_for_status()
             data = resp.json()
             return data.get("response", "")
+
         return data.get("message", {}).get("content", "")
 
     def stream_text(self, prompt: str, **kwargs: Any) -> Iterator[str]:
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": True,
-            "keep_alive": OLLAMA_KEEP_ALIVE
-        }
+        payload = self._chat_payload(prompt, stream=True)
         timeout = kwargs.get("timeout", None)
+
         try:
             with requests.post(
-                CHAT_URL, json=payload, stream=True, timeout=timeout
+                CHAT_URL,
+                json=payload,
+                stream=True,
+                timeout=timeout,
             ) as r:
                 r.raise_for_status()
+
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
+
                     try:
                         obj = json.loads(line)
                         chunk = obj.get("message", {}).get("content", "")
@@ -91,6 +139,7 @@ class OllamaLLM(BaseLLM):
                             yield chunk
                     except Exception:
                         yield line
+
         except requests.HTTPError as exc:
             if exc.response is None or exc.response.status_code != 404:
                 raise
@@ -102,9 +151,11 @@ class OllamaLLM(BaseLLM):
                 timeout=timeout,
             ) as r:
                 r.raise_for_status()
+
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
+
                     try:
                         obj = json.loads(line)
                         chunk = obj.get("response", "")
