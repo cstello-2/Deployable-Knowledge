@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from config import BASE_DIR, UPLOAD_DIR
 from contextlib import asynccontextmanager
 
+from core.database import init_db
 from core.folder_watcher import start_folder_watcher, stop_folder_watcher
 from app.routes.ui_routes import router as ui_router
 from api.routers.chat import router as chat_router
@@ -22,6 +23,7 @@ from app.auth.session import setup_auth, load_settings_from_config
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     await start_folder_watcher()
     try:
         yield

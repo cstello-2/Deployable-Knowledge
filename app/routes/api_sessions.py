@@ -27,7 +27,7 @@ async def list_sessions(request: Request):
             {
                 "session_id": entry["id"],
                 "title": session.title if session else "",
-                "created_at": datetime.fromtimestamp(entry["modified"]).isoformat(),
+                "created_at": datetime.fromtimestamp(entry["created"]).isoformat(),
             }
         )
     return JSONResponse(content=summaries)
@@ -47,12 +47,11 @@ async def get_session_data(request: Request, session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     history_pairs = [[ex.user, ex.assistant] for ex in session.history]
-    path = store._session_path(session_id)  # access for timestamp metadata
-    created_at = (
-        datetime.fromtimestamp(path.stat().st_mtime).isoformat()
-        if path.exists()
-        else None
+    entry = next(
+        (item for item in store.list_sessions() if item["id"] == session_id),
+        None,
     )
+    created_at = datetime.fromtimestamp(entry["created"]).isoformat() if entry else None
 
     return JSONResponse(
         content={
@@ -80,7 +79,7 @@ async def rename_session(request: Request, session_id: str, body: RenameSessionB
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(request: Request, session_id: str):
-    """Delete a stored chat session file."""
+    """Delete a stored chat session."""
 
     session_id = _validate_session_id(session_id)
     session = store.load(session_id)

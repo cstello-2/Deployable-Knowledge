@@ -24,7 +24,7 @@
 | `/corpus/deactivate-all` | POST | Mark every ingested source inactive for RAG |
 | `/corpus/clear-all` | POST | Clear ChromaDB collection, registry source entries, and uploaded files under `documents/` |
 
-`GET /documents` returns each source with `segments`, `tags`, and `active` (merged from `corpus_registry.json`).
+`GET /documents` returns each source with `segments`, `tags`, and `active` from the SQL-backed corpus registry.
 
 All endpoints return JSON except `/chat-stream`, which emits `meta`, `delta` and `done` events.
 

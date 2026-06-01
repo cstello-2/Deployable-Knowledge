@@ -7,9 +7,12 @@ Key paths:
 - `UPLOAD_DIR` – directory for user uploaded documents
 - `PDF_DIR` – directory scanned for batch ingestion
 - `MODEL_DIR` – location of the embedding model
+- `DATABASE_PATH` – SQLite database path when `DATABASE_URL` is not set, defaulting to `app.db`
 
 Environment variables:
 
+- `DATABASE_URL` – SQLModel database URL, defaulting to SQLite at `DATABASE_PATH`
+- `DATABASE_ECHO` – set to `1` to log SQL statements
 - `OLLAMA_BASE_URL` – Ollama API base URL, defaulting to `http://localhost:11434`
 - `OLLAMA_MODEL` – model name for the Ollama backend
 - `OPENAI_API_KEY` – enables OpenAI chat provider options and chat requests

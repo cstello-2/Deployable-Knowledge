@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import json
-import os
 import re
 import shutil
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from config import FOLDER_SYNC_REGISTRY_PATH, UPLOAD_DIR
+from sqlmodel import Session, select
+
+from config import UPLOAD_DIR
 from core.corpus_registry import remove_source as registry_remove_source
+from core.database import engine
+from core.database.models import IgnoredSyncedFile, SyncedFile, SyncedFolder
 from core.rag.retriever import db, embed_file
 
 registry_lock = threading.Lock()
@@ -21,32 +23,107 @@ def default_registry() -> Dict[str, Any]:
     return {"folders": [], "files": {}, "ignored_files": {}}
 
 
-def load_raw() -> Dict[str, Any]:
-    if not FOLDER_SYNC_REGISTRY_PATH.exists():
-        return default_registry()
-
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
     try:
-        raw = FOLDER_SYNC_REGISTRY_PATH.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
-        return default_registry()
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
-    if not isinstance(data, dict):
-        return default_registry()
 
-    data.setdefault("folders", [])
-    data.setdefault("files", {})
-    data.setdefault("ignored_files", {})
-    return data
+def load_raw() -> Dict[str, Any]:
+    with Session(engine) as session:
+        folders = session.exec(
+            select(SyncedFolder).order_by(SyncedFolder.position, SyncedFolder.path)
+        ).all()
+        files = session.exec(select(SyncedFile).order_by(SyncedFile.source_path)).all()
+        ignored_files = session.exec(
+            select(IgnoredSyncedFile).order_by(IgnoredSyncedFile.source_path)
+        ).all()
+
+        return {
+            "folders": [row.path for row in folders],
+            "files": {
+                row.source_path: {
+                    "folder": row.folder,
+                    "source_name": row.source_name,
+                    "has_segments": row.has_segments,
+                    "mtime_ns": row.mtime_ns,
+                    "size": row.size,
+                }
+                for row in files
+            },
+            "ignored_files": {
+                row.source_path: {
+                    "folder": row.folder,
+                    "source_name": row.source_name,
+                    "reason": row.reason,
+                }
+                for row in ignored_files
+            },
+        }
 
 
 def save_raw(data: Dict[str, Any]) -> None:
-    FOLDER_SYNC_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = FOLDER_SYNC_REGISTRY_PATH.with_suffix(
-        FOLDER_SYNC_REGISTRY_PATH.suffix + ".tmp"
-    )
-    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp_path, FOLDER_SYNC_REGISTRY_PATH)
+    folders = data.get("folders") or []
+    files = data.get("files") or {}
+    ignored_files = data.get("ignored_files") or {}
+
+    with Session(engine) as session:
+        for row in session.exec(select(IgnoredSyncedFile)).all():
+            session.delete(row)
+        for row in session.exec(select(SyncedFile)).all():
+            session.delete(row)
+        for row in session.exec(select(SyncedFolder)).all():
+            session.delete(row)
+        session.flush()
+
+        seen_folders: set[str] = set()
+        for position, folder in enumerate(folders):
+            folder = str(folder)
+            if not folder or folder in seen_folders:
+                continue
+            seen_folders.add(folder)
+            session.add(SyncedFolder(path=folder, position=position))
+
+        for source_path, meta in files.items():
+            if not isinstance(meta, dict):
+                continue
+            source_path = str(source_path)
+            source_name = meta.get("source_name")
+            folder = meta.get("folder")
+            if not source_path or not source_name or not folder:
+                continue
+
+            session.add(
+                SyncedFile(
+                    source_path=source_path,
+                    folder=str(folder),
+                    source_name=str(source_name),
+                    has_segments=bool(meta.get("has_segments", True)),
+                    mtime_ns=_optional_int(meta.get("mtime_ns")),
+                    size=_optional_int(meta.get("size")),
+                )
+            )
+
+        for source_path, meta in ignored_files.items():
+            if not isinstance(meta, dict):
+                continue
+            source_path = str(source_path)
+            if not source_path:
+                continue
+
+            session.add(
+                IgnoredSyncedFile(
+                    source_path=source_path,
+                    folder=meta.get("folder"),
+                    source_name=meta.get("source_name"),
+                    reason=str(meta.get("reason") or ""),
+                )
+            )
+
+        session.commit()
 
 
 def supported_file(path: Path) -> bool:

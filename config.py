@@ -11,6 +11,12 @@ MODEL_DIR = BASE_DIR / "tmp_model"
 CHROMA_DB_DIR = BASE_DIR / "chroma_db"
 COLLECTION_NAME = "default_collection"
 
+# === SQL Database ===
+_database_path = os.getenv("DATABASE_PATH")
+DATABASE_PATH = Path(_database_path).expanduser() if _database_path else BASE_DIR / "app.db"
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
+DATABASE_ECHO = os.getenv("DATABASE_ECHO", "0") == "1"
+
 # === Embedding Model ===
 # Always point to a local directory for offline model loading
 EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "sentence-transformers/all-MiniLM-L6-v2")
@@ -49,7 +55,3 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # === Prompt Templates ===
 PROMPTS_DIR = BASE_DIR / "prompts"
-
-# === Corpus metadata (tags, activation) ===
-CORPUS_REGISTRY_PATH = BASE_DIR / "corpus_registry.json"
-FOLDER_SYNC_REGISTRY_PATH = BASE_DIR / "folder_sync_registry.json"

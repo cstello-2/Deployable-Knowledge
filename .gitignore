@@ -35,6 +35,10 @@ Thumbs.db
 # --- ChromaDB persistent vector store ---
 chroma_db/
 
+# --- SQL database ---
+app.db
+app.db-*
+
 # --- Extracted or parsed PDF text content ---
 parsed_texts/
 *.txt
@@ -42,6 +46,7 @@ parsed_texts/
 # --- Query result data ---
 *.json
 !prompts/*.json
+app.db
 
 # --- Model cache or sentence-transformers ---
 cache/
