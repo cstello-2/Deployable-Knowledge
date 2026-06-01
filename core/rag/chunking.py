@@ -27,9 +27,7 @@ def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
     try:
         import fitz  # PyMuPDF
     except ImportError:
-        raise RuntimeError(
-            "PyMuPDF and its runtime libraries are required for image extraction."
-        )
+        raise RuntimeError("PyMuPDF and its runtime libraries are required for image extraction.")
 
     pdf_path = Path(pdf_path)
     assert pdf_path.exists(), f"File does not exist: {pdf_path}"
@@ -99,6 +97,7 @@ def extract_pdf_images(pdf_path, output_dir=None, print_to_console=True):
 
     return extracted_images
 
+
 def safe_sent_tokenize(text: str):
     """Lightweight sentence tokenizer based on punctuation."""
 
@@ -154,17 +153,23 @@ def pagerank_chunk_text(
         used.add(idx)
 
         i = idx - 1
-        while i >= 0 and i not in used and cosine_similarity(
-            [embeddings[i]], [embeddings[chunk[0]]]
-        )[0][0] > expansion_threshold:
+        while (
+            i >= 0
+            and i not in used
+            and cosine_similarity([embeddings[i]], [embeddings[chunk[0]]])[0][0]
+            > expansion_threshold
+        ):
             chunk.insert(0, i)
             used.add(i)
             i -= 1
 
         i = idx + 1
-        while i < len(sentences) and i not in used and cosine_similarity(
-            [embeddings[i]], [embeddings[chunk[-1]]]
-        )[0][0] > expansion_threshold:
+        while (
+            i < len(sentences)
+            and i not in used
+            and cosine_similarity([embeddings[i]], [embeddings[chunk[-1]]])[0][0]
+            > expansion_threshold
+        ):
             chunk.append(i)
             used.add(i)
             i += 1
@@ -186,6 +191,7 @@ def pagerank_chunk_text(
 
     return chunks
 
+
 def remove_frequent_lines(pages, threshold=0.9):
     """
     Remove lines that appear in more than `threshold` proportion of pages.
@@ -197,23 +203,20 @@ def remove_frequent_lines(pages, threshold=0.9):
     Returns:
         List[Dict]: Filtered list of pages with common lines removed.
     """
-    all_lines = [line.strip() for page in pages for line in page["text"].split("\n") if line.strip()]
+    all_lines = [
+        line.strip() for page in pages for line in page["text"].split("\n") if line.strip()
+    ]
     line_counts = Counter(all_lines)
     total_pages = len(pages)
-    common_lines = {
-        line for line, count in line_counts.items()
-        if count / total_pages > threshold
-    }
+    common_lines = {line for line, count in line_counts.items() if count / total_pages > threshold}
 
     filtered_pages = []
     for page in pages:
         lines = page["text"].split("\n")
         filtered_lines = [line for line in lines if line.strip() not in common_lines]
-        filtered_pages.append({
-            "page": page["page"],
-            "text": "\n".join(filtered_lines)
-        })
+        filtered_pages.append({"page": page["page"], "text": "\n".join(filtered_lines)})
     return filtered_pages
+
 
 def serialize_table_rows(rows):
     """Serialize PyMuPDF table rows to CSV text."""
@@ -242,7 +245,9 @@ def _rects_overlap(rect_a, rect_b):
     return x_overlap and y_overlap
 
 
-def _is_rect_within_margins(rect, page, is_landscape, margin_top, margin_bottom, margin_left, margin_right):
+def _is_rect_within_margins(
+    rect, page, is_landscape, margin_top, margin_bottom, margin_left, margin_right
+):
     page_rect = page.rect
     if is_landscape:
         return margin_left < rect.x0 < (page_rect.width - margin_right)
@@ -269,7 +274,9 @@ def _extract_tables_from_page(page, fitz_module):
     return tables
 
 
-def _page_blocks(page, fitz_module, table_rects, margin_top, margin_bottom, margin_left, margin_right):
+def _page_blocks(
+    page, fitz_module, table_rects, margin_top, margin_bottom, margin_left, margin_right
+):
     is_landscape = page.rect.width > page.rect.height or page.rotation in [90, 270]
     blocks = []
     for block in page.get_text("blocks") or []:
@@ -334,7 +341,7 @@ def parse_pdf(pdf_path, margin_top=50, margin_bottom=50, margin_left=50, margin_
         margin_bottom (int): Bottom margin in points to ignore.
         margin_left (int): Left margin in points to ignore.
         margin_right (int): Right margin in points to ignore.
-    
+
     Returns:
         List[Dict]: List of dictionaries with page number and cleaned text content.
         Each dictionary has keys "page" and "text".
@@ -363,18 +370,38 @@ def parse_pdf(pdf_path, margin_top=50, margin_bottom=50, margin_left=50, margin_
 
     return all_cleaned_text
 
+
 # Replace input_pdf and output_txt with desired file paths
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Extract clean text from a PDF, removing headers and footers.")
+    parser = argparse.ArgumentParser(
+        description="Extract clean text from a PDF, removing headers and footers."
+    )
     parser.add_argument("input_pdf", type=str, help="Path to the input PDF file")
     parser.add_argument("output_txt", type=str, help="Path to the output text file")
-    parser.add_argument("--margin_top", type=int, default=50, help="Top margin in points (default: 50)")
-    parser.add_argument("--margin_bottom", type=int, default=50, help="Bottom margin in points (default: 50)")
-    parser.add_argument("--margin_left", type=int, default=50, help="Left margin in points (default: 50)")
-    parser.add_argument("--margin_right", type=int, default=50, help="Right margin in points (default: 50)")
+    parser.add_argument(
+        "--margin_top", type=int, default=50, help="Top margin in points (default: 50)"
+    )
+    parser.add_argument(
+        "--margin_bottom", type=int, default=50, help="Bottom margin in points (default: 50)"
+    )
+    parser.add_argument(
+        "--margin_left", type=int, default=50, help="Left margin in points (default: 50)"
+    )
+    parser.add_argument(
+        "--margin_right", type=int, default=50, help="Right margin in points (default: 50)"
+    )
 
-    parser.add_argument("--extract_images", action="store_true", help="Print embedded PDF image information to the console")
-    parser.add_argument("--image_output_dir", type=str, default=None, help="Optional folder to save extracted images")
+    parser.add_argument(
+        "--extract_images",
+        action="store_true",
+        help="Print embedded PDF image information to the console",
+    )
+    parser.add_argument(
+        "--image_output_dir",
+        type=str,
+        default=None,
+        help="Optional folder to save extracted images",
+    )
 
     args = parser.parse_args()
 
@@ -383,7 +410,7 @@ if __name__ == "__main__":
         margin_top=args.margin_top,
         margin_bottom=args.margin_bottom,
         margin_left=args.margin_left,
-        margin_right=args.margin_right
+        margin_right=args.margin_right,
     )
 
     output_path = Path(args.output_txt)
@@ -394,8 +421,4 @@ if __name__ == "__main__":
     print(f"Extracted text saved to {output_path}")
 
     if args.extract_images:
-        extract_pdf_images(
-            args.input_pdf,
-            output_dir=args.image_output_dir,
-            print_to_console=True
-        )
+        extract_pdf_images(args.input_pdf, output_dir=args.image_output_dir, print_to_console=True)

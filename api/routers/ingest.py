@@ -18,6 +18,7 @@ _log = logging.getLogger(__name__)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
 
+
 @router.post("/upload/start")
 async def start_upload_job():
     job_id = create_job("Uploading")
@@ -35,6 +36,7 @@ async def start_upload_job():
         "status": "started",
         "job_id": job_id,
     }
+
 
 @router.post("/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
@@ -62,6 +64,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
         except Exception as e:
             results.append({"filename": file.filename, "status": "error", "message": str(e)})
     return JSONResponse({"uploads": results})
+
 
 @router.post("/upload-progress/{job_id}")
 async def upload_files_with_progress(
@@ -120,11 +123,13 @@ async def upload_files_with_progress(
                 uploaded_files.append((destination, safe_name))
 
             except Exception as e:
-                results.append({
-                    "filename": file.filename,
-                    "status": "error",
-                    "message": str(e),
-                })
+                results.append(
+                    {
+                        "filename": file.filename,
+                        "status": "error",
+                        "message": str(e),
+                    }
+                )
 
         # 2. Calculate real embedding total using file sizes
         embedding_total_bytes = 0
@@ -151,7 +156,9 @@ async def upload_files_with_progress(
                 for destination, safe_name in uploaded_files:
                     try:
                         if not destination.exists():
-                            raise FileNotFoundError(f"File not found before embedding: {destination}")
+                            raise FileNotFoundError(
+                                f"File not found before embedding: {destination}"
+                            )
 
                         file_size = destination.stat().st_size
 
@@ -201,10 +208,12 @@ async def upload_files_with_progress(
                             message=f"Embedded {safe_name}",
                         )
 
-                        embed_results.append({
-                            "filename": safe_name,
-                            "status": "success",
-                        })
+                        embed_results.append(
+                            {
+                                "filename": safe_name,
+                                "status": "success",
+                            }
+                        )
 
                     except Exception as e:
                         try:
@@ -212,11 +221,13 @@ async def upload_files_with_progress(
                         except OSError:
                             pass
 
-                        embed_results.append({
-                            "filename": safe_name,
-                            "status": "error",
-                            "message": str(e),
-                        })
+                        embed_results.append(
+                            {
+                                "filename": safe_name,
+                                "status": "error",
+                                "message": str(e),
+                            }
+                        )
 
                         update_job(
                             job_id,
@@ -245,10 +256,12 @@ async def upload_files_with_progress(
 
         background_tasks.add_task(run_embedding_job)
 
-        return JSONResponse({
-            "status": "upload_complete_embedding_started",
-            "job_id": job_id,
-        })
+        return JSONResponse(
+            {
+                "status": "upload_complete_embedding_started",
+                "job_id": job_id,
+            }
+        )
 
     except Exception as e:
         fail_job(job_id, str(e))
@@ -272,13 +285,16 @@ async def remove_document(source: str = Form(...)):
         if file_path.exists():
             os.remove(file_path)
 
-        return JSONResponse({
-            "status": "success",
-            "message": f"{safe_name} removed.",
-            "folder_sync": forget_info,
-        })
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": f"{safe_name} removed.",
+                "folder_sync": forget_info,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/ingest")
 async def ingest_documents(background_tasks: BackgroundTasks):
@@ -303,6 +319,7 @@ async def ingest_documents(background_tasks: BackgroundTasks):
         default_tags=["auto_ingested"],
     )
     return {"status": "started", "message": "Parsed PDFs and scheduled ingestion."}
+
 
 @router.post("/clear_db")
 async def clear_db():

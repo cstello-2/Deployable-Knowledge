@@ -75,6 +75,7 @@ def put_prompt(tid: str, payload: Dict[str, Any]):
     tmp.replace(target)
     return {"status": "ok"}
 
+
 @router.delete("/prompt-templates/{tid}")
 def delete_prompt_template(tid: str):
     """Delete a user-made prompt template JSON file."""
@@ -109,14 +110,13 @@ def delete_prompt_template(tid: str):
         "id": tid,
     }
 
+
 @router.get("/model-providers")
 def list_model_providers(refresh: bool = False):
     """List configured chat providers through provider implementations."""
 
     return {
-        "chat_providers": [
-            provider.as_dict() for provider in provider_model_list(refresh=refresh)
-        ],
+        "chat_providers": [provider.as_dict() for provider in provider_model_list(refresh=refresh)],
         "embedding_model_id": EMBEDDING_MODEL_ID,
         "embedding_model_path": str(MODEL_DIR),
     }
@@ -139,9 +139,7 @@ def _require_current_user(request: Request, user_id: str) -> None:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if user_id != _current_user_id(request):
-        raise HTTPException(
-            status_code=403, detail="Cannot access another user's settings"
-        )
+        raise HTTPException(status_code=403, detail="Cannot access another user's settings")
 
 
 def _validate_prompt_id(tid: str) -> None:

@@ -1,4 +1,5 @@
 """Corpus tagging, activation, and bulk operations."""
+
 from __future__ import annotations
 
 import os

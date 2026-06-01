@@ -1,4 +1,5 @@
 import sys, pathlib
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 from core.models import ChatRequest

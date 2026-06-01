@@ -14,6 +14,7 @@ store = SessionStore()
 class RenameSessionBody(BaseModel):
     title: str
 
+
 @router.get("/sessions")
 async def list_sessions(request: Request):
     """Return lightweight metadata for all stored sessions."""
@@ -31,6 +32,7 @@ async def list_sessions(request: Request):
             }
         )
     return JSONResponse(content=summaries)
+
 
 @router.get("/sessions/{session_id}")
 async def get_session_data(request: Request, session_id: str):
@@ -88,6 +90,7 @@ async def delete_session(request: Request, session_id: str):
     store.delete(session_id)
     return JSONResponse({"status": "ok", "session_id": session_id})
 
+
 @router.get("/session")
 async def get_or_create_session(request: Request):
     """Return an existing session or create a new one if none is found."""
@@ -119,9 +122,7 @@ async def create_session(request: Request):
     store.save(session)
 
     response = JSONResponse({"session_id": session.session_id})
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME, value=session.session_id, httponly=True
-    )
+    response.set_cookie(key=SESSION_COOKIE_NAME, value=session.session_id, httponly=True)
     return response
 
 

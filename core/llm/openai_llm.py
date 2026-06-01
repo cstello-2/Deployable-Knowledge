@@ -5,6 +5,7 @@ import requests
 from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 from .base import BaseLLM, ModelInfo
 
+
 class OpenAILLM(BaseLLM):
     """OpenAI chat backend using the HTTP Chat Completions API."""
 
@@ -42,9 +43,7 @@ class OpenAILLM(BaseLLM):
             for model in data.get("data", [])
             if isinstance(model, dict) and isinstance(model.get("id"), str)
         )
-        return [ModelInfo.from_id(model) for model in models] or super().list_models(
-            refresh=False
-        )
+        return [ModelInfo.from_id(model) for model in models] or super().list_models(refresh=False)
 
     def _payload(self, prompt: str, stream: bool) -> dict[str, Any]:
         return {

@@ -129,9 +129,7 @@ def read_pdf_image_text(
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     if pdf_path.suffix.lower() != ".pdf":
-        raise ValueError(
-            f"RapidOCR PDF route only supports PDFs, got: {pdf_path.suffix}"
-        )
+        raise ValueError(f"RapidOCR PDF route only supports PDFs, got: {pdf_path.suffix}")
 
     doc = fitz.open(pdf_path)
 
@@ -142,9 +140,7 @@ def read_pdf_image_text(
             page = doc[page_index]
             image_results: List[Dict[str, Any]] = []
 
-            for image_index, image_info in enumerate(
-                page.get_images(full=True), start=1
-            ):
+            for image_index, image_info in enumerate(page.get_images(full=True), start=1):
                 xref = image_info[0]
                 pix = fitz.Pixmap(doc, xref)
 
@@ -155,16 +151,12 @@ def read_pdf_image_text(
                     pix = fitz.Pixmap(fitz.csRGB, pix)
 
                 mode = "L" if pix.n == 1 else "RGB"
-                img = Image.frombytes(
-                    mode, [pix.width, pix.height], pix.samples
-                ).convert("RGB")
+                img = Image.frombytes(mode, [pix.width, pix.height], pix.samples).convert("RGB")
                 img_np = np.array(img)
 
                 result = get_ocr_engine()(img_np)
                 lines = _extract_text_lines(result, min_confidence=min_confidence)
-                image_text = "\n".join(
-                    line["text"] for line in lines if line.get("text")
-                )
+                image_text = "\n".join(line["text"] for line in lines if line.get("text"))
 
                 image_results.append(
                     {
@@ -176,9 +168,7 @@ def read_pdf_image_text(
                     }
                 )
 
-            page_text = "\n\n".join(
-                image["text"] for image in image_results if image.get("text")
-            )
+            page_text = "\n\n".join(image["text"] for image in image_results if image.get("text"))
 
             pages.append(
                 {

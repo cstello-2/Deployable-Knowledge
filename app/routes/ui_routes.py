@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse 
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -16,6 +16,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 SESSION_COOKIE_NAME = "chat_session_id"
 store = SessionStore()
 
+
 def get_documents():
     """Return a summary of ingested documents with segment counts, tags, and activation."""
     try:
@@ -25,10 +26,12 @@ def get_documents():
         # e.g. embedding model missing or Chroma unavailable — still render the UI
         return []
 
+
 @router.get("/documents")
 async def list_documents_json():
     """Expose :func:`get_documents` via a JSON API."""
     return get_documents()
+
 
 @router.get("/", response_class=HTMLResponse)
 async def front_door(request: Request, q: str = ""):
@@ -70,6 +73,7 @@ async def front_door(request: Request, q: str = ""):
 async def begin(request: Request):
     """Legacy auth entrypoint retained for compatibility in local mode."""
     return RedirectResponse(url="/", status_code=303)
+
 
 @router.get("/logout")
 async def logout(request: Request):

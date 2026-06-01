@@ -9,6 +9,7 @@ from core.llm import make_llm
 
 from . import loader as prompt_loader
 
+
 @dataclass
 class Template:
     id: str
@@ -24,6 +25,7 @@ class Template:
     temperature: float | None = None
     max_tokens: int | None = None
     top_k: int | None = None
+
 
 def _load_template(tid: Optional[str]) -> Template:
     """Resolve ``tid`` to a :class:`Template` instance."""
@@ -66,6 +68,7 @@ def _load_template(tid: Optional[str]) -> Template:
         }
     return Template(**data)
 
+
 def _fmt_defaults(s: str, **kwargs) -> str:
     """Format ``s`` replacing ``{name|default}`` tokens with values."""
 
@@ -76,6 +79,7 @@ def _fmt_defaults(s: str, **kwargs) -> str:
 
     s = re.sub(r"\{([a-zA-Z0-9_]+)\|([^}]+)\}", repl, s)
     return s.format(**{k: kwargs.get(k, "") for k in kwargs})
+
 
 def _render_context(t: Template, context_blocks: List[Dict]) -> str:
     """Render retrieved context blocks using the template's format."""
@@ -94,6 +98,7 @@ def _render_context(t: Template, context_blocks: List[Dict]) -> str:
         )
     return t.context_header + "\n" + t.context_join.join(lines)
 
+
 def _render_history(t: Template, history: List[ChatExchange]) -> str:
     """Render the chat history portion of the prompt."""
 
@@ -106,6 +111,7 @@ def _render_history(t: Template, history: List[ChatExchange]) -> str:
         if a:
             lines.append(f"Assistant: {a}")
     return t.history_separator.join(lines)
+
 
 def build_prompt(
     summary: str,
@@ -134,6 +140,7 @@ def build_prompt(
     blocks.append(user_str)
     return "\n\n".join([b for b in blocks if b])
 
+
 def _resolve_settings(user_id: Optional[str]):
     """Best-effort lookup of user settings falling back to defaults."""
 
@@ -160,20 +167,10 @@ def _generation_values(s, t: Template) -> Dict[str, Any]:
     settings_max_tokens = getattr(s, "max_tokens", 512)
 
     temperature = (
-        t.temperature
-        if getattr(t, "temperature", None) is not None
-        else settings_temperature
+        t.temperature if getattr(t, "temperature", None) is not None else settings_temperature
     )
-    top_k = (
-        t.top_k
-        if getattr(t, "top_k", None) is not None
-        else settings_top_k
-    )
-    max_tokens = (
-        t.max_tokens
-        if getattr(t, "max_tokens", None) is not None
-        else settings_max_tokens
-    )
+    top_k = t.top_k if getattr(t, "top_k", None) is not None else settings_top_k
+    max_tokens = t.max_tokens if getattr(t, "max_tokens", None) is not None else settings_max_tokens
 
     return {
         "temperature": temperature,

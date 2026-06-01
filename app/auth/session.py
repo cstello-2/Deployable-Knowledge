@@ -21,14 +21,18 @@ from core.database.models import AuthSessionRecord, utc_now
 UTC = timezone.utc
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
+
 def _now() -> datetime:
     return datetime.now(UTC)
+
 
 def _rand_b64(n_bytes: int = 32) -> str:
     return base64.urlsafe_b64encode(secrets.token_bytes(n_bytes)).decode().rstrip("=")
 
+
 def _hash(s: str) -> str:
     return hashlib.sha256((s or "").encode()).hexdigest()
+
 
 def _ip_prefix(remote: str, cidr: Optional[int]) -> Optional[str]:
     if not remote or not cidr or "/" in (remote or ""):
@@ -40,6 +44,7 @@ def _ip_prefix(remote: str, cidr: Optional[int]) -> Optional[str]:
     rest = 4 - keep
     prefix = ".".join(parts[:keep]) + (".0" * rest)
     return f"{prefix}/{cidr}"
+
 
 class SessionSettings(BaseModel):
     idle_timeout_minutes: int = 15
@@ -55,7 +60,15 @@ class SessionSettings(BaseModel):
     bind_user_agent: bool = True
     bind_ip_prefix_cidr: Optional[int] = None
 
-    allow_paths: Set[str] = {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"}
+    allow_paths: Set[str] = {
+        "/",
+        "/begin",
+        "/logout",
+        "/docs",
+        "/openapi.json",
+        "/healthz",
+        "/favicon.ico",
+    }
     allow_path_prefixes: Set[str] = {"/static", "/documents"}
 
     legacy_session_dir: Optional[str] = "user_sessions"
@@ -63,9 +76,11 @@ class SessionSettings(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+
 def load_settings_from_config() -> "SessionSettings":
     try:
         import app.auth.config as auth_config
+
         return SessionSettings(
             idle_timeout_minutes=getattr(auth_config, "SESSION_IDLE_TIMEOUT_MINUTES", 15),
             absolute_ttl_hours=getattr(auth_config, "SESSION_ABSOLUTE_TTL_HOURS", 8),
@@ -74,11 +89,29 @@ def load_settings_from_config() -> "SessionSettings":
             csrf_cookie_name=getattr(auth_config, "CSRF_COOKIE_NAME", "csrf_token"),
             samesite=getattr(auth_config, "SESSION_COOKIE_SAMESITE", "Strict"),
             secure_cookies=getattr(auth_config, "SESSION_SECURE_COOKIES", True),
-            dev_allow_insecure_on_localhost=getattr(auth_config, "DEV_ALLOW_INSECURE_COOKIES", True),
+            dev_allow_insecure_on_localhost=getattr(
+                auth_config, "DEV_ALLOW_INSECURE_COOKIES", True
+            ),
             bind_user_agent=getattr(auth_config, "SESSION_BIND_USER_AGENT", True),
             bind_ip_prefix_cidr=getattr(auth_config, "SESSION_BIND_IP_PREFIX_CIDR", None),
-            allow_paths=set(getattr(auth_config, "AUTH_ALLOW_PATHS", {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"})),
-            allow_path_prefixes=set(getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})),
+            allow_paths=set(
+                getattr(
+                    auth_config,
+                    "AUTH_ALLOW_PATHS",
+                    {
+                        "/",
+                        "/begin",
+                        "/logout",
+                        "/docs",
+                        "/openapi.json",
+                        "/healthz",
+                        "/favicon.ico",
+                    },
+                )
+            ),
+            allow_path_prefixes=set(
+                getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})
+            ),
             legacy_session_dir=getattr(
                 auth_config,
                 "LEGACY_SESSION_DIR",
@@ -87,6 +120,7 @@ def load_settings_from_config() -> "SessionSettings":
         )
     except Exception:
         return SessionSettings()
+
 
 class Session(BaseModel):
     session_id: str
@@ -97,13 +131,16 @@ class Session(BaseModel):
     ua_hash: Optional[str] = None
     ip_net: Optional[str] = None
     attrs: Dict[str, Any] = Field(default_factory=dict)
+
     def is_expired(self, now: datetime) -> bool:
         return now >= self.expires_at
+
 
 class SessionStore:
     def get(self, sid: str) -> Optional["Session"]: ...
     def put(self, sess: "Session") -> None: ...
     def delete(self, sid: str) -> None: ...
+
 
 class SQLSessionStore(SessionStore):
     def __init__(self, legacy_dir: Optional[str] = None):
@@ -202,6 +239,7 @@ def _session_from_record(record: AuthSessionRecord) -> Session:
         attrs=attrs,
     )
 
+
 class SessionManager:
     def __init__(self, store: SessionStore, settings: SessionSettings):
         self.store = store
@@ -220,10 +258,17 @@ class SessionManager:
         secure = self.settings.secure_cookies and https
         if not https and not self.settings.dev_allow_insecure_on_localhost:
             raise HTTPException(status_code=500, detail="Refusing to set cookies without HTTPS.")
-        return {"httponly": http_only, "secure": secure, "samesite": self.settings.samesite, "path": "/"}
+        return {
+            "httponly": http_only,
+            "secure": secure,
+            "samesite": self.settings.samesite,
+            "path": "/",
+        }
 
     def _binding(self, request: Request) -> Dict[str, Optional[str]]:
-        ua_hash = _hash(request.headers.get("user-agent")) if self.settings.bind_user_agent else None
+        ua_hash = (
+            _hash(request.headers.get("user-agent")) if self.settings.bind_user_agent else None
+        )
         client_ip = request.client.host if request.client else None
         ip_net = _ip_prefix(client_ip, self.settings.bind_ip_prefix_cidr)
         return {"ua_hash": ua_hash, "ip_net": ip_net}
@@ -235,17 +280,27 @@ class SessionManager:
         csrf = _rand_b64(32)
         b = self._binding(request)
         sess = Session(
-            session_id=sid, user_id=user_id,
-            issued_at=now, last_seen=now, expires_at=now + ttl,
-            ua_hash=b["ua_hash"], ip_net=b["ip_net"],
+            session_id=sid,
+            user_id=user_id,
+            issued_at=now,
+            last_seen=now,
+            expires_at=now + ttl,
+            ua_hash=b["ua_hash"],
+            ip_net=b["ip_net"],
         )
         sess.attrs["csrf"] = csrf
         self.store.put(sess)
-        response.set_cookie(self._cookie_name(request), sid, **self._cookie_kwargs(request, http_only=True))
-        response.set_cookie(self.settings.csrf_cookie_name, csrf, **self._cookie_kwargs(request, http_only=False))
+        response.set_cookie(
+            self._cookie_name(request), sid, **self._cookie_kwargs(request, http_only=True)
+        )
+        response.set_cookie(
+            self.settings.csrf_cookie_name, csrf, **self._cookie_kwargs(request, http_only=False)
+        )
         return sess
 
-    def ensure(self, request: Request, response: Response, user_id: str = "local-user") -> "Session":
+    def ensure(
+        self, request: Request, response: Response, user_id: str = "local-user"
+    ) -> "Session":
         try:
             return self.fetch_valid_session(request, require_csrf=False)
         except HTTPException:
@@ -256,7 +311,9 @@ class SessionManager:
             if not hmac.compare_digest(sess.ua_hash, _hash(request.headers.get("user-agent"))):
                 raise HTTPException(status_code=401, detail="Session client binding mismatch.")
         if self.settings.bind_ip_prefix_cidr and sess.ip_net:
-            cur = _ip_prefix(request.client.host if request.client else "", self.settings.bind_ip_prefix_cidr)
+            cur = _ip_prefix(
+                request.client.host if request.client else "", self.settings.bind_ip_prefix_cidr
+            )
             if not cur or not hmac.compare_digest(sess.ip_net, cur):
                 raise HTTPException(status_code=401, detail="Session network binding mismatch.")
 
@@ -291,6 +348,7 @@ class SessionManager:
             self.store.put(sess)
         return sess
 
+
 class SessionValidationMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, manager: SessionManager, settings: SessionSettings):
         super().__init__(app)
@@ -311,15 +369,20 @@ class SessionValidationMiddleware(BaseHTTPMiddleware):
             request.state.session = sess
         except HTTPException as e:
             from fastapi.responses import JSONResponse
+
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
         return await call_next(request)
 
+
 def build_session_router() -> APIRouter:
     r = APIRouter()
+
     @r.get("/healthz")
     async def healthz():
         return PlainTextResponse("ok")
+
     return r
+
 
 def setup_auth(app, settings: Optional[SessionSettings] = None):
     settings = settings or load_settings_from_config()

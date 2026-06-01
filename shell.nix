@@ -15,6 +15,7 @@ in
 pkgs.mkShell {
   packages = with pkgs; [
     python313
+    python313Packages.black
     python313Packages.pylint
     gnumake
     sqlite

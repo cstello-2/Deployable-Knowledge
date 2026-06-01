@@ -22,7 +22,7 @@ class OllamaLLM(BaseLLM):
             model or OLLAMA_MODEL,
             temperature=temperature,
             top_p=top_p,
-            top_k = top_k,
+            top_k=top_k,
             max_tokens=max_tokens,
         )
 
@@ -34,7 +34,7 @@ class OllamaLLM(BaseLLM):
 
         if self.top_p is not None:
             options["top_p"] = self.top_p
-        
+
         if self.top_k is not None:
             options["top_k"] = self.top_k
 
@@ -74,9 +74,7 @@ class OllamaLLM(BaseLLM):
             for model in data.get("models", [])
             if isinstance(model, dict) and isinstance(model.get("name"), str)
         ]
-        return [ModelInfo.from_id(model) for model in models] or super().list_models(
-            refresh=False
-        )
+        return [ModelInfo.from_id(model) for model in models] or super().list_models(refresh=False)
 
     def _generate_payload(self, prompt: str, stream: bool) -> dict[str, Any]:
         payload: dict[str, Any] = {

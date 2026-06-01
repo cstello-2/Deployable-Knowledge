@@ -74,9 +74,7 @@ class AnthropicLLM(BaseLLM):
             for model in data.get("data", [])
             if isinstance(model, dict) and isinstance(model.get("id"), str)
         ]
-        return [ModelInfo.from_id(model) for model in models] or super().list_models(
-            refresh=False
-        )
+        return [ModelInfo.from_id(model) for model in models] or super().list_models(refresh=False)
 
     def _payload(
         self,

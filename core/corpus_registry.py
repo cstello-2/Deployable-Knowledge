@@ -1,4 +1,5 @@
 """Persistent corpus metadata: approved tags, per-source tags, and activation flags."""
+
 from __future__ import annotations
 
 import threading
@@ -34,16 +35,12 @@ def _ensure_source(session: Session, source: str) -> CorpusSource:
 
 
 def _source_tags(session: Session, source: str) -> List[str]:
-    rows = session.exec(
-        select(CorpusSourceTag).where(CorpusSourceTag.source_name == source)
-    ).all()
+    rows = session.exec(select(CorpusSourceTag).where(CorpusSourceTag.source_name == source)).all()
     return sorted({normalize_tag(row.tag) for row in rows if normalize_tag(row.tag)})
 
 
 def _set_source_tags(session: Session, source: str, tags: List[str]) -> None:
-    rows = session.exec(
-        select(CorpusSourceTag).where(CorpusSourceTag.source_name == source)
-    ).all()
+    rows = session.exec(select(CorpusSourceTag).where(CorpusSourceTag.source_name == source)).all()
     for row in rows:
         session.delete(row)
     session.flush()

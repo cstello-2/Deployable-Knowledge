@@ -1,4 +1,5 @@
 import sys, pathlib
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
@@ -22,6 +23,7 @@ client = TestClient(main.app)
 def test_chat_endpoint(monkeypatch):
     def fake_chat_once(req):
         return ChatResponse(text="hi", sources=[Source(id="1")], usage={})
+
     monkeypatch.setattr(pipeline, "chat_once", fake_chat_once)
     res = client.post(
         "/chat",
@@ -34,7 +36,9 @@ def test_chat_endpoint(monkeypatch):
 
 
 def test_search_endpoint(monkeypatch):
-    monkeypatch.setattr(retriever, "search", lambda q, top_k=5, exclude_sources=None: [{"text": "a"}])
+    monkeypatch.setattr(
+        retriever, "search", lambda q, top_k=5, exclude_sources=None: [{"text": "a"}]
+    )
     res = client.get("/search", params={"q": "test"}, cookies={"session": "test"})
     assert res.status_code == 200
     assert res.json()["results"]

@@ -1,4 +1,5 @@
 import sys, pathlib
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 from core.prompts import renderer
@@ -7,7 +8,9 @@ from core.settings import get_prompt_template
 
 
 def test_build_prompt_with_context_persona_history():
-    history = [ChatExchange(user="hi", context_used=[], rag_prompt="", assistant="there", html_response="")]
+    history = [
+        ChatExchange(user="hi", context_used=[], rag_prompt="", assistant="there", html_response="")
+    ]
     context = [{"text": "ctx", "source": "doc1"}]
     prompt = renderer.build_prompt(
         summary="sum",

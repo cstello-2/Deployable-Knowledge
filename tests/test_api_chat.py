@@ -1,4 +1,5 @@
 import sys, pathlib
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
@@ -24,7 +25,9 @@ def test_sse_stream(monkeypatch):
         cookies={"session": "test"},
     ) as res:
         assert res.status_code == 200
-        body = "".join(line.decode() if isinstance(line, bytes) else line for line in res.iter_lines())
+        body = "".join(
+            line.decode() if isinstance(line, bytes) else line for line in res.iter_lines()
+        )
 
     assert "event: meta" in body
     assert "event: delta" in body

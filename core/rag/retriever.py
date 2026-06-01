@@ -9,6 +9,7 @@ from .chunking import pagerank_chunk_text
 from .chunking import parse_pdf
 
 import uuid
+
 ProgressCallback = Callable[[int, int, str], None]
 
 
@@ -189,7 +190,7 @@ class DBManager:
                 progress_callback(
                     completed,
                     total_segments,
-                    f"Embedded {completed}/{total_segments} chunks from {source}"
+                    f"Embedded {completed}/{total_segments} chunks from {source}",
                 )
 
     def delete_by_source(self, source_name: str, batch_size: int = 500) -> None:
@@ -303,6 +304,7 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
         return [{"page": 1, "text": text}]
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
+
 def _db_add_segments_compat(
     db_obj: DBManager,
     segments: List[str],
@@ -367,9 +369,7 @@ def embed_file(
             meta["content_type"] = "table" if meta.get("table") else "text"
             all_chunks.append((chunk_text_, meta))
 
-    all_chunks = [
-        (chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)
-    ]
+    all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]
 
     # Separate image OCR chunks.
     if include_image_ocr and file_path.suffix.lower() == ".pdf":
@@ -443,11 +443,15 @@ def embed_file(
         positions=positions,
         pages=pages,
         metadata=metadata,
-        progress_callback=lambda current, total, message: progress_callback(
-            current,
-            total,
-            message,
-        ) if progress_callback else None,
+        progress_callback=lambda current, total, message: (
+            progress_callback(
+                current,
+                total,
+                message,
+            )
+            if progress_callback
+            else None
+        ),
     )
 
     if progress_callback:
@@ -462,9 +466,7 @@ def _exact_query_terms(query: str) -> List[str]:
     ]
 
 
-def _exact_search(
-    query: str, top_k: int, exclude_sources: Optional[set] = None
-) -> List[Dict]:
+def _exact_search(query: str, top_k: int, exclude_sources: Optional[set] = None) -> List[Dict]:
     terms = [term.lower() for term in _exact_query_terms(query)]
     if not terms:
         return []
@@ -550,9 +552,7 @@ def _result_from_doc(
     }
 
 
-def _lexical_search(
-    query: str, top_k: int, exclude_sources: Optional[set] = None
-) -> List[Dict]:
+def _lexical_search(query: str, top_k: int, exclude_sources: Optional[set] = None) -> List[Dict]:
     terms = _lexical_query_terms(query)
     if not terms:
         return []
@@ -578,9 +578,7 @@ def _lexical_search(
         if not normalized:
             continue
 
-        term_hits = [
-            term for term in terms if re.search(rf"\b{re.escape(term)}\b", normalized)
-        ]
+        term_hits = [term for term in terms if re.search(rf"\b{re.escape(term)}\b", normalized)]
         if len(term_hits) < min_matches:
             continue
 
@@ -621,9 +619,7 @@ def embed_directory(
         )
 
 
-def search(
-    query: str, top_k: int = 5, exclude_sources: Optional[set] = None
-) -> List[Dict]:
+def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) -> List[Dict]:
     """Perform a vector similarity search over embedded segments."""
 
     if top_k <= 0:

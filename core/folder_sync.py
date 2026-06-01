@@ -175,10 +175,9 @@ def file_signature(path: Path) -> Dict[str, int]:
 
 
 def signatures_match(previous: Dict[str, Any], current: Dict[str, int]) -> bool:
-    return (
-        previous.get("mtime_ns") == current.get("mtime_ns")
-        and previous.get("size") == current.get("size")
-    )
+    return previous.get("mtime_ns") == current.get("mtime_ns") and previous.get(
+        "size"
+    ) == current.get("size")
 
 
 def safe_part(text: str) -> str:
@@ -253,11 +252,7 @@ def forget_synced_source(source_name: str, mark_ignored: bool = True) -> Dict[st
 
 def chroma_sources() -> set[str]:
     data = db.collection.get(include=["metadatas"])
-    return {
-        meta.get("source")
-        for meta in data.get("metadatas", []) or []
-        if meta.get("source")
-    }
+    return {meta.get("source") for meta in data.get("metadatas", []) or [] if meta.get("source")}
 
 
 def source_has_segments(source_name: str) -> bool:
@@ -464,9 +459,7 @@ def sync_folder_into_registry(
         source_name = unique_source_name(source_path, reserved_sources)
 
         if previous:
-            destination = (
-                UPLOAD_DIR / previous_source_name if previous_source_name else None
-            )
+            destination = UPLOAD_DIR / previous_source_name if previous_source_name else None
 
             file_is_unchanged = (
                 previous_source_name == source_name

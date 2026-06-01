@@ -134,8 +134,7 @@ class GeminiLLM(BaseLLM):
             return super().list_models(refresh=False)
 
         return [
-            ModelInfo(id=model_id, label=models[model_id])
-            for model_id in sorted(models)
+            ModelInfo(id=model_id, label=models[model_id]) for model_id in sorted(models)
         ] or super().list_models(refresh=False)
 
     @staticmethod
@@ -150,9 +149,7 @@ class GeminiLLM(BaseLLM):
         return config
 
     def _payload(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}]
-        }
+        payload: dict[str, Any] = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
         generation_config = self._generation_config(**kwargs)
         if generation_config:
             payload["generationConfig"] = generation_config

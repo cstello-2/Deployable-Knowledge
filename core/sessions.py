@@ -60,9 +60,7 @@ class ChatSession:
     persona: Optional[str] = None
 
     @classmethod
-    def new(
-        cls, session_id: Optional[str] = None, user_id: str = "default"
-    ) -> "ChatSession":
+    def new(cls, session_id: Optional[str] = None, user_id: str = "default") -> "ChatSession":
         """Create a new session with a unique identifier."""
 
         return cls(session_id=session_id or str(uuid.uuid4()), user_id=user_id)
@@ -77,9 +75,7 @@ class ChatSession:
     ) -> None:
         """Append a chat exchange to the history."""
 
-        self.history.append(
-            ChatExchange(user, context_used, rag_prompt, assistant, html_response)
-        )
+        self.history.append(ChatExchange(user, context_used, rag_prompt, assistant, html_response))
 
     def trim_history(self, max_length: int) -> None:
         """Limit history length to ``max_length`` items."""
@@ -235,9 +231,7 @@ class SessionStore:
 
         with Session(engine) as db_session:
             for exchange in db_session.exec(
-                select(ChatExchangeRecord).where(
-                    ChatExchangeRecord.session_id == session_id
-                )
+                select(ChatExchangeRecord).where(ChatExchangeRecord.session_id == session_id)
             ).all():
                 db_session.delete(exchange)
 

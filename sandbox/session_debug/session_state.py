@@ -13,6 +13,7 @@ import uuid
 # session is explicitly started or set.
 _session_id: str | None = None
 
+
 def setSessionId(session_id: str) -> None:
     """Explicitly set the active session ID.
 
@@ -24,9 +25,11 @@ def setSessionId(session_id: str) -> None:
     global _session_id
     _session_id = session_id
 
+
 def getSessionId() -> str | None:
     """Return the current session ID if one has been set."""
     return _session_id
+
 
 def startNewSession() -> str:
     """Start a new session and return its identifier.

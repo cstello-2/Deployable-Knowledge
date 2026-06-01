@@ -31,7 +31,7 @@ MAX_TOP_K = 20
 # === Ollama ===
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
-OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE","30m")
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 # Backwards compatibility for legacy code expecting OLLAMA_URL
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 
@@ -48,9 +48,7 @@ ANTHROPIC_VERSION = os.getenv("ANTHROPIC_VERSION", "2023-06-01")
 
 # === Gemini ===
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_BASE_URL = os.getenv(
-    "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
-)
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # === Prompt Templates ===

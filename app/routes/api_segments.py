@@ -4,6 +4,7 @@ from core.rag.retriever import db
 
 router = APIRouter()
 
+
 @router.get("/segments")
 async def list_segments(source: str | None = Query(default=None)):
     """Return brief information about stored text segments.
@@ -23,13 +24,16 @@ async def list_segments(source: str | None = Query(default=None)):
     metas = data.get("metadatas", [])
     ids = data.get("ids", [])
     for doc, meta, _id in zip(docs, metas, ids):
-        segments.append({
-            "id": _id,
-            "source": meta.get("source", "unknown"),
-            "preview": doc[:80],
-            "priority": meta.get("priority", "medium")
-        })
+        segments.append(
+            {
+                "id": _id,
+                "source": meta.get("source", "unknown"),
+                "preview": doc[:80],
+                "priority": meta.get("priority", "medium"),
+            }
+        )
     return JSONResponse(content=segments)
+
 
 @router.delete("/segments/{seg_id}")
 async def delete_segment(seg_id: str):
@@ -39,6 +43,7 @@ async def delete_segment(seg_id: str):
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/segments/{seg_id}")
 async def get_segment(seg_id: str):

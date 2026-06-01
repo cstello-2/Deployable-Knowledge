@@ -13,6 +13,7 @@ from .prompts import loader as prompt_loader
 
 LEGACY_USERS_DIR = BASE_DIR / "users"
 
+
 class UserSettings(BaseModel):
     user_id: str
     llm_provider: Literal["ollama", "openai", "anthropic", "gemini"] = "ollama"
@@ -23,11 +24,13 @@ class UserSettings(BaseModel):
     max_tokens: int = 512
     top_k: int = 40
 
+
 def _user_path(user_id: str) -> Path:
     """Legacy settings file location for ``user_id``."""
 
     user_id = validate_identifier(user_id, "user id")
     return LEGACY_USERS_DIR / f"{user_id}.json"
+
 
 def _to_settings(record: UserSettingsRecord) -> UserSettings:
     return UserSettings(
@@ -41,8 +44,10 @@ def _to_settings(record: UserSettingsRecord) -> UserSettings:
         top_k=record.top_k,
     )
 
+
 def _record_from_settings(settings: UserSettings) -> UserSettingsRecord:
     return UserSettingsRecord(**settings.model_dump())
+
 
 def _load_legacy_settings(user_id: str) -> Optional[UserSettings]:
     """Load old JSON settings if present, without recreating the old folder."""
@@ -52,6 +57,7 @@ def _load_legacy_settings(user_id: str) -> Optional[UserSettings]:
         return None
     data = json.loads(legacy_path.read_text(encoding="utf-8"))
     return UserSettings.model_validate({**data, "user_id": user_id})
+
 
 def load_settings(user_id: str) -> UserSettings:
     """Load SQL-backed settings for ``user_id`` creating defaults if necessary."""
@@ -66,6 +72,7 @@ def load_settings(user_id: str) -> UserSettings:
     settings = _load_legacy_settings(user_id) or UserSettings(user_id=user_id)
     save_settings(settings)
     return settings
+
 
 def save_settings(s: UserSettings) -> None:
     """Persist ``s`` to the SQL database."""
@@ -84,6 +91,7 @@ def save_settings(s: UserSettings) -> None:
         session.add(record)
         session.commit()
 
+
 def update_settings(user_id: str, patch: Dict[str, Any]) -> UserSettings:
     """Apply ``patch`` to a user's settings and persist the result."""
 
@@ -92,9 +100,11 @@ def update_settings(user_id: str, patch: Dict[str, Any]) -> UserSettings:
     save_settings(s)
     return s
 
+
 # Prompt template helpers (same as config.PROMPTS_DIR for consistency)
 PROMPTS_DIR = BASE_DIR / "prompts"
 PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class PromptTemplate(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -107,6 +117,7 @@ class PromptTemplate(BaseModel):
     inputs: List[str] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
 
+
 def list_prompt_templates() -> List[PromptTemplate]:
     """Return all prompt templates available on disk."""
 
@@ -117,6 +128,7 @@ def list_prompt_templates() -> List[PromptTemplate]:
         except Exception:
             continue
     return templates
+
 
 def get_prompt_template(tid: str) -> Optional[PromptTemplate]:
     """Return a single prompt template by ``tid`` if present."""
