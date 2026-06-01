@@ -25,7 +25,7 @@ export function initChatController() {
   const pushUser = (text) => {
     const div = document.createElement("div");
     div.className = "msg you";
-    div.innerHTML = "You: " + escapeHtml(text);
+    div.textContent = text;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   };
@@ -97,7 +97,7 @@ export function initChatController() {
             if (!buf) bubble.mdEl.innerHTML = md("(no response)");
             if (data?.sources) {
               showContext(data.sources, text);
-              renderChatCitations(bubble.citeEl, data.sources, { maxItems: 3 });
+              renderChatCitations(bubble.citeEl, data.sources, { maxItems: 8 });
             }
           },
           onError(data) {
@@ -125,7 +125,7 @@ export function initChatController() {
         bubble.mdEl.innerHTML = md(res.response ?? "(no response)");
         if (res.context) {
           showContext(res.context, text);
-          renderChatCitations(bubble.citeEl, res.context, { maxItems: 3 });
+          renderChatCitations(bubble.citeEl, res.context, { maxItems: 8 });
         }
       } catch (e2) {
         bubble.clearPending();

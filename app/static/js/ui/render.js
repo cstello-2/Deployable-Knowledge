@@ -11,7 +11,7 @@ export function renderChatLog(history, logEl) {
     if (user) {
       const div = document.createElement("div");
       div.className = "msg you";
-      div.innerHTML = "You: " + escapeHtml(user);
+      div.textContent = user;
       logEl.appendChild(div);
     }
     if (assistant) {

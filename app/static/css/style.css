@@ -532,9 +532,25 @@ html, body {
   flex: 1 1 auto;
   min-height: 0;
 }
-.msg { padding: 8px 10px; border-radius: 10px; background: hsl(var(--h) var(--sat) var(--l-panel)); border: 1px solid var(--border); }
-.msg.you { background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%)); }
-.msg.assistant { background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%)); }
+.msg {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: hsl(var(--h) var(--sat) var(--l-panel));
+  border: 1px solid var(--border);
+  max-width: 92%;
+}
+.msg.you {
+  align-self: flex-end;
+  text-align: right;
+  background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+  max-width: 75%;
+}
+.msg.assistant {
+  align-self: flex-start;
+  background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%));
+  width: fit-content;
+  max-width: 92%;
+}
 .msg.context { background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%)); font-size: 12px; color: var(--muted); }
 .msg-md { min-height: 1em; }
 .msg-pending {
@@ -589,6 +605,64 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
+}
+.chat-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.chat-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: hsl(var(--h) var(--sat) var(--l-panel));
+  font-size: 12px;
+}
+.chat-source-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-source-num {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.chat-source-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.chat-source-btn {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-source-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%));
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 .result-card--compact {
   padding: 6px 8px;
