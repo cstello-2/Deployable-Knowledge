@@ -13,6 +13,80 @@ function docAtHref(segmentId) {
   return "/static/doc_at.html?segment=" + encodeURIComponent(String(segmentId));
 }
 
+
+function sourceKindFromResult(r) {
+  const text = String(r.text ?? "").trim();
+
+  if (text.startsWith("[Image:")) return "Image";
+  if (text.startsWith("[OCR:")) return "Image";
+  if (r.kind) return String(r.kind);
+
+  return "Text";
+}
+
+function formatSimilarityPercent(score) {
+  const n = Number(score);
+
+  if (!Number.isFinite(n)) return "—";
+
+  const pct = n <= 1 ? n * 100 : n;
+
+  return `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`;
+}
+
+function makeChatSourceRow(r, num) {
+  const segmentId = r.segment_id ?? r.id;
+  const source = String(r.source ?? r.title ?? r.filepath ?? "source");
+  const kind = sourceKindFromResult(r);
+  const page = r.page ?? null;
+  const similarity = formatSimilarityPercent(r.score);
+
+  const li = document.createElement("li");
+  li.className = "chat-source-row";
+
+  const left = document.createElement("div");
+  left.className = "chat-source-left";
+
+  const numEl = document.createElement("span");
+  numEl.className = "chat-source-num";
+  numEl.textContent = `${num}.`;
+
+  const label = document.createElement("span");
+  label.className = "chat-source-text";
+  label.textContent = `${kind} from ${source}${page && page !== "?" ? `, page ${page}` : ""}`;
+
+  left.append(numEl, label);
+
+  const right = document.createElement("div");
+  right.className = "chat-source-actions";
+
+  if (isSegmentKey(segmentId)) {
+    const a = document.createElement("a");
+    a.className = "btn btn-sm chat-source-btn";
+    a.href = docAtHref(segmentId);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = source;
+    right.appendChild(a);
+  } else if (source) {
+    const a = document.createElement("a");
+    a.className = "btn btn-sm chat-source-btn";
+    a.href = `/documents/${encodeURIComponent(source)}`;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = source;
+    right.appendChild(a);
+  }
+
+  const score = document.createElement("span");
+  score.className = "chat-source-score";
+  score.textContent = similarity;
+  right.appendChild(score);
+
+  li.append(left, right);
+  return li;
+}
+
 /**
  * Append a result card (search window or chat citations).
  * @param {HTMLElement} container
@@ -73,20 +147,32 @@ export function appendPassageCard(container, r, { compact = false } = {}) {
 }
 
 /**
- * Small citation strip under an assistant message (top matches only).
+ * Small numbered source list under an assistant message.
  */
 export function renderChatCitations(host, sources, { maxItems = 3 } = {}) {
   if (!host) return;
+
   host.innerHTML = "";
   host.hidden = true;
+
   const list = (sources || []).slice(0, maxItems);
   if (!list.length) return;
+
   host.hidden = false;
+
   const label = document.createElement("div");
   label.className = "msg-citations-label";
   label.textContent = "Sources";
   host.appendChild(label);
-  for (const r of list) appendPassageCard(host, r, { compact: true });
+
+  const ol = document.createElement("ol");
+  ol.className = "chat-source-list";
+
+  list.forEach((r, index) => {
+    ol.appendChild(makeChatSourceRow(r, index + 1));
+  });
+
+  host.appendChild(ol);
 }
 
 export async function runSearch(query, winId = "win_search") {
