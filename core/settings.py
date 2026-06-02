@@ -16,7 +16,7 @@ LEGACY_USERS_DIR = BASE_DIR / "users"
 
 class UserSettings(BaseModel):
     user_id: str
-    llm_provider: Literal["ollama", "openai", "anthropic", "gemini"] = "ollama"
+    llm_provider: Literal["ollama", "openai", "anthropic", "gemini", "github"] = "ollama"
     llm_model: str = ""
     prompt_template_id: Optional[str] = None
     temperature: float = 0.2

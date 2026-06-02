@@ -6,7 +6,6 @@ import requests
 from config import GEMINI_API_KEY, GEMINI_BASE_URL, GEMINI_MODEL
 from .base import BaseLLM, ModelInfo
 
-
 _NON_CHAT_MODEL_MARKERS = (
     "aqa",
     "audio",

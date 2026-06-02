@@ -51,5 +51,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# === GitHub Models ===
+GITHUB_MODELS_TOKEN = os.getenv("GITHUB_MODELS_TOKEN", "")
+GITHUB_MODELS_BASE_URL = os.getenv("GITHUB_MODELS_BASE_URL", "https://models.github.ai")
+GITHUB_MODELS_MODEL = os.getenv("GITHUB_MODELS_MODEL", "openai/gpt-4.1")
+GITHUB_MODELS_API_VERSION = os.getenv("GITHUB_MODELS_API_VERSION", "2026-03-10")
+GITHUB_MODELS_ORG = os.getenv("GITHUB_MODELS_ORG", "")
+
 # === Prompt Templates ===
 PROMPTS_DIR = BASE_DIR / "prompts"

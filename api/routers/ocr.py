@@ -11,7 +11,6 @@ from core.ocr.ocr_service import read_pdf_image_text
 from api.utils import sanitize_filename
 from config import ALLOWED_DOCUMENT_EXTENSIONS
 
-
 router = APIRouter(prefix="/ocr", tags=["ocr"])
 
 

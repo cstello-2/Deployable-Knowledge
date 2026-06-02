@@ -113,6 +113,9 @@ initMenu((action) => {
       if (Store.lastQuery) runSearch(Store.lastQuery);
     }
   }
+  if (action === "tool-prompt-editor") {
+    spawnWindow({ id: "win_prompt_editor", window_type: "window_prompt_editor", title: "Assistant Settings", col: "right", unique: true }, initDocsController);
+  }
   if (action === "tool-docs") {
     spawnWindow({ id: "win_docs", window_type: "window_documents", title: "Document Library", col: "left", unique: true }, initDocsController);
   }

@@ -9,7 +9,6 @@ import numpy as np
 from PIL import Image
 from rapidocr import RapidOCR
 
-
 _ocr_engine: Optional[RapidOCR] = None
 
 
