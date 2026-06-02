@@ -181,7 +181,7 @@ def _generation_values(s, t: Template) -> Dict[str, Any]:
 
 
 def _should_fallback_to_ollama(exc: Exception) -> bool:
-    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout, requests.RequestException, OSError)):
         return True
     if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
         return True
