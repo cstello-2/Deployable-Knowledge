@@ -419,7 +419,8 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
-  async listModelProviders({ refresh = false } = {}) {
+  async listModelProviders(options = {}) {
+    const refresh = typeof options === "boolean" ? options : Boolean(options?.refresh);
     const params = new URLSearchParams();
     if (refresh) params.set("refresh", "true");
     const query = params.toString();

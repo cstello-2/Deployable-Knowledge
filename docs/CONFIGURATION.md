@@ -25,6 +25,11 @@ Environment variables:
 - `GEMINI_API_KEY` – enables Gemini chat provider options and chat requests
 - `GEMINI_BASE_URL` – Gemini API base URL, defaulting to `https://generativelanguage.googleapis.com/v1beta`
 - `GEMINI_MODEL` – fallback Gemini chat model when user settings do not specify one
+- `GITHUB_MODELS_TOKEN` – enables GitHub Models chat provider options and chat requests; falls back to `GITHUB_MODELS_API_KEY` or `GITHUB_TOKEN`; model catalog listing can still use GitHub's public catalog without this token
+- `GITHUB_MODELS_BASE_URL` – GitHub Models API base URL, defaulting to `https://models.github.ai`
+- `GITHUB_MODELS_MODEL` – fallback GitHub Models chat model when user settings do not specify one
+- `GITHUB_MODELS_API_VERSION` – GitHub REST API version header for Models, defaulting to `2026-03-10`
+- `GITHUB_MODELS_ORG` – optional organization login for attributed GitHub Models inference
 - `EMBEDDING_MODEL_ID` – sentence‑transformer to download/cache
 - `EMBEDDINGS_DEVICE` – device string for embeddings (e.g. `cpu`)
 - `EMBEDDINGS_OFFLINE_ONLY` – set to `1` to require an existing local model cache

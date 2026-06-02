@@ -743,7 +743,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     const [settings, providerData] = await Promise.all([
       api.getSettings(currentUserId),
-      api.listModelProviders(true),
+      api.listModelProviders({ refresh: true }),
     ]);
 
     providerSelect.value = settings?.llm_provider || "ollama";
@@ -775,6 +775,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       const models = provider?.models || [];
 
       modelSelect.innerHTML = "";
+      modelSelect.disabled = false;
 
       for (const m of models) {
         const opt = document.createElement("option");
@@ -791,11 +792,11 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       }
 
       if (!modelSelect.options.length) {
-        const fallback = selectedModel || "llama3";
         const opt = document.createElement("option");
-        opt.value = fallback;
-        opt.textContent = fallback;
+        opt.value = "";
+        opt.textContent = "No models available";
         modelSelect.appendChild(opt);
+        modelSelect.disabled = true;
       }
 
       modelSelect.value = selectedModel || modelSelect.options[0]?.value || "";

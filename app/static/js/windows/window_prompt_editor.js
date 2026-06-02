@@ -197,7 +197,7 @@ export function render(config, winId) {
   ]);
 
   const modelRow = el("div", { class: "row" }, [
-    el("label", { for: "assistant_llm_model" }, ["Ollama Model"]),
+    el("label", { for: "assistant_llm_model" }, ["Chat Model"]),
     el("select", { id: "assistant_llm_model", class: "input" }),
   ]);
 
