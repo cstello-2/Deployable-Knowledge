@@ -22,6 +22,57 @@ const WindowTypes = {
   window_prompt_editor: renderPromptEditor,
 };
 
+export function createPopup(config) {
+  const winId = (() => {
+    let id = config.id || `mw-${crypto.randomUUID()}`;
+    while (document.getElementById(id)) {
+      id = `mw-${crypto.randomUUID()}`;
+    }
+    return id;
+  })();
+  const win = el("div", { class: "miniwin", tabindex: "0", "data-id": winId, id: winId });
+
+  const titlebar = el("div", { class: "titlebar" }, [
+    el("div", { class: "title" }, [config.title || "Untitled"]),
+    el("div", { class: "actions" }, [
+      el("button", { class: "icon-btn js-min", title: "Minimize", "aria-label": "Minimize", "data-win": winId }, ["—"]),
+      el("button", { class: "icon-btn js-close", title: "Close", "aria-label": "Close", "data-win": winId }, ["✕"])
+    ])
+  ]);
+
+  const contentInner = el("div", { class: "content-inner" });
+  const content = el("div", { class: "content" }, [contentInner]);
+
+  const renderer = WindowTypes[config.window_type || "window_generic"];
+  if (!renderer) throw new Error(`Unknown window_type: ${config.window_type}`);
+  const body = renderer(config, winId);
+  contentInner.appendChild(body);
+
+  if (config.modal) {
+    win.classList.add("modal");
+    win.setAttribute("data-modal", "true");
+  }
+
+  win.append(titlebar, content);
+
+  const RESIZABLE = new Set([
+    "window_chat_ui",
+    "window_documents",
+    "window_segments",
+    "window_search",
+    "window_segment_view",
+    "window_prompt_editor",
+  ]);
+  if (RESIZABLE.has(config.window_type)) {
+    const handle = el("div", { class: "win-resizer-y", "aria-label": "Resize window height" });
+    win.appendChild(handle);
+    const saved = localStorage.getItem(`win:${winId}:h`);
+    if (saved) win.style.height = saved;
+  }
+
+  return win;
+}
+
 export function createMiniWindowFromConfig(config) {
   const winId = (() => {
     let id = config.id || `mw-${crypto.randomUUID()}`;

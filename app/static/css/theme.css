@@ -2,8 +2,32 @@
    Change --h to recolor the whole UI.
    Examples: blue=220, purple=270, green=150, red=10, gray=220 + low --sat
 */
-:root {
-    --h: 220; /* base hue */
+
+:root[data-theme-color="classic"] {
+    --h: 220;
+}
+
+:root[data-theme-color="purple"] {
+    --h: 270;
+}
+
+:root[data-theme-color="blue"] {
+    --h: 240;
+}
+
+:root[data-theme-color="yellow"] {
+    --h: 60;
+}
+
+:root[data-theme-color="green"] {
+    --h: 110;
+}
+
+
+
+/* TODO: Make high contrast */
+
+:root[data-theme-mode="dark"] {
     --sat: 18%; /* global saturation bias */
     --txt: 92%; /* text lightness */
     /* Layout & typography */
@@ -34,54 +58,151 @@
     --backdrop: rgba(2, 6, 12, .55);
 }
 
-@media (prefers-color-scheme: light) {
-    :root {
-        --h: 220; /* base hue */
-        --sat: 18%; /* global saturation bias */
-        --txt: 5%; /* text lightness */
-        /* Layout & typography */
-        --titlebar-height: 36px;
-        --font-size-base: 14px;
-        /* Base lightness stops */
-        --l-bg: 85%;
-        --l-panel: 90%;
-        --l-elev: 74%;
-        --l-border: 70%;
-        --l-muted: 30%;
-        /* Derived palette */
-        --bg: hsl(var(--h) var(--sat) var(--l-bg));
-        --panel: hsl(var(--h) var(--sat) var(--l-panel));
-        --elev: hsl(var(--h) var(--sat) var(--l-elev));
-        --panel-sel: hsl(var(--h) var(--sat) calc(var(--l-panel) + 6%));
-        --text: hsl(var(--h) calc(var(--sat) * 2) var(--txt));
-        --muted: hsl(var(--h) 12% var(--l-muted));
-        --border: hsl(var(--h) 18% var(--l-border));
-        --danger-but: hsl(0 40% 80%);
-        --danger-bor: hsl(0 40% 28%);
-        --danger-hov: hsl(0 40% 70%);
-        /* Accents */
-        --accent: hsl(var(--h) 90% 68%);
-        --accent-2: hsl(calc(var(--h) + 80) 60% 60%);
-        --shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25);
-        --radius: 12px;
-        --backdrop: rgba(2, 6, 12, .55);
+:root[data-theme-mode="light"] {
+    --sat: 18%; /* global saturation bias */
+    --txt: 5%; /* text lightness */
+    /* Layout & typography */
+    --titlebar-height: 36px;
+    --font-size-base: 14px;
+    /* Base lightness stops */
+    --l-bg: 85%;
+    --l-panel: 90%;
+    --l-elev: 74%;
+    --l-border: 70%;
+    --l-muted: 30%;
+    /* Derived palette */
+    --bg: hsl(var(--h) var(--sat) var(--l-bg));
+    --panel: hsl(var(--h) var(--sat) var(--l-panel));
+    --elev: hsl(var(--h) var(--sat) var(--l-elev));
+    --panel-sel: hsl(var(--h) var(--sat) calc(var(--l-panel) + 6%));
+    --text: hsl(var(--h) calc(var(--sat) * 2) var(--txt));
+    --muted: hsl(var(--h) 12% var(--l-muted));
+    --border: hsl(var(--h) 18% var(--l-border));
+    --danger-but: hsl(0 40% 80%);
+    --danger-bor: hsl(0 40% 28%);
+    --danger-hov: hsl(0 40% 70%);
+    /* Accents */
+    --accent: hsl(var(--h) 90% 68%);
+    --accent-2: hsl(calc(var(--h) + 80) 60% 60%);
+    --shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25);
+    --radius: 12px;
+    --backdrop: rgba(2, 6, 12, .55);
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] {
+    body {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+    }
+
+    button {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+    }
+
+    --h: 200;
+    --sat: 90%; /* global saturation bias */
+    --txt: 92%; /* text lightness */
+    /* Layout & typography */
+    --titlebar-height: 40px;
+    --font-size-base: 20px;
+    /* Base lightness stops (dark theme) */
+    --l-bg: 15%;
+    --l-panel: 11%;
+    --l-elev: 11%;
+    --l-border: 40%;
+    --l-muted: 90%;
+    /* Derived palette */
+    --bg: hsl(var(--h) var(--sat) var(--l-bg));
+    --panel: hsl(var(--h) var(--sat) var(--l-panel));
+    --elev: hsl(var(--h) var(--sat) var(--l-elev));
+    /*--elev: hsl(var(--h) var(--sat) var(--l-elev));*/
+    --panel-sel: hsl(var(--h) var(--sat) calc(var(--l-panel) + 6%));
+    --text: rgb(0, 255, 154);
+    --muted: rgb(255, 169, 76);
+    --border: hsl(var(--h) 18% var(--l-border));
+    --danger-but: rgb(121, 23, 23);
+    --danger-bor: hsl(0 40% 48%);
+    --danger-hov: rgb(255, 30, 30);
+    /* Accents */
+    --accent: rgb(255, 86, 86);
+    --accent-2: rgb(254, 64, 227);
+    --shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25);
+    --radius: 15px;
+    --backdrop: rgba(2, 6, 12, .55);
+    /* Placeholders */
+    .input {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+        color: rgb(206, 93, 151);
+        opacity: 1; /* important: Firefox lowers opacity by default */
+    }
+
+    ::placeholder {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+        color: rgb(206, 93, 151);
+        opacity: 1; /* important: Firefox lowers opacity by default */
     }
 }
 
-/* Optional pre-baked themes: add class to <html> or <body> */
-.theme-purple {
-    --h: 270;
-}
+:root[data-theme-color="high contrast"][data-theme-mode="light"] {
+    body {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+    }
 
-.theme-green {
-    --h: 150;
-}
+    button {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+    }
 
-.theme-red {
-    --h: 10;
-}
+    --h: 200;
+    --sat: 40%; /* global saturation bias */
+    --txt: 10%; /* text lightness */
+    /* Layout & typography */
+    --titlebar-height: 40px;
+    --font-size-base: 20px;
+    /* Base lightness stops (light theme) */
+    --l-bg: 90%;
+    --l-panel: 90%;
+    --l-elev: 95%;
+    --l-border: 5%;
+    --l-muted: 90%;
+    /* Derived palette */
+    --bg: hsl(var(--h) var(--sat) var(--l-bg));
+    --panel: hsl(var(--h) var(--sat) var(--l-panel));
+    --elev: hsl(var(--h) var(--sat) var(--l-elev));
+    /*--elev: hsl(var(--h) var(--sat) var(--l-elev));*/
+    --panel-sel: hsl(var(--h) var(--sat) calc(var(--l-panel) + 6%));
+    --text: rgb(51 53 0);
+    --muted: rgb(85 0 95);
+    --border: hsl(var(--h) 18% var(--l-border));
+    --danger-but: rgb(216 3 3);
+    --danger-bor: hsl(0 40% 48%);
+    --danger-hov: rgb(0 0 0);
 
-.theme-gray {
-    --h: 220;
-    --sat: 6%;
+    .btn-danger {
+        color: rgb(255 255 255)
+    }
+    /* Accents */
+    --accent: rgb(1 58 60);
+    --accent-2: rgb(254, 64, 227);
+    --shadow: 10 10px 30px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25);
+    --radius: 15px;
+    --backdrop: rgba(2, 6, 12, .55);
+    /* Placeholders */
+    ::placeholder {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+        color: rgb(59 65 22);
+        opacity: 1;
+    }
+
+    .input {
+        font-family: "Cascadia Code", monospace;
+        font-weight: 400;
+        color: rgb(59 65 22);
+        opacity: 1;
+    }
 }
