@@ -39,7 +39,14 @@ export function initMenu(onAction, triggerId = "menu-trigger", dropdownId = "men
   });
 
   document.addEventListener("click", (e) => {
-    if (!dropdown.contains(e.target) && e.target !== trigger) close();
+    if (
+    !dropdown.contains(e.target) &&
+      e.target !== trigger &&
+      !e.target.closest(".modal-wrap")   // ← NEW: ignore clicks inside modals
+    ) {
+      close();
+    }
+
   });
 
   dropdown.addEventListener("click", (e) => {

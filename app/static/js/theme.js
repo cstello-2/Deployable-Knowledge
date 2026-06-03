@@ -8,29 +8,12 @@ export function setVar(name, value) {
   document.documentElement.style.setProperty(name, value);
 }
 
-// Apply theme settings from an object, JSON string or localStorage
-export function applyThemeSettings(source) {
-  let settings = source;
+export function applyThemeSettings() {
+  const mode = localStorage.getItem("theme_mode") || "Light";
+  const color = localStorage.getItem("theme_color") || "Classic";
 
-  if (!settings) {
-    try {
-      const stored = localStorage.getItem("theme");
-      if (stored) settings = JSON.parse(stored);
-    } catch (e) {
-      settings = null;
-    }
-  } else if (typeof settings === "string") {
-    try {
-      settings = JSON.parse(settings);
-    } catch (e) {
-      settings = null;
-    }
-  }
+  console.log("Theme changing");
 
-  if (!settings) return;
-
-  Object.entries(settings).forEach(([key, value]) => {
-    setVar(`--${key}`, value);
-  });
+  document.documentElement.setAttribute("data-theme-mode", mode.toLowerCase());
+  document.documentElement.setAttribute("data-theme-color", color.toLowerCase());
 }
-

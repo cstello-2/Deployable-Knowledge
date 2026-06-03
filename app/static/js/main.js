@@ -10,6 +10,7 @@ import { initDocsController }     from "./ui/controllers/docs.js";
 import { initSessionsController } from "./ui/controllers/sessions.js";
 import { initChatController }     from "./ui/controllers/chat.js";
 import { initSearchController, runSearch }   from "./ui/controllers/search.js";
+import { openPopupModal }   from "./ui/controllers/settings.js";
 import { initSegmentsController } from "./ui/controllers/segments.js";
 import { initPromptEditor, openPromptEditor } from "./ui/controllers/prompt_editor.js";
 
@@ -79,6 +80,7 @@ const headerLeftMenuPeerClosers = [];
 
 // header menu
 initMenu(async (action) => {
+  console.log("Something in header pressed")
   if (action === "new-chat") {
     Store.sessionId = await api.startNewSession();
     // refresh sessions list
@@ -91,6 +93,15 @@ initMenu(async (action) => {
   if (action === "prompt-templates") {
     openPromptEditor();
   }
+  if (action === "theme-popup") {
+      console.log("[menu] theme-popup clicked");
+      openPopupModal().then(() => {
+        console.log("[popup] openPopupModal resolved");
+      }).catch(err => {
+        console.error("[popup] openPopupModal error:", err);
+      });
+  }
+
 }, "menu-trigger", "menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });
 
 // user menu
