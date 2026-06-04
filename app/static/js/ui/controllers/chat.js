@@ -3,7 +3,7 @@ import { dkClient as api } from "../sdk/sdk.js";
 import { Store } from "../store.js";
 import { md, escapeHtml } from "../render.js";
 import { qs } from "../../dom.js";
-import { showContext, renderChatCitations } from "./search.js";
+import { showContext, renderChatCitations, runSearch } from "./search.js";
 import { isAppBusy } from "../popups.js";
 import { getSelectedLLMTarget, getSelectedPromptTemplateId } from "./prompt_editor.js";
 
@@ -88,6 +88,10 @@ export function initChatController() {
         },
         {
           signal: aborter.signal,
+          onMeta(meta) {
+            renderChatCitations(bubble.citeEl, meta.context, { maxItems: 8 });
+            runSearch(text);
+          },
           onDelta(delta) {
             buf += delta;
             bubble.clearPending();
