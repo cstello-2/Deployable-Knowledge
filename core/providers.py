@@ -59,15 +59,20 @@ def provider_available(record: ProviderRecord) -> bool:
 
 
 def seed_default_providers(session: Session) -> None:
-    for spec in DEFAULT_PROVIDER_SPECS.values():
-        record = session.get(ProviderRecord, spec.id)
-        if record is None:
-            session.add(
-                ProviderRecord(
-                    id=spec.id,
-                    api_key="",
-                )
-            )
+    """Retained for compatibility; default providers are no longer persisted."""
+
+    return None
+
+
+def _provider_spec(provider_id: str) -> ProviderSpec:
+    spec = DEFAULT_PROVIDER_SPECS.get(provider_id)
+    if spec is None:
+        raise UnknownProviderError(f"Unknown provider: {provider_id}")
+    return spec
+
+
+def _provider_record_from_spec(spec: ProviderSpec) -> ProviderRecord:
+    return ProviderRecord(id=spec.id, api_key="")
 
 
 def provider_label(provider_id: str) -> str:
@@ -83,10 +88,16 @@ def provider_api_key_required(provider_id: str) -> bool:
 def list_provider_records(include_unavailable: bool = False) -> list[ProviderRecord]:
     init_db()
     with Session(engine) as session:
-        records = list(session.exec(select(ProviderRecord)).all())
+        stored_records = {
+            record.id: record
+            for record in session.exec(select(ProviderRecord)).all()
+            if record.id in DEFAULT_PROVIDER_SPECS
+        }
 
-    order = {provider_id: index for index, provider_id in enumerate(DEFAULT_PROVIDER_SPECS)}
-    records.sort(key=lambda record: order.get(record.id, len(order)))
+    records = [
+        stored_records.get(spec.id) or _provider_record_from_spec(spec)
+        for spec in DEFAULT_PROVIDER_SPECS.values()
+    ]
     if not include_unavailable:
         records = [record for record in records if provider_available(record)]
     return records
@@ -94,12 +105,11 @@ def list_provider_records(include_unavailable: bool = False) -> list[ProviderRec
 
 def get_provider_record(provider_id: str) -> ProviderRecord:
     provider_id = validate_identifier(provider_id, "provider id")
+    spec = _provider_spec(provider_id)
     init_db()
     with Session(engine) as session:
         record = session.get(ProviderRecord, provider_id)
-        if record is None:
-            raise UnknownProviderError(f"Unknown provider: {provider_id}")
-        return record
+        return record or _provider_record_from_spec(spec)
 
 
 def get_available_provider_record(provider_id: str) -> ProviderRecord:
@@ -111,37 +121,36 @@ def get_available_provider_record(provider_id: str) -> ProviderRecord:
 
 def update_provider_record(provider_id: str, patch: dict[str, Any]) -> ProviderRecord:
     provider_id = validate_identifier(provider_id, "provider id")
+    spec = _provider_spec(provider_id)
     init_db()
     with Session(engine) as session:
         record = session.get(ProviderRecord, provider_id)
-        if record is None:
-            raise UnknownProviderError(f"Unknown provider: {provider_id}")
 
         if "api_key" in patch:
             api_key = str(patch.get("api_key") or "").strip()
             if api_key:
+                if record is None:
+                    record = ProviderRecord(id=spec.id)
                 record.api_key = api_key
+                record.updated_at = utc_now()
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                return record
 
-        record.updated_at = utc_now()
-        session.add(record)
-        session.commit()
-        session.refresh(record)
-        return record
+        return record or _provider_record_from_spec(spec)
 
 
 def clear_provider_api_key(provider_id: str) -> ProviderRecord:
     provider_id = validate_identifier(provider_id, "provider id")
+    spec = _provider_spec(provider_id)
     init_db()
     with Session(engine) as session:
         record = session.get(ProviderRecord, provider_id)
-        if record is None:
-            raise UnknownProviderError(f"Unknown provider: {provider_id}")
-        record.api_key = ""
-        record.updated_at = utc_now()
-        session.add(record)
-        session.commit()
-        session.refresh(record)
-        return record
+        if record is not None:
+            session.delete(record)
+            session.commit()
+        return _provider_record_from_spec(spec)
 
 
 def provider_public_dict(
