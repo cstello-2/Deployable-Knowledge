@@ -12,14 +12,13 @@ export function render(config, winId) {
     id: `${id}-doc-filter`,
     placeholder: "Filter library (fuzzy match on name & tags)...",
   });
-  const btnManageTags = el("button", { class: "btn btn-icon docs-tags-button", type: "button", id: `${id}-manage-tags`, "aria-expanded": "false", title: "Manage tags" }, ["+"]);
+  const btnManageTags = el("button", { class: "tag-chip docs-tags-button", type: "button", id: `${id}-manage-tags`, "aria-expanded": "false", title: "Manage tags" }, ["+"]);
   searchRow.append(filterInput);
 
-  const tagControlRow = el("div", { class: "docs-tag-control-row" });
-  tagControlRow.append(btnManageTags);
   const activeFilterRow = el("div", { class: "docs-active-filter-row" });
   const activeTags = el("div", { class: "docs-active-tags", id: `${id}-tag-filter-chips` });
   const filterMeta = el("span", { class: "li-subtle", id: `${id}-filter-meta` });
+  activeTags.append(btnManageTags);
   activeFilterRow.append(activeTags, filterMeta);
 
   const tagMenu = el("div", { class: "docs-tag-menu hidden", id: `${id}-tag-menu` });
@@ -36,7 +35,7 @@ export function render(config, winId) {
   const btnDeactivateAll = el("button", { class: "btn", type: "button", id: `${id}-deactivate-all` }, ["Deactivate all"]);
   const btnClearCorpus = el("button", { class: "btn btn-danger", type: "button", id: `${id}-clear-corpus` }, ["Remove all"]);
   modeRow.append(btnAll, btnAct, btnInact, btnDeactivateAll, btnClearCorpus);
-  toolbar.append(searchRow, tagControlRow, activeFilterRow, tagMenu, modeRow);
+  toolbar.append(searchRow, activeFilterRow, tagMenu, modeRow);
   layout.appendChild(toolbar);
 
   const bulkBar = el("div", { class: "docs-bulk-bar hidden", id: `${id}-bulk-bar` });

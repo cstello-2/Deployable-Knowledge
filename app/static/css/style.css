@@ -262,19 +262,9 @@ html, body {
   width: 100%;
 }
 .docs-tags-button {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  max-width: 28px;
-  min-height: 28px;
-  max-height: 28px;
-  flex: 0 0 28px;
-}
-.docs-tag-control-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  min-height: 28px;
+  min-height: 0;
+  flex: 0 0 auto;
+  font-weight: 600;
 }
 .docs-active-filter-row {
   display: grid;
@@ -349,7 +339,8 @@ html, body {
   color: var(--muted);
 }
 .docs-active-tags,
-.docs-tag-chips {
+.docs-tag-chips,
+.docs-doc-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -422,6 +413,12 @@ html, body {
 .docs-tag-menu-chip {
   margin: 2px 4px 0 0;
 }
+.docs-doc-tag-dropdown {
+  position: fixed;
+  right: auto;
+  width: min(180px, calc(100vw - 16px));
+  z-index: 10000;
+}
 .docs-tag-menu-empty {
   padding: 6px 2px;
 }
@@ -443,6 +440,10 @@ html, body {
 }
 .docs-doc-tag-remove {
   margin: 2px 4px 0 0;
+}
+.docs-file-add-tag {
+  margin: 2px 4px 0 0;
+  font-weight: 600;
 }
 .docs-bulk-bar {
   display: flex;
@@ -598,16 +599,6 @@ html, body {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
-}
-.docs-doc-tag-panel {
-  width: min(380px, 100%);
-}
-.docs-doc-tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-height: 28px;
-  align-items: center;
 }
 .docs-tag-dialog-actions {
   display: flex;

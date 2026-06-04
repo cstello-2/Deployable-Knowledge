@@ -143,8 +143,8 @@ export async function initDocsController(winId = "win_docs") {
       });
       tagChipsHost.appendChild(chip);
     }
-    if (!state.toolbarTagKeys.size) {
-      tagChipsHost.appendChild(el("span", { class: "li-subtle" }, ["No active tag filters."]));
+    if (manageTagsBtn) {
+      tagChipsHost.appendChild(manageTagsBtn);
     }
     renderTagMenu();
   }
@@ -265,88 +265,68 @@ export async function initDocsController(winId = "win_docs") {
     });
   }
 
-  function openDocumentTagManager(doc) {
-    const overlay = el("div", { class: "docs-tag-dialog", role: "dialog", "aria-modal": "true" });
-    const panel = el("div", { class: "docs-tag-dialog-panel docs-doc-tag-panel" });
+  function openDocumentTagDropdown(doc, anchor) {
+    document.querySelectorAll(".docs-doc-tag-dropdown").forEach((menu) => menu.remove());
+    const menu = el("div", { class: "docs-tag-menu docs-doc-tag-dropdown" });
+    const list = el("div", { class: "docs-tag-menu-list" });
     const current = new Set(doc.tags || []);
 
-    const close = () => overlay.remove();
-
-    const currentList = el("div", { class: "docs-doc-tag-list" });
-    const availableList = el("div", { class: "docs-doc-tag-list" });
-
-    function renderLists() {
-      currentList.innerHTML = "";
-      availableList.innerHTML = "";
-
-      if (!current.size) {
-        currentList.appendChild(el("span", { class: "li-subtle" }, ["No tags on this file."]));
-      }
-
-      for (const tag of [...current].sort()) {
-        const chip = el("button", {
-          class: "tag-chip selected docs-active-tag",
-          type: "button",
-          title: "Remove tag from this file",
-        }, [
-          el("span", {}, [`#${tag}`]),
-          el("span", { class: "tag-chip-x", "aria-hidden": "true" }, ["x"]),
-        ]);
-        chip.addEventListener("click", () => {
-          current.delete(tag);
-          renderLists();
-        });
-        currentList.appendChild(chip);
-      }
-
-      const available = state.approvedTags.filter((tag) => !current.has(tag));
-      if (!available.length) {
-        availableList.appendChild(el("span", { class: "li-subtle" }, ["No more tags available."]));
-      }
-
-      for (const tag of available) {
-        const chip = el("button", {
-          class: "tag-chip",
-          type: "button",
-          title: "Add tag to this file",
-        }, [`#${tag}`]);
-        chip.addEventListener("click", () => {
-          current.add(tag);
-          renderLists();
-        });
-        availableList.appendChild(chip);
-      }
-    }
-
-    const saveBtn = el("button", { class: "btn btn-primary", type: "button" }, ["Save"]);
-    saveBtn.addEventListener("click", async () => {
+    const close = () => menu.remove();
+    const applyTags = async (nextTags) => {
       try {
-        await api.patchCorpusDocument({ source: doc.id, tags: [...current].sort() });
+        await api.patchCorpusDocument({ source: doc.id, tags: [...nextTags].sort() });
         close();
         await refresh();
       } catch (e) {
         alert(e.message || String(e));
       }
-    });
+    };
 
-    panel.append(
-      el("div", { class: "docs-tag-dialog-title" }, [doc.title || doc.id]),
-      el("div", { class: "li-subtle" }, ["Current tags"]),
-      currentList,
-      el("div", { class: "li-subtle" }, ["Available tags"]),
-      availableList,
-      el("div", { class: "docs-tag-dialog-actions" }, [
-        el("button", { class: "btn", type: "button", onclick: close }, ["Cancel"]),
-        saveBtn,
-      ]),
+    for (const tag of state.approvedTags) {
+      const row = el("div", { class: "docs-tag-menu-row" });
+      const isSelected = current.has(tag);
+      const chip = el("button", {
+        class: `tag-chip docs-active-tag docs-tag-menu-chip${isSelected ? " selected" : ""}`,
+        type: "button",
+        title: isSelected ? "Remove tag from this file" : "Add tag to this file",
+      }, [
+        el("span", {}, [`#${tag}`]),
+        el("span", { class: "tag-chip-x", "aria-hidden": "true" }, ["x"]),
+      ]);
+      chip.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const next = new Set(current);
+        if (next.has(tag)) next.delete(tag);
+        else next.add(tag);
+        await applyTags(next);
+      });
+      row.appendChild(chip);
+      list.appendChild(row);
+    }
+
+    if (!state.approvedTags.length) {
+      list.appendChild(el("div", { class: "li-subtle docs-tag-menu-empty" }, ["No tags yet."]));
+    }
+
+    menu.append(
+      el("div", { class: "docs-tag-menu-title" }, ["Tags"]),
+      list,
     );
 
-    renderLists();
-    overlay.addEventListener("click", (ev) => {
-      if (ev.target === overlay) close();
-    });
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
+    const rect = anchor.getBoundingClientRect();
+    const width = 180;
+    menu.style.left = `${Math.min(rect.left, window.innerWidth - width - 8)}px`;
+    menu.style.top = `${rect.bottom + 6}px`;
+
+    menu.addEventListener("click", (ev) => ev.stopPropagation());
+    document.body.appendChild(menu);
+    setTimeout(() => {
+      const closeOnOutsideClick = () => {
+        close();
+        document.removeEventListener("click", closeOnOutsideClick);
+      };
+      document.addEventListener("click", closeOnOutsideClick);
+    }, 0);
   }
 
   function filteredDocs() {
@@ -413,14 +393,19 @@ export async function initDocsController(winId = "win_docs") {
       });
       tagRow.appendChild(tagBadge);
     }
+    const addFileTagBtn = el("button", {
+      class: "tag-chip selected docs-active-tag docs-file-add-tag",
+      type: "button",
+      title: "Manage tags on this file",
+    }, ["+"]);
+    addFileTagBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openDocumentTagDropdown(doc, addFileTagBtn);
+    });
+    tagRow.appendChild(addFileTagBtn);
     mid.append(title, tagRow, meta);
 
     const actions = el("div", { class: "li-actions" });
-    const tagsBtn = el("button", { class: "btn", type: "button", title: "Manage tags on this file" }, ["Tags"]);
-    tagsBtn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      openDocumentTagManager(doc);
-    });
     const toggleLabel = doc.active === false ? "Activate" : "Deactivate";
     const toggleBtn = el("button", { class: "btn", type: "button" }, [toggleLabel]);
     toggleBtn.addEventListener("click", async (ev) => {
@@ -444,7 +429,7 @@ export async function initDocsController(winId = "win_docs") {
         alert(e.message || String(e));
       }
     });
-    actions.append(tagsBtn, toggleBtn, remBtn);
+    actions.append(toggleBtn, remBtn);
 
     const left = el("div", { class: "docs-doc-left" });
     left.append(cb, mid);
