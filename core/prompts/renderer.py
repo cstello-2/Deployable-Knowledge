@@ -158,22 +158,56 @@ def _resolve_settings(user_id: Optional[str]):
 
 
 def _generation_values(s, t: Template) -> Dict[str, Any]:
-    """Resolve generation settings, allowing template values to override user settings."""
+    """Resolve generation settings.
 
-    settings_temperature = getattr(s, "temperature", 0.2)
-    settings_top_p = getattr(s, "top_p", 0.95)
-    settings_top_k = getattr(s, "top_k", 8)
-    settings_max_tokens = getattr(s, "max_tokens", 512)
+    Priority:
+    1. User/runtime settings from Assistant Settings GUI
+    2. Prompt template defaults
+    3. Hardcoded fallback defaults
+    """
+
+    settings_temperature = getattr(s, "temperature", None)
+    settings_top_p = getattr(s, "top_p", None)
+    settings_top_k = getattr(s, "top_k", None)
+    settings_max_tokens = getattr(s, "max_tokens", None)
+
+    template_temperature = getattr(t, "temperature", None)
+    template_top_k = getattr(t, "top_k", None)
+    template_max_tokens = getattr(t, "max_tokens", None)
 
     temperature = (
-        t.temperature if getattr(t, "temperature", None) is not None else settings_temperature
+        settings_temperature
+        if settings_temperature is not None
+        else template_temperature
+        if template_temperature is not None
+        else 0.2
     )
-    top_k = t.top_k if getattr(t, "top_k", None) is not None else settings_top_k
-    max_tokens = t.max_tokens if getattr(t, "max_tokens", None) is not None else settings_max_tokens
+
+    top_p = (
+        settings_top_p
+        if settings_top_p is not None
+        else 0.95
+    )
+
+    top_k = (
+        settings_top_k
+        if settings_top_k is not None
+        else template_top_k
+        if template_top_k is not None
+        else 8
+    )
+
+    max_tokens = (
+        settings_max_tokens
+        if settings_max_tokens is not None
+        else template_max_tokens
+        if template_max_tokens is not None
+        else 512
+    )
 
     return {
         "temperature": temperature,
-        "top_p": settings_top_p,
+        "top_p": top_p,
         "top_k": top_k,
         "max_tokens": max_tokens,
     }

@@ -34,27 +34,23 @@ function showToast(msg) {
 }
 
 function slugifyName(name) {
-  return String(name || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "custom_prompt";
+  return (
+    String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "custom_prompt"
+  );
 }
 
 function toNumberOrNull(value) {
-  if (value === null || value === undefined || String(value).trim() === "") {
-    return null;
-  }
-
+  if (value === null || value === undefined || String(value).trim() === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
 function toIntOrNull(value) {
-  if (value === null || value === undefined || String(value).trim() === "") {
-    return null;
-  }
-
+  if (value === null || value === undefined || String(value).trim() === "") return null;
   const n = parseInt(value, 10);
   return Number.isFinite(n) ? n : null;
 }
@@ -76,7 +72,6 @@ function loadSavedProfiles() {
   try {
     const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -88,11 +83,13 @@ function saveSavedProfiles(profiles) {
 }
 
 function slugifyProfileName(name) {
-  return String(name || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "profile";
+  return (
+    String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "profile"
+  );
 }
 
 function uniqueProfileId(name, profiles) {
@@ -114,7 +111,6 @@ function loadSavedPersonas() {
   try {
     const raw = localStorage.getItem(PERSONAS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -126,11 +122,13 @@ function saveSavedPersonas(personas) {
 }
 
 function slugifyPersonaName(name) {
-  return String(name || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "persona";
+  return (
+    String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "persona"
+  );
 }
 
 function uniquePersonaId(name, personas) {
@@ -167,6 +165,9 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   const modelSelect = node.querySelector("#assistant_llm_model");
 
   const profileAction = node.querySelector("#profile_action");
+  const profileCreateBtn = node.querySelector("#profile_create_btn");
+  const profileLoadBtn = node.querySelector("#profile_load_btn");
+  const profileDeleteBtn = node.querySelector("#profile_delete_btn");
   const profileCreateRow = node.querySelector("#profile_create_row");
   const profileNameInput = node.querySelector("#profile_name");
   const profileSelectRow = node.querySelector("#profile_select_row");
@@ -177,6 +178,9 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   const profileSaveEditsBtn = node.querySelector("#profile_save_edits");
 
   const personaAction = node.querySelector("#persona_action");
+  const personaCreateBtn = node.querySelector("#persona_create_btn");
+  const personaLoadBtn = node.querySelector("#persona_load_btn");
+  const personaDeleteBtn = node.querySelector("#persona_delete_btn");
   const personaSelectRow = node.querySelector("#persona_select_row");
   const personaSelect = node.querySelector("#persona_select");
   const personaEditor = node.querySelector("#persona_editor");
@@ -192,17 +196,18 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
   if (
     !sel ||
+    !deleteTemplateBtn ||
     !details ||
     !nameInput ||
     !descInput ||
     !systemInput ||
     !tempInput ||
     !maxTokensInput ||
+    !topKInput ||
     !manageMcpsBtn ||
     !manageApiKeysBtn ||
-    !modelSelect ||
     !providerSelect ||
-
+    !modelSelect ||
     !profileAction ||
     !profileCreateRow ||
     !profileNameInput ||
@@ -212,9 +217,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     !profileConfirmBtn ||
     !profileSaveBtn ||
     !profileSaveEditsBtn ||
-    !deleteTemplateBtn ||
-    !topKInput ||
-
     !personaAction ||
     !personaSelectRow ||
     !personaSelect ||
@@ -224,9 +226,42 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     !personaNameInput ||
     !personaInput ||
     !personaSaveBtn ||
-
     !saveBtn
   ) {
+    console.warn("Prompt editor failed to initialize because a required element is missing.", {
+      sel,
+      deleteTemplateBtn,
+      details,
+      nameInput,
+      descInput,
+      systemInput,
+      tempInput,
+      maxTokensInput,
+      topKInput,
+      manageMcpsBtn,
+      manageApiKeysBtn,
+      providerSelect,
+      modelSelect,
+      profileAction,
+      profileCreateRow,
+      profileNameInput,
+      profileSelectRow,
+      profileSelect,
+      profileActions,
+      profileConfirmBtn,
+      profileSaveBtn,
+      profileSaveEditsBtn,
+      personaAction,
+      personaSelectRow,
+      personaSelect,
+      personaConfirmRow,
+      personaConfirmBtn,
+      personaEditor,
+      personaNameInput,
+      personaInput,
+      personaSaveBtn,
+      saveBtn,
+    });
     return;
   }
 
@@ -237,7 +272,28 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   let currentTemplate = null;
   let loadedProfileId = null;
   let loadedPersonaId = null;
-  
+  let providers = [];
+
+  const profileButtons = [profileCreateBtn, profileLoadBtn, profileDeleteBtn].filter(Boolean);
+  const personaButtons = [personaCreateBtn, personaLoadBtn, personaDeleteBtn].filter(Boolean);
+
+  function setActiveButton(buttons, activeAction, attrName) {
+    for (const btn of buttons) {
+      const isActive = btn.dataset[attrName] === activeAction;
+      btn.classList.toggle("active", isActive);
+    }
+  }
+
+  function resetProfileAction() {
+    profileAction.value = "";
+    setActiveButton(profileButtons, "", "profileAction");
+  }
+
+  function resetPersonaAction() {
+    personaAction.value = "";
+    setActiveButton(personaButtons, "", "personaAction");
+  }
+
   function isProtectedTemplateId(id) {
     return [
       NONE_VALUE,
@@ -251,19 +307,47 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
   function updateDeleteTemplateButton() {
     const id = sel.value;
-
-    const canDelete =
-      id &&
-      !isProtectedTemplateId(id) &&
-      id !== NONE_VALUE &&
-      id !== CREATE_NEW_VALUE;
-
+    const canDelete = id && !isProtectedTemplateId(id);
     deleteTemplateBtn.style.display = canDelete ? "" : "none";
+  }
+
+  function populateModelsForProvider(providerId, selectedModel = null) {
+    const provider = providers.find((p) => p.id === providerId);
+    const models = provider?.models || [];
+
+    modelSelect.innerHTML = "";
+    modelSelect.disabled = false;
+
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.id || m;
+      opt.textContent = m.label || m.id || m;
+      modelSelect.appendChild(opt);
+    }
+
+    if (
+      selectedModel &&
+      !Array.from(modelSelect.options).some((opt) => opt.value === selectedModel)
+    ) {
+      const opt = document.createElement("option");
+      opt.value = selectedModel;
+      opt.textContent = `${selectedModel} (current)`;
+      modelSelect.appendChild(opt);
+    }
+
+    if (!modelSelect.options.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No models available";
+      modelSelect.appendChild(opt);
+      modelSelect.disabled = true;
+    }
+
+    modelSelect.value = selectedModel || modelSelect.options[0]?.value || "";
   }
 
   function refreshPersonaSelect() {
     const personas = loadSavedPersonas();
-
     personaSelect.innerHTML = "";
 
     if (!personas.length) {
@@ -301,16 +385,13 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
   function showCreatePersona() {
     loadedPersonaId = null;
-
     personaSelectRow.style.display = "none";
     personaConfirmRow.style.display = "none";
     personaEditor.style.display = "";
-
     personaNameInput.disabled = false;
     personaInput.disabled = false;
     personaNameInput.value = "";
     personaInput.value = "";
-
     personaSaveBtn.style.display = "";
     personaSaveBtn.textContent = "Save Persona";
   }
@@ -329,13 +410,8 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     personaEditor.style.display = "none";
   }
 
-  function applyPersonaToAI(personaText) {
-    Store.persona = personaText || "";
-  } 
-
   function refreshProfileSelect() {
     const profiles = loadSavedProfiles();
-
     profileSelect.innerHTML = "";
 
     if (!profiles.length) {
@@ -379,46 +455,186 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     profileActions.style.display = "";
     profileConfirmBtn.style.display = "none";
     profileSaveBtn.style.display = "";
-
+    profileSaveEditsBtn.style.display = "none";
     profileNameInput.value = "";
 
-    // Create Profile defaults:
-    // prompt template = Create Your Own
-    // temperature = 0.2
-    // max tokens = 512
-    // persona = Manage Personas/reset
-    // model = unchanged
     sel.value = CREATE_NEW_VALUE;
     loadTemplate(CREATE_NEW_VALUE);
-
     tempInput.value = "0.2";
     maxTokensInput.value = "512";
     topKInput.value = "8";
 
-    personaAction.value = "";
+    resetPersonaAction();
     hidePersonaTools();
-
     Store.persona = "";
   }
 
   function showLoadProfile() {
     refreshProfileSelect();
-
     profileCreateRow.style.display = "none";
     profileSelectRow.style.display = "";
     profileActions.style.display = "";
     profileConfirmBtn.style.display = "";
     profileSaveBtn.style.display = "none";
+    profileSaveEditsBtn.style.display = "none";
   }
 
   function showDeleteProfile() {
     refreshProfileSelect();
-
     profileCreateRow.style.display = "none";
     profileSelectRow.style.display = "";
     profileActions.style.display = "";
     profileConfirmBtn.style.display = "";
     profileSaveBtn.style.display = "none";
+    profileSaveEditsBtn.style.display = "none";
+  }
+
+  async function saveRuntimeSettings() {
+    const temperature = toNumberOrNull(tempInput.value);
+    const maxTokens = toIntOrNull(maxTokensInput.value);
+    const topK = toIntOrNull(topKInput.value);
+
+    const payload = {
+      llm_provider: providerSelect.value || "ollama",
+      llm_model: modelSelect.value || null,
+    };
+
+    if (temperature !== null) payload.temperature = temperature;
+    if (maxTokens !== null) payload.max_tokens = maxTokens;
+    if (topK !== null) payload.top_k = topK;
+
+    try {
+      await api.patchSettings(currentUserId, payload);
+      showToast("Assistant settings updated");
+    } catch (e) {
+      alert("Settings save failed: " + e.message);
+    }
+  }
+
+  async function loadRuntimeSettings() {
+    const user = await api.getUser();
+    currentUserId = user?.user || "default";
+
+    const [settings, providerData] = await Promise.all([
+      api.getSettings(currentUserId),
+      api.listModelProviders(true),
+    ]);
+
+    tempInput.value = settings?.temperature ?? 0.2;
+    maxTokensInput.value = settings?.max_tokens ?? 512;
+    topKInput.value = settings?.top_k ?? 8;
+
+    providers = providerData?.chat_providers || [];
+    providerSelect.innerHTML = "";
+
+    for (const provider of providers) {
+      const opt = document.createElement("option");
+      opt.value = provider.id;
+      opt.textContent = provider.label || provider.id;
+      providerSelect.appendChild(opt);
+    }
+
+    if (!providerSelect.options.length) {
+      const opt = document.createElement("option");
+      opt.value = "ollama";
+      opt.textContent = "Ollama";
+      providerSelect.appendChild(opt);
+      providers = [{ id: "ollama", label: "Ollama", models: [] }];
+    }
+
+    providerSelect.value = settings?.llm_provider || providerSelect.options[0]?.value || "ollama";
+    populateModelsForProvider(providerSelect.value, settings?.llm_model || null);
+  }
+
+  function setPromptDetailMode(mode) {
+    const isNone = mode === "none";
+    const isCreate = mode === "create";
+    const isPreset = mode === "preset";
+    const canEditPrompt = isCreate || (isPreset && loadedProfileId);
+
+    details.style.display = isNone ? "none" : "";
+    saveBtn.style.display = canEditPrompt ? "" : "none";
+    saveBtn.textContent = isCreate ? "Save Template" : "Save Prompt Edits";
+
+    nameInput.disabled = !canEditPrompt;
+    descInput.disabled = !canEditPrompt;
+    systemInput.disabled = !canEditPrompt;
+    nameInput.readOnly = !canEditPrompt;
+    descInput.readOnly = !canEditPrompt;
+    systemInput.readOnly = !canEditPrompt;
+  }
+
+  function fillBlankForm() {
+    currentTemplate = null;
+    setPromptDetailMode("create");
+    nameInput.value = "";
+    descInput.value = "";
+    systemInput.value = "";
+  }
+
+  function fillNoneForm() {
+    currentTemplate = null;
+    setPromptDetailMode("none");
+    nameInput.value = "";
+    descInput.value = "";
+    systemInput.value = "";
+  }
+
+  function fillFormFromTemplate(t) {
+    currentTemplate = t;
+    setPromptDetailMode("preset");
+    nameInput.value = t?.name || "";
+    descInput.value = t?.description || "";
+    systemInput.value = t?.system || "";
+    if (t?.temperature !== undefined && t?.temperature !== null) tempInput.value = t.temperature;
+    if (t?.max_tokens !== undefined && t?.max_tokens !== null) maxTokensInput.value = t.max_tokens;
+    if (t?.top_k !== undefined && t?.top_k !== null) topKInput.value = t.top_k;
+  }
+
+  async function loadTemplate(id) {
+    updateDeleteTemplateButton();
+
+    if (id === NONE_VALUE) {
+      selectedPromptTemplateId = "rag_chat";
+      fillNoneForm();
+      return;
+    }
+
+    if (id === CREATE_NEW_VALUE) {
+      fillBlankForm();
+      return;
+    }
+
+    selectedPromptTemplateId = id;
+    const data = await api.getPromptTemplate(id);
+    fillFormFromTemplate(data);
+  }
+
+  async function loadList(selectedId = NONE_VALUE) {
+    templates = await api.listPromptTemplates();
+    sel.innerHTML = "";
+
+    const noneOpt = document.createElement("option");
+    noneOpt.value = NONE_VALUE;
+    noneOpt.textContent = "None";
+    sel.appendChild(noneOpt);
+
+    for (const t of templates) {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = t.name || t.id;
+      sel.appendChild(opt);
+    }
+
+    const createOpt = document.createElement("option");
+    createOpt.value = CREATE_NEW_VALUE;
+    createOpt.textContent = "Create Your Own";
+    sel.appendChild(createOpt);
+
+    const exists = Array.from(sel.options).some((opt) => opt.value === selectedId);
+    sel.value = exists ? selectedId : NONE_VALUE;
+    await loadTemplate(sel.value);
+    updateDeleteTemplateButton();
   }
 
   async function saveCurrentProfile() {
@@ -431,7 +647,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     let promptTemplateId = sel.value;
 
-    // If the profile is using a brand-new prompt template, save that template first.
     if (sel.value === CREATE_NEW_VALUE) {
       const templateName = nameInput.value.trim();
       const description = descInput.value.trim();
@@ -455,7 +670,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
         name: templateName,
         description,
         system,
-
         user_format: "{user}",
         context_item_format: "- {chunk} (source: {source|unknown})",
         context_header: "Relevant context:",
@@ -477,45 +691,38 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     const profiles = loadSavedProfiles();
     const id = uniqueProfileId(profileName, profiles);
-
     let activePersonaText = Store.persona || "";
     let selectedPersonaId = personaSelect.value || loadedPersonaId || "";
 
-    // If the persona editor is open and has text in it, save/apply that persona too.
     const personaEditorVisible = personaEditor.style.display !== "none";
     const personaName = personaNameInput.value.trim();
     const personaText = personaInput.value.trim();
 
     if (personaEditorVisible && personaText) {
       const personas = loadSavedPersonas();
-
       let personaId = selectedPersonaId || loadedPersonaId;
 
-      // If this is a brand-new persona, create a saved persona entry.
       if (!personaId || !personas.some((p) => p.id === personaId)) {
         personaId = uniquePersonaId(personaName || profileName, personas);
-
         personas.push({
           id: personaId,
           name: personaName || `${profileName} Persona`,
           text: personaText,
           created_at: new Date().toISOString(),
         });
-
         saveSavedPersonas(personas);
         refreshPersonaSelect();
       }
 
       activePersonaText = personaText;
       selectedPersonaId = personaId;
+      loadedPersonaId = personaId;
       Store.persona = personaText;
-      loadedPersonaId = personaId
     }
 
     const profile = {
       id,
       name: profileName,
-
       prompt_template_id: promptTemplateId,
       temperature: toNumberOrNull(tempInput.value) ?? 0.2,
       max_tokens: toIntOrNull(maxTokensInput.value) ?? 512,
@@ -524,21 +731,18 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       provider_id: providerSelect.value || "ollama",
       persona_id: selectedPersonaId,
       persona_text: activePersonaText,
-
       created_at: new Date().toISOString(),
     };
 
     profiles.push(profile);
     saveSavedProfiles(profiles);
-
     await saveRuntimeSettings();
-
     refreshProfileSelect();
-    profileAction.value = "";
+    resetProfileAction();
     hideProfileTools();
-
     showToast("Profile saved");
   }
+
   async function saveLoadedProfileEdits() {
     if (!loadedProfileId) {
       alert("No loaded profile to edit.");
@@ -563,7 +767,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       const description = descInput.value.trim();
       const system = systemInput.value.trim();
 
-      if  (!templateName) {
+      if (!templateName) {
         alert("Prompt template name is required.");
         return;
       }
@@ -581,7 +785,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
         name: templateName,
         description,
         system,
-
         user_format: "{user}",
         context_item_format: "- {chunk} (source: {source|unknown})",
         context_header: "Relevant context:",
@@ -603,39 +806,34 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     let activePersonaText = Store.persona || "";
     let selectedPersonaId = personaSelect.value || loadedPersonaId || "";
-
     const personaEditorVisible = personaEditor.style.display !== "none";
     const personaName = personaNameInput.value.trim();
     const personaText = personaInput.value.trim();
 
     if (personaEditorVisible && personaText) {
       const personas = loadSavedPersonas();
-
       let personaId = selectedPersonaId || loadedPersonaId;
 
       if (!personaId || !personas.some((p) => p.id === personaId)) {
         personaId = uniquePersonaId(personaName || profiles[index].name, personas);
-
         personas.push({
           id: personaId,
           name: personaName || `${profiles[index].name} Persona`,
           text: personaText,
           created_at: new Date().toISOString(),
         });
-
         saveSavedPersonas(personas);
         refreshPersonaSelect();
       }
 
       activePersonaText = personaText;
       selectedPersonaId = personaId;
+      loadedPersonaId = personaId;
       Store.persona = personaText;
-      loadedPersonaId = personaId
     }
 
     profiles[index] = {
       ...profiles[index],
-
       prompt_template_id: promptTemplateId,
       temperature: toNumberOrNull(tempInput.value) ?? 0.2,
       max_tokens: toIntOrNull(maxTokensInput.value) ?? 512,
@@ -644,14 +842,12 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       provider_id: providerSelect.value || "ollama",
       persona_id: selectedPersonaId,
       persona_text: activePersonaText,
-
       updated_at: new Date().toISOString(),
     };
 
     saveSavedProfiles(profiles);
     await saveRuntimeSettings();
     refreshProfileSelect();
-
     showToast("Profile edits saved");
   }
   
@@ -1009,9 +1205,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     }
   });
 
-  profileAction.addEventListener("change", () => {
-    const action = profileAction.value;
-
+  function handleProfileAction(action) {
     if (action !== "load") {
       loadedProfileId = null;
       profileSaveEditsBtn.style.display = "none";
@@ -1041,6 +1235,80 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     }
 
     hideProfileTools();
+  }
+
+  function handlePersonaAction(action) {
+    if (action === "create") {
+      showCreatePersona();
+      return;
+    }
+
+    if (action === "load") {
+      showLoadPersona();
+      return;
+    }
+
+    if (action === "delete") {
+      showDeletePersona();
+      return;
+    }
+
+    hidePersonaTools();
+  }
+
+  sel.addEventListener("change", () => loadTemplate(sel.value));
+
+  deleteTemplateBtn.addEventListener("click", async () => {
+    const id = sel.value;
+    if (!id || isProtectedTemplateId(id)) return;
+
+    const selectedOption = sel.options[sel.selectedIndex];
+    const label = selectedOption?.textContent || id;
+
+    const ok = confirm(
+      `Delete prompt template "${label}"?\n\nThis will remove prompts/${id}.json. Profiles and personas will NOT be deleted.`
+    );
+    if (!ok) return;
+
+    try {
+      await api.deletePromptTemplate(id);
+      if (selectedPromptTemplateId === id) selectedPromptTemplateId = "rag_chat";
+      currentTemplate = null;
+      await loadList(NONE_VALUE);
+      fillNoneForm();
+      updateDeleteTemplateButton();
+      showToast("Prompt template deleted");
+    } catch (e) {
+      alert("Prompt template delete failed: " + e.message);
+    }
+  });
+
+  if (profileButtons.length) {
+    for (const btn of profileButtons) {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.profileAction;
+
+        if (profileAction.value === action) {
+          resetProfileAction();
+          handleProfileAction("");
+          return;
+        }
+
+        profileAction.value = action;
+        setActiveButton(profileButtons, action, "profileAction");
+        handleProfileAction(action);
+      });
+    }
+  } else {
+    profileAction.addEventListener("change", () => handleProfileAction(profileAction.value));
+  }
+
+  profileSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveCurrentProfile();
+    } catch (e) {
+      alert("Profile save failed: " + e.message);
+    }
   });
 
   profileSaveEditsBtn.addEventListener("click", async () => {
@@ -1048,14 +1316,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       await saveLoadedProfileEdits();
     } catch (e) {
       alert("Profile edit save failed: " + e.message);
-    }
-  });  
-
-  profileSaveBtn.addEventListener("click", async () => {
-    try {
-      await saveCurrentProfile();
-    } catch (e) {
-      alert("Profile save failed: " + e.message);
     }
   });
 
@@ -1069,7 +1329,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     const profiles = loadSavedProfiles();
     const profile = profiles.find((p) => p.id === profileId);
-  
 
     if (!profile) {
       alert("Profile not found.");
@@ -1084,14 +1343,11 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       const updated = profiles.filter((p) => p.id !== profileId);
       saveSavedProfiles(updated);
 
-      if (loadedProfileId === profileId) {
-        loadedProfileId = null;
-      }
+      if (loadedProfileId === profileId) loadedProfileId = null;
 
       refreshProfileSelect();
+      resetProfileAction();
       hideProfileTools();
-      profileAction.value = "";
-
       showToast("Profile deleted");
       return;
     }
@@ -1099,7 +1355,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     if (profileAction.value === "load") {
       loadedProfileId = profile.id;
       const templateId = profile.prompt_template_id || NONE_VALUE;
-
       const templateExists = Array.from(sel.options).some((opt) => opt.value === templateId);
 
       if (templateExists) {
@@ -1140,13 +1395,10 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
       Store.persona = profile.persona_text || "";
       loadedPersonaId = profile.persona_id || null;
-
-      personaAction.value = "";
+      resetPersonaAction();
       hidePersonaTools();
 
       if (profile.persona_text) {
-        loadedPersonaId = profile.persona_id || null;
-
         personaEditor.style.display = "";
         personaNameInput.disabled = false;
         personaInput.disabled = false;
@@ -1155,17 +1407,11 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
         const personas = loadSavedPersonas();
         const p = personas.find((x) => x.id === loadedPersonaId);
-
         personaNameInput.value = p?.name || "Profile Persona";
         personaInput.value = profile.persona_text;
-      } else {
-        personaNameInput.value = "";
-        personaInput.value = "";
       }
 
       await saveRuntimeSettings();
-
-      loadedProfileId = profile.id;
 
       profileCreateRow.style.display = "none";
       profileSelectRow.style.display = "none";
@@ -1174,24 +1420,26 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       profileSaveBtn.style.display = "none";
       profileSaveEditsBtn.style.display = "";
 
-      profileAction.value = "";
-
+      resetProfileAction();
       showToast(`Loaded profile: ${profile.name || profile.id}`);
     }
   });
 
   tempInput.addEventListener("change", saveRuntimeSettings);
   maxTokensInput.addEventListener("change", saveRuntimeSettings);
-  modelSelect.addEventListener("change", saveRuntimeSettings);
   topKInput.addEventListener("change", saveRuntimeSettings);
+  modelSelect.addEventListener("change", saveRuntimeSettings);
 
-  manageMcpsBtn.addEventListener("click", () => {
-    showToast("MCP manager coming soon");
+  providerSelect.addEventListener("change", () => {
+    populateModelsForProvider(providerSelect.value, null);
+    saveRuntimeSettings();
   });
 
   manageApiKeysBtn.addEventListener("click", () => {
     openApiKeyManager();
   });
+  manageMcpsBtn.addEventListener("click", () => showToast("MCP manager coming soon"));
+  
 
   personaSaveBtn.addEventListener("click", () => {
     const name = personaNameInput.value.trim();
@@ -1219,63 +1467,53 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
           text,
           updated_at: new Date().toISOString(),
         };
-
         saveSavedPersonas(personas);
         Store.persona = text;
         refreshPersonaSelect();
-
         showToast("Persona edits saved");
         return;
       }
     }
 
     const id = uniquePersonaId(name, personas);
-
-    const persona = {
+    personas.push({
       id,
       name,
       text,
       created_at: new Date().toISOString(),
-    };
+    });
 
-    personas.push(persona);
     saveSavedPersonas(personas);
-
     loadedPersonaId = id;
     Store.persona = text;
     refreshPersonaSelect();
-
     personaSaveBtn.textContent = "Save Persona Edits";
-
     showToast("Persona saved and applied");
   });
 
-  personaAction.addEventListener("change", () => {
-    const action = personaAction.value;
+  if (personaButtons.length) {
+    for (const btn of personaButtons) {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.personaAction;
 
-    if (action === "create") {
-      showCreatePersona();
-      return;
+        if (personaAction.value === action) {
+          resetPersonaAction();
+          handlePersonaAction("");
+          return;
+        }
+
+        personaAction.value = action;
+        setActiveButton(personaButtons, action, "personaAction");
+        handlePersonaAction(action);
+      });
     }
-
-    if (action === "load") {
-      showLoadPersona();
-      return;
-    }
-
-    if (action === "delete") {
-      showDeletePersona();
-      return;
+  } else {
+    personaAction.addEventListener("change", () => handlePersonaAction(personaAction.value));
   }
-
-    hidePersonaTools();
-  });
-
-  personaSelect.addEventListener("change", () => {
-  });
 
   personaConfirmBtn.addEventListener("click", () => {
     const personaId = personaSelect.value;
+
     if (!personaId) {
       alert("Select a persona first.");
       return;
@@ -1292,16 +1530,13 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
     if (personaAction.value === "load") {
       loadedPersonaId = persona.id;
-
       personaNameInput.value = persona.name || "";
       personaInput.value = persona.text || "";
       personaEditor.style.display = "";
-
       personaNameInput.disabled = false;
       personaInput.disabled = false;
       personaSaveBtn.style.display = "";
       personaSaveBtn.textContent = "Save Persona Edits";
-
       Store.persona = persona.text || "";
       showToast(`Loaded persona: ${persona.name || persona.id}`);
       return;
@@ -1314,14 +1549,12 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       const updated = personas.filter((p) => p.id !== personaId);
       saveSavedPersonas(updated);
 
-      if ((Store.persona || "") === (persona.text || "")) {
-        Store.persona = "";
-      }
+      if ((Store.persona || "") === (persona.text || "")) Store.persona = "";
+      if (loadedPersonaId === personaId) loadedPersonaId = null;
 
       refreshPersonaSelect();
       personaEditor.style.display = "none";
       personaConfirmRow.style.display = "none";
-
       showToast("Persona deleted");
     }
   });
@@ -1350,7 +1583,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
         name,
         description,
         system,
-
         user_format: "{user}",
         context_item_format: "- {chunk} (source: {source|unknown})",
         context_header: "Relevant context:",
@@ -1378,12 +1610,10 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     if (loadedProfileId && currentTemplate?.id && sel.value !== NONE_VALUE) {
       const payload = {
         ...(currentTemplate || {}),
-
         id: currentTemplate.id,
         name,
         description,
         system,
-
         user_format: currentTemplate?.user_format || "{user}",
         context_item_format:
           currentTemplate?.context_item_format || "- {chunk} (source: {source|unknown})",
@@ -1395,7 +1625,6 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
           typeof currentTemplate?.include_history === "boolean"
             ? currentTemplate.include_history
             : true,
-
         temperature: toNumberOrNull(tempInput.value) ?? currentTemplate?.temperature ?? 0.2,
         max_tokens: toIntOrNull(maxTokensInput.value) ?? currentTemplate?.max_tokens ?? 512,
         top_k: toIntOrNull(topKInput.value) ?? currentTemplate?.top_k ?? 8,
@@ -1408,9 +1637,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
         await loadList(payload.id);
       } catch (e) {
         alert("Prompt template edit save failed: " + e.message);
-    }
-
-      return;
+      }
     }
   });
 
