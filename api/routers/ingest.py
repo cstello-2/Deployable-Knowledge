@@ -1,8 +1,11 @@
 import logging
 import os
+import shutil
+from pathlib import Path
 from fastapi import APIRouter, UploadFile, BackgroundTasks, HTTPException, Form, File
 from fastapi.responses import JSONResponse
 from typing import List
+from pydantic import BaseModel
 
 from core.rag.retriever import db, embed_directory, embed_file
 from core.corpus_registry import remove_source as registry_remove_source
@@ -19,6 +22,23 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
 
 
+class LocalFileUploadBody(BaseModel):
+    path: str
+
+
+def _resolve_picker_file(path: str) -> Path:
+    root = (Path.home() / "Documents" / "DeployableKnowledge").resolve()
+    source = Path(path).expanduser().resolve()
+    if source != root and root not in source.parents:
+        raise HTTPException(status_code=400, detail="File path is outside the picker root.")
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+    if not source.is_file():
+        raise HTTPException(status_code=400, detail="Selected path is not a file.")
+    sanitize_filename(source.name, {".pdf"})
+    return source
+
+
 @router.post("/upload/start")
 async def start_upload_job():
     job_id = create_job("Uploading")
@@ -31,6 +51,75 @@ async def start_upload_job():
         total=0,
         message="Preparing upload...",
     )
+
+    return {
+        "status": "started",
+        "job_id": job_id,
+    }
+
+
+@router.post("/upload-local/start")
+async def start_local_file_upload(body: LocalFileUploadBody, background_tasks: BackgroundTasks):
+    source = _resolve_picker_file(body.path)
+    safe_name = sanitize_filename(source.name, {".pdf"})
+    destination = UPLOAD_DIR / safe_name
+    file_size = source.stat().st_size
+    job_id = create_job("Embedding")
+
+    update_job(
+        job_id,
+        label="Embedding",
+        phase="embedding",
+        current=0,
+        total=file_size,
+        message=f"Preparing {safe_name}",
+    )
+
+    def run_embedding_job():
+        try:
+            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+
+            update_job(
+                job_id,
+                label="Embedding",
+                phase="embedding",
+                current=0,
+                total=file_size,
+                message=f"Embedding {safe_name}",
+            )
+
+            def on_embed_progress(current: int, total: int, message: str):
+                fraction = current / max(total, 1)
+                update_job(
+                    job_id,
+                    label="Embedding",
+                    phase="embedding",
+                    current=int(file_size * fraction),
+                    total=file_size,
+                    message=message,
+                )
+
+            embed_file(
+                file_path=destination,
+                source_name=safe_name,
+                tags=["uploaded"],
+                progress_callback=on_embed_progress,
+            )
+            result = {"uploads": [{"filename": safe_name, "status": "success"}]}
+            update_job(
+                job_id,
+                label="Complete",
+                phase="complete",
+                current=file_size,
+                total=file_size,
+                message="Embedding complete.",
+            )
+            finish_job(job_id, result)
+        except Exception as e:
+            fail_job(job_id, str(e))
+
+    background_tasks.add_task(run_embedding_job)
 
     return {
         "status": "started",

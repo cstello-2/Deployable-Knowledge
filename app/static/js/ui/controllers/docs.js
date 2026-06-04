@@ -34,6 +34,7 @@ function fuzzyDocScore(query, doc) {
   for (const w of qtok) {
     if (chunks.some((c) => c.includes(w) || w.includes(c))) hits++;
   }
+  if (!hits) return 0;
   return 0.3 + (0.6 * hits) / qtok.length;
 }
 
@@ -56,20 +57,26 @@ export async function initDocsController(winId = "win_docs") {
     toolbarTagKeys: new Set(),
     syncedFolders: [],
     folderGroups: [],
+    collapsedFolders: new Set(),
     pendingFolderPath: "",
   };
 
   const input = win.querySelector(`#${winId}-upload`);
-  const chooseFolder = win.querySelector(`#${winId}-choose-folder-btn`);
-  const syncInfoBtn = win.querySelector(`#${winId}-sync-info-btn`);
-  const choose = win.querySelector(`#${winId}-choose-btn`);
+  const addSourceBtn = win.querySelector(`#${winId}-choose-folder-btn`);
   const list = win.querySelector(`#${winId}-upload-list`);
-  const btn = win.querySelector(`#${winId}-upload-btn`);
   const uploadCount = win.querySelector(`#${winId}-upload-count`);
   const syncFolderStatus = win.querySelector(`#${winId}-sync-folder-status`);
   const filterInput = win.querySelector(`#${winId}-doc-filter`);
   const filterMeta = win.querySelector(`#${winId}-filter-meta`);
   const tagChipsHost = win.querySelector(`#${winId}-tag-filter-chips`);
+  const tagMenu = win.querySelector(`#${winId}-tag-menu`);
+  const tagMenuList = win.querySelector(`#${winId}-tag-menu-list`);
+  const manageTagsBtn = win.querySelector(`#${winId}-manage-tags`);
+  const addTagBtn = win.querySelector(`#${winId}-add-tag`);
+  const tagDialog = document.querySelector(`#${winId}-tag-dialog`);
+  const newTagInput = document.querySelector(`#${winId}-new-tag-input`);
+  const newTagCancel = document.querySelector(`#${winId}-new-tag-cancel`);
+  const newTagSave = document.querySelector(`#${winId}-new-tag-save`);
   const listHost = win.querySelector(`#${winId}-doc_list`);
   const bulkBar = win.querySelector(`#${winId}-bulk-bar`);
   const bulkLabel = win.querySelector(`#${winId}-bulk-label`);
@@ -79,6 +86,7 @@ export async function initDocsController(winId = "win_docs") {
   const mockPickerPanel = document.querySelector(`#${winId}-mock-picker-panel`);
   const mockPickerClose = document.querySelector(`#${winId}-mock-picker-close`);
   const mockPickerPath = document.querySelector(`#${winId}-mock-picker-path`);
+  const mockPickerChooseFiles = document.querySelector(`#${winId}-mock-picker-choose-files`);
   const mockPickerUp = document.querySelector(`#${winId}-mock-picker-up`);
   const mockPickerSelectFolder = document.querySelector(`#${winId}-mock-picker-select-folder`);
   const mockPickerList = document.querySelector(`#${winId}-mock-picker-list`);
@@ -91,6 +99,10 @@ export async function initDocsController(winId = "win_docs") {
     if (uploadCount) {
       uploadCount.textContent = n === 0 ? "0 files selected" : `${n} file${n === 1 ? "" : "s"} selected`;
     }
+  }
+
+  function isPdfFileName(name) {
+    return String(name || "").toLowerCase().endsWith(".pdf");
   }
 
   function syncStoreInactive() {
@@ -107,27 +119,234 @@ export async function initDocsController(winId = "win_docs") {
     renderTagChips();
   }
 
+  function normalizeTagInput(value) {
+    return String(value || "").trim().replace(/^#/, "").toLowerCase();
+  }
+
   function renderTagChips() {
     if (!tagChipsHost) return;
     tagChipsHost.innerHTML = "";
-    for (const t of state.approvedTags) {
+    for (const t of state.toolbarTagKeys) {
       const chip = el("button", {
         type: "button",
-        class: "tag-chip",
+        class: "tag-chip selected docs-active-tag",
         "data-tag": t,
-      }, [`#${t}`]);
-      if (state.toolbarTagKeys.has(t)) chip.classList.add("selected");
+        title: "Remove active tag filter",
+      }, [
+        el("span", {}, [`#${t}`]),
+        el("span", { class: "tag-chip-x", "aria-hidden": "true" }, ["x"]),
+      ]);
       chip.addEventListener("click", () => {
-        if (state.toolbarTagKeys.has(t)) state.toolbarTagKeys.delete(t);
-        else state.toolbarTagKeys.add(t);
-        chip.classList.toggle("selected");
+        state.toolbarTagKeys.delete(t);
+        renderTagChips();
         renderDocList();
       });
       tagChipsHost.appendChild(chip);
     }
-    if (!state.approvedTags.length) {
-      tagChipsHost.appendChild(el("span", { class: "li-subtle" }, ["No approved tags yet — use “Manage approved #tags”."]));
+    if (!state.toolbarTagKeys.size) {
+      tagChipsHost.appendChild(el("span", { class: "li-subtle" }, ["No active tag filters."]));
     }
+    renderTagMenu();
+  }
+
+  function renderTagMenu() {
+    if (!tagMenuList) return;
+    tagMenuList.innerHTML = "";
+    for (const t of state.approvedTags) {
+      const row = el("div", { class: "docs-tag-menu-row" });
+      const tagBtn = el("button", {
+        class: `tag-chip docs-active-tag docs-tag-menu-chip${state.toolbarTagKeys.has(t) ? " selected" : ""}`,
+        type: "button",
+        title: "Use this tag as an active filter",
+      }, [
+        el("span", {}, [`#${t}`]),
+        el("span", { class: "tag-chip-x", "aria-hidden": "true" }, ["x"]),
+      ]);
+      tagBtn.addEventListener("click", () => {
+        if (state.toolbarTagKeys.has(t)) state.toolbarTagKeys.delete(t);
+        else state.toolbarTagKeys.add(t);
+        renderTagChips();
+        renderDocList();
+      });
+
+      tagBtn.querySelector(".tag-chip-x")?.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        await deleteApprovedTag(t);
+      });
+      row.append(tagBtn);
+      tagMenuList.appendChild(row);
+    }
+    if (!state.approvedTags.length) {
+      tagMenuList.appendChild(el("div", { class: "li-subtle docs-tag-menu-empty" }, ["No tags yet."]));
+    }
+  }
+
+  async function deleteApprovedTag(tag) {
+    if (!confirm(`Delete #${tag} and remove it from documents?`)) return;
+    const nextTags = state.approvedTags.filter((t) => t !== tag);
+    const sources = state.allDocs.filter((doc) => (doc.tags || []).includes(tag)).map((doc) => doc.id);
+    try {
+      if (sources.length) {
+        await api.corpusBulk({ sources, remove_tags: [tag] });
+      }
+      await api.setCorpusTags(nextTags);
+      state.toolbarTagKeys.delete(tag);
+      await loadTags();
+      await refresh();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  function openAddTagDialog() {
+    if (!tagDialog || !newTagInput) return;
+    newTagInput.value = "";
+    show(tagDialog);
+    setTimeout(() => newTagInput.focus(), 0);
+  }
+
+  function closeAddTagDialog() {
+    hide(tagDialog);
+  }
+
+  async function saveNewTag() {
+    const tag = normalizeTagInput(newTagInput?.value);
+    if (!tag) return;
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(tag)) {
+      alert("Use letters, numbers, dashes, or underscores. Start with a letter or number.");
+      return;
+    }
+    if (state.approvedTags.includes(tag)) {
+      state.toolbarTagKeys.add(tag);
+      closeAddTagDialog();
+      renderTagChips();
+      renderDocList();
+      return;
+    }
+    try {
+      await api.setCorpusTags([...state.approvedTags, tag]);
+      closeAddTagDialog();
+      await loadTags();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  function showTagPicker(title, tags = state.approvedTags) {
+    if (!tags.length) {
+      alert("No tags available.");
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      const overlay = el("div", { class: "docs-tag-dialog", role: "dialog", "aria-modal": "true" });
+      const panel = el("div", { class: "docs-tag-dialog-panel" });
+      const choices = el("div", { class: "docs-tag-choice-list" });
+      const done = (tag) => {
+        overlay.remove();
+        resolve(tag);
+      };
+      for (const t of tags) {
+        const choice = el("button", { class: "tag-chip", type: "button" }, [`#${t}`]);
+        choice.addEventListener("click", () => done(t));
+        choices.appendChild(choice);
+      }
+      panel.append(
+        el("div", { class: "docs-tag-dialog-title" }, [title]),
+        choices,
+        el("div", { class: "docs-tag-dialog-actions" }, [
+          el("button", { class: "btn", type: "button", onclick: () => done(null) }, ["Cancel"]),
+        ]),
+      );
+      overlay.addEventListener("click", (ev) => {
+        if (ev.target === overlay) done(null);
+      });
+      overlay.appendChild(panel);
+      win.appendChild(overlay);
+    });
+  }
+
+  function openDocumentTagManager(doc) {
+    const overlay = el("div", { class: "docs-tag-dialog", role: "dialog", "aria-modal": "true" });
+    const panel = el("div", { class: "docs-tag-dialog-panel docs-doc-tag-panel" });
+    const current = new Set(doc.tags || []);
+
+    const close = () => overlay.remove();
+
+    const currentList = el("div", { class: "docs-doc-tag-list" });
+    const availableList = el("div", { class: "docs-doc-tag-list" });
+
+    function renderLists() {
+      currentList.innerHTML = "";
+      availableList.innerHTML = "";
+
+      if (!current.size) {
+        currentList.appendChild(el("span", { class: "li-subtle" }, ["No tags on this file."]));
+      }
+
+      for (const tag of [...current].sort()) {
+        const chip = el("button", {
+          class: "tag-chip selected docs-active-tag",
+          type: "button",
+          title: "Remove tag from this file",
+        }, [
+          el("span", {}, [`#${tag}`]),
+          el("span", { class: "tag-chip-x", "aria-hidden": "true" }, ["x"]),
+        ]);
+        chip.addEventListener("click", () => {
+          current.delete(tag);
+          renderLists();
+        });
+        currentList.appendChild(chip);
+      }
+
+      const available = state.approvedTags.filter((tag) => !current.has(tag));
+      if (!available.length) {
+        availableList.appendChild(el("span", { class: "li-subtle" }, ["No more tags available."]));
+      }
+
+      for (const tag of available) {
+        const chip = el("button", {
+          class: "tag-chip",
+          type: "button",
+          title: "Add tag to this file",
+        }, [`#${tag}`]);
+        chip.addEventListener("click", () => {
+          current.add(tag);
+          renderLists();
+        });
+        availableList.appendChild(chip);
+      }
+    }
+
+    const saveBtn = el("button", { class: "btn btn-primary", type: "button" }, ["Save"]);
+    saveBtn.addEventListener("click", async () => {
+      try {
+        await api.patchCorpusDocument({ source: doc.id, tags: [...current].sort() });
+        close();
+        await refresh();
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+
+    panel.append(
+      el("div", { class: "docs-tag-dialog-title" }, [doc.title || doc.id]),
+      el("div", { class: "li-subtle" }, ["Current tags"]),
+      currentList,
+      el("div", { class: "li-subtle" }, ["Available tags"]),
+      availableList,
+      el("div", { class: "docs-tag-dialog-actions" }, [
+        el("button", { class: "btn", type: "button", onclick: close }, ["Cancel"]),
+        saveBtn,
+      ]),
+    );
+
+    renderLists();
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target === overlay) close();
+    });
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
   }
 
   function filteredDocs() {
@@ -175,34 +394,32 @@ export async function initDocsController(winId = "win_docs") {
     const meta = el("div", { class: "li-meta" }, [`${doc.segments} segments`, doc.active === false ? " • inactive" : ""]);
     const tagRow = el("div", { class: "docs-doc-tags" });
     for (const t of doc.tags || []) {
-      tagRow.appendChild(el("span", { class: "tag-badge" }, [`#${t}`]));
+      const tagBadge = el("button", {
+        class: "tag-chip selected docs-active-tag docs-doc-tag-remove",
+        type: "button",
+        title: `Remove #${t}`,
+      }, [
+        el("span", {}, [`#${t}`]),
+        el("span", { class: "tag-chip-x docs-doc-tag-x", "aria-hidden": "true" }, ["x"]),
+      ]);
+      tagBadge.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try {
+          await api.corpusBulk({ sources: [doc.id], remove_tags: [t] });
+          await refresh();
+        } catch (e) {
+          alert(e.message || String(e));
+        }
+      });
+      tagRow.appendChild(tagBadge);
     }
     mid.append(title, tagRow, meta);
 
     const actions = el("div", { class: "li-actions" });
-    const tagsBtn = el("button", { class: "btn", type: "button", title: "Set tags from approved list" }, ["Tags…"]);
-    tagsBtn.addEventListener("click", async (ev) => {
+    const tagsBtn = el("button", { class: "btn", type: "button", title: "Manage tags on this file" }, ["Tags"]);
+    tagsBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      if (!state.approvedTags.length) {
-        alert("Define approved tags first (Manage approved #tags).");
-        return;
-      }
-      const hint = `Comma-separated tags (approved: ${state.approvedTags.map((t) => "#" + t).join(", ")})\nCurrent: ${(doc.tags || []).map((t) => "#" + t).join(", ") || "(none)"}`;
-      const raw = prompt(hint, (doc.tags || []).join(", "));
-      if (raw == null) return;
-      const want = raw.split(/[,;\n]+/).map((s) => s.trim().replace(/^#/, "").toLowerCase()).filter(Boolean);
-      const approved = new Set(state.approvedTags);
-      const bad = want.filter((t) => !approved.has(t));
-      if (bad.length) {
-        alert("Unknown or unapproved tags: " + bad.join(", "));
-        return;
-      }
-      try {
-        await api.patchCorpusDocument({ source: doc.id, tags: want });
-        await refresh();
-      } catch (e) {
-        alert(e.message || String(e));
-      }
+      openDocumentTagManager(doc);
     });
     const toggleLabel = doc.active === false ? "Activate" : "Deactivate";
     const toggleBtn = el("button", { class: "btn", type: "button" }, [toggleLabel]);
@@ -215,7 +432,7 @@ export async function initDocsController(winId = "win_docs") {
         alert(e.message || String(e));
       }
     });
-    const remBtn = el("button", { class: "btn btn-danger", type: "button" }, ["Remove"]);
+    const remBtn = el("button", { class: "btn btn-danger", type: "button" }, ["Remove document"]);
     remBtn.addEventListener("click", async (ev) => {
       ev.stopPropagation();
       if (!confirm(`Remove "${doc.id}" from the library and vector store?`)) return;
@@ -299,33 +516,85 @@ export async function initDocsController(winId = "win_docs") {
   }
 
 
-  function createFolderGroup(group, docsById, visibleIds, groupedIds) {
-    const groupDocIds = (group.documents || []).map((doc) => doc.source_name).filter((id) => docsById.has(id));
-    const visibleDocIds = groupDocIds.filter((id) => visibleIds.has(id));
-
-    for (const id of groupDocIds) groupedIds.add(id);
+  function createDocGroup({
+    key,
+    label,
+    subtitle,
+    docIds,
+    docsById,
+    visibleIds,
+    visibleOrder,
+    forceExpanded = false,
+    actions = [],
+  }) {
+    const groupDocIds = docIds.filter((id) => docsById.has(id));
+    const visibleDocIds = groupDocIds
+      .filter((id) => visibleIds.has(id))
+      .sort((a, b) => (visibleOrder.get(a) ?? 0) - (visibleOrder.get(b) ?? 0));
+    if (!visibleDocIds.length) return null;
 
     const section = el("div", { class: "docs-folder-group" });
     const header = el("div", { class: "docs-folder-header" });
-    const cb = el("input", { type: "checkbox", class: "docs-row-cb" });
-    cb.checked = visibleDocIds.every((id) => state.selectedIds.has(id));
-    cb.indeterminate = !cb.checked && visibleDocIds.some((id) => state.selectedIds.has(id));
-    cb.addEventListener("change", () => {
-      for (const id of visibleDocIds) {
-        if (cb.checked) state.selectedIds.add(id);
+    const allSelected = groupDocIds.length > 0 && groupDocIds.every((id) => state.selectedIds.has(id));
+    const anySelected = groupDocIds.some((id) => state.selectedIds.has(id));
+    const selectBox = el("input", { type: "checkbox", class: "docs-row-cb", title: "Select every document in this group" });
+    selectBox.checked = allSelected;
+    selectBox.indeterminate = !allSelected && anySelected;
+    selectBox.addEventListener("click", (ev) => ev.stopPropagation());
+    selectBox.addEventListener("change", () => {
+      for (const id of groupDocIds) {
+        if (selectBox.checked) state.selectedIds.add(id);
         else state.selectedIds.delete(id);
       }
       updateBulkBar();
       renderDocList();
     });
 
+    const isCollapsed = !forceExpanded && state.collapsedFolders.has(key);
+    const collapseBtn = el("button", {
+      class: `btn btn-icon docs-folder-toggle${isCollapsed ? "" : " expanded"}`,
+      type: "button",
+      title: isCollapsed ? "Expand group" : "Collapse group",
+      "aria-expanded": String(!isCollapsed),
+    }, ["▶"]);
+    collapseBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (state.collapsedFolders.has(key)) state.collapsedFolders.delete(key);
+      else state.collapsedFolders.add(key);
+      renderDocList();
+    });
+
     const title = el("div", { class: "docs-folder-title" });
     title.append(
-      el("div", { class: "li-title", title: group.path }, [shortFolderName(group.path)]),
-      el("div", { class: "li-subtle", title: group.path }, [`${visibleDocIds.length} document${visibleDocIds.length === 1 ? "" : "s"} shown • ${group.path}`])
+      el("div", { class: "li-title", title: subtitle }, [label]),
+      el("div", { class: "li-subtle", title: subtitle }, [subtitle])
     );
 
-    const actions = el("div", { class: "docs-folder-actions" });
+    const actionHost = el("div", { class: "docs-folder-actions" });
+    actionHost.append(...actions);
+
+    header.append(selectBox, title, actionHost, collapseBtn);
+    section.appendChild(header);
+
+    if (isCollapsed) {
+      section.classList.add("collapsed");
+      return section;
+    }
+
+    const childList = el("div", { class: "docs-folder-docs" });
+    for (const id of visibleDocIds) {
+      const row = createDocRow(docsById.get(id));
+      row.classList.add("docs-folder-file-row");
+      childList.appendChild(row);
+    }
+    section.appendChild(childList);
+    return section;
+  }
+
+  function createFolderGroup(group, docsById, visibleIds, visibleOrder, forceExpanded, groupedIds) {
+    const groupDocIds = (group.documents || []).map((doc) => doc.source_name).filter((id) => docsById.has(id));
+    for (const id of groupDocIds) groupedIds.add(id);
+
     const syncBtn = el("button", { class: "btn", type: "button" }, ["Sync"]);
     syncBtn.addEventListener("click", async (ev) => {
       ev.stopPropagation();
@@ -341,22 +610,18 @@ export async function initDocsController(winId = "win_docs") {
       ev.stopPropagation();
       removeSyncedFolder(group.path);
     });
-    actions.append(syncBtn, removeBtn);
 
-    header.append(cb, title, actions);
-    section.appendChild(header);
-
-    const childList = el("div", { class: "docs-folder-docs" });
-    if (visibleDocIds.length) {
-      for (const id of visibleDocIds) {
-        childList.appendChild(createDocRow(docsById.get(id)));
-      }
-    } else {
-        return; //Fixes folder being visible while its elements are filtered out
-      //childList.appendChild(el("div", { class: "docs-folder-empty li-subtle" }, ["No synced documents shown."]));
-    }
-    section.appendChild(childList);
-    return section;
+    return createDocGroup({
+      key: `folder:${group.path}`,
+      label: shortFolderName(group.path),
+      subtitle: `${groupDocIds.length} document${groupDocIds.length === 1 ? "" : "s"} • ${group.path}`,
+      docIds: groupDocIds,
+      docsById,
+      visibleIds,
+      visibleOrder,
+      forceExpanded,
+      actions: [syncBtn, removeBtn],
+    });
   }
 
   function renderDocList() {
@@ -370,16 +635,28 @@ export async function initDocsController(winId = "win_docs") {
 
     const docsById = new Map(state.allDocs.map((doc) => [doc.id, doc]));
     const visibleIds = new Set(docs.map((doc) => doc.id));
+    const visibleOrder = new Map(docs.map((doc, index) => [doc.id, index]));
+    const searchActive = Boolean((filterInput?.value || "").trim());
     const groupedIds = new Set();
 
     for (const group of state.folderGroups) {
-      const groupEl = createFolderGroup(group, docsById, visibleIds, groupedIds);
+      const groupEl = createFolderGroup(group, docsById, visibleIds, visibleOrder, searchActive, groupedIds);
       if (groupEl) listHost.appendChild(groupEl);
     }
 
-    for (const doc of docs) {
-      if (groupedIds.has(doc.id)) continue;
-      listHost.appendChild(createDocRow(doc));
+    const individualIds = docs.filter((doc) => !groupedIds.has(doc.id)).map((doc) => doc.id);
+    const individualEl = createDocGroup({
+      key: "individual",
+      label: "Individual files",
+      subtitle: `${individualIds.length} document${individualIds.length === 1 ? "" : "s"}`,
+      docIds: individualIds,
+      docsById,
+      visibleIds,
+      visibleOrder,
+      forceExpanded: searchActive,
+    });
+    if (individualEl) {
+      listHost.appendChild(individualEl);
     }
   }
 
@@ -475,19 +752,15 @@ export async function initDocsController(winId = "win_docs") {
     }
   }
 
-  choose?.addEventListener("click", () => input?.click());
-  chooseFolder?.addEventListener("click", () => openFolderPicker());
-  syncInfoBtn?.addEventListener("click", () => {
-    alert("Put files you want to sync in your Documents\\DeployableKnowledge folder. You can use subfolders. Open the folder that contains your files, then click Select Current Folder; syncing starts automatically.");
-  });
+  addSourceBtn?.addEventListener("click", () => openFolderPicker());
 
-  input?.addEventListener("change", () => {
+  input?.addEventListener("change", async () => {
     if (!list) return;
     list.innerHTML = "";
     for (const f of input.files) {
       list.appendChild(el("li", {}, [f.name]));
     }
-    updateUploadCount();
+    await uploadSelectedFiles();
   });
 
   // Custom file picker backed by the filesystem directory API.
@@ -495,6 +768,8 @@ export async function initDocsController(winId = "win_docs") {
     currentPath: "",
     currentAbsolutePath: "",
     parentPath: null,
+    selectedFilePath: "",
+    selectedFileName: "",
     history: [],
   };
 
@@ -508,15 +783,16 @@ export async function initDocsController(winId = "win_docs") {
     if (!mockPickerList) return;
 
     mockPickerList.innerHTML = "";
+    const visibleItems = items.filter((item) => item.kind === "folder" || isPdfFileName(item.name));
 
-    if (!items.length) {
+    if (!visibleItems.length) {
       mockPickerList.appendChild(
-        el("div", { class: "mock-picker-empty" }, ["This folder is empty."])
+        el("div", { class: "mock-picker-empty" }, ["No PDF files or folders shown."])
       );
       return;
     }
 
-    for (const item of items) {
+    for (const item of visibleItems) {
       const icon = item.kind === "folder" ? "📁" : "📄";
 
       const row = el("button", {
@@ -524,6 +800,9 @@ export async function initDocsController(winId = "win_docs") {
         type: "button",
         title: item.path,
       });
+      if (item.absolute_path === mockPickerState.selectedFilePath) {
+        row.classList.add("selected");
+      }
 
       row.append(
         el("span", { class: "mock-picker-icon" }, [icon]),
@@ -533,9 +812,21 @@ export async function initDocsController(winId = "win_docs") {
 
       row.addEventListener("click", async () => {
         if (item.kind === "folder") {
+          mockPickerState.selectedFilePath = "";
+          mockPickerState.selectedFileName = "";
           await openMockPickerFolder(item.path);
         } else {
-          setMockPickerMessage("Select a folder for synchronization.");
+          if (!isPdfFileName(item.name)) {
+            setMockPickerMessage("Only PDF files can be selected.");
+            return;
+          }
+          mockPickerState.selectedFilePath = item.absolute_path || "";
+          mockPickerState.selectedFileName = item.name || "";
+          if (mockPickerSelectFolder) {
+            mockPickerSelectFolder.textContent = "Embed Selected File";
+          }
+          setMockPickerMessage(`Selected file: ${item.name}`);
+          renderMockPickerItems(items);
         }
       });
 
@@ -565,6 +856,8 @@ export async function initDocsController(winId = "win_docs") {
       mockPickerState.currentPath = data.path || "";
       mockPickerState.currentAbsolutePath = data.absolute_path || "";
       mockPickerState.parentPath = data.parent;
+      mockPickerState.selectedFilePath = "";
+      mockPickerState.selectedFileName = "";
 
       if (mockPickerPath) {
         mockPickerPath.textContent = `DeployableKnowledge${data.path ? `/${data.path}` : ""}`;
@@ -576,10 +869,11 @@ export async function initDocsController(winId = "win_docs") {
 
       if (mockPickerSelectFolder) {
         mockPickerSelectFolder.disabled = false;
+        mockPickerSelectFolder.textContent = "Select Current Folder";
       }
 
       renderMockPickerItems(data.items || []);
-      setMockPickerMessage("Open a folder, then select the current folder for synchronization.");
+      setMockPickerMessage("Choose files or select the current folder.");
     } catch (e) {
       setMockPickerMessage(e.message || String(e));
     }
@@ -600,6 +894,11 @@ export async function initDocsController(winId = "win_docs") {
   }
 
   async function selectMockPickerFolder() {
+    if (mockPickerState.selectedFilePath) {
+      await embedSelectedPickerFile();
+      return;
+    }
+
     const selectedPath = mockPickerState.currentAbsolutePath;
     if (!selectedPath) {
       setMockPickerMessage("No folder selected.");
@@ -637,6 +936,8 @@ export async function initDocsController(winId = "win_docs") {
 
   async function openFolderPicker() {
     mockPickerState.history = [];
+    mockPickerState.selectedFilePath = "";
+    mockPickerState.selectedFileName = "";
     await openMockPickerFolder("", false);
   }
 
@@ -652,6 +953,8 @@ export async function initDocsController(winId = "win_docs") {
 
   mockPickerUp?.addEventListener("click", async () => {
     const previous = mockPickerState.history.pop();
+    mockPickerState.selectedFilePath = "";
+    mockPickerState.selectedFileName = "";
 
     if (!previous) {
       await openMockPickerFolder("", false);
@@ -665,13 +968,68 @@ export async function initDocsController(winId = "win_docs") {
     await selectMockPickerFolder();
   });
 
-  btn?.addEventListener("click", async () => {
+  mockPickerChooseFiles?.addEventListener("click", () => input?.click());
+
+  async function embedSelectedPickerFile() {
+    const selectedPath = mockPickerState.selectedFilePath;
+    if (!selectedPath) return;
+
+    if (syncFolderStatus) {
+      syncFolderStatus.textContent = "Embedding selected file...";
+    }
+    setMockPickerMessage(`Embedding file: ${mockPickerState.selectedFileName || selectedPath}`);
+
+    if (mockPickerSelectFolder) {
+      mockPickerSelectFolder.disabled = true;
+      mockPickerSelectFolder.textContent = "Embedding...";
+    }
+
+    try {
+      await withProgressPopup("Embedding selected file...", async () => {
+        const started = await api.startLocalFileUpload(selectedPath);
+        const data = await pollProgress(started.job_id);
+        const failed = data?.uploads?.filter((item) => item.status === "error") || [];
+        if (failed.length) {
+          const details = failed
+            .map((item) => `${item.filename}: ${item.message || "Unknown error"}`)
+            .join("\n");
+          throw new Error(details);
+        }
+        await loadTags();
+        await refresh();
+      });
+      if (syncFolderStatus) syncFolderStatus.textContent = "Selected file embedded.";
+      mockPickerOverlay?.classList.add("hidden");
+    } catch (e) {
+      if (syncFolderStatus) syncFolderStatus.textContent = "Selected file embedding failed.";
+      setMockPickerMessage(e.message || String(e));
+      alert("File embedding failed: " + (e.message || String(e)));
+    } finally {
+      mockPickerState.selectedFilePath = "";
+      mockPickerState.selectedFileName = "";
+      if (mockPickerSelectFolder) {
+        mockPickerSelectFolder.disabled = false;
+        mockPickerSelectFolder.textContent = "Select Current Folder";
+      }
+    }
+  }
+
+  async function uploadSelectedFiles() {
     if (!input?.files?.length) return;
 
     const selectedFiles = Array.from(input.files);
+    const nonPdfFiles = selectedFiles.filter((file) => !isPdfFileName(file.name));
+    if (nonPdfFiles.length) {
+      alert("Only PDF files can be added from the document library picker.");
+      input.value = "";
+      if (list) list.innerHTML = "";
+      return;
+    }
 
-    btn.disabled = true;
-    btn.textContent = "Embedding…";
+    if (mockPickerChooseFiles) {
+      mockPickerChooseFiles.disabled = true;
+      mockPickerChooseFiles.textContent = "Embedding...";
+    }
 
     try {
       await withProgressPopup("Uploading and embedding files...", async () => {
@@ -710,18 +1068,45 @@ export async function initDocsController(winId = "win_docs") {
         updateUploadCount();
         await loadTags();
         await refresh();
+        mockPickerOverlay?.classList.add("hidden");
 
         return data;
       });
     } catch (e) {
       alert("Upload failed: " + (e.message || String(e)));
     } finally {
-      btn.disabled = false;
-      btn.textContent = "Embed";
+      if (mockPickerChooseFiles) {
+        mockPickerChooseFiles.disabled = false;
+        mockPickerChooseFiles.textContent = "Choose Files";
+      }
     }
-  });
+  }
 
   filterInput?.addEventListener("input", () => renderDocList());
+
+  manageTagsBtn?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const wasHidden = tagMenu?.classList.contains("hidden");
+    if (wasHidden) show(tagMenu);
+    else hide(tagMenu);
+    manageTagsBtn.setAttribute("aria-expanded", String(Boolean(wasHidden)));
+  });
+
+  tagMenu?.addEventListener("click", (ev) => ev.stopPropagation());
+  document.addEventListener("click", () => {
+    hide(tagMenu);
+    manageTagsBtn?.setAttribute("aria-expanded", "false");
+  });
+  addTagBtn?.addEventListener("click", openAddTagDialog);
+  newTagCancel?.addEventListener("click", closeAddTagDialog);
+  newTagSave?.addEventListener("click", saveNewTag);
+  newTagInput?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") saveNewTag();
+    if (ev.key === "Escape") closeAddTagDialog();
+  });
+  tagDialog?.addEventListener("click", (ev) => {
+    if (ev.target === tagDialog) closeAddTagDialog();
+  });
 
   function setMode(mode) {
     state.listMode = mode;
@@ -736,44 +1121,11 @@ export async function initDocsController(winId = "win_docs") {
   win.querySelector(`#${winId}-mode-active`)?.addEventListener("click", () => setMode("active"));
   win.querySelector(`#${winId}-mode-inactive`)?.addEventListener("click", () => setMode("inactive"));
 
-  win.querySelector(`#${winId}-activate-by-tags`)?.addEventListener("click", async () => {
-    const tags = Array.from(state.toolbarTagKeys);
-    if (!tags.length) {
-      alert("Select one or more tags in the toolbar (click #chips) before activating by tag.");
-      return;
-    }
-    if (!confirm(`Activate documents that have ALL of: ${tags.map((t) => "#" + t).join(", ")}? Other documents stay as they are (use per-row, bulk, or “Deactivate all” to turn RAG off).`)) return;
-    try {
-      await api.activateCorpusByTags(tags);
-      await refresh();
-    } catch (e) {
-      alert(e.message || String(e));
-    }
-  });
-
   win.querySelector(`#${winId}-deactivate-all`)?.addEventListener("click", async () => {
     if (!confirm("Deactivate every document for RAG? No document chunks will be retrieved until you activate some again.")) return;
     try {
       await api.deactivateAllCorpus();
       await refresh();
-    } catch (e) {
-      alert(e.message || String(e));
-    }
-  });
-
-  win.querySelector(`#${winId}-manage-tags`)?.addEventListener("click", async () => {
-    const cur = state.approvedTags.join(", ");
-    const raw = prompt(
-      "Enter approved tags (comma-separated). Example: engines, structures, fuels\nThese define which #tags users may assign to documents.",
-      cur
-    );
-    if (raw == null) return;
-    const tags = raw.split(/[,;\n]+/).map((s) => s.trim().replace(/^#/, "")).filter(Boolean);
-    try {
-      await api.setCorpusTags(tags);
-      state.toolbarTagKeys = new Set([...state.toolbarTagKeys].filter((t) => tags.includes(t)));
-      await loadTags();
-      renderDocList();
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -793,18 +1145,7 @@ export async function initDocsController(winId = "win_docs") {
   });
 
   async function pickTag(title) {
-    if (!state.approvedTags.length) {
-      alert("Define approved tags first (Manage approved #tags).");
-      return null;
-    }
-    const s = prompt(`${title}\nAvailable: ${state.approvedTags.map((t) => "#" + t).join(", ")}`);
-    if (s == null) return null;
-    const t = s.trim().replace(/^#/, "").toLowerCase();
-    if (!state.approvedTags.includes(t)) {
-      alert("Tag must be in the approved list.");
-      return null;
-    }
-    return t;
+    return showTagPicker(title);
   }
 
   win.querySelector(`#${winId}-bulk-add-tag`)?.addEventListener("click", async () => {
