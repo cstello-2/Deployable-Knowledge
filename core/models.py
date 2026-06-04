@@ -24,6 +24,8 @@ class ChatRequest(BaseModel):
     persona: Optional[str] = None
     stream: bool = True
     inactive_sources: Optional[List[str]] = None
+    provider_id: Optional[str] = None
+    model_id: Optional[str] = None
 
 
 class ChatChunk(BaseModel):

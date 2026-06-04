@@ -15,6 +15,15 @@ export function getSelectedPromptTemplateId() {
   return selectedPromptTemplateId || "rag_chat";
 }
 
+export function getSelectedLLMTarget() {
+  const providerSelect = document.querySelector("#assistant_llm_provider");
+  const modelSelect = document.querySelector("#assistant_llm_model");
+  return {
+    provider_id: providerSelect?.value || "ollama",
+    model_id: modelSelect?.value || "",
+  };
+}
+
 function showToast(msg) {
   const t = document.createElement("div");
   t.className = "toast";
@@ -178,6 +187,8 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   const personaConfirmBtn = node.querySelector("#persona_confirm");
 
   const saveBtn = node.querySelector("#tmpl_save");
+  let providerChangeBound = node.dataset.providerChangeBound === "1";
+  let runtimeProviders = [];
 
   if (
     !sel ||
@@ -509,8 +520,8 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       temperature: toNumberOrNull(tempInput.value) ?? 0.2,
       max_tokens: toIntOrNull(maxTokensInput.value) ?? 512,
       top_k: toIntOrNull(topKInput.value) ?? 8,
-      llm_model: modelSelect.value || "",
-      llm_provider: providerSelect.value || "ollama",
+      model_id: modelSelect.value || "",
+      provider_id: providerSelect.value || "ollama",
       persona_id: selectedPersonaId,
       persona_text: activePersonaText,
 
@@ -629,8 +640,8 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       temperature: toNumberOrNull(tempInput.value) ?? 0.2,
       max_tokens: toIntOrNull(maxTokensInput.value) ?? 512,
       top_k: toIntOrNull(topKInput.value) ?? 8,
-      llm_model: modelSelect.value || "",
-      llm_provider: providerSelect.value || "ollama",
+      model_id: modelSelect.value || "",
+      provider_id: providerSelect.value || "ollama",
       persona_id: selectedPersonaId,
       persona_text: activePersonaText,
 
@@ -712,10 +723,9 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     const maxTokens = toIntOrNull(maxTokensInput.value);
     const topK = toIntOrNull(topKInput.value);
 
-    const payload = {
-      llm_provider: providerSelect.value || "ollama",
-      llm_model: modelSelect.value || null,
-    };
+    const payload = {};
+    payload.provider_id = providerSelect.value || "ollama";
+    payload.model_id = modelSelect.value || "";
 
     if (temperature !== null) {
       payload.temperature = temperature;
@@ -737,24 +747,55 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
     }
   }
 
+  function populateModelsForProvider(providerId, selectedModel = null) {
+    const provider = runtimeProviders.find((p) => p.id === providerId);
+    const models = provider?.models || [];
+
+    modelSelect.innerHTML = "";
+    modelSelect.disabled = false;
+
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.id || m;
+      opt.textContent = m.label || m.id || m;
+      modelSelect.appendChild(opt);
+    }
+
+    if (selectedModel && !Array.from(modelSelect.options).some((opt) => opt.value === selectedModel)) {
+      const opt = document.createElement("option");
+      opt.value = selectedModel;
+      opt.textContent = `${selectedModel} (current)`;
+      modelSelect.appendChild(opt);
+    }
+
+    if (!modelSelect.options.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No models available";
+      modelSelect.appendChild(opt);
+      modelSelect.disabled = true;
+    }
+
+    modelSelect.value = selectedModel || modelSelect.options[0]?.value || "";
+  }
+
   async function loadRuntimeSettings() {
     const user = await api.getUser();
     currentUserId = user?.user || "default";
 
     const [settings, providerData] = await Promise.all([
       api.getSettings(currentUserId),
-      api.listModelProviders({ refresh: true }),
+      api.listProviders({ refresh: true }),
     ]);
 
-    providerSelect.value = settings?.llm_provider || "ollama";
     tempInput.value = settings?.temperature ?? 0.2;
     maxTokensInput.value = settings?.max_tokens ?? 512;
     topKInput.value = settings?.top_k ?? 8;
 
-    const providers = providerData?.chat_providers || [];
+    runtimeProviders = providerData?.providers || [];
     providerSelect.innerHTML = "";
 
-    for (const provider of providers) {
+    for (const provider of runtimeProviders) {
       const opt = document.createElement("option");
       opt.value = provider.id;
       opt.textContent = provider.label || provider.id;
@@ -768,47 +809,125 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       providerSelect.appendChild(opt);
     }
 
-    providerSelect.value = settings?.llm_provider || providerSelect.options[0]?.value || "ollama";
+    const savedProviderId = settings?.provider_id || providerSelect.value;
+    providerSelect.value = runtimeProviders.some((provider) => provider.id === savedProviderId)
+      ? savedProviderId
+      : providerSelect.options[0]?.value || "ollama";
 
-    function populateModelsForProvider(providerId, selectedModel = null) {
-      const provider = providers.find((p) => p.id === providerId);
-      const models = provider?.models || [];
+    populateModelsForProvider(providerSelect.value, settings?.model_id || null);
 
-      modelSelect.innerHTML = "";
-      modelSelect.disabled = false;
-
-      for (const m of models) {
-        const opt = document.createElement("option");
-        opt.value = m.id || m;
-        opt.textContent = m.label || m.id || m;
-        modelSelect.appendChild(opt);
-      }
-
-      if (selectedModel && !Array.from(modelSelect.options).some((opt) => opt.value === selectedModel)) {
-        const opt = document.createElement("option");
-        opt.value = selectedModel;
-        opt.textContent = `${selectedModel} (current)`;
-        modelSelect.appendChild(opt);
-      }
-
-      if (!modelSelect.options.length) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "No models available";
-        modelSelect.appendChild(opt);
-        modelSelect.disabled = true;
-      }
-
-      modelSelect.value = selectedModel || modelSelect.options[0]?.value || "";
+    if (!providerChangeBound) {
+      providerSelect.addEventListener("change", () => {
+        populateModelsForProvider(providerSelect.value, null);
+        saveRuntimeSettings();
+      });
+      providerChangeBound = true;
+      node.dataset.providerChangeBound = "1";
     }
+  }
 
-    populateModelsForProvider(providerSelect.value, settings?.llm_model || null);
+  async function openApiKeyManager() {
+    const root = document.createElement("div");
+    root.className = "api-key-manager-overlay";
+    root.innerHTML = `
+      <div class="api-key-manager" role="dialog" aria-modal="true" aria-labelledby="api-key-manager-title">
+        <div class="api-key-manager-head">
+          <h2 id="api-key-manager-title">API Keys</h2>
+          <button type="button" class="btn api-key-manager-close" aria-label="Close">Close</button>
+        </div>
+        <div class="api-key-provider-list"></div>
+      </div>
+    `;
+    document.body.appendChild(root);
 
-    providerSelect.addEventListener("change", () => {
-      populateModelsForProvider(providerSelect.value, null);
-      saveRuntimeSettings();
+    const listEl = root.querySelector(".api-key-provider-list");
+    const close = () => root.remove();
+    root.querySelector(".api-key-manager-close")?.addEventListener("click", close);
+    root.addEventListener("click", (ev) => {
+      if (ev.target === root) close();
     });
+
+    async function render() {
+      listEl.innerHTML = `<div class="api-key-manager-empty">Loading providers...</div>`;
+      const data = await api.listProviders({ includeUnavailable: true, refresh: true });
+      const providers = data?.providers || [];
+
+      listEl.innerHTML = "";
+      if (!providers.length) {
+        listEl.innerHTML = `<div class="api-key-manager-empty">No providers found.</div>`;
+        return;
+      }
+
+      for (const provider of providers) {
+        const row = document.createElement("div");
+        row.className = "api-key-provider-row";
+        const status = provider.available ? "Connected" : "Not connected";
+
+        row.innerHTML = `
+          <div class="api-key-provider-main">
+            <div>
+              <div class="api-key-provider-name">${provider.label || provider.id}</div>
+              <div class="api-key-provider-status ${provider.available ? "connected" : ""}">${status}</div>
+            </div>
+          </div>
+          <div class="api-key-provider-controls">
+            <input class="input api-key-input" type="password" autocomplete="off"
+              placeholder="${provider.has_api_key ? "Saved API key" : "API key"}"
+              ${provider.api_key_required ? "" : "disabled"}>
+            <div class="api-key-provider-actions">
+              <button type="button" class="btn api-key-save">Save</button>
+              <button type="button" class="btn api-key-clear" ${provider.api_key_required ? "" : "disabled"}>Clear</button>
+            </div>
+          </div>
+        `;
+
+        const keyInput = row.querySelector(".api-key-input");
+        const saveButton = row.querySelector(".api-key-save");
+        const clearButton = row.querySelector(".api-key-clear");
+
+        saveButton.addEventListener("click", async () => {
+          const payload = {};
+          if (provider.api_key_required && keyInput.value.trim()) {
+            payload.api_key = keyInput.value.trim();
+          }
+
+          if (!Object.keys(payload).length) {
+            showToast("Enter an API key to save");
+            return;
+          }
+
+          try {
+            await api.patchProvider(provider.id, payload);
+            await loadRuntimeSettings();
+            await render();
+            showToast("Provider saved");
+          } catch (e) {
+            alert("Provider save failed: " + e.message);
+          }
+        });
+
+        clearButton.addEventListener("click", async () => {
+          try {
+            await api.clearProviderApiKey(provider.id);
+            await loadRuntimeSettings();
+            await render();
+            showToast("API key cleared");
+          } catch (e) {
+            alert("API key clear failed: " + e.message);
+          }
+        });
+
+        listEl.appendChild(row);
+      }
     }
+
+    try {
+      await render();
+    } catch (e) {
+      listEl.innerHTML = `<div class="api-key-manager-empty">Provider load failed: ${e.message}</div>`;
+    }
+  }
+
   async function loadTemplate(id) {
     updateDeleteTemplateButton();
     if (id === NONE_VALUE) {
@@ -996,13 +1115,14 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
       tempInput.value = profile.temperature ?? 0.2;
       maxTokensInput.value = profile.max_tokens ?? 512;
       topKInput.value = profile.top_k ?? 8;
-      providerSelect.value = profile.llm_provider || "ollama";
+      providerSelect.value = profile.provider_id || "ollama";
+      populateModelsForProvider(providerSelect.value, profile.model_id || null);
 
-      if (profile.llm_model) {
+      if (profile.model_id) {
         let exists = false;
 
         for (const opt of modelSelect.options) {
-          if (opt.value === profile.llm_model) {
+          if (opt.value === profile.model_id) {
             exists = true;
             break;
           }
@@ -1010,12 +1130,12 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
         if (!exists) {
           const opt = document.createElement("option");
-          opt.value = profile.llm_model;
-          opt.textContent = `${profile.llm_model} (profile)`;
+          opt.value = profile.model_id;
+          opt.textContent = `${profile.model_id} (profile)`;
           modelSelect.appendChild(opt);
         }
 
-        modelSelect.value = profile.llm_model;
+        modelSelect.value = profile.model_id;
       }
 
       Store.persona = profile.persona_text || "";
@@ -1070,7 +1190,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   });
 
   manageApiKeysBtn.addEventListener("click", () => {
-    showToast("API key manager coming soon");
+    openApiKeyManager();
   });
 
   personaSaveBtn.addEventListener("click", () => {

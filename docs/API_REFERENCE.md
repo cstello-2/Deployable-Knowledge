@@ -2,8 +2,10 @@
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/chat` | POST | Single chat turn; form fields `message`, `session_id`, optional `persona`, `template_id`, `top_k`, `stream` |
-| `/chat-stream` | POST | Same as `/chat` but always streams Server Sent Events |
+| `/{provider_id}/{model_id}/chat` | POST | Single chat turn; form fields `message`, `session_id`, optional `persona`, `template_id`, `top_k`, `stream` |
+| `/{provider_id}/{model_id}/chat-stream` | POST | Same as provider/model chat but always streams Server Sent Events |
+| `/providers` | GET/PATCH | List providers and update provider API keys or current model |
+| `/{provider_id}/models` | GET | List models for a provider |
 | `/search` | GET | Query documents with `q` and optional `top_k` |
 | `/upload` | POST | Multipart upload of one or more documents |
 | `/remove` | POST | Remove an uploaded document by filename |
@@ -26,6 +28,6 @@
 
 `GET /documents` returns each source with `segments`, `tags`, and `active` from the SQL-backed corpus registry.
 
-All endpoints return JSON except `/chat-stream`, which emits `meta`, `delta` and `done` events.
+All endpoints return JSON except `/{provider_id}/{model_id}/chat-stream`, which emits `meta`, `delta` and `done` events.
 
 Return to [docs](README.md).

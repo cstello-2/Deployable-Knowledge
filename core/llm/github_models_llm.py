@@ -1,23 +1,17 @@
 from typing import Any, Iterator
-import json
-from urllib.parse import quote
 
-import requests
-
-from config import (
-    GITHUB_MODELS_API_VERSION,
-    GITHUB_MODELS_BASE_URL,
-    GITHUB_MODELS_MODEL,
-    GITHUB_MODELS_ORG,
-    GITHUB_MODELS_TOKEN,
-)
 from .base import BaseLLM, ModelInfo
 
-MAX_GITHUB_OUTPUT_TOKENS = 4096
+GITHUB_MODELS_BASE_URL = "https://models.github.ai"
+GITHUB_MODELS_MODEL = "openai/gpt-4.1"
+
+APPROVED_GITHUB_MODELS = (
+    ModelInfo(id="openai/gpt-4.1", label="OpenAI GPT-4.1"),
+)
 
 
 class GitHubModelsLLM(BaseLLM):
-    """GitHub Models backend using the REST inference API."""
+    """GitHub Models chat backend using the Azure AI Inference SDK."""
 
     def __init__(
         self,
@@ -35,223 +29,56 @@ class GitHubModelsLLM(BaseLLM):
             top_k=top_k,
             max_tokens=max_tokens,
         )
-        self.api_key = kwargs.get("api_key") or GITHUB_MODELS_TOKEN
+        self.token = kwargs.get("api_key") or ""
         self.base_url = (kwargs.get("base_url") or GITHUB_MODELS_BASE_URL).rstrip("/")
-        self.api_version = kwargs.get("api_version") or GITHUB_MODELS_API_VERSION
-        self.org = kwargs.get("org") or GITHUB_MODELS_ORG
+        self.endpoint = kwargs.get("endpoint") or self._inference_endpoint(self.base_url)
+        self._client = None
 
     @staticmethod
-    def _clamp_number(value: Any, lower: float, upper: float) -> float | None:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return None
-        return min(max(number, lower), upper)
+    def _inference_endpoint(base_url: str) -> str:
+        return base_url if base_url.endswith("/inference") else f"{base_url}/inference"
 
-    @staticmethod
-    def _clamp_int(value: Any, lower: int, upper: int) -> int | None:
-        try:
-            number = int(value)
-        except (TypeError, ValueError):
-            return None
-        return min(max(number, lower), upper)
+    def _get_client(self) -> Any:
+        if not self.token:
+            raise RuntimeError("GitHub Models API key is not configured")
+        if self._client is None:
+            from azure.ai.inference import ChatCompletionsClient
+            from azure.core.credentials import AzureKeyCredential
 
-    def _headers(
-        self,
-        include_content_type: bool = True,
-        require_auth: bool = True,
-    ) -> dict[str, str]:
-        if require_auth and not self.api_key:
-            raise RuntimeError("GITHUB_MODELS_TOKEN is not configured")
+            self._client = ChatCompletionsClient(
+                endpoint=self.endpoint,
+                credential=AzureKeyCredential(self.token),
+            )
+        return self._client
 
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": self.api_version,
-        }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        if include_content_type:
-            headers["Content-Type"] = "application/json"
-        return headers
+    def _completion_kwargs(self, prompt: str, stream: bool, **kwargs: Any) -> dict[str, Any]:
+        from azure.ai.inference.models import UserMessage
 
-    def _chat_url(self) -> str:
-        if self.org:
-            org = quote(self.org, safe="")
-            return f"{self.base_url}/orgs/{org}/inference/chat/completions"
-        return f"{self.base_url}/inference/chat/completions"
-
-    def _payload(
-        self,
-        prompt: str,
-        stream: bool,
-        model: str | None = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "model": model or self.model,
-            "messages": [{"role": "user", "content": prompt}],
+        completion_kwargs = {
+            "messages": [UserMessage(prompt)],
+            "model": self.model,
             "stream": stream,
         }
-
-        max_tokens = self._clamp_int(self.max_tokens, 1, MAX_GITHUB_OUTPUT_TOKENS)
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-        temperature = self._clamp_number(self.temperature, 0, 1)
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if temperature is None:
-            top_p = self._clamp_number(self.top_p, 0, 1)
-            if top_p is not None:
-                payload["top_p"] = top_p
-
-        return payload
-
-    @staticmethod
-    def _error_detail(data: Any) -> str:
-        if isinstance(data, str):
-            return data
-        if not isinstance(data, dict):
-            return ""
-
-        message = data.get("message")
-        if isinstance(message, str):
-            return message
-
-        error = data.get("error")
-        if isinstance(error, str):
-            return error
-        if isinstance(error, dict):
-            error_message = error.get("message") or error.get("detail")
-            if isinstance(error_message, str):
-                return error_message
-
-        detail = data.get("detail")
-        if isinstance(detail, str):
-            return detail
-        return ""
-
-    @staticmethod
-    def _raise_for_status(resp: requests.Response) -> None:
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            detail = ""
-            try:
-                detail = GitHubModelsLLM._error_detail(resp.json())
-            except Exception:
-                detail = getattr(resp, "text", "") or ""
-            if detail:
-                raise RuntimeError(f"{exc}: {detail}") from exc
-            raise
-
-    @staticmethod
-    def _extract_content(message: Any) -> str:
-        if isinstance(message, str):
-            return message
-        if not isinstance(message, dict):
-            return ""
-
-        content = message.get("content", "")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict) and isinstance(item.get("text"), str):
-                    parts.append(item["text"])
-            return "".join(parts)
-        return ""
-
-    @staticmethod
-    def _is_chat_text_model(item: dict[str, Any]) -> bool:
-        model_id = item.get("id")
-        if not isinstance(model_id, str) or not model_id:
-            return False
-
-        input_modalities = item.get("supported_input_modalities") or []
-        if input_modalities and "text" not in input_modalities:
-            return False
-
-        output_modalities = item.get("supported_output_modalities") or []
-        if output_modalities and "text" not in output_modalities:
-            return False
-
-        return True
-
-    @staticmethod
-    def _catalog_items(data: Any) -> list[Any]:
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for key in ("data", "models", "items"):
-                items = data.get(key)
-                if isinstance(items, list):
-                    return items
-        return []
+        for source, target in (
+            ("temperature", "temperature"),
+            ("top_p", "top_p"),
+            ("max_tokens", "max_tokens"),
+        ):
+            value = kwargs.get(source, getattr(self, source))
+            if value is not None:
+                completion_kwargs[target] = value
+        return completion_kwargs
 
     def list_models(self, refresh: bool = False, **kwargs: Any) -> list[ModelInfo]:
-        if not refresh:
-            return super().list_models(refresh=refresh, **kwargs)
-
-        timeout = kwargs.get("timeout", 10)
-        resp = requests.get(
-            f"{self.base_url}/catalog/models",
-            headers=self._headers(include_content_type=False),
-            timeout=timeout,
-        )
-        self._raise_for_status(resp)
-        data = resp.json()
-
-        models: dict[str, str] = {}
-        for item in self._catalog_items(data):
-            if not isinstance(item, dict) or not self._is_chat_text_model(item):
-                continue
-            model_id = item["id"]
-            label = item.get("name")
-            models[model_id] = label if isinstance(label, str) and label else model_id
-
-        return [
-            ModelInfo(id=model_id, label=models[model_id]) for model_id in sorted(models)
-        ]
+        return list(APPROVED_GITHUB_MODELS)
 
     def generate_text(self, prompt: str, **kwargs: Any) -> str:
-        timeout = kwargs.get("timeout", 120)
-        resp = requests.post(
-            self._chat_url(),
-            headers=self._headers(),
-            json=self._payload(prompt, False),
-            timeout=timeout,
-        )
-        self._raise_for_status(resp)
-        data = resp.json()
-        choices = data.get("choices") or []
-        if not choices:
-            return ""
-        return self._extract_content(choices[0].get("message", {}))
+        response = self._get_client().complete(**self._completion_kwargs(prompt, False, **kwargs))
+        return response.choices[0].message.content
 
     def stream_text(self, prompt: str, **kwargs: Any) -> Iterator[str]:
-        timeout = kwargs.get("timeout", None)
-        with requests.post(
-            self._chat_url(),
-            headers=self._headers(),
-            json=self._payload(prompt, True),
-            stream=True,
-            timeout=timeout,
-        ) as resp:
-            self._raise_for_status(resp)
-            for line in resp.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                if line.startswith("data:"):
-                    line = line[5:].strip()
-                if line == "[DONE]":
-                    break
-                try:
-                    data = json.loads(line)
-                except Exception:
-                    continue
-                for choice in data.get("choices", []):
-                    chunk = self._extract_content(choice.get("delta", {}))
-                    if chunk:
-                        yield chunk
+        response = self._get_client().complete(**self._completion_kwargs(prompt, True, **kwargs))
+        for update in response:
+            for choice in update.choices:
+                if choice.delta.content:
+                    yield choice.delta.content

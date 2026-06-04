@@ -2,8 +2,10 @@ from typing import Any, Iterator
 import json
 import requests
 
-from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 from .base import BaseLLM, ModelInfo
+
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENAI_MODEL = "gpt-4o-mini"
 
 
 class OpenAILLM(BaseLLM):
@@ -11,12 +13,12 @@ class OpenAILLM(BaseLLM):
 
     def __init__(self, model: str | None = None, **kwargs: Any) -> None:
         super().__init__(model or OPENAI_MODEL)
-        self.api_key = kwargs.get("api_key") or OPENAI_API_KEY
+        self.api_key = kwargs.get("api_key") or ""
         self.base_url = (kwargs.get("base_url") or OPENAI_BASE_URL).rstrip("/")
 
     def _headers(self) -> dict[str, str]:
         if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured")
+            raise RuntimeError("OpenAI API key is not configured")
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

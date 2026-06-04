@@ -102,12 +102,21 @@ class UserSettingsRecord(SQLModel, table=True):
     __tablename__ = "user_settings"
 
     user_id: str = Field(primary_key=True)
-    llm_provider: str = "ollama"
-    llm_model: str = ""
     prompt_template_id: Optional[str] = None
+    provider_id: str = "ollama"
+    model_id: str = ""
     temperature: float = 0.2
     top_p: float = 0.95
     max_tokens: int = 512
     top_k: int = 40
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ProviderRecord(SQLModel, table=True):
+    __tablename__ = "providers"
+
+    id: str = Field(primary_key=True)
+    api_key: str = ""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

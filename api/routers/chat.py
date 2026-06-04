@@ -7,6 +7,12 @@ import markdown2
 from core.models import ChatRequest
 from core import pipeline
 from core.sessions import SessionStore, ChatSession
+from core.providers import (
+    ProviderUnavailableError,
+    UnknownProviderError,
+    get_available_provider_record,
+)
+from core.settings import update_settings
 from api.utils import validate_identifier, validate_session_id, clamp_int
 from config import MIN_TOP_K, MAX_TOP_K
 
@@ -23,52 +29,51 @@ def _update_session_metadata(session: ChatSession, message: str) -> None:
         store.save(session)
 
 
-@router.post("/chat")
-async def chat(
+def _provider_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, UnknownProviderError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ProviderUnavailableError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+def _resolve_provider_model(
+    provider_id: str,
+    model_id: str,
+) -> tuple[str, str]:
+    provider_id = validate_identifier(provider_id, "provider id")
+    model_id = (model_id or "").strip()
+    if not model_id:
+        raise HTTPException(status_code=400, detail="model id is required")
+
+    get_available_provider_record(provider_id)
+    return provider_id, model_id
+
+
+async def _chat_impl(
     request: Request,
-    message: str = Form(...),
-    session_id: str = Form(...),
-    persona: str = Form(""),
-    inactive: Optional[str] = Form(None),
-    template_id: str = Form("rag_chat"),
-    top_k: int = Form(8),
-    stream: bool = Query(False),
+    message: str,
+    session_id: str,
+    persona: str,
+    inactive: Optional[str],
+    template_id: str,
+    top_k: int,
+    stream: bool,
+    provider_id: str | None = None,
+    model_id: str | None = None,
 ):
-    """Handle a single chat interaction.
-
-    Parameters
-    ----------
-    message:
-        User supplied message content.
-    session_id:
-        Identifier for the chat session.  A new session is created if the
-        provided ID does not exist.
-    persona:
-        Optional persona string to bias responses.
-    inactive:
-        JSON encoded list of source IDs to exclude from retrieval.
-    template_id:
-        Prompt template identifier to use when building the request.
-    top_k:
-        Number of context chunks to retrieve.
-    stream:
-        If ``True`` results are returned as a Server‑Sent Events stream.
-
-    Returns
-    -------
-    JSONResponse or StreamingResponse
-        Depending on ``stream`` either a JSON payload containing the chat
-        response or an SSE stream of incremental tokens.
-    """
-
     user_id = getattr(request.state, "user_id", "default")
     try:
         session_id = validate_session_id(session_id)
         validate_identifier(template_id, "prompt template id")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        provider_id, model_id = _resolve_provider_model(provider_id or "", model_id or "")
+    except (UnknownProviderError, ProviderUnavailableError) as exc:
+        raise _provider_http_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     session = store.load(session_id)
+
     if session and session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
     if not session:
@@ -77,8 +82,8 @@ async def chat(
     if inactive:
         try:
             session.inactive_sources = json.loads(inactive)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail="Invalid inactive sources") from e
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Invalid inactive sources") from exc
 
     req = ChatRequest(
         user_id=session.user_id,
@@ -88,9 +93,12 @@ async def chat(
         top_k=clamp_int(top_k, MIN_TOP_K, MAX_TOP_K),
         inactive_sources=session.inactive_sources,
         stream=stream,
+        provider_id=provider_id,
+        model_id=model_id,
     )
     if not stream:
         resp = pipeline.chat_once(req)
+        update_settings(user_id, {"provider_id": provider_id, "model_id": model_id})
         html_response = markdown2.markdown(resp.text)
         session.add_exchange(
             user=message,
@@ -121,6 +129,7 @@ async def chat(
                     assistant += chunk.text or ""
                     yield f"event: delta\ndata: {json.dumps(chunk.text or '')}\n\n"
                 elif chunk.type == "done":
+                    update_settings(user_id, {"provider_id": provider_id, "model_id": model_id})
                     html_response = markdown2.markdown(assistant)
                     session.add_exchange(
                         user=message,
@@ -143,8 +152,37 @@ async def chat(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/chat-stream")
-async def chat_stream(
+@router.post("/{provider_id}/{model_id:path}/chat")
+async def provider_chat(
+    provider_id: str,
+    model_id: str,
+    request: Request,
+    message: str = Form(...),
+    session_id: str = Form(...),
+    persona: str = Form(""),
+    inactive: Optional[str] = Form(None),
+    template_id: str = Form("rag_chat"),
+    top_k: int = Form(8),
+    stream: bool = Query(False),
+):
+    return await _chat_impl(
+        request=request,
+        message=message,
+        session_id=session_id,
+        persona=persona,
+        inactive=inactive,
+        template_id=template_id,
+        top_k=top_k,
+        stream=stream,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
+
+
+@router.post("/{provider_id}/{model_id:path}/chat-stream")
+async def provider_chat_stream(
+    provider_id: str,
+    model_id: str,
     request: Request,
     message: str = Form(...),
     session_id: str = Form(...),
@@ -153,9 +191,7 @@ async def chat_stream(
     template_id: str = Form("rag_chat"),
     top_k: int = Form(8),
 ):
-    """Convenience wrapper that forces streaming mode."""
-
-    return await chat(
+    return await _chat_impl(
         request=request,
         message=message,
         session_id=session_id,
@@ -164,4 +200,6 @@ async def chat_stream(
         template_id=template_id,
         top_k=top_k,
         stream=True,
+        provider_id=provider_id,
+        model_id=model_id,
     )

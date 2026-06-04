@@ -1,13 +1,13 @@
 from typing import Optional
-from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, GITHUB_MODELS_TOKEN, OPENAI_API_KEY
-from .base import BaseLLM, ModelInfo, ProviderInfo
+
+from core.providers import get_available_provider_record
+
+from .base import BaseLLM, ModelInfo
 from .anthropic_llm import AnthropicLLM
 from .gemini_llm import GeminiLLM
 from .github_models_llm import GitHubModelsLLM
 from .ollama_llm import OllamaLLM
 from .openai_llm import OpenAILLM
-
-DEFAULT_PROVIDER = "ollama"
 
 
 def _list_models_or_empty(llm: BaseLLM, refresh: bool = False) -> list[ModelInfo]:
@@ -25,6 +25,8 @@ def make_llm(
     top_k: int | None = None,
     max_tokens: int | None = None,
 ) -> BaseLLM:
+    record = get_available_provider_record(provider)
+
     if provider == "ollama":
         return OllamaLLM(
             model=model,
@@ -37,6 +39,7 @@ def make_llm(
     if provider == "openai":
         return OpenAILLM(
             model=model,
+            api_key=record.api_key,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -46,6 +49,7 @@ def make_llm(
     if provider == "anthropic":
         return AnthropicLLM(
             model=model,
+            api_key=record.api_key,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -55,6 +59,7 @@ def make_llm(
     if provider == "gemini":
         return GeminiLLM(
             model=model,
+            api_key=record.api_key,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -64,6 +69,7 @@ def make_llm(
     if provider == "github":
         return GitHubModelsLLM(
             model=model,
+            api_key=record.api_key,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -73,49 +79,11 @@ def make_llm(
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
-def list_model_providers(refresh: bool = False) -> list[ProviderInfo]:
-    providers = [
-        ProviderInfo(
-            id="ollama",
-            label="Ollama",
-            models=OllamaLLM().list_models(refresh=True),
-        )
-    ]
+def _llm_for_record(record, model: str | None = None) -> BaseLLM:
+    return make_llm(record.id, model)
 
-    if OPENAI_API_KEY:
-        providers.append(
-            ProviderInfo(
-                id="openai",
-                label="OpenAI",
-                models=_list_models_or_empty(OpenAILLM(), refresh=refresh),
-            )
-        )
 
-    if ANTHROPIC_API_KEY:
-        providers.append(
-            ProviderInfo(
-                id="anthropic",
-                label="Anthropic",
-                models=_list_models_or_empty(AnthropicLLM(), refresh=refresh),
-            )
-        )
-
-    if GEMINI_API_KEY:
-        providers.append(
-            ProviderInfo(
-                id="gemini",
-                label="Gemini",
-                models=_list_models_or_empty(GeminiLLM(), refresh=refresh),
-            )
-        )
-
-    if GITHUB_MODELS_TOKEN:
-        providers.append(
-            ProviderInfo(
-                id="github",
-                label="GitHub Models",
-                models=_list_models_or_empty(GitHubModelsLLM(), refresh=refresh),
-            )
-        )
-
-    return providers
+def list_provider_models(provider: str, refresh: bool = False) -> list[ModelInfo]:
+    record = get_available_provider_record(provider)
+    llm = _llm_for_record(record)
+    return _list_models_or_empty(llm, refresh=refresh)

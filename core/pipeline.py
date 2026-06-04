@@ -42,7 +42,12 @@ def chat_once(req: ChatRequest) -> ChatResponse:
         persona=req.persona,
         template_id=req.template_id,
     )
-    text = renderer.ask_llm(prompt, user_id=req.user_id, template_id=req.template_id)
+    llm_kwargs = {"user_id": req.user_id, "template_id": req.template_id}
+    if req.provider_id:
+        llm_kwargs["provider_id"] = req.provider_id
+    if req.model_id:
+        llm_kwargs["model_id"] = req.model_id
+    text = renderer.ask_llm(prompt, **llm_kwargs)
     return ChatResponse(text=text, sources=_to_sources(context), usage={})
 
 
@@ -64,6 +69,11 @@ def chat_stream(req: ChatRequest) -> Iterator[ChatChunk]:
     )
     meta = json.dumps({"top_k": req.top_k, "template": req.template_id})
     yield ChatChunk(type="meta", text=meta)
-    for token in renderer.stream_llm(prompt, user_id=req.user_id, template_id=req.template_id):
+    llm_kwargs = {"user_id": req.user_id, "template_id": req.template_id}
+    if req.provider_id:
+        llm_kwargs["provider_id"] = req.provider_id
+    if req.model_id:
+        llm_kwargs["model_id"] = req.model_id
+    for token in renderer.stream_llm(prompt, **llm_kwargs):
         yield ChatChunk(type="delta", text=token)
     yield ChatChunk(type="done", sources=_to_sources(context), usage={})

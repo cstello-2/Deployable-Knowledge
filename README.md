@@ -47,7 +47,7 @@ Use `python -m pip` and `python -m pytest` so installs and tests use the same Py
 python -m pytest tests/ -q
 ```
 
-Visit <http://localhost:8000> once the server starts.  `ollama` must be running locally and can be configured via environment variables such as `OLLAMA_MODEL`.
+Visit <http://localhost:8000> once the server starts. Ollama is available by default with the seeded `llama3` model; use **Manage API Keys** in the prompt editor to connect hosted providers.
 
 **If you see "script location not on PATH" or "pytest not recognized":** run `pip` and `pytest` as modules so the active Python is used: `python -m pip install -r requirements.txt` and `python -m pytest tests/ -q`.
 

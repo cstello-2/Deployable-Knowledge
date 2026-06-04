@@ -2,6 +2,13 @@
 const JSON_HEADERS = { "Accept": "application/json" };
 const JSON_POST = { ...JSON_HEADERS, "Content-Type": "application/json" };
 
+function providerChatPath(providerId, modelId, stream = false) {
+  if (!providerId || !modelId) {
+    throw new Error("Chat requests require a provider and model.");
+  }
+  return `/${encodeURIComponent(providerId)}/${encodeURIComponent(modelId)}/${stream ? "chat-stream" : "chat"}`;
+}
+
 async function asJsonSafe(res) {
   const ct = res.headers.get("content-type") || "";
   const txt = await res.text();
@@ -25,7 +32,7 @@ async function ok(res) {
 }
 
 export class DKClient {
-  async chat({ message, session_id, persona="", inactive=[], template_id="rag_chat", top_k=8 }) {
+  async chat({ message, session_id, persona="", inactive=[], template_id="rag_chat", top_k=8, provider_id="", model_id="" }) {
     const fd = new FormData();
     fd.append("message", message);
     fd.append("session_id", session_id);
@@ -33,7 +40,8 @@ export class DKClient {
     fd.append("inactive", JSON.stringify(inactive));
     fd.append("template_id", template_id);
     fd.append("top_k", String(top_k));
-    const res = await ok(await fetch(`/chat?stream=false`, {
+    const url = providerChatPath(provider_id, model_id, false);
+    const res = await ok(await fetch(url, {
       method: "POST",
       body: fd,
       headers: JSON_HEADERS,
@@ -50,7 +58,8 @@ export class DKClient {
     if (req.inactive && req.inactive.length) params.set("inactive", JSON.stringify(req.inactive));
     params.set("template_id", req.template_id || "rag_chat");
     params.set("top_k", String(req.top_k ?? 8));
-    const res = await ok(await fetch(`/chat?stream=true`, {
+    const url = providerChatPath(req.provider_id, req.model_id, true);
+    const res = await ok(await fetch(url, {
       method: "POST",
       body: params.toString(),
       headers: {
@@ -88,17 +97,6 @@ export class DKClient {
     }
   }
 
-  async listModelProviders(refresh = false) {
-    const url = `/api/model-providers?refresh=${refresh ? "true" : "false"}`;
-
-    const res = await ok(await fetch(url, {
-      headers: JSON_HEADERS,
-      credentials: "same-origin",
-    }));
-
-    return asJsonSafe(res);
-  }
-  
   async search(q, topK=5) {
     const res = await ok(await fetch(`/search?q=${encodeURIComponent(q)}&top_k=${encodeURIComponent(topK)}`, {
       headers: JSON_HEADERS,
@@ -419,13 +417,39 @@ export class DKClient {
     return asJsonSafe(res);
   }
 
-  async listModelProviders(options = {}) {
-    const refresh = typeof options === "boolean" ? options : Boolean(options?.refresh);
+  async listProviders({ includeUnavailable = false, refresh = false } = {}) {
     const params = new URLSearchParams();
+    if (includeUnavailable) params.set("include_unavailable", "true");
     if (refresh) params.set("refresh", "true");
     const query = params.toString();
-    const url = `/api/model-providers${query ? `?${query}` : ""}`;
-    const res = await ok(await fetch(url, {
+    const res = await ok(await fetch(`/providers${query ? `?${query}` : ""}`, {
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
+    return asJsonSafe(res);
+  }
+
+  async patchProvider(providerId, payload) {
+    const res = await ok(await fetch(`/providers/${encodeURIComponent(providerId)}`, {
+      method: "PATCH",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    }));
+    return asJsonSafe(res);
+  }
+
+  async clearProviderApiKey(providerId) {
+    const res = await ok(await fetch(`/providers/${encodeURIComponent(providerId)}/api-key`, {
+      method: "DELETE",
+      headers: JSON_HEADERS,
+      credentials: "same-origin",
+    }));
+    return asJsonSafe(res);
+  }
+
+  async listProviderModels(providerId, refresh = false) {
+    const res = await ok(await fetch(`/${encodeURIComponent(providerId)}/models?refresh=${refresh ? "true" : "false"}`, {
       headers: JSON_HEADERS,
       credentials: "same-origin",
     }));

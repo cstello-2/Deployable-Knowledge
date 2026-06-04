@@ -13,26 +13,14 @@ Environment variables:
 
 - `DATABASE_URL` – SQLModel database URL, defaulting to SQLite at `DATABASE_PATH`
 - `DATABASE_ECHO` – set to `1` to log SQL statements
-- `OLLAMA_BASE_URL` – Ollama API base URL, defaulting to `http://localhost:11434`
-- `OLLAMA_MODEL` – model name for the Ollama backend
-- `OPENAI_API_KEY` – enables OpenAI chat provider options and chat requests
-- `OPENAI_BASE_URL` – OpenAI-compatible API base URL, defaulting to `https://api.openai.com/v1`
-- `OPENAI_MODEL` – fallback OpenAI chat model when user settings do not specify one
-- `ANTHROPIC_API_KEY` – enables Anthropic chat provider options and chat requests
-- `ANTHROPIC_BASE_URL` – Anthropic API base URL, defaulting to `https://api.anthropic.com`
-- `ANTHROPIC_MODEL` – fallback Anthropic chat model when user settings do not specify one
-- `ANTHROPIC_VERSION` – Anthropic API version header, defaulting to `2023-06-01`
-- `GEMINI_API_KEY` – enables Gemini chat provider options and chat requests
-- `GEMINI_BASE_URL` – Gemini API base URL, defaulting to `https://generativelanguage.googleapis.com/v1beta`
-- `GEMINI_MODEL` – fallback Gemini chat model when user settings do not specify one
-- `GITHUB_MODELS_TOKEN` – enables GitHub Models chat provider options and chat requests; falls back to `GITHUB_MODELS_API_KEY` or `GITHUB_TOKEN`; model catalog listing can still use GitHub's public catalog without this token
-- `GITHUB_MODELS_BASE_URL` – GitHub Models API base URL, defaulting to `https://models.github.ai`
-- `GITHUB_MODELS_MODEL` – fallback GitHub Models chat model when user settings do not specify one
-- `GITHUB_MODELS_API_VERSION` – GitHub REST API version header for Models, defaulting to `2026-03-10`
-- `GITHUB_MODELS_ORG` – optional organization login for attributed GitHub Models inference
 - `EMBEDDING_MODEL_ID` – sentence‑transformer to download/cache
 - `EMBEDDINGS_DEVICE` – device string for embeddings (e.g. `cpu`)
 - `EMBEDDINGS_OFFLINE_ONLY` – set to `1` to require an existing local model cache
+
+LLM provider credentials and current chat models are stored in the SQL
+`providers` table. Use the UI's **Manage API Keys** button, or the `/providers`
+API, to save keys for OpenAI, Anthropic, Gemini, and GitHub Models. Ollama is
+seeded as an available provider without an API key.
 
 Embeddings are configured through `config.py` and environment variables only. The
 settings UI displays `EMBEDDING_MODEL_ID` and the local `MODEL_DIR` as read-only

@@ -2,7 +2,6 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Iterable, Any
 from dataclasses import dataclass
 import re
-import requests
 from core.sessions import ChatExchange
 from core.settings import get_prompt_template, load_settings
 from core.llm import make_llm
@@ -180,26 +179,22 @@ def _generation_values(s, t: Template) -> Dict[str, Any]:
     }
 
 
-def _should_fallback_to_ollama(exc: Exception) -> bool:
-    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-        return True
-    if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
-        return True
-    return False
-
-
 def stream_llm(
     prompt: str,
     user_id: Optional[str] = None,
     template_id: Optional[str] = None,
+    provider_id: Optional[str] = None,
+    model_id: Optional[str] = None,
 ) -> Iterable[str]:
     """Stream tokens from the configured LLM provider."""
 
     s = _resolve_settings(user_id)
     t = _load_template(template_id)
 
-    provider = getattr(s, "llm_provider", "ollama")
-    model = getattr(s, "llm_model", "") or None
+    if not provider_id:
+        raise ValueError("provider_id is required")
+    provider = provider_id
+    model = model_id or None
     gen = _generation_values(s, t)
 
     llm = make_llm(
@@ -212,21 +207,7 @@ def stream_llm(
     )
 
     def tokens():
-        try:
-            yield from llm.stream_text(prompt)
-        except Exception as exc:
-            if provider == "ollama" or not _should_fallback_to_ollama(exc):
-                raise
-
-            fallback = make_llm(
-                "ollama",
-                None,
-                temperature=gen["temperature"],
-                top_p=gen["top_p"],
-                top_k=gen["top_k"],
-                max_tokens=gen["max_tokens"],
-            )
-            yield from fallback.stream_text(prompt)
+        yield from llm.stream_text(prompt)
 
     return tokens()
 
@@ -235,14 +216,18 @@ def ask_llm(
     prompt: str,
     user_id: Optional[str] = None,
     template_id: Optional[str] = None,
+    provider_id: Optional[str] = None,
+    model_id: Optional[str] = None,
 ) -> str:
     """Return a complete text response from the LLM."""
 
     s = _resolve_settings(user_id)
     t = _load_template(template_id)
 
-    provider = getattr(s, "llm_provider", "ollama")
-    model = getattr(s, "llm_model", "") or None
+    if not provider_id:
+        raise ValueError("provider_id is required")
+    provider = provider_id
+    model = model_id or None
     gen = _generation_values(s, t)
 
     llm = make_llm(
@@ -254,18 +239,4 @@ def ask_llm(
         max_tokens=gen["max_tokens"],
     )
 
-    try:
-        return llm.generate_text(prompt)
-    except Exception as exc:
-        if provider == "ollama" or not _should_fallback_to_ollama(exc):
-            raise
-
-        fallback = make_llm(
-            "ollama",
-            None,
-            temperature=gen["temperature"],
-            top_p=gen["top_p"],
-            top_k=gen["top_k"],
-            max_tokens=gen["max_tokens"],
-        )
-        return fallback.generate_text(prompt)
+    return llm.generate_text(prompt)

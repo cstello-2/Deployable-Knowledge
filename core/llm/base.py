@@ -14,21 +14,6 @@ class ModelInfo:
     def as_dict(self) -> dict[str, str]:
         return {"id": self.id, "label": self.label or self.id}
 
-
-@dataclass(frozen=True)
-class ProviderInfo:
-    id: str
-    label: str
-    models: list[ModelInfo]
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "models": [model.as_dict() for model in self.models],
-        }
-
-
 class BaseLLM:
     """Minimal LLM interface the app expects."""
 

@@ -20,8 +20,8 @@ def test_sse_stream(monkeypatch):
 
     with client.stream(
         "POST",
-        "/chat?stream=true",
-        data={"message": "test stream", "session_id": "12345678-1234-1234-1234-123456789012"},
+        "/ollama/llama3/chat?stream=true",
+        data={"message": "test stream", "session_id": "42345678-1234-1234-1234-123456789012"},
         cookies={"session": "test"},
     ) as res:
         assert res.status_code == 200

@@ -4,11 +4,7 @@ import json, time, shutil
 
 from config import (
     BASE_DIR,
-    EMBEDDING_MODEL_ID,
-    MODEL_DIR,
 )
-from core.llm import list_model_providers as provider_model_list
-from core.llm.ollama_llm import OllamaLLM
 from core.settings import (
     UserSettings,
     load_settings,
@@ -109,24 +105,6 @@ def delete_prompt_template(tid: str):
         "status": "deleted",
         "id": tid,
     }
-
-
-@router.get("/model-providers")
-def list_model_providers(refresh: bool = False):
-    """List configured chat providers through provider implementations."""
-
-    return {
-        "chat_providers": [provider.as_dict() for provider in provider_model_list(refresh=refresh)],
-        "embedding_model_id": EMBEDDING_MODEL_ID,
-        "embedding_model_path": str(MODEL_DIR),
-    }
-
-
-@router.get("/ollama-models")
-def list_ollama_models():
-    """List locally available Ollama model IDs."""
-
-    return {"models": [model.id for model in OllamaLLM().list_models(refresh=True)]}
 
 
 def _current_user_id(request: Request) -> str:

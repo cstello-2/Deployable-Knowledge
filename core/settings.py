@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any, List
 import json
 from pydantic import BaseModel, Field, ConfigDict
 from sqlmodel import Session
@@ -16,9 +16,9 @@ LEGACY_USERS_DIR = BASE_DIR / "users"
 
 class UserSettings(BaseModel):
     user_id: str
-    llm_provider: Literal["ollama", "openai", "anthropic", "gemini", "github"] = "ollama"
-    llm_model: str = ""
     prompt_template_id: Optional[str] = None
+    provider_id: str = "ollama"
+    model_id: str = ""
     temperature: float = 0.2
     top_p: float = 0.95
     max_tokens: int = 512
@@ -35,9 +35,9 @@ def _user_path(user_id: str) -> Path:
 def _to_settings(record: UserSettingsRecord) -> UserSettings:
     return UserSettings(
         user_id=record.user_id,
-        llm_provider=record.llm_provider,
-        llm_model=record.llm_model,
         prompt_template_id=record.prompt_template_id,
+        provider_id=record.provider_id,
+        model_id=record.model_id,
         temperature=record.temperature,
         top_p=record.top_p,
         max_tokens=record.max_tokens,
@@ -79,6 +79,8 @@ def save_settings(s: UserSettings) -> None:
 
     settings = UserSettings.model_validate(s.model_dump())
     settings.user_id = validate_identifier(settings.user_id, "user id")
+    settings.provider_id = validate_identifier(settings.provider_id, "provider id")
+    settings.model_id = str(settings.model_id or "").strip()
     init_db()
     with Session(engine) as session:
         record = session.get(UserSettingsRecord, settings.user_id)

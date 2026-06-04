@@ -1,8 +1,11 @@
 from typing import Any, Iterator
 import json
 import requests
-from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE
 from .base import BaseLLM, ModelInfo
+
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3"
+OLLAMA_KEEP_ALIVE = "30m"
 
 CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
