@@ -729,11 +729,61 @@ html, body {
 .msg.assistant {
   align-self: flex-start;
   background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%));
-  width: fit-content;
+  width: auto;
   max-width: 92%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.assistant-action-buttons .btn.active {
+  outline: 1px solid var(--accent, #4b8cff);
+  filter: brightness(1.08);
 }
 .msg.context { background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%)); font-size: 12px; color: var(--muted); }
-.msg-md { min-height: 1em; }
+.msg-md {
+  min-height: 1em;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.msg-md p,
+.msg-md li,
+.msg-md blockquote,
+.msg-md h1,
+.msg-md h2,
+.msg-md h3,
+.msg-md h4,
+.msg-md h5,
+.msg-md h6 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.msg-md a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.msg-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-md code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.msg-md img {
+  max-width: 100%;
+  height: auto;
+}
 .msg-pending {
   display: inline-flex;
   align-items: center;

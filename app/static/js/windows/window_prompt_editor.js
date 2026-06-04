@@ -4,8 +4,46 @@ export function render(config, winId) {
   const wrap = el("div", { class: "form assistant-settings-form" });
 
   const profileManageRow = el("div", { class: "row" }, [
-    el("label", { for: "profile_action" }, ["Profiles"]),
-    el("select", { id: "profile_action", class: "input" }, [
+    el("label", {}, ["Profiles"]),
+
+    el("div", {
+      class: "assistant-action-buttons",
+      style: {
+        display: "flex",
+        gap: "6px",
+        justifyContent: "flex-start",
+        alignItems: "center",
+        flexWrap: "wrap",
+      },
+    }, [
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "profile_create_btn",
+        "data-profile-action": "create",
+      }, ["Create Profile"]),
+
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "profile_load_btn",
+        "data-profile-action": "load",
+      }, ["Load Profile"]),
+
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "profile_delete_btn",
+        "data-profile-action": "delete",
+      }, ["Delete Profile"]),
+    ]),
+
+    // Keep this hidden select so prompt_editor.js can still use profileAction.value.
+    el("select", {
+      id: "profile_action",
+      class: "input",
+      style: { display: "none" },
+    }, [
       el("option", { value: "" }, ["Manage Profiles"]),
       el("option", { value: "create" }, ["Create Profile"]),
       el("option", { value: "load" }, ["Load Profile"]),
@@ -111,7 +149,7 @@ export function render(config, winId) {
       alignItems: "end",
       justifyContent: "space-between",
       gap: "10px",
-      flexWrap: "npwrap",
+      flexWrap: "nowrap",
       width: "100%",
     },
   }, [
@@ -202,8 +240,46 @@ export function render(config, winId) {
   ]);
 
   const personaManageRow = el("div", { class: "row" }, [
-    el("label", { for: "persona_action" }, ["Personas"]),
-    el("select", { id: "persona_action", class: "input" }, [
+    el("label", {}, ["Personas"]),
+
+    el("div", {
+      class: "assistant-action-buttons",
+      style: {
+        display: "flex",
+        gap: "6px",
+        justifyContent: "flex-start",
+        alignItems: "center",
+        flexWrap: "wrap",
+      },
+    }, [
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "persona_create_btn",
+        "data-persona-action": "create",
+      }, ["Create Persona"]),
+
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "persona_load_btn",
+        "data-persona-action": "load",
+      }, ["Load Persona"]),
+
+      el("button", {
+        type: "button",
+        class: "btn",
+        id: "persona_delete_btn",
+        "data-persona-action": "delete",
+      }, ["Delete Persona"]),
+    ]),
+
+    // Keep this hidden select so prompt_editor.js can still use personaAction.value.
+    el("select", {
+      id: "persona_action",
+      class: "input",
+      style: { display: "none" },
+    }, [
       el("option", { value: "" }, ["Manage Personas"]),
       el("option", { value: "create" }, ["Create Persona"]),
       el("option", { value: "load" }, ["Load Persona"]),
@@ -269,15 +345,17 @@ export function render(config, winId) {
 
     selectRow,
     details,
-    compactSettingsRow,
-    templateActions,
-    modelRow,
-    providerRow,
 
     personaManageRow,
     personaSelectRow,
     personaConfirmRow,
     personaEditor,
+
+    compactSettingsRow,
+    templateActions,
+
+    providerRow,
+    modelRow,
   );
 
   return wrap;
