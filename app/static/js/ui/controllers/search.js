@@ -24,14 +24,45 @@ function sourceKindFromResult(r) {
   return "Text";
 }
 
-function formatSimilarityPercent(score) {
-  const n = Number(score);
+function angularSimilarityPercentValue(score) {
+  const cosine = Number(score);
 
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(cosine)) return null;
 
-  const pct = n <= 1 ? n * 100 : n;
+  // Cosine similarity must stay inside [-1, 1] for Math.acos().
+  const clampedCosine = Math.max(-1, Math.min(1, cosine));
 
-  return `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`;
+  const angularSimilarity = 1 - Math.acos(clampedCosine) / Math.PI;
+
+  return Math.max(0, Math.min(100, angularSimilarity * 100));
+}
+
+const CHAT_SOURCE_PREVIEW_LINE_CHARS = 140;
+const CHAT_SOURCE_PREVIEW_MAX_CHARS = 320;
+function truncateText(text, maxChars = CHAT_SOURCE_PREVIEW_MAX_CHARS) {
+  const value = String(text ?? "").trim();
+
+  if (value.length <= maxChars) return value;
+
+  return `${value.slice(0, maxChars).trimEnd()}...`;
+}
+
+function formatAngularSimilarityPercent(score) {
+  const pct = angularSimilarityPercentValue(score);
+
+  if (pct === null) return "—";
+
+  return `${pct.toFixed(1)}%`;
+}
+
+function cleanChunkPreview(text) {
+  const cleaned = String(text ?? "")
+    .replace(/^\[(Image|OCR):\s*/i, "")
+    .replace(/\]$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return truncateText(cleaned);
 }
 
 function makeChatSourceRow(r, num) {
@@ -39,26 +70,38 @@ function makeChatSourceRow(r, num) {
   const source = String(r.source ?? r.title ?? r.filepath ?? "source");
   const kind = sourceKindFromResult(r);
   const page = r.page ?? null;
-  const similarity = formatSimilarityPercent(r.score);
+  const pct = angularSimilarityPercentValue(r.score);
+  const similarity = formatAngularSimilarityPercent(r.score);
+  const previewText = cleanChunkPreview(r.text);
 
   const li = document.createElement("li");
   li.className = "chat-source-row";
 
-  const left = document.createElement("div");
-  left.className = "chat-source-left";
+  const main = document.createElement("div");
+  main.className = "chat-source-main";
+
+  const textBlock = document.createElement("div");
+  textBlock.className = "chat-source-text-block";
 
   const numEl = document.createElement("span");
   numEl.className = "chat-source-num";
   numEl.textContent = `${num}.`;
 
-  const label = document.createElement("span");
-  label.className = "chat-source-text";
-  label.textContent = `${kind} from ${source}${page && page !== "?" ? `, page ${page}` : ""}`;
+  const content = document.createElement("span");
+  content.className = "chat-source-text";
 
-  left.append(numEl, label);
+  const pageText = page && page !== "?" ? `, page ${page}` : "";
+  const previewPart = previewText ? `: ${source} ${previewText}` : "";
 
-  const right = document.createElement("div");
-  right.className = "chat-source-actions";
+  content.textContent = `${kind} from ${source}${pageText}${previewPart}`;
+
+  textBlock.append(numEl, content);
+
+  const actionLine = document.createElement("div");
+  actionLine.className = "chat-source-action-line";
+
+  const leftAction = document.createElement("div");
+  leftAction.className = "chat-source-action-left";
 
   if (isSegmentKey(segmentId)) {
     const a = document.createElement("a");
@@ -67,7 +110,7 @@ function makeChatSourceRow(r, num) {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = source;
-    right.appendChild(a);
+    leftAction.appendChild(a);
   } else if (source) {
     const a = document.createElement("a");
     a.className = "btn btn-sm chat-source-btn";
@@ -75,15 +118,19 @@ function makeChatSourceRow(r, num) {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = source;
-    right.appendChild(a);
+    leftAction.appendChild(a);
   }
 
   const score = document.createElement("span");
   score.className = "chat-source-score";
-  score.textContent = similarity;
-  right.appendChild(score);
+  score.textContent = `Angular Similarity: ${similarity}`;
+  score.style.setProperty("--score-pct", `${pct ?? 0}%`);
 
-  li.append(left, right);
+  actionLine.append(leftAction, score);
+
+  main.append(textBlock, actionLine);
+  li.appendChild(main);
+
   return li;
 }
 
@@ -118,7 +165,7 @@ export function appendPassageCard(container, r, { compact = false } = {}) {
   const srcSpan = document.createElement("span");
   srcSpan.textContent = source ? `Source: ${source}` : "Source: —";
   const metaSpan = document.createElement("span");
-  metaSpan.textContent = `Similarity: ${scoreLabel} • Page: ${page}`;
+  metaSpan.textContent = `Cosine Similarity: ${scoreLabel} • Page: ${page}`;
   meta.append(srcSpan, metaSpan);
 
   const actions = document.createElement("div");

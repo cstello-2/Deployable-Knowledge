@@ -135,6 +135,17 @@ export class DKClient {
     return asJsonSafe(await ok(res));
   }
 
+  async startLocalFileUpload(path) {
+    const res = await fetch("/upload-local/start", {
+      method: "POST",
+      headers: JSON_POST,
+      credentials: "same-origin",
+      body: JSON.stringify({ path }),
+    });
+
+    return asJsonSafe(await ok(res));
+  }
+
   uploadDocumentsWithProgress(files, jobId, { onUploadProgress } = {}) {
     return new Promise((resolve, reject) => {
       const fd = new FormData();
