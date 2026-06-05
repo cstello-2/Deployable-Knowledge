@@ -43,6 +43,7 @@ def _resolve_provider_model(
 ) -> tuple[str, str]:
     provider_id = validate_identifier(provider_id, "provider id")
     model_id = (model_id or "").strip()
+
     if not model_id:
         raise HTTPException(status_code=400, detail="model id is required")
 
@@ -58,11 +59,13 @@ async def _chat_impl(
     inactive: Optional[str],
     template_id: str,
     top_k: int,
+    rag_enabled: bool,
     stream: bool,
     provider_id: str | None = None,
     model_id: str | None = None,
 ):
     user_id = getattr(request.state, "user_id", "default")
+
     try:
         session_id = validate_session_id(session_id)
         validate_identifier(template_id, "prompt template id")
@@ -76,6 +79,7 @@ async def _chat_impl(
 
     if session and session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
+
     if not session:
         session = ChatSession.new(session_id=session_id, user_id=user_id)
 
@@ -85,21 +89,52 @@ async def _chat_impl(
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail="Invalid inactive sources") from exc
 
+    manual_history = []
+
+    for h in session.history[-10:]:
+        item = {
+            "user": h.user,
+            "assistant": h.assistant,
+            "context_used": [],
+        }
+
+        # Keep source snippets from previous RAG turns.
+        # This lets RAG-off follow-ups talk about documents already retrieved earlier.
+        for src in getattr(h, "context_used", []) or []:
+            if isinstance(src, dict):
+                item["context_used"].append(
+                    {
+                        "title": src.get("title") or src.get("source") or src.get("filepath"),
+                        "filepath": src.get("filepath") or src.get("source"),
+                        "page": src.get("page"),
+                        "text": src.get("text"),
+                        "score": src.get("score"),
+                    }
+                )
+
+        manual_history.append(item)
+
     req = ChatRequest(
         user_id=session.user_id,
         message=message,
         persona=persona or session.persona,
         template_id=template_id,
         top_k=clamp_int(top_k, MIN_TOP_K, MAX_TOP_K),
-        inactive_sources=session.inactive_sources,
+        rag_enabled=rag_enabled,
+        history=manual_history if not rag_enabled else [],
+        inactive_sources=session.inactive_sources if rag_enabled else [],
         stream=stream,
         provider_id=provider_id,
         model_id=model_id,
     )
+
     if not stream:
         resp = pipeline.chat_once(req)
+
         update_settings(user_id, {"provider_id": provider_id, "model_id": model_id})
+
         html_response = markdown2.markdown(resp.text)
+
         session.add_exchange(
             user=message,
             context_used=[s.model_dump() for s in resp.sources],
@@ -107,9 +142,11 @@ async def _chat_impl(
             assistant=resp.text,
             html_response=html_response,
         )
+
         session.trim_history(20)
         store.save(session)
         _update_session_metadata(session, message)
+
         return JSONResponse(
             {
                 "response": html_response,
@@ -121,16 +158,21 @@ async def _chat_impl(
 
     async def event_stream():
         assistant = ""
+
         try:
             for chunk in pipeline.chat_stream(req):
                 if chunk.type == "meta":
                     yield f"event: meta\ndata: {chunk.text or '{}'}\n\n"
+
                 elif chunk.type == "delta":
                     assistant += chunk.text or ""
                     yield f"event: delta\ndata: {json.dumps(chunk.text or '')}\n\n"
+
                 elif chunk.type == "done":
                     update_settings(user_id, {"provider_id": provider_id, "model_id": model_id})
+
                     html_response = markdown2.markdown(assistant)
+
                     session.add_exchange(
                         user=message,
                         context_used=[s.model_dump() for s in (chunk.sources or [])],
@@ -138,14 +180,19 @@ async def _chat_impl(
                         assistant=assistant,
                         html_response=html_response,
                     )
+
                     session.trim_history(20)
                     store.save(session)
+
                     payload = {
                         "sources": [s.model_dump() for s in (chunk.sources or [])],
                         "usage": chunk.usage or {},
                     }
+
                     yield f"event: done\ndata: {json.dumps(payload)}\n\n"
+
                     _update_session_metadata(session, message)
+
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
@@ -163,6 +210,7 @@ async def provider_chat(
     inactive: Optional[str] = Form(None),
     template_id: str = Form("rag_chat"),
     top_k: int = Form(8),
+    rag_enabled: bool = Form(True),
     stream: bool = Query(False),
 ):
     return await _chat_impl(
@@ -173,6 +221,7 @@ async def provider_chat(
         inactive=inactive,
         template_id=template_id,
         top_k=top_k,
+        rag_enabled=rag_enabled,
         stream=stream,
         provider_id=provider_id,
         model_id=model_id,
@@ -190,6 +239,7 @@ async def provider_chat_stream(
     inactive: Optional[str] = Form(None),
     template_id: str = Form("rag_chat"),
     top_k: int = Form(8),
+    rag_enabled: bool = Form(True),
 ):
     return await _chat_impl(
         request=request,
@@ -199,6 +249,7 @@ async def provider_chat_stream(
         inactive=inactive,
         template_id=template_id,
         top_k=top_k,
+        rag_enabled=rag_enabled,
         stream=True,
         provider_id=provider_id,
         model_id=model_id,

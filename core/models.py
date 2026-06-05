@@ -21,6 +21,8 @@ class ChatRequest(BaseModel):
     message: str
     template_id: str = "rag_chat"
     top_k: int = 8
+    rag_enabled: bool = True
+    history: Optional[List[Dict]] = None
     persona: Optional[str] = None
     stream: bool = True
     inactive_sources: Optional[List[str]] = None

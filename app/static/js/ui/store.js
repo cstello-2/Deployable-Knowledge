@@ -2,6 +2,7 @@
 const storedPersona = localStorage.getItem("persona") || "";
 const storedDocs = localStorage.getItem("inactiveDocs");
 const storedSettings = JSON.parse(localStorage.getItem("settings") || "{}");
+const storedRagEnabled = localStorage.getItem("ragEnabled");
 const state = {
   sessionId: null,
   persona: storedPersona,
@@ -9,11 +10,17 @@ const state = {
   llmTargetAddress: storedSettings.llm_target_address || "",
   llmToken: storedSettings.llm_token || "",
   lastQuery: "",
+  ragEnabled: storedRagEnabled === null ? true : storedRagEnabled === "true",
 };
 export const Store = {
   get sessionId() { return state.sessionId; },
   set sessionId(v) { state.sessionId = v; },
   get persona() { return state.persona; },
+  get ragEnabled() { return state.ragEnabled; },
+  set ragEnabled(v) {
+    state.ragEnabled = Boolean(v);
+    localStorage.setItem("ragEnabled", String(state.ragEnabled));
+  },
   set persona(v) {
     state.persona = v;
     localStorage.setItem("persona", v);

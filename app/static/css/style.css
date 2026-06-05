@@ -854,6 +854,60 @@ html, body {
   background: hsl(var(--h) var(--sat) var(--l-panel));
   overflow: hidden;
 }
+.rag-toggle {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+  margin-top: 4px;
+}
+.rag-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.rag-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--surface-2, #3a3a3a);
+  border: 1px solid var(--border, #555);
+  border-radius: 999px;
+  transition: 0.18s ease;
+}
+.rag-toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  top: 2px;
+  background: var(--text, #fff);
+  border-radius: 50%;
+  transition: 0.18s ease;
+}
+.rag-toggle input:checked + .rag-toggle-slider {
+  background: var(--accent, #2f80ed);
+  border-color: var(--accent, #2f80ed);
+}
+.rag-toggle input:checked + .rag-toggle-slider::before {
+  transform: translateX(21px);
+}
+.assistant-rag-mode-field {
+  min-width: 170px;
+}
+.rag-mode-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.rag-mode-label {
+  font-size: 11px;
+  color: var(--muted, #aaa);
+  line-height: 1;
+}
 .chat-source-text-block {
   min-width: 0;
   display: grid;

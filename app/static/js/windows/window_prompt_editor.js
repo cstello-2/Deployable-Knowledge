@@ -157,7 +157,7 @@ export function render(config, winId) {
       class: "assistant-number-settings",
       style: {
         display: "grid",
-        gridTemplateColumns: "90px 75px 105px",
+        gridTemplateColumns: "90px 75px 105px 170px",
         alignItems: "end",
         gap: "8px",
         flex: "0 0 auto"
@@ -203,6 +203,22 @@ export function render(config, winId) {
           }),
         ]),
       ]),
+        
+        el("div", { class: "assistant-compact-field assistant-rag-mode-field" }, [
+          el("label", { for: "assistant_rag_toggle" }, ["Mode"]),
+          el("div", { class: "rag-mode-toggle-wrap" }, [
+            el("span", { class: "rag-mode-label" }, ["Conversation"]),
+            el("label", { class: "rag-toggle" }, [
+              el("input", {
+                id: "assistant_rag_toggle",
+                type: "checkbox",
+                checked: true,
+              }),
+              el("span", { class: "rag-toggle-slider" }),
+            ]),
+            el("span", { class: "rag-mode-label" }, ["Search"]),
+          ]),
+        ]),
 
     el("div", {
       class: "assistant-manage-buttons",

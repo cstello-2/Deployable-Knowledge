@@ -157,6 +157,7 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
   const descInput = node.querySelector("#tmpl_description");
   const systemInput = node.querySelector("#tmpl_system");
   const tempInput = node.querySelector("#assistant_temperature");
+  const ragToggle = node.querySelector("#assistant_rag_toggle");
   const maxTokensInput = node.querySelector("#assistant_max_tokens");
   const topKInput = node.querySelector("#assistant_top_k");
   const manageMcpsBtn = node.querySelector("#manage_mcps");
@@ -267,6 +268,12 @@ export async function initPromptEditor(winId = "win_prompt_editor") {
 
   if (node.dataset.promptEditorInitialized === "true") return;
   node.dataset.promptEditorInitialized = "true";
+  if (ragToggle) {
+    ragToggle.checked = Store.ragEnabled;
+    ragToggle.addEventListener("change", () => {
+      Store.ragEnabled = ragToggle.checked;
+    });
+  }
 
   let templates = [];
   let currentTemplate = null;

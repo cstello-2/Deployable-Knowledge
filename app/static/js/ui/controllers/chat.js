@@ -81,16 +81,19 @@ export function initChatController() {
         {
           message: text,
           session_id: Store.sessionId,
-          inactive: Store.inactiveList(),
+          inactive: Store.ragEnabled ? Store.inactiveList() : [],
           persona: Store.persona,
+          rag_enabled: Store.ragEnabled,
           template_id: getSelectedPromptTemplateId(),
           ...llmTarget,
         },
         {
           signal: aborter.signal,
           onMeta(meta) {
+            if (Store.ragEnabled && meta.context?.length) {
             renderChatCitations(bubble.citeEl, meta.context, { maxItems: 8 });
             runSearch(text);
+            }
           },
           onDelta(delta) {
             buf += delta;
@@ -101,7 +104,7 @@ export function initChatController() {
           onDone(data) {
             bubble.clearPending();
             if (!buf) bubble.mdEl.innerHTML = md("(no response)");
-            if (data?.sources) {
+            if (Store.ragEnabled && data?.sources?.length) {
               showContext(data.sources, text);
               renderChatCitations(bubble.citeEl, data.sources, { maxItems: 5 });
             }
@@ -123,14 +126,15 @@ export function initChatController() {
         const res = await api.chat({
           message: text,
           session_id: Store.sessionId,
-          inactive: Store.inactiveList(),
+          inactive: Store.ragEnabled ? Store.inactiveList() : [],
           persona: Store.persona,
+          rag_enabled: Store.ragEnabled,
           template_id: getSelectedPromptTemplateId(),
           ...llmTarget,
         });
         bubble.clearPending();
         bubble.mdEl.innerHTML = md(res.response ?? "(no response)");
-        if (res.context) {
+        if (Store.ragEnabled && res.context?.length) {
           showContext(res.context, text);
           renderChatCitations(bubble.citeEl, res.context, { maxItems: 5 });
         }
