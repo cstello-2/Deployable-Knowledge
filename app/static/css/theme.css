@@ -162,7 +162,7 @@
     --txt: 10%; /* text lightness */
     /* Layout & typography */
     --titlebar-height: 40px;
-    --font-size-base: 20px;
+    --font-size-base: 15px;
     /* Base lightness stops (light theme) */
     --l-bg: 90%;
     --l-panel: 90%;
