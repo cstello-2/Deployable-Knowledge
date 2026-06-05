@@ -89,7 +89,6 @@ export function initChatController() {
         {
           signal: aborter.signal,
           onMeta(meta) {
-            renderChatCitations(bubble.citeEl, meta.context, { maxItems: 8 });
             runSearch(text);
           },
           onDelta(delta) {
