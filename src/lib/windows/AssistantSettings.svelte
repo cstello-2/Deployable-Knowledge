@@ -1,6 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import {
+    getActivePersona,
+    loadAssistantRuntimeData,
+    modelOptionsForProvider,
+    saveAssistantRuntime,
+    setActivePersona,
+    type AssistantRuntimePayload,
+    type ModelOption,
+  } from "$lib/assistantState";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
+  import { errorMessage } from "$lib/errors";
   import { dkClient, type PromptTemplate, type ProviderRecord } from "$lib/sdk";
   import type { WindowInstanceProps } from "./index.ts";
 
@@ -65,7 +75,7 @@
   let providers = $state<ProviderRecord[]>([]);
   let providerId = $state("ollama");
   let modelId = $state("");
-  let modelOptions = $state<Array<{ value: string; label: string }>>([]);
+  let modelOptions = $state<ModelOption[]>([]);
 
   let profileAction = $state("");
   let profileName = $state("");
@@ -96,19 +106,36 @@
   ];
 
   const showProfileCreate = $derived(profileAction === "create");
-  const showProfileSelect = $derived(profileAction === "load" || profileAction === "delete");
-  const showProfileActions = $derived(profileAction === "create" || profileAction === "load" || profileAction === "delete");
-  const showProfileConfirm = $derived(profileAction === "load" || profileAction === "delete");
+  const showProfileSelect = $derived(
+    profileAction === "load" || profileAction === "delete",
+  );
+  const showProfileActions = $derived(
+    profileAction === "create" ||
+      profileAction === "load" ||
+      profileAction === "delete",
+  );
+  const showProfileConfirm = $derived(
+    profileAction === "load" || profileAction === "delete",
+  );
   const showProfileSave = $derived(profileAction === "create");
-  const showProfileSaveEdits = $derived(Boolean(loadedProfileId) && profileAction === "");
+  const showProfileSaveEdits = $derived(
+    Boolean(loadedProfileId) && profileAction === "",
+  );
 
-  const showPersonaSelect = $derived(personaAction === "load" || personaAction === "delete");
-  const showPersonaConfirm = $derived(personaAction === "load" || personaAction === "delete");
-  const showPersonaEditor = $derived(personaAction === "create" || Boolean(loadedPersonaId && personaText));
+  const showPersonaSelect = $derived(
+    personaAction === "load" || personaAction === "delete",
+  );
+  const showPersonaConfirm = $derived(
+    personaAction === "load" || personaAction === "delete",
+  );
+  const showPersonaEditor = $derived(
+    personaAction === "create" || Boolean(loadedPersonaId && personaText),
+  );
 
   const promptDetailsVisible = $derived(templateSelect !== NONE_VALUE);
   const promptCanEdit = $derived(
-    templateSelect === CREATE_NEW_VALUE || (templateSelect !== NONE_VALUE && Boolean(loadedProfileId)),
+    templateSelect === CREATE_NEW_VALUE ||
+      (templateSelect !== NONE_VALUE && Boolean(loadedProfileId)),
   );
 
   const saveTemplateVisible = $derived(promptCanEdit);
@@ -128,10 +155,6 @@
         toastMessage = "";
       }
     }, 2000);
-  }
-
-  function errorMessage(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
   }
 
   function slugifyName(name: string, fallback: string) {
@@ -162,7 +185,11 @@
     return Number.isFinite(number) ? number : null;
   }
 
-  function uniqueIdFromName(name: string, existingIds: Set<string>, fallback: string) {
+  function uniqueIdFromName(
+    name: string,
+    existingIds: Set<string>,
+    fallback: string,
+  ) {
     const base = slugifyName(name, fallback);
     let nextId = base;
     let count = 2;
@@ -205,10 +232,6 @@
     personas = nextPersonas;
   }
 
-  function saveActivePersona(text: string) {
-    localStorage.setItem("persona", text || "");
-  }
-
   function resetProfileAction() {
     profileAction = "";
     profileName = "";
@@ -227,47 +250,18 @@
     personaText = "";
   }
 
-  function optionValue(model: unknown) {
-    if (typeof model === "string") return model;
-
-    const typed = model as Record<string, unknown>;
-    return String(typed.id ?? typed.name ?? typed.label ?? "");
-  }
-
-  function optionLabel(model: unknown) {
-    if (typeof model === "string") return model;
-
-    const typed = model as Record<string, unknown>;
-    return String(typed.label ?? typed.id ?? typed.name ?? "");
-  }
-
-  function populateModelsForProvider(nextProviderId: string, selectedModel: string | null = null) {
-    const provider = providers.find((item) => item.id === nextProviderId);
-    const models = ((provider?.models || []) as unknown[]).map((model) => ({
-      value: optionValue(model),
-      label: optionLabel(model),
-    }));
-
-    if (selectedModel && !models.some((model) => model.value === selectedModel)) {
-      models.push({
-        value: selectedModel,
-        label: `${selectedModel} (current)`,
-      });
-    }
-
-    if (!models.length) {
-      modelOptions = [
-        {
-          value: "",
-          label: "No models available",
-        },
-      ];
-      modelId = "";
-      return;
-    }
-
-    modelOptions = models;
-    modelId = selectedModel || models[0]?.value || "";
+  function populateModelsForProvider(
+    nextProviderId: string,
+    selectedModel: string | null = null,
+  ) {
+    modelOptions = modelOptionsForProvider(
+      providers,
+      nextProviderId,
+      selectedModel,
+    );
+    modelId = modelOptions[0]?.value
+      ? selectedModel || modelOptions[0].value
+      : "";
   }
 
   function setPromptDetailModeForTemplate(template: PromptTemplate | null) {
@@ -342,9 +336,10 @@
     const maxTokenValue = toIntOrNull(maxTokens);
     const topKValue = toIntOrNull(topK);
 
-    const payload: Record<string, unknown> = {
+    const payload: AssistantRuntimePayload = {
       provider_id: providerId || "ollama",
       model_id: modelId || "",
+      prompt_template_id: selectedPromptTemplateId || "rag_chat",
     };
 
     if (tempValue !== null) {
@@ -360,7 +355,7 @@
     }
 
     try {
-      await dkClient.patchSettings(currentUserId, payload);
+      await saveAssistantRuntime(currentUserId, payload);
       showToast("Assistant settings updated");
     } catch (error) {
       alert("Settings save failed: " + errorMessage(error));
@@ -368,19 +363,22 @@
   }
 
   async function loadRuntimeSettings() {
-    const user = await dkClient.getUser();
-    currentUserId = user?.user || "default";
-
-    const [settings, providerData] = await Promise.all([
-      dkClient.getSettings(currentUserId),
-      dkClient.listProviders({ refresh: true }),
-    ]);
+    const {
+      userId,
+      settings,
+      providers: runtimeProviders,
+      runtime,
+    } = await loadAssistantRuntimeData({
+      refresh: true,
+    });
+    currentUserId = userId;
 
     temperature = String(settings?.temperature ?? 0.2);
     maxTokens = String(settings?.max_tokens ?? 512);
     topK = String(settings?.top_k ?? 8);
+    selectedPromptTemplateId = runtime.templateId || "rag_chat";
 
-    providers = providerData?.providers || [];
+    providers = runtimeProviders || [];
 
     if (!providers.length) {
       providers = [
@@ -392,13 +390,8 @@
       ];
     }
 
-    const savedProviderId = String(settings?.provider_id || providers[0]?.id || "ollama");
-
-    providerId = providers.some((provider) => provider.id === savedProviderId)
-      ? savedProviderId
-      : providers[0]?.id || "ollama";
-
-    populateModelsForProvider(providerId, String(settings?.model_id || ""));
+    providerId = runtime.providerId || providers[0]?.id || "ollama";
+    populateModelsForProvider(providerId, runtime.modelId || "");
   }
 
   function selectProfileAction(action: string) {
@@ -422,7 +415,7 @@
       topK = "8";
       loadedPersonaId = null;
       hidePersonaTools();
-      saveActivePersona("");
+      setActivePersona("");
     }
   }
 
@@ -468,8 +461,14 @@
         return;
       }
 
-      const existingTemplateIds = new Set(templates.map((template) => template.id));
-      const newTemplateId = uniqueIdFromName(newTemplateName, existingTemplateIds, "custom_prompt");
+      const existingTemplateIds = new Set(
+        templates.map((template) => template.id),
+      );
+      const newTemplateId = uniqueIdFromName(
+        newTemplateName,
+        existingTemplateIds,
+        "custom_prompt",
+      );
 
       const templatePayload: PromptTemplate = {
         id: newTemplateId,
@@ -494,15 +493,22 @@
       selectedPromptTemplateId = templatePayload.id;
     }
 
-    let activePersonaText = localStorage.getItem("persona") || "";
+    let activePersonaText = getActivePersona();
     let nextPersonaId = selectedPersonaId || loadedPersonaId || "";
 
     if (personaText.trim()) {
       const nextPersonas = loadSavedPersonas();
       let personaId = nextPersonaId;
 
-      if (!personaId || !nextPersonas.some((persona) => persona.id === personaId)) {
-        personaId = uniqueIdFromName(personaName || name, new Set(nextPersonas.map((item) => item.id)), "persona");
+      if (
+        !personaId ||
+        !nextPersonas.some((persona) => persona.id === personaId)
+      ) {
+        personaId = uniqueIdFromName(
+          personaName || name,
+          new Set(nextPersonas.map((item) => item.id)),
+          "persona",
+        );
 
         nextPersonas.push({
           id: personaId,
@@ -517,11 +523,15 @@
       activePersonaText = personaText.trim();
       nextPersonaId = personaId;
       loadedPersonaId = personaId;
-      saveActivePersona(activePersonaText);
+      setActivePersona(activePersonaText);
     }
 
     const profile: SavedProfile = {
-      id: uniqueIdFromName(name, new Set(nextProfiles.map((item) => item.id)), "profile"),
+      id: uniqueIdFromName(
+        name,
+        new Set(nextProfiles.map((item) => item.id)),
+        "profile",
+      ),
       name,
       prompt_template_id: promptTemplateId,
       temperature: toNumberOrNull(temperature) ?? 0.2,
@@ -548,7 +558,9 @@
     }
 
     const nextProfiles = loadSavedProfiles();
-    const index = nextProfiles.findIndex((profile) => profile.id === loadedProfileId);
+    const index = nextProfiles.findIndex(
+      (profile) => profile.id === loadedProfileId,
+    );
 
     if (index === -1) {
       alert("Loaded profile was not found.");
@@ -574,8 +586,14 @@
         return;
       }
 
-      const existingTemplateIds = new Set(templates.map((template) => template.id));
-      const newTemplateId = uniqueIdFromName(newTemplateName, existingTemplateIds, "custom_prompt");
+      const existingTemplateIds = new Set(
+        templates.map((template) => template.id),
+      );
+      const newTemplateId = uniqueIdFromName(
+        newTemplateName,
+        existingTemplateIds,
+        "custom_prompt",
+      );
 
       const templatePayload: PromptTemplate = {
         id: newTemplateId,
@@ -600,14 +618,17 @@
       selectedPromptTemplateId = templatePayload.id;
     }
 
-    let activePersonaText = localStorage.getItem("persona") || "";
+    let activePersonaText = getActivePersona();
     let nextPersonaId = selectedPersonaId || loadedPersonaId || "";
 
     if (personaText.trim()) {
       const nextPersonas = loadSavedPersonas();
       let personaId = nextPersonaId;
 
-      if (!personaId || !nextPersonas.some((persona) => persona.id === personaId)) {
+      if (
+        !personaId ||
+        !nextPersonas.some((persona) => persona.id === personaId)
+      ) {
         personaId = uniqueIdFromName(
           personaName || nextProfiles[index].name,
           new Set(nextPersonas.map((item) => item.id)),
@@ -627,7 +648,7 @@
       activePersonaText = personaText.trim();
       nextPersonaId = personaId;
       loadedPersonaId = personaId;
-      saveActivePersona(activePersonaText);
+      setActivePersona(activePersonaText);
     }
 
     nextProfiles[index] = {
@@ -664,10 +685,14 @@
     }
 
     if (profileAction === "delete") {
-      const confirmed = confirm(`Delete profile "${profile.name || profile.id}"?`);
+      const confirmed = confirm(
+        `Delete profile "${profile.name || profile.id}"?`,
+      );
       if (!confirmed) return;
 
-      const updated = nextProfiles.filter((item) => item.id !== selectedProfileId);
+      const updated = nextProfiles.filter(
+        (item) => item.id !== selectedProfileId,
+      );
       saveSavedProfiles(updated);
 
       if (loadedProfileId === selectedProfileId) {
@@ -712,12 +737,14 @@
         modelId = profile.model_id;
       }
 
-      saveActivePersona(profile.persona_text || "");
+      setActivePersona(profile.persona_text || "");
       loadedPersonaId = profile.persona_id || null;
       resetPersonaAction();
 
       if (profile.persona_text) {
-        const matchingPersona = loadSavedPersonas().find((item) => item.id === loadedPersonaId);
+        const matchingPersona = loadSavedPersonas().find(
+          (item) => item.id === loadedPersonaId,
+        );
 
         personaName = matchingPersona?.name || "Profile Persona";
         personaText = profile.persona_text;
@@ -751,7 +778,9 @@
     const nextPersonas = loadSavedPersonas();
 
     if (loadedPersonaId) {
-      const index = nextPersonas.findIndex((persona) => persona.id === loadedPersonaId);
+      const index = nextPersonas.findIndex(
+        (persona) => persona.id === loadedPersonaId,
+      );
 
       if (index !== -1) {
         nextPersonas[index] = {
@@ -762,13 +791,17 @@
         };
 
         saveSavedPersonas(nextPersonas);
-        saveActivePersona(text);
+        setActivePersona(text);
         showToast("Persona edits saved");
         return;
       }
     }
 
-    const personaId = uniqueIdFromName(name, new Set(nextPersonas.map((persona) => persona.id)), "persona");
+    const personaId = uniqueIdFromName(
+      name,
+      new Set(nextPersonas.map((persona) => persona.id)),
+      "persona",
+    );
 
     nextPersonas.push({
       id: personaId,
@@ -779,7 +812,7 @@
 
     saveSavedPersonas(nextPersonas);
     loadedPersonaId = personaId;
-    saveActivePersona(text);
+    setActivePersona(text);
     showToast("Persona saved and applied");
   }
 
@@ -802,20 +835,24 @@
       loadedPersonaId = persona.id;
       personaName = persona.name || "";
       personaText = persona.text || "";
-      saveActivePersona(persona.text || "");
+      setActivePersona(persona.text || "");
       showToast(`Loaded persona: ${persona.name || persona.id}`);
       return;
     }
 
     if (personaAction === "delete") {
-      const confirmed = confirm(`Delete persona "${persona.name || persona.id}"?`);
+      const confirmed = confirm(
+        `Delete persona "${persona.name || persona.id}"?`,
+      );
       if (!confirmed) return;
 
-      const updated = nextPersonas.filter((item) => item.id !== selectedPersonaId);
+      const updated = nextPersonas.filter(
+        (item) => item.id !== selectedPersonaId,
+      );
       saveSavedPersonas(updated);
 
-      if ((localStorage.getItem("persona") || "") === (persona.text || "")) {
-        saveActivePersona("");
+      if (getActivePersona() === (persona.text || "")) {
+        setActivePersona("");
       }
 
       if (loadedPersonaId === selectedPersonaId) {
@@ -877,7 +914,11 @@
       return;
     }
 
-    if (loadedProfileId && currentTemplate?.id && templateSelect !== NONE_VALUE) {
+    if (
+      loadedProfileId &&
+      currentTemplate?.id &&
+      templateSelect !== NONE_VALUE
+    ) {
       const payload: PromptTemplate = {
         ...currentTemplate,
         id: currentTemplate.id,
@@ -886,7 +927,8 @@
         system,
         user_format: currentTemplate.user_format || "{user}",
         context_item_format:
-          currentTemplate.context_item_format || "- {chunk} (source: {source|unknown})",
+          currentTemplate.context_item_format ||
+          "- {chunk} (source: {source|unknown})",
         context_header: currentTemplate.context_header || "Relevant context:",
         context_join: currentTemplate.context_join || "\n",
         persona_format: currentTemplate.persona_format || "Persona: {persona}",
@@ -895,8 +937,11 @@
           typeof currentTemplate.include_history === "boolean"
             ? currentTemplate.include_history
             : true,
-        temperature: toNumberOrNull(temperature) ?? Number(currentTemplate.temperature ?? 0.2),
-        max_tokens: toIntOrNull(maxTokens) ?? Number(currentTemplate.max_tokens ?? 512),
+        temperature:
+          toNumberOrNull(temperature) ??
+          Number(currentTemplate.temperature ?? 0.2),
+        max_tokens:
+          toIntOrNull(maxTokens) ?? Number(currentTemplate.max_tokens ?? 512),
         top_k: toIntOrNull(topK) ?? Number(currentTemplate.top_k ?? 8),
       };
 
@@ -912,9 +957,12 @@
   }
 
   async function deleteSelectedTemplate() {
-    if (!templateSelect || protectedTemplateIds.includes(templateSelect)) return;
+    if (!templateSelect || protectedTemplateIds.includes(templateSelect))
+      return;
 
-    const selectedTemplate = templates.find((template) => template.id === templateSelect);
+    const selectedTemplate = templates.find(
+      (template) => template.id === templateSelect,
+    );
     const label = selectedTemplate?.name || templateSelect;
 
     const confirmed = confirm(
@@ -1003,7 +1051,11 @@
 
     try {
       await loadRuntimeSettings();
-      await loadTemplateList(NONE_VALUE);
+      await loadTemplateList(
+        selectedPromptTemplateId === "rag_chat"
+          ? NONE_VALUE
+          : selectedPromptTemplateId,
+      );
     } catch (error) {
       alert("Assistant settings failed to load: " + errorMessage(error));
     }
@@ -1050,7 +1102,10 @@
       <div>
         <div class="api-key-provider-name">{provider.label || provider.id}</div>
 
-        <div class:connected={provider.available} class="api-key-provider-status">
+        <div
+          class:connected={provider.available}
+          class="api-key-provider-status"
+        >
           {#if provider.available}
             Connected
           {:else}
@@ -1068,11 +1123,16 @@
         placeholder={provider.has_api_key ? "Saved API key" : "API key"}
         disabled={!provider.api_key_required}
         value={apiKeyInputs[provider.id] || ""}
-        oninput={(event) => setApiKeyInput(provider.id, event.currentTarget.value)}
+        oninput={(event) =>
+          setApiKeyInput(provider.id, event.currentTarget.value)}
       />
 
       <div class="api-key-provider-actions">
-        <button type="button" class="btn api-key-save" onclick={() => saveProviderApiKey(provider)}>
+        <button
+          type="button"
+          class="btn api-key-save"
+          onclick={() => saveProviderApiKey(provider)}
+        >
           Save
         </button>
 
@@ -1128,7 +1188,12 @@
     {#if showProfileSelect}
       <div class="row" id="profile_select_row">
         <label for="profile_select">Saved Profile</label>
-        <select id="profile_select" class="input" bind:value={selectedProfileId} disabled={!profiles.length}>
+        <select
+          id="profile_select"
+          class="input"
+          bind:value={selectedProfileId}
+          disabled={!profiles.length}
+        >
           {#if profiles.length}
             <option value="">Select a profile</option>
 
@@ -1145,19 +1210,34 @@
     {#if showProfileActions || showProfileSaveEdits}
       <div class="row" id="profile_actions">
         {#if showProfileConfirm}
-          <button type="button" class="btn" id="profile_confirm" onclick={confirmProfileAction}>
+          <button
+            type="button"
+            class="btn"
+            id="profile_confirm"
+            onclick={confirmProfileAction}
+          >
             Confirm
           </button>
         {/if}
 
         {#if showProfileSave}
-          <button type="button" class="btn" id="profile_save" onclick={saveCurrentProfile}>
+          <button
+            type="button"
+            class="btn"
+            id="profile_save"
+            onclick={saveCurrentProfile}
+          >
             Save Profile
           </button>
         {/if}
 
         {#if showProfileSaveEdits}
-          <button type="button" class="btn" id="profile_save_edits" onclick={saveLoadedProfileEdits}>
+          <button
+            type="button"
+            class="btn"
+            id="profile_save_edits"
+            onclick={saveLoadedProfileEdits}
+          >
             Save Edits
           </button>
         {/if}
@@ -1259,7 +1339,12 @@
     {#if showPersonaSelect}
       <div class="row" id="persona_select_row">
         <label for="persona_select">Saved Persona</label>
-        <select id="persona_select" class="input" bind:value={selectedPersonaId} disabled={!personas.length}>
+        <select
+          id="persona_select"
+          class="input"
+          bind:value={selectedPersonaId}
+          disabled={!personas.length}
+        >
           {#if personas.length}
             <option value="">Select a persona</option>
 
@@ -1275,7 +1360,12 @@
 
     {#if showPersonaConfirm}
       <div class="row" id="persona_confirm_row">
-        <button type="button" class="btn" id="persona_confirm" onclick={confirmPersonaAction}>
+        <button
+          type="button"
+          class="btn"
+          id="persona_confirm"
+          onclick={confirmPersonaAction}
+        >
           Confirm
         </button>
       </div>
@@ -1307,7 +1397,12 @@
           </div>
 
           <div class="row">
-            <button type="button" class="btn" id="persona_save" onclick={savePersona}>
+            <button
+              type="button"
+              class="btn"
+              id="persona_save"
+              onclick={savePersona}
+            >
               {#if loadedPersonaId}
                 Save Persona Edits
               {:else}
@@ -1363,7 +1458,6 @@
           <input
             id="assistant_max_tokens"
             class="input"
-            type="number"
             min="1"
             step="1"
             placeholder="512"
@@ -1387,7 +1481,12 @@
           Manage MCP's
         </button>
 
-        <button type="button" class="btn" id="manage_api_keys" onclick={openApiKeyManager}>
+        <button
+          type="button"
+          class="btn"
+          id="manage_api_keys"
+          onclick={openApiKeyManager}
+        >
           Manage API Keys
         </button>
       </div>
@@ -1449,7 +1548,12 @@
         }
       }}
     >
-      <div class="api-key-manager" role="dialog" aria-modal="true" aria-labelledby="api-key-manager-title">
+      <div
+        class="api-key-manager"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="api-key-manager-title"
+      >
         <div class="api-key-manager-head">
           <h2 id="api-key-manager-title">API Keys</h2>
           <button
