@@ -11,6 +11,7 @@
   } from "$lib/assistantState";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
   import { errorMessage } from "$lib/errors";
+  import { AssistantApiKeyPopup } from "$lib/popups";
   import { dkClient, type PromptTemplate, type ProviderRecord } from "$lib/sdk";
   import type { WindowInstanceProps } from "./index.ts";
 
@@ -18,6 +19,7 @@
     id,
     title,
     closable = false,
+    height = null,
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
@@ -49,12 +51,6 @@
     persona_text?: string;
     created_at?: string;
     updated_at?: string;
-  };
-
-  type ApiKeyRow = ProviderRecord & {
-    available?: boolean;
-    api_key_required?: boolean;
-    has_api_key?: boolean;
   };
 
   let currentUserId = $state("default");
@@ -91,8 +87,6 @@
   let personas = $state<SavedPersona[]>([]);
 
   let apiKeyManagerOpen = $state(false);
-  let apiKeyProvidersPromise = $state<Promise<ApiKeyRow[]> | null>(null);
-  let apiKeyInputs = $state<Record<string, string>>({});
 
   let toastMessage = $state("");
 
@@ -991,58 +985,8 @@
     await saveRuntimeSettings();
   }
 
-  async function fetchApiKeyProviders() {
-    const data = await dkClient.listProviders({
-      includeUnavailable: true,
-      refresh: true,
-    });
-
-    return (data?.providers || []) as ApiKeyRow[];
-  }
-
   function openApiKeyManager() {
     apiKeyManagerOpen = true;
-    apiKeyInputs = {};
-    apiKeyProvidersPromise = fetchApiKeyProviders();
-  }
-
-  function setApiKeyInput(providerId: string, value: string) {
-    apiKeyInputs = {
-      ...apiKeyInputs,
-      [providerId]: value,
-    };
-  }
-
-  async function saveProviderApiKey(provider: ApiKeyRow) {
-    const key = (apiKeyInputs[provider.id] || "").trim();
-
-    if (provider.api_key_required && !key) {
-      showToast("Enter an API key to save");
-      return;
-    }
-
-    try {
-      await dkClient.patchProvider(provider.id, {
-        api_key: key,
-      });
-
-      await loadRuntimeSettings();
-      apiKeyProvidersPromise = fetchApiKeyProviders();
-      showToast("Provider saved");
-    } catch (error) {
-      alert("Provider save failed: " + errorMessage(error));
-    }
-  }
-
-  async function clearProviderApiKey(provider: ApiKeyRow) {
-    try {
-      await dkClient.clearProviderApiKey(provider.id);
-      await loadRuntimeSettings();
-      apiKeyProvidersPromise = fetchApiKeyProviders();
-      showToast("API key cleared");
-    } catch (error) {
-      alert("API key clear failed: " + errorMessage(error));
-    }
   }
 
   async function initialize() {
@@ -1096,63 +1040,11 @@
   </button>
 {/snippet}
 
-{#snippet apiKeyProviderRow(provider: ApiKeyRow)}
-  <div class="api-key-provider-row">
-    <div class="api-key-provider-main">
-      <div>
-        <div class="api-key-provider-name">{provider.label || provider.id}</div>
-
-        <div
-          class:connected={provider.available}
-          class="api-key-provider-status"
-        >
-          {#if provider.available}
-            Connected
-          {:else}
-            Not connected
-          {/if}
-        </div>
-      </div>
-    </div>
-
-    <div class="api-key-provider-controls">
-      <input
-        class="input api-key-input"
-        type="password"
-        autocomplete="off"
-        placeholder={provider.has_api_key ? "Saved API key" : "API key"}
-        disabled={!provider.api_key_required}
-        value={apiKeyInputs[provider.id] || ""}
-        oninput={(event) =>
-          setApiKeyInput(provider.id, event.currentTarget.value)}
-      />
-
-      <div class="api-key-provider-actions">
-        <button
-          type="button"
-          class="btn api-key-save"
-          onclick={() => saveProviderApiKey(provider)}
-        >
-          Save
-        </button>
-
-        <button
-          type="button"
-          class="btn api-key-clear"
-          disabled={!provider.api_key_required}
-          onclick={() => clearProviderApiKey(provider)}
-        >
-          Clear
-        </button>
-      </div>
-    </div>
-  </div>
-{/snippet}
-
 <BaseWindow
   {id}
   {title}
   {closable}
+  {height}
   {collapsed}
   {onToggleCollapse}
   {onClose}
@@ -1537,58 +1429,14 @@
   {#if toastMessage}
     <div class="toast show">{toastMessage}</div>
   {/if}
-
-  {#if apiKeyManagerOpen}
-    <div
-      class="api-key-manager-overlay"
-      role="presentation"
-      onclick={(event) => {
-        if (event.currentTarget === event.target) {
-          apiKeyManagerOpen = false;
-        }
-      }}
-    >
-      <div
-        class="api-key-manager"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="api-key-manager-title"
-      >
-        <div class="api-key-manager-head">
-          <h2 id="api-key-manager-title">API Keys</h2>
-          <button
-            type="button"
-            class="btn api-key-manager-close"
-            aria-label="Close"
-            onclick={() => (apiKeyManagerOpen = false)}
-          >
-            Close
-          </button>
-        </div>
-
-        <div class="api-key-provider-list">
-          {#if apiKeyProvidersPromise}
-            {#await apiKeyProvidersPromise}
-              <div class="api-key-manager-empty">Loading providers...</div>
-            {:then apiKeyProviders}
-              {#each apiKeyProviders as provider (provider.id)}
-                {@render apiKeyProviderRow(provider)}
-              {:else}
-                <div class="api-key-manager-empty">No providers found.</div>
-              {/each}
-            {:catch error}
-              <div class="api-key-manager-empty">
-                Provider load failed: {errorMessage(error)}
-              </div>
-            {/await}
-          {:else}
-            <div class="api-key-manager-empty">Loading providers...</div>
-          {/if}
-        </div>
-      </div>
-    </div>
-  {/if}
 </BaseWindow>
+
+<AssistantApiKeyPopup
+  open={apiKeyManagerOpen}
+  onClose={() => (apiKeyManagerOpen = false)}
+  onChanged={loadRuntimeSettings}
+  onToast={showToast}
+/>
 
 <style>
   .assistant-action-buttons .active {
@@ -1637,84 +1485,6 @@
     transform: translateY(0);
   }
 
-  .api-key-manager-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.45);
-  }
-
-  .api-key-manager {
-    width: min(720px, calc(100vw - 32px));
-    max-height: min(720px, calc(100vh - 32px));
-    overflow: auto;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-    color: var(--text);
-    padding: 14px;
-    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
-  }
-
-  .api-key-manager-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-
-  .api-key-manager-head h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-
-  .api-key-provider-list {
-    display: grid;
-    gap: 10px;
-  }
-
-  .api-key-provider-row {
-    display: grid;
-    grid-template-columns: minmax(160px, 1fr) minmax(260px, 2fr);
-    gap: 12px;
-    align-items: center;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 10px;
-  }
-
-  .api-key-provider-name {
-    font-weight: 600;
-  }
-
-  .api-key-provider-status {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .api-key-provider-status.connected {
-    color: var(--accent);
-  }
-
-  .api-key-provider-controls {
-    display: grid;
-    gap: 8px;
-  }
-
-  .api-key-provider-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  .api-key-manager-empty {
-    color: var(--muted);
-    padding: 12px;
-  }
-
   @media (max-width: 720px) {
     .assistant-compact-row {
       flex-wrap: wrap !important;
@@ -1727,10 +1497,6 @@
 
     .assistant-manage-buttons {
       margin-left: 0 !important;
-    }
-
-    .api-key-provider-row {
-      grid-template-columns: 1fr;
     }
   }
 </style>

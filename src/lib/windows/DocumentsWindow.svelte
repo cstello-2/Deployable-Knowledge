@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import TagMenu from "$lib/components/TagMenu.svelte";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import {
     DocumentFilePickerPopup,
     DocumentProgressPopup,
@@ -36,6 +37,7 @@
     id,
     title,
     closable = false,
+    height = null,
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
@@ -486,6 +488,7 @@
   {id}
   {title}
   {closable}
+  {height}
   {collapsed}
   {onToggleCollapse}
   {onClose}
@@ -510,9 +513,10 @@
             type="button"
             onclick={() => toggleFilter(tag)}
           >
-            <span>#{tag}</span><span class="tag-chip-x" aria-hidden="true"
-              >x</span
-            >
+            <span>#{tag}</span>
+            <span class="tag-chip-x" aria-hidden="true">
+              <Icon name="close" size={12} />
+            </span>
           </button>
         {/each}
 
@@ -520,9 +524,11 @@
           <button
             class="tag-chip"
             type="button"
+            title="Add tag filter"
+            aria-label="Add tag filter"
             onclick={() => (tagMenuOpen = !tagMenuOpen)}
           >
-            +
+            <Icon name="local_offer" size={14} />
           </button>
           {#if tagMenuOpen}
             <TagMenu
@@ -651,10 +657,10 @@
                           type="button"
                           onclick={() => removeDocTag(doc, tag)}
                         >
-                          <span>#{tag}</span><span
-                            class="tag-chip-x"
-                            aria-hidden="true">x</span
-                          >
+                          <span>#{tag}</span>
+                          <span class="tag-chip-x" aria-hidden="true">
+                            <Icon name="close" size={12} />
+                          </span>
                         </button>
                       {/each}
 
@@ -662,11 +668,13 @@
                         <button
                           class="tag-chip"
                           type="button"
+                          title="Edit document tags"
+                          aria-label="Edit document tags"
                           onclick={() =>
                             (docTagMenu =
                               docTagMenu === doc.id ? null : doc.id)}
                         >
-                          +
+                          <Icon name="local_offer" size={14} />
                         </button>
                         {#if docTagMenu === doc.id}
                           <TagMenu

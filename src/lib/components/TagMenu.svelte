@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from "$lib/components/Icon.svelte";
+
   type Props = {
     tags: string[];
     selected?: string[];
@@ -40,8 +42,10 @@
             onclick={(event) => {
               event.stopPropagation();
               onRemove(tag);
-            }}>x</span
+            }}
           >
+            <Icon name="close" size={12} />
+          </span>
         {/if}
       </button>
     {:else}

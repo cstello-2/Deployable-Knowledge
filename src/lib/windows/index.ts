@@ -10,6 +10,7 @@ export type WindowInstanceProps = {
   id: string;
   title: string;
   closable?: boolean;
+  height?: number | null;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   onClose?: () => void;

@@ -373,12 +373,22 @@ textarea:disabled {
 	border-radius: 999px;
 	color: var(--muted);
 	line-height: 1;
+	opacity: 0;
 	place-items: center;
+	transform: scale(0.85);
+	transition:
+		opacity 120ms ease,
+		transform 120ms ease,
+		background 120ms ease,
+		color 120ms ease;
 }
 
-.tag-chip:hover .tag-chip-x {
+.tag-chip:hover .tag-chip-x,
+.tag-chip:focus-visible .tag-chip-x {
 	background: color-mix(in oklab, var(--accent) 18%, transparent);
 	color: var(--text);
+	opacity: 1;
+	transform: scale(1);
 }
 
 .tag-menu {
@@ -715,7 +725,7 @@ textarea:disabled {
 	scrollbar-width: thin;
 }
 
-.miniwin[data-window-id="chat-window"] {
+.miniwin[data-window-id="chat-window"]:not(.collapsed) {
 	min-height: 420px;
 }
 
