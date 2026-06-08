@@ -72,7 +72,10 @@ async def front_door(request: Request, q: str = ""):
 @router.get("/begin")
 async def begin(request: Request):
     """Legacy auth entrypoint retained for compatibility in local mode."""
-    return RedirectResponse(url="/", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    manager = request.app.state.session_manager
+    manager.ensure(request, response, user_id="local-user")
+    return response
 
 
 @router.get("/logout")
