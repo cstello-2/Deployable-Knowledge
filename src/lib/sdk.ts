@@ -71,6 +71,7 @@ export type DocumentSummary = {
 	id?: string;
 	title?: string;
 	source?: string;
+	segments?: number;
 	segment_count?: number;
 	tags?: string[];
 	active?: boolean;
@@ -118,12 +119,26 @@ export type DirectoryResponse = {
 };
 
 export type FolderListResponse = {
-	folders: unknown[];
-	groups?: unknown[];
+	folders: string[];
+	groups?: FolderGroup[];
 	[key: string]: unknown;
 };
 
+export type FolderDocument = {
+	source_path: string;
+	source_name: string;
+	has_segments: boolean;
+	mtime_ns?: number | null;
+	size?: number | null;
+};
+
+export type FolderGroup = {
+	path: string;
+	documents: FolderDocument[];
+};
+
 export type ProgressResponse = {
+	status?: string;
 	label?: string;
 	phase?: string;
 	current?: number;

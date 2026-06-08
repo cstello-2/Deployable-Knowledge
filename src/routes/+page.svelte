@@ -118,7 +118,7 @@
 	.col {
 		position: relative;
 		min-width: 220px;
-		padding: 16px;
+		padding: 0px;
 		overflow: auto;
 		border-right: 1px solid var(--border);
 		flex: 1 1 50%;
