@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
-  import { assistantRuntime, loadAssistantRuntime } from "$lib/assistantState";
+  import { assistantRuntime, getActivePersona, loadAssistantRuntime } from "$lib/assistantState";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
+  import { errorMessage } from "$lib/errors";
   import {
     currentSessionId,
     refreshSessions,
@@ -113,10 +114,6 @@
     messages = messages.filter((message) => message.id !== messageId);
   }
 
-  function errorMessage(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
-  }
-
   function escapeHtml(value = "") {
     return value
       .replaceAll("&", "&amp;")
@@ -210,7 +207,7 @@
   }
 
   function readPersona() {
-    return localStorage.getItem("persona") || "";
+    return getActivePersona();
   }
 
   function extractSources(data: unknown) {
