@@ -24,6 +24,9 @@
 	--border: hsl(var(--h) 18% var(--l-border));
 	--accent: hsl(var(--h) 90% 68%);
 	--accent-2: hsl(calc(var(--h) + 80) 60% 60%);
+	--danger-but: hsl(0 40% 80%);
+	--danger-bor: hsl(0 40% 28%);
+	--danger-hov: hsl(0 40% 70%);
 	--shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
 	--radius: 12px;
 	--backdrop: rgba(2, 6, 12, 0.55);
@@ -57,6 +60,9 @@
 	--l-elev: 16%;
 	--l-border: 20%;
 	--l-muted: 65%;
+	--danger-but: hsl(0 40% 40%);
+	--danger-bor: hsl(0 40% 48%);
+	--danger-hov: hsl(0 40% 50%);
 }
 
 :root[data-theme-color="high contrast"][data-theme-mode="dark"] {
@@ -71,6 +77,9 @@
 	--l-muted: 90%;
 	--text: rgb(0, 255, 154);
 	--muted: rgb(255, 169, 76);
+	--danger-but: rgb(121, 23, 23);
+	--danger-bor: hsl(0 40% 48%);
+	--danger-hov: rgb(255, 30, 30);
 	--accent: rgb(255, 86, 86);
 	--accent-2: rgb(254, 64, 227);
 	--radius: 15px;
@@ -88,6 +97,9 @@
 	--l-muted: 90%;
 	--text: rgb(51, 53, 0);
 	--muted: rgb(85, 0, 95);
+	--danger-but: rgb(216, 3, 3);
+	--danger-bor: hsl(0 40% 48%);
+	--danger-hov: rgb(0, 0, 0);
 	--accent: rgb(1, 58, 60);
 	--accent-2: rgb(254, 64, 227);
 	--radius: 15px;
@@ -114,6 +126,225 @@ input,
 textarea,
 select {
 	font: inherit;
+}
+
+.form {
+	display: grid;
+	gap: 12px;
+}
+
+.form .row {
+	display: grid;
+	gap: 8px;
+}
+
+.form label {
+	color: var(--muted);
+	font-size: 12px;
+	letter-spacing: 0.3px;
+}
+
+.input,
+.textarea,
+input:not([type]),
+input[type="email"],
+input[type="number"],
+input[type="password"],
+input[type="search"],
+input[type="text"],
+input[type="url"],
+select,
+textarea {
+	width: 100%;
+	padding: 10px 12px;
+	border: 1px solid hsl(var(--h) var(--sat) var(--l-border));
+	border-radius: 12px;
+	outline: none;
+	background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 4%));
+	color: var(--text);
+}
+
+.input:focus,
+.textarea:focus,
+input:not([type]):focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="text"]:focus,
+input[type="url"]:focus,
+select:focus,
+textarea:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+.textarea,
+textarea {
+	min-height: 120px;
+	resize: vertical;
+}
+
+::placeholder {
+	color: var(--muted);
+	opacity: 0.8;
+}
+
+.btn,
+button {
+	display: inline-flex;
+	min-height: 30px;
+  min-width: 30px;
+	align-items: center;
+	justify-content: center;
+	padding: 6px 10px;
+	border: 1px solid hsl(var(--h) var(--sat) var(--l-border));
+	border-radius: 10px;
+	appearance: none;
+	background: hsl(var(--h) var(--sat) var(--l-panel));
+	color: var(--text);
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.btn:hover,
+button:hover {
+	border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+}
+
+.btn:active,
+button:active {
+	transform: translateY(1px);
+}
+
+.btn:disabled,
+button:disabled,
+.input:disabled,
+.textarea:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.btn-danger {
+	border-color: var(--danger-bor);
+	background: var(--danger-but);
+}
+
+.btn-danger:hover {
+	border-color: var(--danger-bor);
+	background: var(--danger-hov);
+}
+
+.btn-primary {
+	border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+	background: color-mix(in oklab, var(--accent) 18%, hsl(var(--h) var(--sat) var(--l-panel)));
+	color: var(--text);
+}
+
+.btn-sm,
+.btn.btn-sm {
+	min-height: 24px;
+	padding: 4px 8px;
+	border-radius: 8px;
+	font-size: 11px;
+}
+
+.btn-icon,
+.btn.btn-icon {
+	display: inline-grid;
+	width: 28px;
+	min-width: 28px;
+	max-width: 28px;
+	height: 28px;
+	min-height: 28px;
+	max-height: 28px;
+	flex: 0 0 28px;
+	place-items: center;
+	padding: 0;
+	border-radius: 999px;
+	line-height: 1;
+}
+
+.icon-btn {
+	padding: 6px 8px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	appearance: none;
+	background: hsl(var(--h) var(--sat) var(--l-panel));
+	color: var(--muted);
+	cursor: pointer;
+	font-size: 12px;
+	line-height: 1;
+}
+
+.icon-btn:hover {
+	border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+	color: var(--text);
+}
+
+:root[data-theme-color="high contrast"] body,
+:root[data-theme-color="high contrast"] button,
+:root[data-theme-color="high contrast"] input,
+:root[data-theme-color="high contrast"] textarea,
+:root[data-theme-color="high contrast"] select {
+	font-family: "Cascadia Code", monospace;
+	font-weight: 400;
+}
+
+:root[data-theme-color="high contrast"] .input,
+:root[data-theme-color="high contrast"] input:not([type]),
+:root[data-theme-color="high contrast"] input[type="email"],
+:root[data-theme-color="high contrast"] input[type="number"],
+:root[data-theme-color="high contrast"] input[type="password"],
+:root[data-theme-color="high contrast"] input[type="search"],
+:root[data-theme-color="high contrast"] input[type="text"],
+:root[data-theme-color="high contrast"] input[type="url"],
+:root[data-theme-color="high contrast"] select,
+:root[data-theme-color="high contrast"] textarea {
+	opacity: 1;
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] .input,
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input:not([type]),
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="email"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="number"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="password"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="search"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="text"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] input[type="url"],
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] select,
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] textarea {
+	color: rgb(206, 93, 151);
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] ::placeholder {
+	color: rgb(206, 93, 151);
+	opacity: 1;
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="light"] .input,
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input:not([type]),
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="email"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="number"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="password"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="search"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="text"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] input[type="url"],
+:root[data-theme-color="high contrast"][data-theme-mode="light"] select,
+:root[data-theme-color="high contrast"][data-theme-mode="light"] textarea {
+	color: rgb(59, 65, 22);
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="light"] ::placeholder {
+	color: rgb(59, 65, 22);
+	opacity: 1;
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="light"] .btn-danger {
+	color: rgb(255, 255, 255);
 }
 
 .col::-webkit-scrollbar {
