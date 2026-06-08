@@ -1,6 +1,6 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   import type { Snippet } from "svelte";
-  import BaseWindow from "./BaseWindow.svelte";
 
   type Props = {
     open: boolean;
@@ -18,7 +18,7 @@
     open,
     id = "popup",
     title,
-    contentLabel = `${title} popup`,
+    contentLabel = title,
     closeOnBackdrop = true,
     closable = true,
     width = "520px",
@@ -38,16 +38,78 @@
     onpointerdown={handleBackdropPointerDown}
   >
     <div class="popup-stage" role="presentation" style:--popup-width={width}>
-      <BaseWindow {id} {title} {contentLabel} modal {closable} {onClose}>
+      <div
+        {id}
+        class="popup-container"
+        class:closable
+        role="dialog"
+        aria-modal="true"
+        aria-label={contentLabel}
+      >
+        {#if closable}
+          <div class="popup-topbar">
+            <button
+              class="popup-close"
+              type="button"
+              title="Close"
+              aria-label="Close"
+              onclick={onClose}
+            >
+              <Icon name="close" size={18} />
+            </button>
+          </div>
+        {/if}
+
         {#if children}
           {@render children()}
         {/if}
-      </BaseWindow>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
+  .popup-container {
+    position: relative;
+    display: flex;
+    min-height: var(--titlebar-height);
+    max-height: 100%;
+    padding: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel), var(--elev));
+    box-shadow: var(--shadow);
+    outline: none;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .popup-topbar {
+    display: flex;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+  }
+
+  .popup-close {
+    display: inline-grid;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    color: var(--muted);
+    cursor: pointer;
+    place-items: center;
+  }
+
+  .popup-close:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+    color: var(--text);
+  }
+
   .popup-wrap {
     position: fixed;
     inset: 0;

@@ -1,9 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import '@material-design-icons/font/filled.css';
 	import '$lib/styles/base.css';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import favicon from '$lib/assets/favicon.svg';
+	import { initWindowStateStorage } from '$lib/windowState';
 
 	let { children } = $props();
+
+	onMount(() => {
+		initWindowStateStorage();
+	});
 </script>
 
 <svelte:head>

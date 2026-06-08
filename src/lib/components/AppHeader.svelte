@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import ThemePopup from "$lib/popups/ThemePopup.svelte";
   import {
     currentUser,
@@ -73,7 +74,7 @@
         }}
       >
         Menu
-        <span aria-hidden="true">▾</span>
+        <Icon name="expand_more" size={16} />
       </button>
 
       {#if menuOpen}
@@ -107,7 +108,7 @@
         }}
       >
         Tools
-        <span aria-hidden="true">▾</span>
+        <Icon name="expand_more" size={16} />
       </button>
 
       {#if toolsOpen}
@@ -142,7 +143,7 @@
         onclick={toggleUserMenu}
       >
         {$currentUser?.user || "User"}
-        <span aria-hidden="true">▾</span>
+        <Icon name="expand_more" size={16} />
       </button>
       {#if userOpen}
         <div class="menu-dropdown user-dropdown" role="menu">
@@ -206,6 +207,9 @@
   }
 
   .menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: hsl(var(--h) var(--sat) var(--l-panel));

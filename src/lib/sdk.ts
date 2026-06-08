@@ -40,9 +40,11 @@ export type ChatRequest = {
 };
 
 export type ChatResponse = {
+	text?: string;
 	response?: string;
 	html_response?: string;
 	sources?: unknown[];
+	context?: unknown[];
 	usage?: Record<string, unknown>;
 	[key: string]: unknown;
 };

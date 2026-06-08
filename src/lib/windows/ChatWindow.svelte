@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
-  import { assistantRuntime, getActivePersona, loadAssistantRuntime } from "$lib/assistantState";
+  import {
+    assistantRuntime,
+    getActivePersona,
+    loadAssistantRuntime,
+  } from "$lib/assistantState";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
   import { errorMessage } from "$lib/errors";
   import {
@@ -8,11 +12,7 @@
     refreshSessions,
     startNewSession,
   } from "$lib/sessionState";
-  import {
-    dkClient,
-    type ChatResponse,
-    type DocumentSummary,
-  } from "$lib/sdk";
+  import { dkClient, type ChatResponse, type DocumentSummary } from "$lib/sdk";
   import type { WindowInstanceProps } from "./index.ts";
 
   type Role = "you" | "assistant";
@@ -29,6 +29,7 @@
     id,
     title,
     closable = false,
+    height = null,
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
@@ -44,8 +45,7 @@
   let aborter: AbortController | null = null;
   let nextMessageId = 1;
 
-  const UUID_RE =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   onMount(() => {
     loadAssistantRuntime().catch((error) => {
@@ -85,7 +85,10 @@
     };
   }
 
-  function assistantMessage(text: string, sources: ChatSource[] = []): ChatMessage {
+  function assistantMessage(
+    text: string,
+    sources: ChatSource[] = [],
+  ): ChatMessage {
     return {
       id: nextMessageId++,
       role: "assistant",
@@ -148,7 +151,9 @@
     return chunks
       .map((chunk) => {
         if (chunk.startsWith("```") && chunk.endsWith("```")) {
-          const code = chunk.replace(/^```[a-zA-Z0-9_-]*\n?/, "").replace(/```$/, "");
+          const code = chunk
+            .replace(/^```[a-zA-Z0-9_-]*\n?/, "")
+            .replace(/```$/, "");
           return `<pre><code>${code}</code></pre>`;
         }
 
@@ -158,7 +163,10 @@
             const lines = block.split("\n");
             if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
               return `<ul>${lines
-                .map((line) => `<li>${renderInlineMarkdown(line.trim().slice(2))}</li>`)
+                .map(
+                  (line) =>
+                    `<li>${renderInlineMarkdown(line.trim().slice(2))}</li>`,
+                )
                 .join("")}</ul>`;
             }
 
@@ -167,27 +175,6 @@
           .join("");
       })
       .join("");
-  }
-
-  function sanitizeServerHtml(value = "") {
-    const template = document.createElement("template");
-    template.innerHTML = value;
-
-    template.content
-      .querySelectorAll("script, style, iframe, object, embed")
-      .forEach((node) => node.remove());
-
-    template.content.querySelectorAll("*").forEach((node) => {
-      for (const attribute of Array.from(node.attributes)) {
-        const name = attribute.name.toLowerCase();
-        const attrValue = attribute.value.trim().toLowerCase();
-        if (name.startsWith("on") || attrValue.startsWith("javascript:")) {
-          node.removeAttribute(attribute.name);
-        }
-      }
-    });
-
-    return template.innerHTML;
   }
 
   function docId(doc: DocumentSummary) {
@@ -215,20 +202,19 @@
     const record = data as Record<string, unknown>;
     const sources = record.sources ?? record.context;
     return Array.isArray(sources)
-      ? sources.filter((source): source is ChatSource => Boolean(source) && typeof source === "object")
+      ? sources.filter(
+          (source): source is ChatSource =>
+            Boolean(source) && typeof source === "object",
+        )
       : [];
   }
 
-  function responseHtml(response: ChatResponse) {
-    const html = response.html_response || response.response || "";
-    return sanitizeServerHtml(String(html || "(no response)"));
+  function responseText(response: ChatResponse) {
+    return String(response.text || response.response || "(no response)");
   }
 
   function responseSources(response: ChatResponse) {
-    const sources = response.sources ?? response.context;
-    return Array.isArray(sources)
-      ? sources.filter((source): source is ChatSource => Boolean(source) && typeof source === "object")
-      : [];
+    return extractSources(response);
   }
 
   async function send() {
@@ -316,9 +302,10 @@
 
       try {
         const response = await dkClient.chat(request);
+        const textValue = responseText(response);
         updateMessage(assistant.id, {
-          text: String(response.response || response.html_response || "(no response)"),
-          html: responseHtml(response),
+          text: textValue,
+          html: renderMarkdown(textValue),
           pending: false,
           sources: responseSources(response).slice(0, 5),
         });
@@ -371,7 +358,11 @@
   }
 
   function sourceName(source: ChatSource) {
-    return sourceText(source, "source", sourceText(source, "title", sourceText(source, "filepath", "source")));
+    return sourceText(
+      source,
+      "source",
+      sourceText(source, "title", sourceText(source, "filepath", "source")),
+    );
   }
 
   function sourceHref(source: ChatSource) {
@@ -385,7 +376,9 @@
   }
 
   function truncateText(text: string, maxChars = 320) {
-    return text.length <= maxChars ? text : `${text.slice(0, maxChars).trimEnd()}...`;
+    return text.length <= maxChars
+      ? text
+      : `${text.slice(0, maxChars).trimEnd()}...`;
   }
 
   function sourcePreview(source: ChatSource) {
@@ -425,6 +418,7 @@
   {id}
   {title}
   {closable}
+  {height}
   {collapsed}
   {onToggleCollapse}
   {onClose}
@@ -432,7 +426,9 @@
 >
   <div class="chat-window">
     {#if status || $assistantRuntime.error}
-      <div class="chat-status li-subtle">{status || $assistantRuntime.error}</div>
+      <div class="chat-status li-subtle">
+        {status || $assistantRuntime.error}
+      </div>
     {/if}
 
     <div class="chat-log" bind:this={logElement} aria-live="polite">
@@ -443,7 +439,11 @@
       {/if}
 
       {#each messages as message (message.id)}
-        <div class="msg" class:you={message.role === "you"} class:assistant={message.role === "assistant"}>
+        <div
+          class="msg"
+          class:you={message.role === "you"}
+          class:assistant={message.role === "assistant"}
+        >
           {#if message.role === "you"}
             {message.text}
           {:else if message.pending}
@@ -466,14 +466,16 @@
                       <div class="chat-source-main">
                         <div class="chat-source-text-block">
                           <span class="chat-source-num">{index + 1}.</span>
-                          <span class="chat-source-text">{sourceDescription(source)}</span>
+                          <span class="chat-source-text"
+                            >{sourceDescription(source)}</span
+                          >
                         </div>
                         <div class="chat-source-action-line">
                           <div class="chat-source-action-left">
                             {#if href}
                               <a
                                 class="btn btn-sm chat-source-btn"
-                                href={href}
+                                {href}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
@@ -507,11 +509,17 @@
         bind:value={draft}
         disabled={busy || $assistantRuntime.loading || !$currentSessionId}
       />
-      <button class="btn" type="button" disabled={busy} onclick={createNewChat}>New Chat</button>
+      <button class="btn" type="button" disabled={busy} onclick={createNewChat}
+        >New Chat</button
+      >
       <button
         class="btn btn-primary"
         type="submit"
-        disabled={busy || $assistantRuntime.loading || !draft.trim() || !$currentSessionId || !$assistantRuntime.modelId}
+        disabled={busy ||
+          $assistantRuntime.loading ||
+          !draft.trim() ||
+          !$currentSessionId ||
+          !$assistantRuntime.modelId}
       >
         Send
       </button>

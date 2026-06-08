@@ -1,4 +1,14 @@
-export { default as AppHeader } from "./components/AppHeader.svelte";
+export { default as AppHeader } from './components/AppHeader.svelte';
+export { assistantRuntime, loadAssistantRuntime } from './assistantState';
+export type { AssistantRuntimeState } from './assistantState';
+export { default as BaseWindow } from './components/BaseWindow.svelte';
+export { default as Icon } from './components/Icon.svelte';
+export { default as Popup } from './components/Popup.svelte';
+export { calcDragPosition, findDraggableWindow, windowDragLayout } from './draggable';
+export type { DragPoint, DragPosition, WindowDragLayoutOptions } from './draggable';
+export { dkClient, DKClient } from './sdk';
+export type * from './sdk';
+
 export {
   assistantRuntime,
   fetchAssistantRuntime,

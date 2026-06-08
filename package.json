@@ -22,5 +22,8 @@
 		"svelte-check": "^4.4.6",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7"
+	},
+	"dependencies": {
+		"@material-design-icons/font": "^0.14.15"
 	}
 }

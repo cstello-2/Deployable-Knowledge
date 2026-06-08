@@ -112,7 +112,8 @@ async def _chat_impl(
         _update_session_metadata(session, message)
         return JSONResponse(
             {
-                "response": html_response,
+                "response": resp.text,
+                "html_response": html_response,
                 "context": [s.model_dump() for s in resp.sources],
                 "chat_summary": session.summary,
                 "chat_title": session.title,

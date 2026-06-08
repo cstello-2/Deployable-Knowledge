@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   import type { Snippet } from "svelte";
 
   type Props = {
@@ -8,6 +9,7 @@
     modal?: boolean;
     closable?: boolean;
     collapsible?: boolean;
+    height?: number | null;
     collapsed?: boolean;
     onToggleCollapse?: () => void;
     onClose?: () => void;
@@ -21,11 +23,16 @@
     modal = false,
     closable = false,
     collapsible = true,
+    height = null,
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
     children,
   }: Props = $props();
+
+  const windowStyle = $derived(
+    !collapsed && height && height > 0 ? `flex: 1 1 ${height}px;` : undefined
+  );
 </script>
 
 <article
@@ -34,11 +41,15 @@
   class:collapsed
   data-window-id={id}
   data-window-modal={modal ? "true" : undefined}
+  style={windowStyle}
   tabindex="-1"
   aria-label={title}
 >
   <header class="titlebar" data-window-handle>
-    <div class="title">{title}</div>
+    <div class="title-row">
+      <Icon name="drag_indicator" size={16} />
+      <div class="title">{title}</div>
+    </div>
     {#if closable || collapsible}
       <div class="actions">
         {#if collapsible}
@@ -49,8 +60,12 @@
             aria-label={collapsed ? "Expand" : "Collapse"}
             aria-pressed={collapsed}
             data-window-action
-            onclick={onToggleCollapse}>{collapsed ? "+" : "-"}</button
+            onclick={onToggleCollapse}
           >
+            <Icon
+              name={collapsed ? "keyboard_arrow_down" : "keyboard_arrow_up"}
+            />
+          </button>
         {/if}
         {#if closable}
           <button
@@ -59,8 +74,10 @@
             title="Close"
             aria-label="Close"
             data-window-action
-            onclick={onClose}>x</button
+            onclick={onClose}
           >
+            <Icon name="close" />
+          </button>
         {/if}
       </div>
     {/if}
@@ -78,13 +95,15 @@
 <style>
   .miniwin {
     display: flex;
-    min-height: 280px;
+    min-height: var(--titlebar-height);
+    max-height: 100%;
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 0;
     background: linear-gradient(180deg, var(--panel), var(--elev));
     box-shadow: var(--shadow);
     outline: none;
+    flex: 1 1 0;
     flex-direction: column;
   }
 
@@ -107,10 +126,14 @@
     );
     align-items: center;
     cursor: grab;
+    flex: 0 0 var(--titlebar-height);
     user-select: none;
   }
 
   .title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
     overflow: hidden;
     font-size: 14px;
     font-weight: 600;
@@ -120,12 +143,31 @@
     white-space: nowrap;
   }
 
+  .title-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+    line-height: 1;
+  }
+
+  .title-row :global(.dk-icon) {
+    color: var(--muted);
+  }
+
   .actions {
     display: flex;
     gap: 6px;
   }
 
   .icon-btn {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    place-items: center;
+    padding: 0;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: hsl(var(--h) var(--sat) var(--l-panel));
@@ -133,7 +175,6 @@
     cursor: pointer;
     font-size: 12px;
     line-height: 1;
-    padding: 4px 8px;
   }
 
   .icon-btn:hover {
@@ -151,19 +192,22 @@
   }
 
   .content-inner {
-    overflow: hidden;
+    overflow: auto;
     min-height: 0;
   }
 
   .collapsed {
-    min-height: 0;
+    min-height: var(--titlebar-height);
+    flex: 0 0 auto;
   }
 
   .collapsed .content {
     grid-template-rows: 0fr;
+    min-height: 0;
     padding-top: 0;
     padding-bottom: 0;
     opacity: 0;
+    flex: 0 0 0;
   }
 
   :global(.miniwin.dragging) {
