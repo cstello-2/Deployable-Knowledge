@@ -336,10 +336,13 @@ class SessionManager:
         if now >= sess.expires_at:
             self.store.delete(sess.session_id)
             raise HTTPException(status_code=401, detail="Session expired.")
-        idle = timedelta(minutes=self.settings.idle_timeout_minutes)
-        if now - sess.last_seen > idle:
-            self.store.delete(sess.session_id)
-            raise HTTPException(status_code=401, detail="Session idle timeout.")
+
+        # NOTE: sessions expiring right now doesn't make sense because there will always be one user
+        # idle = timedelta(minutes=self.settings.idle_timeout_minutes)
+        # if now - sess.last_seen > idle:
+        #     self.store.delete(sess.session_id)
+        #     raise HTTPException(status_code=401, detail="Session idle timeout.")
+
         self._validate_binding(sess, request)
         if require_csrf and request.method not in SAFE_METHODS:
             self._validate_csrf(sess, request)
