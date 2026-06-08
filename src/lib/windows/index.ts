@@ -1,3 +1,4 @@
+import AssistantSettings from "./AssistantSettings.svelte";
 import ChatWindow from "./ChatWindow.svelte";
 import DocumentsWindow from "./DocumentsWindow.svelte";
 
@@ -31,5 +32,11 @@ export const windowDefinitions = [
     title: "Assistant Chat",
     column: "right",
     component: ChatWindow,
+  },
+    {
+    id: "assistant-settings",
+    title: "Assistant Settings",
+    column: "right",
+    component: AssistantSettings,
   },
 ] satisfies WindowDefinition[];
