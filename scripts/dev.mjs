@@ -59,6 +59,8 @@ function runProcess(name, command, args = [], options = {}) {
       console.log(`[${name}] exited with code ${code}`);
     }
   });
+
+  return child;
 }
 
 function runFrontend() {

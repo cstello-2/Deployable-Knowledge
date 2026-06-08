@@ -1,4 +1,6 @@
 export { default as AppHeader } from './components/AppHeader.svelte';
+export { assistantRuntime, loadAssistantRuntime } from './assistantState';
+export type { AssistantRuntimeState } from './assistantState';
 export { default as BaseWindow } from './components/BaseWindow.svelte';
 export { default as Popup } from './components/Popup.svelte';
 export { calcDragPosition, findDraggableWindow, windowDragLayout } from './draggable';
