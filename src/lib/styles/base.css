@@ -1,0 +1,143 @@
+/* Base theme ported from the original FastAPI UI. */
+* {
+	box-sizing: border-box;
+}
+
+:root {
+	color-scheme: light;
+	--h: 220;
+	--sat: 18%;
+	--txt: 5%;
+	--titlebar-height: 36px;
+	--font-size-base: 14px;
+	--l-bg: 85%;
+	--l-panel: 90%;
+	--l-elev: 74%;
+	--l-border: 70%;
+	--l-muted: 30%;
+	--bg: hsl(var(--h) var(--sat) var(--l-bg));
+	--panel: hsl(var(--h) var(--sat) var(--l-panel));
+	--elev: hsl(var(--h) var(--sat) var(--l-elev));
+	--panel-sel: hsl(var(--h) var(--sat) calc(var(--l-panel) + 6%));
+	--text: hsl(var(--h) calc(var(--sat) * 2) var(--txt));
+	--muted: hsl(var(--h) 12% var(--l-muted));
+	--border: hsl(var(--h) 18% var(--l-border));
+	--accent: hsl(var(--h) 90% 68%);
+	--accent-2: hsl(calc(var(--h) + 80) 60% 60%);
+	--shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+	--radius: 12px;
+	--backdrop: rgba(2, 6, 12, 0.55);
+}
+
+:root[data-theme-color="classic"] {
+	--h: 220;
+}
+
+:root[data-theme-color="purple"] {
+	--h: 270;
+}
+
+:root[data-theme-color="blue"] {
+	--h: 240;
+}
+
+:root[data-theme-color="yellow"] {
+	--h: 60;
+}
+
+:root[data-theme-color="green"] {
+	--h: 110;
+}
+
+:root[data-theme-mode="dark"] {
+	color-scheme: dark;
+	--txt: 92%;
+	--l-bg: 7%;
+	--l-panel: 11%;
+	--l-elev: 16%;
+	--l-border: 20%;
+	--l-muted: 65%;
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="dark"] {
+	--h: 200;
+	--sat: 90%;
+	--txt: 92%;
+	--titlebar-height: 40px;
+	--l-bg: 15%;
+	--l-panel: 11%;
+	--l-elev: 11%;
+	--l-border: 40%;
+	--l-muted: 90%;
+	--text: rgb(0, 255, 154);
+	--muted: rgb(255, 169, 76);
+	--accent: rgb(255, 86, 86);
+	--accent-2: rgb(254, 64, 227);
+	--radius: 15px;
+}
+
+:root[data-theme-color="high contrast"][data-theme-mode="light"] {
+	--h: 200;
+	--sat: 40%;
+	--txt: 10%;
+	--titlebar-height: 40px;
+	--l-bg: 90%;
+	--l-panel: 90%;
+	--l-elev: 95%;
+	--l-border: 5%;
+	--l-muted: 90%;
+	--text: rgb(51, 53, 0);
+	--muted: rgb(85, 0, 95);
+	--accent: rgb(1, 58, 60);
+	--accent-2: rgb(254, 64, 227);
+	--radius: 15px;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family:
+		ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial,
+		sans-serif;
+	font-size: var(--font-size-base);
+}
+
+body {
+	overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+.col::-webkit-scrollbar {
+	width: 12px;
+	height: 12px;
+}
+
+.col::-webkit-scrollbar-track {
+	background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+	border-left: 1px solid var(--border);
+}
+
+.col::-webkit-scrollbar-thumb {
+	border: 3px solid hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+	border-radius: 10px;
+	background: hsl(var(--h) var(--sat) calc(var(--l-border) + 2%));
+}
+
+.col::-webkit-scrollbar-thumb:hover {
+	background: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%));
+}
+
+.col {
+	scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
+		hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+	scrollbar-width: thin;
+}

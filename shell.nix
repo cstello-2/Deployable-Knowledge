@@ -19,6 +19,7 @@ pkgs.mkShell {
     python313Packages.pylint
     gnumake
     sqlite
+    nodejs
   ];
 
   shellHook = ''

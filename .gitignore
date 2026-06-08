@@ -9,6 +9,15 @@ build/
 *.manifest
 *.spec
 
+# frontend 
+node_modules
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
 # --- Environment + dependencies ---
 .venv/
 env/
@@ -43,9 +52,6 @@ app.db-*
 parsed_texts/
 *.txt
 
-# --- Query result data ---
-*.json
-!prompts/*.json
 app.db
 
 # --- Model cache or sentence-transformers ---
