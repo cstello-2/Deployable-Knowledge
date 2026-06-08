@@ -8,6 +8,8 @@
     title: string;
     contentLabel?: string;
     closeOnBackdrop?: boolean;
+    closable?: boolean;
+    width?: string;
     onClose?: () => void;
     children?: Snippet;
   };
@@ -18,6 +20,8 @@
     title,
     contentLabel = `${title} popup`,
     closeOnBackdrop = true,
+    closable = true,
+    width = "520px",
     onClose = () => {},
     children,
   }: Props = $props();
@@ -33,8 +37,8 @@
     role="presentation"
     onpointerdown={handleBackdropPointerDown}
   >
-    <div class="popup-stage" role="presentation">
-      <BaseWindow {id} {title} {contentLabel} modal closable {onClose}>
+    <div class="popup-stage" role="presentation" style:--popup-width={width}>
+      <BaseWindow {id} {title} {contentLabel} modal {closable} {onClose}>
         {#if children}
           {@render children()}
         {/if}
@@ -56,7 +60,7 @@
   }
 
   .popup-stage {
-    width: min(520px, calc(100vw - 32px));
+    width: min(var(--popup-width, 520px), calc(100vw - 32px));
     max-height: min(680px, calc(100vh - 48px));
   }
 

@@ -79,10 +79,9 @@
   .miniwin {
     display: flex;
     min-height: 280px;
-    margin: 8px 0 18px;
     overflow: hidden;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: 0;
     background: linear-gradient(180deg, var(--panel), var(--elev));
     box-shadow: var(--shadow);
     outline: none;
