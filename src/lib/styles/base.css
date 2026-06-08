@@ -291,7 +291,7 @@ textarea:disabled {
 
 .list-item {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-columns: 1fr auto;
 	gap: 6px 12px;
 	align-items: center;
 	padding: 10px 12px;
@@ -313,7 +313,16 @@ textarea:disabled {
 	overflow: hidden;
 	font-weight: 600;
 	text-overflow: ellipsis;
-	white-space: nowrap;
+	display: -webkit-box;        /* Required for line-clamp */
+  	-webkit-line-clamp: 2;       /* Allow only 2 lines */
+  	-webkit-box-orient: vertical;
+}
+
+.li-right {
+	justify-self: auto;
+	flex-wrap: nowrap;
+	color: var(--muted);
+	align-self: center;
 }
 
 .li-subtle,
@@ -546,7 +555,8 @@ textarea:disabled {
 }
 
 .document-row {
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	display: grid;
+	grid-template-columns: auto 1fr auto;
 	align-items: start;
 }
 
