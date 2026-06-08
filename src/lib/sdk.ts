@@ -274,10 +274,15 @@ function errorMessageFromBody(data: ErrorBody) {
 	}
 
 	if (typeof data.response === 'string') {
-		return data.response;
+		return looksLikeHtmlDocument(data.response) ? null : data.response;
 	}
 
 	return null;
+}
+
+function looksLikeHtmlDocument(value: string) {
+	const text = value.trim().slice(0, 512).toLowerCase();
+	return text.startsWith('<!doctype html') || text.startsWith('<html') || text.includes('<script');
 }
 
 async function ok<T extends JsonReadableResponse>(response: T): Promise<T> {
@@ -329,9 +334,7 @@ export class DKClient {
 		params.set('message', request.message);
 		params.set('session_id', request.session_id);
 		params.set('persona', request.persona || '');
-		if (request.inactive?.length) {
-			params.set('inactive', JSON.stringify(request.inactive));
-		}
+		params.set('inactive', JSON.stringify(request.inactive || []));
 		params.set('template_id', request.template_id || 'rag_chat');
 		params.set('top_k', String(request.top_k ?? 8));
 

@@ -183,7 +183,7 @@
 
 	:global(.drop-marker) {
 		height: 4px;
-		margin: 4px 0;
+		margin: 8px 8px;
 		border-radius: 2px;
 		background: color-mix(in oklab, var(--accent) 60%, transparent);
 	}

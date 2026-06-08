@@ -26,7 +26,7 @@ const backendRoutes = [
 	'/providers',
 	'/directory',
 	'/ocr',
-	'^/(ollama|openai|anthropic|gemini|github_models)(/|$)'
+	'^/(ollama|openai|anthropic|gemini|github|github_models)(/|$)'
 ];
 
 const backendProxy = Object.fromEntries(
