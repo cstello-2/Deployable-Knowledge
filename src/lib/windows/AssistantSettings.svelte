@@ -1350,72 +1350,74 @@
     {#if showProfileCreate}
       <div class="row" id="profile_create_row">
         <label for="profile_name">Profile Name</label>
-        <input
-          id="profile_name"
-          class="input"
-          type="text"
-          placeholder="Example: Research Mode"
-          bind:value={profileName}
-        />
+
+        <div class="inline-control-row">
+          <input
+            id="profile_name"
+            class="input"
+            type="text"
+            placeholder="Example: Research Mode"
+            bind:value={profileName}
+          />
+
+          <button
+            type="button"
+            class="btn success-btn inline-action-btn"
+            id="profile_save"
+            onclick={saveCurrentProfile}
+          >
+            Save Profile
+          </button>
+        </div>
       </div>
     {/if}
 
     {#if showProfileSelect}
       <div class="row" id="profile_select_row">
         <label for="profile_select">Saved Profile</label>
-        <select
-          id="profile_select"
-          class="input"
-          bind:value={selectedProfileId}
-          disabled={!profiles.length}
+
+        <div class="inline-control-row">
+          <select
+            id="profile_select"
+            class="input"
+            bind:value={selectedProfileId}
+            disabled={!profiles.length}
+          >
+            {#if profiles.length}
+              <option value="">Select a profile</option>
+
+              {#each profiles as profile (profile.id)}
+                <option value={profile.id}>{profile.name || profile.id}</option>
+              {/each}
+            {:else}
+              <option value="">No saved profiles</option>
+            {/if}
+          </select>
+
+      {#if showProfileConfirm}
+        <button
+          type="button"
+          class="btn success-btn inline-action-btn"
+          id="profile_confirm"
+          onclick={confirmProfileAction}
         >
-          {#if profiles.length}
-            <option value="">Select a profile</option>
+          Confirm
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
 
-            {#each profiles as profile (profile.id)}
-              <option value={profile.id}>{profile.name || profile.id}</option>
-            {/each}
-          {:else}
-            <option value="">No saved profiles</option>
-          {/if}
-        </select>
-      </div>
-    {/if}
-
-    {#if showProfileActions || showProfileSaveEdits}
-      <div class="row success-action-row" id="profile_actions">
-        {#if showProfileConfirm}
-          <button
-            type="button"
-            class="btn success-btn"
-            id="profile_confirm"
-            onclick={confirmProfileAction}
-          >
-            Confirm
-          </button>
-        {/if}
-
-        {#if showProfileSave}
-          <button
-            type="button"
-            class="btn success-btn"
-            id="profile_save"
-            onclick={saveCurrentProfile}
-          >
-            Save Profile
-          </button>
-        {/if}
-
-        {#if showProfileSaveEdits}
-          <button
-            type="button"
-            class="btn success-btn"
-            id="profile_save_edits"
-            onclick={saveLoadedProfileEdits}
-          >
-            Save Edits
-          </button>
-        {/if}
+    {#if showProfileSaveEdits}
+      <div class="row">
+        <button
+          type="button"
+          class="btn success-btn inline-action-btn"
+          id="profile_save_edits"
+          onclick={saveLoadedProfileEdits}
+        >
+          Save Edits
+        </button>
       </div>
     {/if}
 
@@ -1490,35 +1492,38 @@
     {#if showPromptSelect}
       <div class="row" id="prompt_select_row">
         <label for="prompt_select">Saved Prompt</label>
-        <select
-          id="prompt_select"
-          class="input"
-          bind:value={selectedPromptId}
-          disabled={!templates.length}
-        >
-          {#if templates.length}
-            <option value="">Select a prompt</option>
 
-            {#each templates as template (template.id)}
-              <option value={template.id}>{template.name || template.id}</option>
-            {/each}
-          {:else}
-            <option value="">No saved prompts</option>
+        <div class="inline-control-row">
+          <select
+            id="prompt_select"
+            class="input"
+            bind:value={selectedPromptId}
+            disabled={!templates.length}
+          >
+            {#if templates.length}
+              <option value="">Select a prompt</option>
+
+              {#each templates as template (template.id)}
+                <option value={template.id}>
+                  {template.name || template.id}{protectedTemplateIds.includes(template.id) ? " (default)" : ""}
+                </option>
+              {/each}
+            {:else}
+              <option value="">No saved prompts</option>
+            {/if}
+          </select>
+
+          {#if showPromptConfirm}
+            <button
+              type="button"
+              class="btn success-btn inline-action-btn"
+              id="prompt_confirm"
+              onclick={confirmPromptAction}
+            >
+              Confirm
+            </button>
           {/if}
-        </select>
-      </div>
-    {/if}
-
-    {#if showPromptConfirm}
-      <div class="row success-action-row" id="prompt_confirm_row">
-        <button
-          type="button"
-          class="btn success-btn"
-          id="prompt_confirm"
-          onclick={confirmPromptAction}
-        >
-          Confirm
-        </button>
+        </div>
       </div>
     {/if}
 
@@ -1527,15 +1532,29 @@
         <div id="tmpl_details">
           <div class="row">
             <label for="tmpl_name">Name</label>
-            <input
-              id="tmpl_name"
-              class="input"
-              type="text"
-              placeholder="Example: Technical Helper"
-              bind:value={templateName}
-              disabled={!promptCanEdit}
-              readonly={!promptCanEdit}
-            />
+
+            <div class="inline-control-row">
+              <input
+                id="tmpl_name"
+                class="input"
+                type="text"
+                placeholder="Example: Technical Helper"
+                bind:value={templateName}
+                disabled={!promptCanEdit}
+                readonly={!promptCanEdit}
+                />
+
+              {#if saveTemplateVisible && promptCanEdit}
+                <button
+                  type="button"
+                  class="btn success-btn inline-action-btn"
+                  id="tmpl_save"
+                  onclick={saveTemplate}
+                >
+                  {saveTemplateLabel}
+                </button>
+              {/if}
+            </div>
           </div>
 
           <div class="row">
@@ -1563,13 +1582,6 @@
               readonly={!promptCanEdit}
             ></textarea>
           </div>
-          {#if saveTemplateVisible}
-            <div class="row">
-              <button type="button" class="btn success-btn"id="tmpl_save" onclick={saveTemplate}>
-                {saveTemplateLabel}
-              </button>
-            </div>
-          {/if}
         </div>
       {/key}
     {/if}
@@ -1643,35 +1655,38 @@
     {#if showPersonaSelect}
       <div class="row" id="persona_select_row">
         <label for="persona_select">Saved Persona</label>
-        <select
-          id="persona_select"
-          class="input"
-          bind:value={selectedPersonaId}
-          disabled={!personas.length}
-        >
-          {#if personas.length}
-            <option value="">Select a persona</option>
 
-            {#each personas as persona (persona.id)}
-              <option value={persona.id}>{persona.name || persona.id}</option>
-            {/each}
-          {:else}
-            <option value="">No saved personas</option>
+        <div class="inline-control-row">
+          <select
+            id="persona_select"
+            class="input"
+            bind:value={selectedPersonaId}
+            disabled={!personas.length}
+          >
+            {#if personas.length}
+              <option value="">Select a persona</option>
+
+              {#each personas as persona (persona.id)}
+                <option value={persona.id}>
+                  {persona.name || persona.id}{protectedPersonaIds.includes(persona.id) ? " (default)" : ""}
+                </option>
+              {/each}
+            {:else}
+              <option value="">No saved personas</option>
+            {/if}
+          </select>
+
+          {#if showPersonaConfirm}
+            <button
+              type="button"
+              class="btn success-btn inline-action-btn"
+              id="persona_confirm"
+              onclick={confirmPersonaAction}
+            >
+              Confirm
+            </button>
           {/if}
-        </select>
-      </div>
-    {/if}
-
-    {#if showPersonaConfirm}
-      <div class="row success-action-row" id="persona_confirm_row">
-        <button
-          type="button"
-          class="btn success-btn"
-          id="persona_confirm"
-          onclick={confirmPersonaAction}
-        >
-          Confirm
-        </button>
+        </div>
       </div>
     {/if}
 
@@ -1680,15 +1695,33 @@
         <div id="persona_editor">
           <div class="row">
             <label for="persona_name">Persona Name</label>
-            <input
-              id="persona_name"
-              class="input"
-              type="text"
-              placeholder="Example: Engineering Tutor"
-              bind:value={personaName}
-              disabled={!personaCanEdit}
-              readonly={!personaCanEdit}
-            />
+
+            <div class="inline-control-row">
+              <input
+                id="persona_name"
+                class="input"
+                type="text"
+                placeholder="Example: Engineering Tutor"
+                bind:value={personaName}
+                disabled={!personaCanEdit}
+                readonly={!personaCanEdit}
+              />
+
+              {#if personaCanEdit}
+                <button
+                  type="button"
+                  class="btn success-btn inline-action-btn"
+                  id="persona_save"
+                  onclick={savePersona}
+                >
+                  {#if loadedPersonaId}
+                    Save Persona Edits
+                  {:else}
+                    Save Persona
+                  {/if}
+                </button>
+              {/if}
+            </div>
           </div>
 
           <div class="row">
@@ -1704,26 +1737,6 @@
               readonly={!personaCanEdit}
             ></textarea>
           </div>
-
-          {#if personaCanEdit}
-            <div class="row success-action-row">
-              <button
-                type="button"
-                class="btn success-btn"
-                id="persona_save"
-                onclick={savePersona}
-              >
-                {#if loadedPersonaId}
-                  Save Persona Edits
-                {:else}
-                  Save Persona
-                {/if}
-              </button>
-            </div>
-          {:else}
-          <div class="row persona-protected-note">
-            </div>
-          {/if}
         </div>
       {/key}
     {/if}
@@ -1954,5 +1967,26 @@
     .assistant-manage-buttons {
       margin-left: 0 !important;
     }
+    .inline-control-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .inline-control-row .input,
+  .inline-control-row .textarea,
+  .inline-control-row select {
+    width: 100%;
+  }
+
+  .inline-action-btn {
+    align-self: center;
+    width: fit-content;
+    min-width: 82px;
+    padding: 5px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
   }
 </style>
