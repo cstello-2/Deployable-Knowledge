@@ -23,8 +23,8 @@
     id: number;
     role: Role;
     text: string;
-    html?: string;
     pending?: boolean;
+    error?: boolean;
     sources?: ChatSource[];
   };
   let {
@@ -43,12 +43,9 @@
   let busy = $state(false);
   let status = $state("");
   let activeSessionId = $state<string | null>(null);
-  let loadedHistorySessionId = $state<string | null>(null);
 
   let aborter: AbortController | null = null;
   let nextMessageId = 1;
-
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   onMount(() => {
     loadAssistantRuntime().catch((error) => {
@@ -62,29 +59,27 @@
 
   $effect(() => {
     const sessionId = $currentSessionId;
-    if (!sessionId || sessionId === activeSessionId) return;
-
-    const loadedSession = $currentSession;
-    if (
-      loadedSession?.session_id === sessionId &&
-      loadedHistorySessionId !== sessionId
-    ) {
-      messages = historyMessages(loadedSession.history || []);
-      loadedHistorySessionId = sessionId;
-    } else if (activeSessionId !== null) {
-      messages = [assistantMessage("New chat started. How can I help?")];
-      loadedHistorySessionId = null;
-    }
-    activeSessionId = sessionId;
-  });
-
-  $effect(() => {
     const session = $currentSession;
-    if (!session) return;
 
-    messages = historyMessages(session.history || []);
-    activeSessionId = session.session_id;
-    loadedHistorySessionId = session.session_id;
+    if (!sessionId) {
+      activeSessionId = null;
+      messages = [];
+      return;
+    }
+
+    if (session?.session_id === sessionId) {
+      activeSessionId = sessionId;
+      messages = historyMessages(session.history || []);
+      return;
+    }
+
+    if (sessionId !== activeSessionId) {
+      messages =
+        activeSessionId === null
+          ? []
+          : [assistantMessage("New chat started. How can I help?")];
+      activeSessionId = sessionId;
+    }
   });
 
   $effect(() => {
@@ -113,7 +108,6 @@
       id: nextMessageId++,
       role: "assistant",
       text,
-      html: renderMarkdown(text),
       sources,
     };
   }
@@ -153,16 +147,12 @@
       .replaceAll("'", "&#39;");
   }
 
-  function escapeAttribute(value = "") {
-    return escapeHtml(value).replaceAll("`", "&#96;");
-  }
-
   function renderInlineMarkdown(value: string) {
     return value
       .replace(
         /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
         (_match, label: string, href: string) =>
-          `<a href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`,
+          `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`,
       )
       .replace(/`([^`\n]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
@@ -220,10 +210,6 @@
     }
   }
 
-  function readPersona() {
-    return getActivePersona();
-  }
-
   function extractSources(data: unknown) {
     if (!data || typeof data !== "object") return [];
     const record = data as Record<string, unknown>;
@@ -238,10 +224,6 @@
 
   function responseText(response: ChatResponse) {
     return String(response.text || response.response || "(no response)");
-  }
-
-  function responseSources(response: ChatResponse) {
-    return extractSources(response);
   }
 
   async function send() {
@@ -281,7 +263,7 @@
       message: text,
       session_id: $currentSessionId,
       inactive: await inactiveDocuments(),
-      persona: readPersona(),
+      persona: getActivePersona(),
       template_id: runtime.templateId,
       top_k: runtime.topK,
       provider_id: runtime.providerId,
@@ -295,7 +277,6 @@
           buffer += String(delta ?? "");
           updateMessage(assistant.id, {
             text: buffer,
-            html: renderMarkdown(buffer),
             pending: false,
           });
         },
@@ -303,7 +284,6 @@
           const textValue = buffer || "(no response)";
           updateMessage(assistant.id, {
             text: textValue,
-            html: renderMarkdown(textValue),
             pending: false,
             sources: extractSources(data).slice(0, 5),
           });
@@ -315,8 +295,8 @@
               : "Stream failed";
           updateMessage(assistant.id, {
             text: message,
-            html: `<em>Error:</em> ${escapeHtml(message)}`,
             pending: false,
+            error: true,
           });
         },
       });
@@ -332,17 +312,16 @@
         const textValue = responseText(response);
         updateMessage(assistant.id, {
           text: textValue,
-          html: renderMarkdown(textValue),
           pending: false,
-          sources: responseSources(response).slice(0, 5),
+          sources: extractSources(response).slice(0, 5),
         });
         await refreshSessions().catch(() => {});
       } catch (fallbackError) {
         const message = errorMessage(fallbackError);
         updateMessage(assistant.id, {
           text: message,
-          html: `<em>Error:</em> ${escapeHtml(message)}`,
           pending: false,
+          error: true,
         });
       }
     } finally {
@@ -359,14 +338,11 @@
   async function createNewChat() {
     if (busy) return;
     try {
+      status = "";
       await startNewSession();
     } catch (error) {
       status = errorMessage(error);
     }
-  }
-
-  function isSegmentKey(value: unknown) {
-    return UUID_RE.test(String(value || ""));
   }
 
   function sourceText(source: ChatSource, key: string, fallback = "") {
@@ -376,26 +352,34 @@
 
   function sourceKind(source: ChatSource) {
     const text = sourceText(source, "text").trim();
-    if (text.startsWith("[Image:") || text.startsWith("[OCR:")) return "Image";
+    if (/^\[(image|ocr):/i.test(text)) return "Image";
     return sourceText(source, "kind", "Text");
   }
 
-  function sourceId(source: ChatSource) {
-    return source.segment_id ?? source.id;
-  }
-
-  function sourceName(source: ChatSource) {
+  function sourceDocumentName(source: ChatSource) {
     return sourceText(
       source,
       "source",
-      sourceText(source, "title", sourceText(source, "filepath", "source")),
-    );
+      sourceText(source, "title", sourceText(source, "filepath")),
+    ).trim();
+  }
+
+  function sourceName(source: ChatSource) {
+    return sourceDocumentName(source) || "source";
+  }
+
+  function sourcePage(source: ChatSource) {
+    const page = sourceText(source, "page").trim();
+    return page && page !== "?" ? page : "";
   }
 
   function sourceHref(source: ChatSource) {
-    // TODO: needs to be adjusted to work on firefox browser
-    const name = sourceName(source);
-    return name ? `/documents/${encodeURIComponent(name)}#page=${source.page}` : "";
+    const name = sourceDocumentName(source);
+    if (!name) return "";
+
+    const page = sourcePage(source);
+    const href = `/documents/${encodeURIComponent(name)}`;
+    return page ? `${href}#page=${encodeURIComponent(page)}` : href;
   }
 
   function truncateText(text: string, maxChars = 320) {
@@ -424,11 +408,12 @@
   }
 
   function sourceDescription(source: ChatSource) {
-    const page = source.page ?? null;
-    const pageText = page && page !== "?" ? `, page ${page}` : "";
+    const page = sourcePage(source);
+    const pageText = page ? `, page ${page}` : "";
+    const name = sourceName(source);
     const preview = sourcePreview(source);
-    const previewText = preview ? `: ${sourceName(source)} ${preview}` : "";
-    return `${sourceKind(source)} from ${sourceName(source)}${pageText}${previewText}`;
+    const previewText = preview ? `: ${name} ${preview}` : "";
+    return `${sourceKind(source)} from ${name}${pageText}${previewText}`;
   }
 
   function sourceScoreLabel(source: ChatSource) {
@@ -477,7 +462,13 @@
               <span class="typing-text">Generating response...</span>
             </div>
           {:else}
-            <div class="msg-md">{@html message.html || ""}</div>
+            <div class="msg-md" class:msg-error={message.error}>
+              {#if message.error}
+                <em>Error:</em> {message.text}
+              {:else}
+                {@html renderMarkdown(message.text)}
+              {/if}
+            </div>
             {#if message.sources?.length}
               <div class="msg-citations">
                 <div class="msg-citations-label">Sources</div>
@@ -530,6 +521,7 @@
         type="text"
         placeholder="Type a message..."
         bind:value={draft}
+        aria-label="Message"
         disabled={busy || $assistantRuntime.loading || !$currentSessionId}
       />
       <button
@@ -551,6 +543,7 @@
           $assistantRuntime.loading ||
           !draft.trim() ||
           !$currentSessionId ||
+          !$assistantRuntime.providerId ||
           !$assistantRuntime.modelId}
       >
         <Icon name="send" size={16} />
@@ -631,13 +624,10 @@
   }
 
   .msg.assistant {
-    width: auto;
     min-width: 0;
-    max-width: 92%;
     align-self: flex-start;
     background: hsl(var(--h) var(--sat) calc(var(--l-bg)));
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .msg-md {
@@ -645,7 +635,6 @@
     max-width: 100%;
     min-height: 1em;
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .msg-md > :global(:first-child) {
@@ -668,7 +657,6 @@
   .msg-md :global(a) {
     max-width: 100%;
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .msg-md :global(p) {
@@ -679,12 +667,14 @@
     max-width: 100%;
     overflow-x: auto;
     white-space: pre-wrap;
-    word-break: break-word;
   }
 
   .msg-md :global(code) {
     white-space: pre-wrap;
-    word-break: break-word;
+  }
+
+  .msg-error {
+    color: var(--danger);
   }
 
   .msg-md :global(table) {
@@ -802,7 +792,6 @@
 
   .chat-source-num {
     color: var(--text);
-    flex: 0 0 auto;
     font-size: 13px;
     font-weight: 700;
   }
@@ -945,6 +934,7 @@
   @media (max-width: 680px) {
     .chat-source-action-line {
       grid-template-columns: 1fr;
+      padding-left: 0;
     }
 
     .chat-input {
@@ -970,10 +960,6 @@
 
     .chat-new-button {
       border-radius: 0 0 0 13px;
-    }
-
-    .chat-source-action-line {
-      padding-left: 0;
     }
 
     .chat-source-score {
