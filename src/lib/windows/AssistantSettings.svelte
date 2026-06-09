@@ -29,6 +29,24 @@
   const CREATE_NEW_VALUE = "__create_your_own__";
   const PERSONAS_STORAGE_KEY = "dk_saved_personas";
   const PROFILES_STORAGE_KEY = "dk_saved_profiles";
+  const DEFAULT_PERSONAS: SavedPersona[] = [
+    {
+      id: "default_creative_writer",
+      name: "Creative Writer",
+      text: ` You are a creative writer with 10 years of experience. Your goal is to help users produce imaginative, polished, and engaging writing. Communicate in a vivid and expressive manner. Mix short, punchy lines with longer, atmospheric thoughts. Use sensory details, emotional language, and strong imagery naturally. Always preserve the user's intended message, genre, and audience. Never make the writing overly generic, flat, or robotic. If you lack information, ask for the missing context or make a clearly labeled creative assumption. Start with a brief creative direction or framing note. Present your main points in polished paragraphs, scenes, outlines, or revised drafts as appropriate. End with a short note on possible next edits or improvements.`,
+    },
+    {
+      id: "default_technical_writer",
+      name: "Technical Writer",
+      text: `You are a technical writer with 10 years of experience. Your goal is to turn complex information into clear, accurate, and usable documentation. Communicate in a precise and organized manner. Use direct explanations, clean structure, and minimal filler. Use technical terminology naturally, but define it when the audience may not know it. Always prioritize clarity, correctness, and step-by-step usability. Never overcomplicate the explanation or hide important assumptions. If you lack information, identify the missing details and give the safest usable version based on what is known. Start with a brief summary of the goal or issue. Present your main points in numbered steps, labeled sections, tables, or concise bullets as appropriate. End with a verification step, test command, or checklist when useful.`,
+    },
+    {
+      id: "default_consultant",
+      name: "Consultant",
+      text: ` You are a consultant with 12 years of experience. Your goal is to help users make practical decisions, improve workflows, and identify the highest-impact next steps. Communicate in a strategic and direct manner. Balance concise recommendations with enough reasoning to support the decision. Use business, operations, and planning terminology naturally without sounding overly corporate. Always focus on tradeoffs, priorities, risks, and actionable next steps. Never give vague advice without explaining what to do next. If you lack information, state the assumption you are making and recommend what information should be gathered. Start with the main recommendation. Present your main points in prioritized bullets, decision matrices, or action plans as appropriate. End with the next concrete action the user should take.`,
+    },
+  ];
+  const protectedPersonaIds = DEFAULT_PERSONAS.map((persona) => persona.id);
 
   type SavedPersona = {
     id: string;
@@ -59,6 +77,13 @@
   let currentTemplate = $state<PromptTemplate | null>(null);
   let selectedPromptTemplateId = $state("rag_chat");
 
+  let promptAction = $state("");
+  let selectedPromptId = $state("");
+  let loadedPromptId = $state<string | null>(null);
+
+  let copyPromptOpen = $state(false);
+  let selectedCopyPromptId = $state('');
+
   let templateSelect = $state(NONE_VALUE);
   let templateName = $state("");
   let templateDescription = $state("");
@@ -85,6 +110,9 @@
   let personaName = $state("");
   let personaText = $state("");
   let personas = $state<SavedPersona[]>([]);
+  let personaTextarea: HTMLTextAreaElement | null = $state(null);
+  let copyPersonaOpen = $state(false);
+  let selectedCopyPersonaId = $state("");
 
   let apiKeyManagerOpen = $state(false);
 
@@ -97,6 +125,7 @@
     "rag_chat",
     "tech_helper",
     "title_summarizer",
+    "caveman",
   ];
 
   const showProfileCreate = $derived(profileAction === "create");
@@ -116,29 +145,61 @@
     Boolean(loadedProfileId) && profileAction === "",
   );
 
+  const showPersonaCreate = $derived(personaAction === "create");
+
   const showPersonaSelect = $derived(
     personaAction === "load" || personaAction === "delete",
   );
+
   const showPersonaConfirm = $derived(
     personaAction === "load" || personaAction === "delete",
   );
+
   const showPersonaEditor = $derived(
     personaAction === "create" || Boolean(loadedPersonaId && personaText),
   );
 
-  const promptDetailsVisible = $derived(templateSelect !== NONE_VALUE);
+  const showPersonaCopySelect = $derived(showPersonaCreate && copyPersonaOpen);
+
+  const loadedPersonaIsProtected = $derived(
+    Boolean(loadedPersonaId && protectedPersonaIds.includes(loadedPersonaId)),
+  );
+
+  const personaCanEdit = $derived(!loadedPersonaIsProtected);
+
+  const showPromptCreate = $derived(promptAction === "create");
+  const loadedPromptIsProtected = $derived(
+    Boolean(templateSelect && protectedTemplateIds.includes(templateSelect)),
+  );
+
   const promptCanEdit = $derived(
-    templateSelect === CREATE_NEW_VALUE ||
-      (templateSelect !== NONE_VALUE && Boolean(loadedProfileId)),
+    promptAction === "create" ||
+      Boolean(
+        loadedPromptId &&
+          templateSelect !== NONE_VALUE &&
+          !protectedTemplateIds.includes(templateSelect),
+      ),
+  );
+  const showPromptSelect = $derived(
+    promptAction === "load" || promptAction === "delete",
+  );
+  const showPromptConfirm = $derived(
+    promptAction === "load" || promptAction === "delete",
+  );
+
+  const showPromptCopySelect = $derived(showPromptCreate && copyPromptOpen);
+
+  const promptDetailsVisible = $derived(
+    showPromptCreate ||
+      Boolean(loadedPromptId) ||
+      Boolean(loadedProfileId && templateSelect !== NONE_VALUE),
   );
 
   const saveTemplateVisible = $derived(promptCanEdit);
   const saveTemplateLabel = $derived(
-    templateSelect === CREATE_NEW_VALUE ? "Save Template" : "Save Prompt Edits",
-  );
-
-  const deleteTemplateVisible = $derived(
-    Boolean(templateSelect) && !protectedTemplateIds.includes(templateSelect),
+    showPromptCreate || templateSelect === CREATE_NEW_VALUE
+      ? "Save Prompt"
+      : "Save Prompt Edits",
   );
 
   function showToast(message: string) {
@@ -215,15 +276,33 @@
     try {
       const raw = localStorage.getItem(PERSONAS_STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      const savedPersonas = Array.isArray(parsed) ? parsed : [];
+
+      const defaultPersonaIds = new Set(
+        DEFAULT_PERSONAS.map((persona) => persona.id),
+      );
+
+      const customPersonas = savedPersonas.filter(
+        (persona) => !defaultPersonaIds.has(persona.id),
+      );
+
+      return [...DEFAULT_PERSONAS, ...customPersonas];
     } catch {
-      return [];
+      return DEFAULT_PERSONAS;
     }
   }
 
   function saveSavedPersonas(nextPersonas: SavedPersona[]) {
-    localStorage.setItem(PERSONAS_STORAGE_KEY, JSON.stringify(nextPersonas));
-    personas = nextPersonas;
+    const defaultPersonaIds = new Set(
+      DEFAULT_PERSONAS.map((persona) => persona.id),
+    );
+
+    const customPersonas = nextPersonas.filter(
+      (persona) => !defaultPersonaIds.has(persona.id),
+    );
+
+    localStorage.setItem(PERSONAS_STORAGE_KEY, JSON.stringify(customPersonas));
+    personas = [...DEFAULT_PERSONAS, ...customPersonas];
   }
 
   function resetProfileAction() {
@@ -235,6 +314,15 @@
   function resetPersonaAction() {
     personaAction = "";
     selectedPersonaId = "";
+    copyPersonaOpen = false;
+    selectedCopyPersonaId = "";
+  }
+
+  function resetPromptAction() {
+    promptAction = "";
+    selectedPromptId = "";
+    copyPromptOpen = false;
+    selectedCopyPromptId = "";
   }
 
   function hidePersonaTools() {
@@ -289,6 +377,7 @@
     if (templateId === NONE_VALUE) {
       selectedPromptTemplateId = "rag_chat";
       currentTemplate = null;
+      loadedPromptId = null;
       templateName = "";
       templateDescription = "";
       templateSystem = "";
@@ -297,6 +386,7 @@
 
     if (templateId === CREATE_NEW_VALUE) {
       currentTemplate = null;
+      loadedPromptId = null;
       templateName = "";
       templateDescription = "";
       templateSystem = "";
@@ -333,7 +423,12 @@
     const payload: AssistantRuntimePayload = {
       provider_id: providerId || "ollama",
       model_id: modelId || "",
-      prompt_template_id: selectedPromptTemplateId || "rag_chat",
+      prompt_template_id:
+        templateSelect &&
+        templateSelect !== NONE_VALUE &&
+        templateSelect !== CREATE_NEW_VALUE
+          ? templateSelect
+          : selectedPromptTemplateId || "rag_chat",
     };
 
     if (tempValue !== null) {
@@ -413,6 +508,28 @@
     }
   }
 
+  function selectPromptAction(action: string) {
+    if (promptAction === action) {
+      resetPromptAction();
+      return;
+    }
+
+    promptAction = action;
+    selectedPromptId = "";
+
+    if (action === "create") {
+      loadedPromptId = null;
+      templateSelect = CREATE_NEW_VALUE;
+      selectedPromptTemplateId = "rag_chat";
+      currentTemplate = null;
+      templateName = "";
+      templateDescription = "";
+      templateSystem = "";
+      copyPromptOpen = false;
+      selectedCopyPromptId = "";
+        }
+      }
+
   function selectPersonaAction(action: string) {
     if (personaAction === action) {
       resetPersonaAction();
@@ -426,6 +543,8 @@
       loadedPersonaId = null;
       personaName = "";
       personaText = "";
+      copyPersonaOpen = false;
+      selectedCopyPersonaId = "";
     }
   }
 
@@ -663,6 +782,125 @@
     showToast("Profile edits saved");
   }
 
+  async function confirmPromptAction() {
+    if (!selectedPromptId) {
+      alert("Select a prompt first.");
+      return;
+    }
+
+    const prompt = templates.find((template) => template.id === selectedPromptId);
+
+    if (!prompt) {
+      alert("Prompt template not found.");
+      return;
+    }
+
+    if (promptAction === "load") {
+      loadedPromptId = selectedPromptId;
+      templateSelect = selectedPromptId;
+      selectedPromptTemplateId = selectedPromptId;
+
+      await loadTemplate(selectedPromptId);
+      await saveRuntimeSettings();
+
+      resetPromptAction();
+      showToast(`Loaded prompt: ${prompt.name || prompt.id}`);
+      return;
+    }
+
+    if (promptAction === "delete") {
+      if (protectedTemplateIds.includes(selectedPromptId)) {
+        alert(
+          "Default prompt templates cannot be deleted. Use Create Prompt → Copy Prompt to make an editable version.",
+        );
+        return;
+      }
+
+      const confirmed = confirm(
+        `Delete prompt template "${prompt.name || prompt.id}"?\n\nThis will remove prompts/${selectedPromptId}.json. Profiles and personas will NOT be deleted.`,
+      );
+
+      if (!confirmed) return;
+
+      try {
+        await dkClient.deletePromptTemplate(selectedPromptId);
+
+        if (selectedPromptTemplateId === selectedPromptId) {
+          selectedPromptTemplateId = "rag_chat";
+        }
+
+        if (loadedPromptId === selectedPromptId) {
+          loadedPromptId = null;
+        }
+
+        currentTemplate = null;
+        templateSelect = NONE_VALUE;
+        templateName = "";
+        templateDescription = "";
+        templateSystem = "";
+
+        await loadTemplateList(NONE_VALUE);
+        resetPromptAction();
+        showToast("Prompt template deleted");
+      } catch (error) {
+        alert("Prompt template delete failed: " + errorMessage(error));
+      }
+
+      return;
+    }
+  }
+
+  async function copyPromptIntoCreate() {
+    if (!selectedCopyPromptId) {
+      alert("Select a prompt to copy first.");
+      return;
+    }
+
+    const promptToCopy = templates.find(
+      (template) => template.id === selectedCopyPromptId,
+    );
+
+    if (!promptToCopy) {
+      alert("Prompt template not found.");
+      return;
+    }
+
+    try {
+      const fullPrompt = await dkClient.getPromptTemplate(selectedCopyPromptId);
+
+      loadedPromptId = null;
+      currentTemplate = null;
+      templateSelect = CREATE_NEW_VALUE;
+      selectedPromptTemplateId = "rag_chat";
+      promptAction = "create";
+
+      templateName = `Copy of ${
+        fullPrompt.name || promptToCopy.name || selectedCopyPromptId
+      }`;
+      templateDescription = String(fullPrompt.description || "");
+      templateSystem = String(fullPrompt.system || "");
+
+      if (fullPrompt.temperature !== undefined && fullPrompt.temperature !== null) {
+        temperature = String(fullPrompt.temperature);
+      }
+
+      if (fullPrompt.max_tokens !== undefined && fullPrompt.max_tokens !== null) {
+        maxTokens = String(fullPrompt.max_tokens);
+      }
+
+      if (fullPrompt.top_k !== undefined && fullPrompt.top_k !== null) {
+        topK = String(fullPrompt.top_k);
+      }
+
+      copyPromptOpen = false;
+      selectedCopyPromptId = "";
+
+      showToast("Prompt copied into Create Prompt");
+    } catch (error) {
+      alert("Copy prompt failed: " + errorMessage(error));
+    }
+  }
+
   async function confirmProfileAction() {
     if (!selectedProfileId) {
       alert("Select a profile first.");
@@ -755,6 +993,20 @@
     }
   }
 
+  function resizePersonaTextarea() {
+    requestAnimationFrame(() => {
+      if (!personaTextarea) return;
+
+      personaTextarea.style.height = "auto";
+      personaTextarea.style.height = `${personaTextarea.scrollHeight}px`;
+    });
+  }
+
+  $effect(() => {
+    personaText;
+    resizePersonaTextarea();
+  });
+
   function savePersona() {
     const name = personaName.trim();
     const text = personaText.trim();
@@ -772,6 +1024,11 @@
     const nextPersonas = loadSavedPersonas();
 
     if (loadedPersonaId) {
+      if (protectedPersonaIds.includes(loadedPersonaId)) {
+        alert("Default personas cannot be edited directly. Use Copy Persona to make an editable version.");
+        return;
+      }
+
       const index = nextPersonas.findIndex(
         (persona) => persona.id === loadedPersonaId,
       );
@@ -810,6 +1067,33 @@
     showToast("Persona saved and applied");
   }
 
+  function copyPersonaIntoCreate() {
+    if (!selectedCopyPersonaId) {
+      alert("Select a persona to copy first.");
+      return;
+    }
+
+    const personaToCopy = personas.find(
+      (persona) => persona.id === selectedCopyPersonaId,
+    );
+
+    if (!personaToCopy) {
+      alert("Persona not found.");
+      return;
+    }
+
+    loadedPersonaId = null;
+    personaAction = "create";
+
+    personaName = `Copy of ${personaToCopy.name || selectedCopyPersonaId}`;
+    personaText = personaToCopy.text || "";
+
+    copyPersonaOpen = false;
+    selectedCopyPersonaId = "";
+
+    showToast("Persona copied into Create Persona");
+  }
+
   function confirmPersonaAction() {
     if (!selectedPersonaId) {
       alert("Select a persona first.");
@@ -835,6 +1119,11 @@
     }
 
     if (personaAction === "delete") {
+      if (protectedPersonaIds.includes(persona.id)) {
+        alert("Default personas cannot be deleted. Use Copy Persona to make your own editable version.");
+        return;
+      }
+
       const confirmed = confirm(
         `Delete persona "${persona.name || persona.id}"?`,
       );
@@ -864,6 +1153,15 @@
     const name = templateName.trim();
     const description = templateDescription.trim();
     const system = templateSystem.trim();
+
+    if (
+      templateSelect !== CREATE_NEW_VALUE &&
+      templateSelect !== NONE_VALUE &&
+      protectedTemplateIds.includes(templateSelect)
+    ) {
+      alert("Default prompt templates cannot be edited directly. Use Create Prompt → Copy Prompt to make an editable version.");
+      return;
+    }
 
     if (!name) {
       alert("Name is required.");
@@ -900,7 +1198,11 @@
         await dkClient.savePromptTemplate(payload.id, payload);
         showToast("Created prompt template");
         selectedPromptTemplateId = payload.id;
+        loadedPromptId = payload.id;
+        templateSelect = payload.id;
         await loadTemplateList(payload.id);
+        await saveRuntimeSettings();
+        resetPromptAction();
       } catch (error) {
         alert("Save failed: " + errorMessage(error));
       }
@@ -909,7 +1211,7 @@
     }
 
     if (
-      loadedProfileId &&
+      (loadedPromptId || loadedProfileId) &&
       currentTemplate?.id &&
       templateSelect !== NONE_VALUE
     ) {
@@ -944,39 +1246,12 @@
         currentTemplate = payload;
         showToast("Prompt template edits saved");
         await loadTemplateList(payload.id);
+        loadedPromptId = payload.id;
+        selectedPromptTemplateId = payload.id;
+        await saveRuntimeSettings();
       } catch (error) {
         alert("Prompt template edit save failed: " + errorMessage(error));
       }
-    }
-  }
-
-  async function deleteSelectedTemplate() {
-    if (!templateSelect || protectedTemplateIds.includes(templateSelect))
-      return;
-
-    const selectedTemplate = templates.find(
-      (template) => template.id === templateSelect,
-    );
-    const label = selectedTemplate?.name || templateSelect;
-
-    const confirmed = confirm(
-      `Delete prompt template "${label}"?\n\nThis will remove prompts/${templateSelect}.json. Profiles and personas will NOT be deleted.`,
-    );
-
-    if (!confirmed) return;
-
-    try {
-      await dkClient.deletePromptTemplate(templateSelect);
-
-      if (selectedPromptTemplateId === templateSelect) {
-        selectedPromptTemplateId = "rag_chat";
-      }
-
-      currentTemplate = null;
-      await loadTemplateList(NONE_VALUE);
-      showToast("Prompt template deleted");
-    } catch (error) {
-      alert("Prompt template delete failed: " + errorMessage(error));
     }
   }
 
@@ -995,11 +1270,7 @@
 
     try {
       await loadRuntimeSettings();
-      await loadTemplateList(
-        selectedPromptTemplateId === "rag_chat"
-          ? NONE_VALUE
-          : selectedPromptTemplateId,
-      );
+      await loadTemplateList(NONE_VALUE);
     } catch (error) {
       alert("Assistant settings failed to load: " + errorMessage(error));
     }
@@ -1022,6 +1293,19 @@
     id={`profile_${action}_btn`}
     data-profile-action={action}
     onclick={() => selectProfileAction(action)}
+  >
+    {label}
+  </button>
+{/snippet}
+
+{#snippet promptActionButton(action: string, label: string)}
+  <button
+    type="button"
+    class:active={promptAction === action}
+    class="btn"
+    id={`prompt_${action}_btn`}
+    data-prompt-action={action}
+    onclick={() => selectPromptAction(action)}
   >
     {label}
   </button>
@@ -1062,7 +1346,6 @@
         {@render profileActionButton("load", "Load Profile")}
         {@render profileActionButton("delete", "Delete Profile")}
       </div>
-    </div>
 
     {#if showProfileCreate}
       <div class="row" id="profile_create_row">
@@ -1100,11 +1383,11 @@
     {/if}
 
     {#if showProfileActions || showProfileSaveEdits}
-      <div class="row" id="profile_actions">
+      <div class="row success-action-row" id="profile_actions">
         {#if showProfileConfirm}
           <button
             type="button"
-            class="btn"
+            class="btn success-btn"
             id="profile_confirm"
             onclick={confirmProfileAction}
           >
@@ -1115,7 +1398,7 @@
         {#if showProfileSave}
           <button
             type="button"
-            class="btn"
+            class="btn success-btn"
             id="profile_save"
             onclick={saveCurrentProfile}
           >
@@ -1126,7 +1409,7 @@
         {#if showProfileSaveEdits}
           <button
             type="button"
-            class="btn"
+            class="btn success-btn"
             id="profile_save_edits"
             onclick={saveLoadedProfileEdits}
           >
@@ -1137,38 +1420,107 @@
     {/if}
 
     <div class="row">
-      <label for="tmpl_select">Prompt Template</label>
+      {@render sectionLabel("Prompt Template")}
 
-      <div style="display: flex; gap: 6px; align-items: center;">
-        <select
-          id="tmpl_select"
-          class="input"
-          style="flex: 1;"
-          bind:value={templateSelect}
-          onchange={() => loadTemplate(templateSelect)}
+      <div
+        class="assistant-action-buttons"
+        style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
+      >
+        {@render promptActionButton("create", "Create Prompt")}
+        {@render promptActionButton("load", "Load Prompt")}
+        {@render promptActionButton("delete", "Delete Prompt")}
+      </div>
+
+      
+      {#if showPromptCreate}
+        <div
+          class="assistant-action-buttons"
+          style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
         >
-          <option value={NONE_VALUE}>None</option>
-
-          {#each templates as template (template.id)}
-            <option value={template.id}>{template.name || template.id}</option>
-          {/each}
-
-          <option value={CREATE_NEW_VALUE}>Create Your Own</option>
-        </select>
-
-        {#if deleteTemplateVisible}
           <button
             type="button"
             class="btn"
-            id="tmpl_delete"
-            title="Delete selected user-made prompt template"
-            onclick={deleteSelectedTemplate}
+            id="prompt_copy_btn"
+            onclick={() => {
+              copyPromptOpen = !copyPromptOpen;
+              selectedCopyPromptId = "";
+            }}
           >
-            Delete Template
+            Copy Prompt
           </button>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
+    </div>
+
+    {#if showPromptCopySelect}
+      <div class="row" id="prompt_copy_select_row">
+        <label for="prompt_copy_select">Copy From Prompt</label>
+
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <select
+            id="prompt_copy_select"
+            class="input"
+            bind:value={selectedCopyPromptId}
+            disabled={!templates.length}
+          >
+            {#if templates.length}
+              <option value="">Select a prompt to copy</option>
+
+              {#each templates as template (template.id)}
+                <option value={template.id}>{template.name || template.id}</option>
+              {/each}
+            {:else}
+              <option value="">No saved prompts</option>
+            {/if}
+          </select>
+
+          <button
+            type="button"
+            class="btn success-btn"
+            id="prompt_copy_confirm"
+            onclick={copyPromptIntoCreate}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    {#if showPromptSelect}
+      <div class="row" id="prompt_select_row">
+        <label for="prompt_select">Saved Prompt</label>
+        <select
+          id="prompt_select"
+          class="input"
+          bind:value={selectedPromptId}
+          disabled={!templates.length}
+        >
+          {#if templates.length}
+            <option value="">Select a prompt</option>
+
+            {#each templates as template (template.id)}
+              <option value={template.id}>{template.name || template.id}</option>
+            {/each}
+          {:else}
+            <option value="">No saved prompts</option>
+          {/if}
+        </select>
+      </div>
+    {/if}
+
+    {#if showPromptConfirm}
+      <div class="row success-action-row" id="prompt_confirm_row">
+        <button
+          type="button"
+          class="btn success-btn"
+          id="prompt_confirm"
+          onclick={confirmPromptAction}
+        >
+          Confirm
+        </button>
+      </div>
+    {/if}
 
     {#if promptDetailsVisible}
       {#key templateSelect}
@@ -1211,6 +1563,13 @@
               readonly={!promptCanEdit}
             ></textarea>
           </div>
+          {#if saveTemplateVisible}
+            <div class="row">
+              <button type="button" class="btn success-btn"id="tmpl_save" onclick={saveTemplate}>
+                {saveTemplateLabel}
+              </button>
+            </div>
+          {/if}
         </div>
       {/key}
     {/if}
@@ -1226,7 +1585,60 @@
         {@render personaActionButton("load", "Load Persona")}
         {@render personaActionButton("delete", "Delete Persona")}
       </div>
+
+      {#if showPersonaCreate}
+        <div
+          class="assistant-action-buttons"
+          style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
+        >
+          <button
+            type="button"
+            class="btn"
+            id="persona_copy_btn"
+            onclick={() => {
+              copyPersonaOpen = !copyPersonaOpen;
+              selectedCopyPersonaId = "";
+            }}
+          >
+            Copy Persona
+          </button>
+        </div>
+      {/if}
     </div>
+
+    {#if showPersonaCopySelect}
+      <div class="row" id="persona_copy_select_row">
+        <label for="persona_copy_select">Copy From Persona</label>
+
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <select
+            id="persona_copy_select"
+            class="input"
+            bind:value={selectedCopyPersonaId}
+            disabled={!personas.length}
+          >
+            {#if personas.length}
+              <option value="">Select a persona to copy</option>
+
+              {#each personas as persona (persona.id)}
+                <option value={persona.id}>{persona.name || persona.id}</option>
+              {/each}
+            {:else}
+              <option value="">No saved personas</option>
+            {/if}
+          </select>
+
+          <button
+            type="button"
+            class="btn success-btn"
+            id="persona_copy_confirm"
+            onclick={copyPersonaIntoCreate}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+    {/if}
 
     {#if showPersonaSelect}
       <div class="row" id="persona_select_row">
@@ -1251,10 +1663,10 @@
     {/if}
 
     {#if showPersonaConfirm}
-      <div class="row" id="persona_confirm_row">
+      <div class="row success-action-row" id="persona_confirm_row">
         <button
           type="button"
-          class="btn"
+          class="btn success-btn"
           id="persona_confirm"
           onclick={confirmPersonaAction}
         >
@@ -1274,6 +1686,8 @@
               type="text"
               placeholder="Example: Engineering Tutor"
               bind:value={personaName}
+              disabled={!personaCanEdit}
+              readonly={!personaCanEdit}
             />
           </div>
 
@@ -1285,23 +1699,31 @@
               placeholder="Write the persona instructions here."
               style="min-height: 90px;"
               bind:value={personaText}
+              bind:this={personaTextarea}
+              disabled={!personaCanEdit}
+              readonly={!personaCanEdit}
             ></textarea>
           </div>
 
-          <div class="row">
-            <button
-              type="button"
-              class="btn"
-              id="persona_save"
-              onclick={savePersona}
-            >
-              {#if loadedPersonaId}
-                Save Persona Edits
-              {:else}
-                Save Persona
-              {/if}
-            </button>
-          </div>
+          {#if personaCanEdit}
+            <div class="row success-action-row">
+              <button
+                type="button"
+                class="btn success-btn"
+                id="persona_save"
+                onclick={savePersona}
+              >
+                {#if loadedPersonaId}
+                  Save Persona Edits
+                {:else}
+                  Save Persona
+                {/if}
+              </button>
+            </div>
+          {:else}
+          <div class="row persona-protected-note">
+            </div>
+          {/if}
         </div>
       {/key}
     {/if}
@@ -1315,7 +1737,12 @@
         style="display: grid; grid-template-columns: 90px 75px 105px; align-items: end; gap: 8px; flex: 0 0 auto;"
       >
         <div class="assistant-compact-field">
-          <label for="assistant_temperature">Temperature</label>
+          <label
+            for="assistant_temperature"
+            title="Controls response randomness. Higher temperature makes answers more creative and varied; lower temperature makes answers more precise and consistent."
+          >
+            Temperature
+          </label>
           <input
             id="assistant_temperature"
             class="input"
@@ -1331,7 +1758,12 @@
         </div>
 
         <div class="assistant-compact-field">
-          <label for="assistant_top_k">Top K</label>
+          <label
+            for="assistant_top_k"
+            title="Limits how many likely next-word choices the model considers. Lower Top K makes responses more focused; higher Top K allows more variety."
+          >
+            Top K
+          </label>
           <input
             id="assistant_top_k"
             class="input"
@@ -1346,7 +1778,12 @@
         </div>
 
         <div class="assistant-compact-field">
-          <label for="assistant_max_tokens">Max Tokens</label>
+          <label
+            for="assistant_max_tokens"
+            title="Sets the maximum response length. 512 tokens usually produces roughly 350–400 words, depending on formatting and word length."
+          >
+            Max Tokens
+          </label>
           <input
             id="assistant_max_tokens"
             class="input"
@@ -1384,13 +1821,6 @@
       </div>
     </div>
 
-    {#if saveTemplateVisible}
-      <div class="row">
-        <button type="button" class="btn" id="tmpl_save" onclick={saveTemplate}>
-          {saveTemplateLabel}
-        </button>
-      </div>
-    {/if}
 
     <div class="row">
       <label for="assistant_llm_provider">LLM Provider</label>
@@ -1462,7 +1892,33 @@
   .assistant-compact-field label {
     font-size: 12px;
   }
+  
+  .persona-textarea {
+    min-height: 90px;
+    overflow: hidden;
+    resize: none;
+  }
 
+  .success-btn {
+    justify-self: center;
+    width: fit-content;
+    min-width: 90px;
+    padding: 5px 10px;
+    background: rgb(204, 255, 204);
+    border-color: rgb(170, 230, 170);
+    color: #102a10;
+    font-size: 12px;
+  }
+
+  .success-btn:hover {
+    background: rgb(190, 245, 190);
+  }
+
+  .success-action-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
   .toast {
     position: fixed;
     right: 18px;
