@@ -33,13 +33,17 @@ make run
 **Windows (PowerShell):**
 
 ```powershell
-python -m venv venv
+py -3.11 -m venv .venv
+# If your default python interpreter is already 3.11, you may also use:
+# python -m venv .venv
 .\venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Use `python -m pip` and `python -m pytest` so installs and tests use the same Python as your shell; this avoids "script location not on PATH" or "pytest not recognized" when the venv Scripts folder is not on PATH.
+
+> Note: The current pinned requirements target Python 3.11 / 3.13. Python 3.14 is not compatible with `spacy==3.8.7`.
 
 **Run tests:**
 
