@@ -10,6 +10,7 @@
     type ModelOption,
   } from "$lib/assistantState";
   import BaseWindow from "$lib/components/BaseWindow.svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { errorMessage } from "$lib/errors";
   import { AssistantApiKeyPopup } from "$lib/popups";
   import { dkClient, type PromptTemplate, type ProviderRecord } from "$lib/sdk";
@@ -82,7 +83,7 @@
   let loadedPromptId = $state<string | null>(null);
 
   let copyPromptOpen = $state(false);
-  let selectedCopyPromptId = $state('');
+  let selectedCopyPromptId = $state("");
 
   let templateSelect = $state(NONE_VALUE);
   let templateName = $state("");
@@ -527,8 +528,8 @@
       templateSystem = "";
       copyPromptOpen = false;
       selectedCopyPromptId = "";
-        }
-      }
+    }
+  }
 
   function selectPersonaAction(action: string) {
     if (personaAction === action) {
@@ -811,7 +812,6 @@
     if (promptAction === "delete") {
       if (protectedTemplateIds.includes(selectedPromptId)) {
         alert(
-          "Default prompt templates cannot be deleted. Use Create Prompt → Copy Prompt to make an editable version.",
         );
         return;
       }
@@ -1281,6 +1281,7 @@
   });
 </script>
 
+
 {#snippet sectionLabel(text: string)}
   <div class="field-label">{text}</div>
 {/snippet}
@@ -1338,14 +1339,12 @@
     <div class="row">
       {@render sectionLabel("Profiles")}
 
-      <div
-        class="assistant-action-buttons"
-        style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
-      >
+      <div class="assistant-action-buttons">
         {@render profileActionButton("create", "Create Profile")}
         {@render profileActionButton("load", "Load Profile")}
         {@render profileActionButton("delete", "Delete Profile")}
       </div>
+    </div>
 
     {#if showProfileCreate}
       <div class="row" id="profile_create_row">
@@ -1362,11 +1361,13 @@
 
           <button
             type="button"
-            class="btn success-btn inline-action-btn"
+            class="settings-action-button settings-save-button"
             id="profile_save"
+            aria-label="Save profile"
+            title="Save profile"
             onclick={saveCurrentProfile}
           >
-            Save Profile
+            <Icon name="save" size={16} />
           </button>
         </div>
       </div>
@@ -1394,51 +1395,50 @@
             {/if}
           </select>
 
-      {#if showProfileConfirm}
-        <button
-          type="button"
-          class="btn success-btn inline-action-btn"
-          id="profile_confirm"
-          onclick={confirmProfileAction}
-        >
-          Confirm
-        </button>
-      {/if}
-    </div>
-  </div>
-{/if}
+          {#if showProfileConfirm}
+            <button
+              type="button"
+              class="settings-action-button settings-save-button"
+              id="profile_confirm"
+              aria-label="Confirm profile action"
+              title="Confirm"
+              onclick={confirmProfileAction}
+            >
+              <Icon name="save" size={16} />
+            </button>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     {#if showProfileSaveEdits}
       <div class="row">
-        <button
-          type="button"
-          class="btn success-btn inline-action-btn"
-          id="profile_save_edits"
-          onclick={saveLoadedProfileEdits}
-        >
-          Save Edits
-        </button>
+        <div class="right-action-row">
+          <button
+            type="button"
+            class="settings-action-button settings-save-button"
+            id="profile_save_edits"
+            aria-label="Save profile edits"
+            title="Save profile edits"
+            onclick={saveLoadedProfileEdits}
+          >
+            <Icon name="save" size={16} />
+          </button>
+        </div>
       </div>
     {/if}
 
     <div class="row">
       {@render sectionLabel("Prompt Template")}
 
-      <div
-        class="assistant-action-buttons"
-        style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
-      >
+      <div class="assistant-action-buttons">
         {@render promptActionButton("create", "Create Prompt")}
         {@render promptActionButton("load", "Load Prompt")}
         {@render promptActionButton("delete", "Delete Prompt")}
       </div>
 
-      
       {#if showPromptCreate}
-        <div
-          class="assistant-action-buttons"
-          style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
-        >
+        <div class="assistant-action-buttons">
           <button
             type="button"
             class="btn"
@@ -1453,13 +1453,12 @@
         </div>
       {/if}
     </div>
-    </div>
 
     {#if showPromptCopySelect}
       <div class="row" id="prompt_copy_select_row">
         <label for="prompt_copy_select">Copy From Prompt</label>
 
-        <div style="display: flex; gap: 6px; align-items: center;">
+        <div class="inline-control-row">
           <select
             id="prompt_copy_select"
             class="input"
@@ -1470,7 +1469,9 @@
               <option value="">Select a prompt to copy</option>
 
               {#each templates as template (template.id)}
-                <option value={template.id}>{template.name || template.id}</option>
+                <option value={template.id}>
+                  {template.name || template.id}{protectedTemplateIds.includes(template.id) ? " (default)" : ""}
+                </option>
               {/each}
             {:else}
               <option value="">No saved prompts</option>
@@ -1479,11 +1480,13 @@
 
           <button
             type="button"
-            class="btn success-btn"
+            class="settings-action-button settings-save-button"
             id="prompt_copy_confirm"
+            aria-label="Copy prompt"
+            title="Copy prompt"
             onclick={copyPromptIntoCreate}
           >
-            Copy
+            <Icon name="save" size={16} />
           </button>
         </div>
       </div>
@@ -1516,11 +1519,13 @@
           {#if showPromptConfirm}
             <button
               type="button"
-              class="btn success-btn inline-action-btn"
+              class="settings-action-button settings-save-button"
               id="prompt_confirm"
+              aria-label="Confirm prompt action"
+              title="Confirm"
               onclick={confirmPromptAction}
             >
-              Confirm
+              <Icon name="save" size={16} />
             </button>
           {/if}
         </div>
@@ -1542,16 +1547,18 @@
                 bind:value={templateName}
                 disabled={!promptCanEdit}
                 readonly={!promptCanEdit}
-                />
+              />
 
               {#if saveTemplateVisible && promptCanEdit}
                 <button
                   type="button"
-                  class="btn success-btn inline-action-btn"
+                  class="settings-action-button settings-save-button"
                   id="tmpl_save"
+                  aria-label={saveTemplateLabel}
+                  title={saveTemplateLabel}
                   onclick={saveTemplate}
                 >
-                  {saveTemplateLabel}
+                  <Icon name="save" size={16} />
                 </button>
               {/if}
             </div>
@@ -1582,6 +1589,11 @@
               readonly={!promptCanEdit}
             ></textarea>
           </div>
+
+          {#if loadedPromptIsProtected}
+            <div class="row prompt-protected-note">
+            </div>
+          {/if}
         </div>
       {/key}
     {/if}
@@ -1589,20 +1601,14 @@
     <div class="row">
       {@render sectionLabel("Personas")}
 
-      <div
-        class="assistant-action-buttons"
-        style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
-      >
+      <div class="assistant-action-buttons">
         {@render personaActionButton("create", "Create Persona")}
         {@render personaActionButton("load", "Load Persona")}
         {@render personaActionButton("delete", "Delete Persona")}
       </div>
 
       {#if showPersonaCreate}
-        <div
-          class="assistant-action-buttons"
-          style="display: flex; gap: 6px; justify-content: flex-start; align-items: center; flex-wrap: wrap;"
-        >
+        <div class="assistant-action-buttons">
           <button
             type="button"
             class="btn"
@@ -1622,7 +1628,7 @@
       <div class="row" id="persona_copy_select_row">
         <label for="persona_copy_select">Copy From Persona</label>
 
-        <div style="display: flex; gap: 6px; align-items: center;">
+        <div class="inline-control-row">
           <select
             id="persona_copy_select"
             class="input"
@@ -1633,7 +1639,9 @@
               <option value="">Select a persona to copy</option>
 
               {#each personas as persona (persona.id)}
-                <option value={persona.id}>{persona.name || persona.id}</option>
+                <option value={persona.id}>
+                  {persona.name || persona.id}{protectedPersonaIds.includes(persona.id) ? " (default)" : ""}
+                </option>
               {/each}
             {:else}
               <option value="">No saved personas</option>
@@ -1642,11 +1650,13 @@
 
           <button
             type="button"
-            class="btn success-btn"
+            class="settings-action-button settings-save-button"
             id="persona_copy_confirm"
+            aria-label="Copy persona"
+            title="Copy persona"
             onclick={copyPersonaIntoCreate}
           >
-            Copy
+            <Icon name="save" size={16} />
           </button>
         </div>
       </div>
@@ -1679,11 +1689,13 @@
           {#if showPersonaConfirm}
             <button
               type="button"
-              class="btn success-btn inline-action-btn"
+              class="settings-action-button settings-save-button"
               id="persona_confirm"
+              aria-label="Confirm persona action"
+              title="Confirm"
               onclick={confirmPersonaAction}
             >
-              Confirm
+              <Icon name="save" size={16} />
             </button>
           {/if}
         </div>
@@ -1710,15 +1722,13 @@
               {#if personaCanEdit}
                 <button
                   type="button"
-                  class="btn success-btn inline-action-btn"
+                  class="settings-action-button settings-save-button"
                   id="persona_save"
+                  aria-label={loadedPersonaId ? "Save persona edits" : "Save persona"}
+                  title={loadedPersonaId ? "Save persona edits" : "Save persona"}
                   onclick={savePersona}
                 >
-                  {#if loadedPersonaId}
-                    Save Persona Edits
-                  {:else}
-                    Save Persona
-                  {/if}
+                  <Icon name="save" size={16} />
                 </button>
               {/if}
             </div>
@@ -1728,27 +1738,25 @@
             <label for="assistant_persona">Persona</label>
             <textarea
               id="assistant_persona"
-              class="textarea"
+              class="textarea persona-textarea"
               placeholder="Write the persona instructions here."
-              style="min-height: 90px;"
               bind:value={personaText}
               bind:this={personaTextarea}
               disabled={!personaCanEdit}
               readonly={!personaCanEdit}
             ></textarea>
           </div>
+
+          {#if !personaCanEdit}
+            <div class="row persona-protected-note">
+            </div>
+          {/if}
         </div>
       {/key}
     {/if}
 
-    <div
-      class="row assistant-compact-row"
-      style="display: flex; align-items: end; justify-content: space-between; gap: 10px; flex-wrap: nowrap; width: 100%;"
-    >
-      <div
-        class="assistant-number-settings"
-        style="display: grid; grid-template-columns: 90px 75px 105px; align-items: end; gap: 8px; flex: 0 0 auto;"
-      >
+    <div class="row assistant-compact-row">
+      <div class="assistant-number-settings">
         <div class="assistant-compact-field">
           <label
             for="assistant_temperature"
@@ -1764,7 +1772,6 @@
             max="2"
             step="0.1"
             placeholder="0.2"
-            style="width: 100%; box-sizing: border-box;"
             bind:value={temperature}
             onchange={saveRuntimeSettings}
           />
@@ -1784,7 +1791,6 @@
             min="0"
             step="1"
             placeholder="8"
-            style="width: 100%; box-sizing: border-box;"
             bind:value={topK}
             onchange={saveRuntimeSettings}
           />
@@ -1800,20 +1806,17 @@
           <input
             id="assistant_max_tokens"
             class="input"
+            type="number"
             min="1"
             step="1"
             placeholder="512"
-            style="width: 100%; box-sizing: border-box;"
             bind:value={maxTokens}
             onchange={saveRuntimeSettings}
           />
         </div>
       </div>
 
-      <div
-        class="assistant-manage-buttons"
-        style="display: flex; align-items: end; gap: 6px; margin-left: auto;"
-      >
+      <div class="assistant-manage-buttons">
         <button
           type="button"
           class="btn"
@@ -1833,7 +1836,6 @@
         </button>
       </div>
     </div>
-
 
     <div class="row">
       <label for="assistant_llm_provider">LLM Provider</label>
@@ -1882,13 +1884,21 @@
 />
 
 <style>
-  .assistant-action-buttons .active {
-    outline: 1px solid var(--accent);
-  }
-
   .assistant-settings-form {
     display: grid;
     gap: 10px;
+  }
+
+  .assistant-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .assistant-action-buttons .active {
+    outline: 1px solid var(--accent);
   }
 
   .field-label {
@@ -1896,6 +1906,74 @@
     font-size: 13px;
     font-weight: 600;
   }
+
+.inline-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 3%));
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
+  overflow: hidden;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.inline-control-row:focus-within {
+  border-color: color-mix(in oklab, var(--accent) 70%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
+    0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+.inline-control-row .input,
+.inline-control-row select {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.inline-control-row .input:focus,
+.inline-control-row select:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.settings-action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  height: 100%;
+  min-height: 34px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: rgb(204, 255, 204);
+  color: #102a10;
+  cursor: pointer;
+  padding: 0;
+}
+
+.settings-action-button:hover {
+  background: rgb(190, 245, 190);
+}
+
+.settings-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.settings-save-button {
+  color: #102a10;
+}
 
   .assistant-compact-field {
     display: grid;
@@ -1905,33 +1983,33 @@
   .assistant-compact-field label {
     font-size: 12px;
   }
-  
+
+  .assistant-compact-field .input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .assistant-manage-buttons {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    margin-left: auto;
+  }
+
   .persona-textarea {
     min-height: 90px;
     overflow: hidden;
     resize: none;
   }
 
-  .success-btn {
-    justify-self: center;
-    width: fit-content;
-    min-width: 90px;
-    padding: 5px 10px;
-    background: rgb(204, 255, 204);
-    border-color: rgb(170, 230, 170);
-    color: #102a10;
-    font-size: 12px;
-  }
-
-  .success-btn:hover {
-    background: rgb(190, 245, 190);
-  }
-
-  .success-action-row {
-    display: flex;
+  .prompt-protected-note,
+  .persona-protected-note {
     justify-content: center;
-    align-items: center;
-}
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+
   .toast {
     position: fixed;
     right: 18px;
@@ -1956,37 +2034,16 @@
 
   @media (max-width: 720px) {
     .assistant-compact-row {
-      flex-wrap: wrap !important;
+      flex-wrap: wrap;
     }
 
     .assistant-number-settings {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: 1fr;
       width: 100%;
     }
 
     .assistant-manage-buttons {
-      margin-left: 0 !important;
+      margin-left: 0;
     }
-    .inline-control-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .inline-control-row .input,
-  .inline-control-row .textarea,
-  .inline-control-row select {
-    width: 100%;
-  }
-
-  .inline-action-btn {
-    align-self: center;
-    width: fit-content;
-    min-width: 82px;
-    padding: 5px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
   }
 </style>
