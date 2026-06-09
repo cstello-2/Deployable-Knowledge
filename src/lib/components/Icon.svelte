@@ -10,7 +10,7 @@
 </script>
 
 <span
-  class="material-icons dk-icon"
+  class="material-symbols-rounded dk-icon"
   class:not-filled={!filled}
   style={`font-size: ${size}px`}
   aria-hidden={label ? undefined : "true"}
@@ -30,9 +30,18 @@
     line-height: 1;
     text-transform: none;
     user-select: none;
+    font-variation-settings:
+      "FILL" 1,
+      "wght" 400,
+      "GRAD" 0,
+      "opsz" 24;
   }
 
   .not-filled {
-    font-variation-settings: "FILL" 0;
+    font-variation-settings:
+      "FILL" 0,
+      "wght" 400,
+      "GRAD" 0,
+      "opsz" 24;
   }
 </style>

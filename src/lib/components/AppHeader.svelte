@@ -166,7 +166,7 @@
     position: relative;
     display: flex;
     height: 40px;
-    padding: 8px 12px;
+    padding: 0px 6px;
     border-bottom: 1px solid var(--border);
     background: linear-gradient(
       180deg,

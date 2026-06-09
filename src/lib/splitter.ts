@@ -2,11 +2,13 @@ export type ColumnSplitterOptions = {
   leftSelector?: string;
   rightSelector?: string;
   splitterSelector?: string;
-  storageKey?: string;
   minLeftPx?: number;
   minRightPx?: number;
   minLeftRatio?: number;
   defaultLeftRatio?: number;
+  leftCollapsed?: boolean;
+  leftWidth?: number | null;
+  onLeftWidthChange?: (width: number) => void;
 };
 
 type ResolvedColumnSplitterOptions = Required<ColumnSplitterOptions>;
@@ -15,11 +17,13 @@ const defaultOptions: ResolvedColumnSplitterOptions = {
   leftSelector: '[data-split-pane="left"]',
   rightSelector: '[data-split-pane="right"]',
   splitterSelector: "[data-splitter]",
-  storageKey: "layout:leftWidth",
   minLeftPx: 300,
   minRightPx: 320,
   minLeftRatio: 0.28,
   defaultLeftRatio: 0.42,
+  leftCollapsed: false,
+  leftWidth: null,
+  onLeftWidthChange: () => {},
 };
 
 export function columnSplitter(
@@ -55,6 +59,8 @@ export function columnSplitter(
   }
 
   function applyLeftWidth(px: number) {
+    splitter.style.display = "";
+
     const total = totalSize();
     const minLeft = Math.min(
       Math.max(settings.minLeftPx, total * settings.minLeftRatio),
@@ -65,9 +71,18 @@ export function columnSplitter(
 
     left.style.flex = `0 0 ${clamped}px`;
     right.style.flex = "1 1 auto";
+
+    return clamped;
+  }
+
+  function applyCollapsed() {
+    left.style.flex = "0 0 0px";
+    right.style.flex = "1 1 auto";
+    splitter.style.display = "none";
   }
 
   function onDown(event: PointerEvent) {
+    if (settings.leftCollapsed) return;
     if (!event.isPrimary || event.button !== 0) return;
 
     event.preventDefault();
@@ -90,21 +105,32 @@ export function columnSplitter(
 
     dragging = false;
     splitter.classList.remove("dragging");
-    localStorage.setItem(settings.storageKey, String(Math.round(leftSize())));
+    const currentLeftSize = Math.round(leftSize());
+    settings.onLeftWidthChange(currentLeftSize);
     document.removeEventListener("pointermove", onMove);
   }
 
   function onResize() {
-    applyLeftWidth(Math.round(leftSize()));
+    if (settings.leftCollapsed) return;
+
+    const currentLeftSize = applyLeftWidth(Math.round(leftSize()));
+    settings.onLeftWidthChange(Math.round(currentLeftSize));
   }
 
   function setup() {
-    const saved = Number(localStorage.getItem(settings.storageKey));
+    if (settings.leftCollapsed) {
+      applyCollapsed();
+      return;
+    }
+
     const fallback = Math.round(
       (isStacked() ? window.innerHeight : window.innerWidth) *
         settings.defaultLeftRatio,
     );
-    applyLeftWidth(Number.isFinite(saved) && saved > 0 ? saved : fallback);
+    const nextWidth = settings.leftWidth ?? fallback;
+    const appliedWidth = applyLeftWidth(nextWidth);
+
+    settings.onLeftWidthChange(Math.round(appliedWidth));
   }
 
   splitter.addEventListener("pointerdown", onDown);

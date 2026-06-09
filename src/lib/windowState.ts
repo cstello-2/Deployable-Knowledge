@@ -112,6 +112,10 @@ export function setWindowHeights(updates: { id: string; height: number }[]) {
 	);
 }
 
+export function restoreWindowPlacements(value: unknown) {
+	windowPlacements.set(normalizeWindowPlacements(value));
+}
+
 export function placeWindowFromDrop({ windowId, columnId, columnIndex }: WindowDropPlacement) {
 	if (!windowId || !isWindowColumn(columnId)) return;
 
@@ -161,7 +165,7 @@ function readWindowPlacements() {
 		const stored = localStorage.getItem(WINDOW_PLACEMENTS_STORAGE_KEY);
 		if (!stored) return fallback;
 
-		return mergeWindowPlacements(JSON.parse(stored));
+		return normalizeWindowPlacements(JSON.parse(stored));
 	} catch {
 		return fallback;
 	}
@@ -175,7 +179,7 @@ function saveWindowPlacements(placements: WindowPlacement[]) {
 	}
 }
 
-function mergeWindowPlacements(value: unknown) {
+export function normalizeWindowPlacements(value: unknown) {
 	const fallback = defaultWindowPlacements();
 	if (!Array.isArray(value)) return fallback;
 

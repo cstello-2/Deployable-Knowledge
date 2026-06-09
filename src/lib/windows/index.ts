@@ -44,7 +44,7 @@ export const windowDefinitions = [
   {
     id: "chat-history-window",
     title: "Chat History",
-    column: "right",
+    column: "left",
     component: ChatHistoryWindow,
   },
 ] satisfies WindowDefinition[];
