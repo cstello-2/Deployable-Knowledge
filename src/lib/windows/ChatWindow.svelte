@@ -8,6 +8,7 @@
   import BaseWindow from "$lib/components/BaseWindow.svelte";
   import { errorMessage } from "$lib/errors";
   import {
+    currentSession,
     currentSessionId,
     refreshSessions,
     startNewSession,
@@ -41,6 +42,7 @@
   let busy = $state(false);
   let status = $state("");
   let activeSessionId = $state<string | null>(null);
+  let loadedHistorySessionId = $state<string | null>(null);
 
   let aborter: AbortController | null = null;
   let nextMessageId = 1;
@@ -61,10 +63,27 @@
     const sessionId = $currentSessionId;
     if (!sessionId || sessionId === activeSessionId) return;
 
-    if (activeSessionId !== null) {
+    const loadedSession = $currentSession;
+    if (
+      loadedSession?.session_id === sessionId &&
+      loadedHistorySessionId !== sessionId
+    ) {
+      messages = historyMessages(loadedSession.history || []);
+      loadedHistorySessionId = sessionId;
+    } else if (activeSessionId !== null) {
       messages = [assistantMessage("New chat started. How can I help?")];
+      loadedHistorySessionId = null;
     }
     activeSessionId = sessionId;
+  });
+
+  $effect(() => {
+    const session = $currentSession;
+    if (!session || session.session_id === loadedHistorySessionId) return;
+
+    messages = historyMessages(session.history || []);
+    activeSessionId = session.session_id;
+    loadedHistorySessionId = session.session_id;
   });
 
   $effect(() => {
@@ -96,6 +115,13 @@
       html: renderMarkdown(text),
       sources,
     };
+  }
+
+  function historyMessages(history: [string, string][]) {
+    return history.flatMap(([user, assistant]) => [
+      userMessage(user),
+      assistantMessage(assistant),
+    ]);
   }
 
   function pendingAssistantMessage(): ChatMessage {

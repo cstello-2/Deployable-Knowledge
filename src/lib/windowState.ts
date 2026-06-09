@@ -16,6 +16,7 @@ type WindowDropPlacement = {
 };
 
 const WINDOW_PLACEMENTS_STORAGE_KEY = 'layout:windowPlacements';
+const DEFAULT_WINDOW_HEIGHT = 320;
 const definitionsById = new Map(windowDefinitions.map((definition) => [definition.id, definition]));
 
 function defaultWindowPlacements(): WindowPlacement[] {
@@ -24,7 +25,7 @@ function defaultWindowPlacements(): WindowPlacement[] {
 		column: definition.column,
 		visible: true,
 		collapsed: false,
-		height: null
+		height: DEFAULT_WINDOW_HEIGHT
 	}));
 }
 
@@ -60,7 +61,14 @@ export const visibleWindows = derived(windowPlacements, ($placements) =>
 export function showWindow(id: string) {
 	windowPlacements.update((placements) =>
 		placements.map((placement) =>
-			placement.id === id ? { ...placement, visible: true, collapsed: false } : placement
+			placement.id === id
+				? {
+						...placement,
+						visible: true,
+						collapsed: false,
+						height: placement.height ?? DEFAULT_WINDOW_HEIGHT
+					}
+				: placement
 		)
 	);
 }
@@ -111,7 +119,12 @@ export function placeWindowFromDrop({ windowId, columnId, columnIndex }: WindowD
 		const moving = placements.find((placement) => placement.id === windowId);
 		if (!moving) return placements;
 
-		const nextMoving = { ...moving, column: columnId, visible: true };
+		const nextMoving = {
+			...moving,
+			column: columnId,
+			visible: true,
+			height: moving.height ?? DEFAULT_WINDOW_HEIGHT
+		};
 		const remaining = placements.filter((placement) => placement.id !== windowId);
 		const targetColumnWindows = remaining.filter(
 			(placement) => placement.visible && placement.column === columnId
@@ -120,16 +133,24 @@ export function placeWindowFromDrop({ windowId, columnId, columnIndex }: WindowD
 
 		if (before) {
 			const insertAt = remaining.findIndex((placement) => placement.id === before.id);
-			return [...remaining.slice(0, insertAt), nextMoving, ...remaining.slice(insertAt)];
+			return ensureVisibleWindowHeights([
+				...remaining.slice(0, insertAt),
+				nextMoving,
+				...remaining.slice(insertAt)
+			]);
 		}
 
 		const lastTarget = targetColumnWindows.at(-1);
 		if (lastTarget) {
 			const insertAt = remaining.findIndex((placement) => placement.id === lastTarget.id) + 1;
-			return [...remaining.slice(0, insertAt), nextMoving, ...remaining.slice(insertAt)];
+			return ensureVisibleWindowHeights([
+				...remaining.slice(0, insertAt),
+				nextMoving,
+				...remaining.slice(insertAt)
+			]);
 		}
 
-		return [...remaining, nextMoving];
+		return ensureVisibleWindowHeights([...remaining, nextMoving]);
 	});
 }
 
@@ -173,7 +194,7 @@ function mergeWindowPlacements(value: unknown) {
 			column: isWindowColumn(item.column) ? item.column : defaultPlacement.column,
 			visible: typeof item.visible === 'boolean' ? item.visible : defaultPlacement.visible,
 			collapsed: typeof item.collapsed === 'boolean' ? item.collapsed : defaultPlacement.collapsed,
-			height: parseWindowHeight(item.height)
+			height: parseWindowHeight(item.height) ?? defaultPlacement.height
 		});
 		seen.add(item.id);
 	}
@@ -183,6 +204,14 @@ function mergeWindowPlacements(value: unknown) {
 
 function parseWindowHeight(value: unknown) {
 	return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+}
+
+function ensureVisibleWindowHeights(placements: WindowPlacement[]) {
+	return placements.map((placement) =>
+		placement.visible && placement.height === null
+			? { ...placement, height: DEFAULT_WINDOW_HEIGHT }
+			: placement
+	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
