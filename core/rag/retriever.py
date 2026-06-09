@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Callable
-import inspect, re
+import re
 
 from config import CHROMA_DB_DIR, COLLECTION_NAME
 from core.corpus_registry import get_inactive_sources
@@ -293,46 +293,13 @@ def extract_text(file_path: Path) -> List[Dict[str, Any]]:
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
         parsed = parse_pdf(str(file_path))
-        if isinstance(parsed, list):
-            return parsed
-        elif isinstance(parsed, str):
-            return [{"page": 1, "text": parsed}]
-        else:
+        if not isinstance(parsed, list):
             raise TypeError(f"parse_pdf returned unexpected type: {type(parsed)}")
+        return parsed
     if suffix == ".txt":
         text = file_path.read_text(encoding="utf-8")
         return [{"page": 1, "text": text}]
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
-
-
-def _db_add_segments_compat(
-    db_obj: DBManager,
-    segments: List[str],
-    source: str,
-    tags: List[str],
-    positions: List[Any],
-    pages: List[Optional[int]],
-    metadata: List[Dict[str, Any]],
-    progress_callback: Optional[ProgressCallback] = None,
-):
-    """Invoke ``db_obj.add_segments`` handling legacy signatures."""
-
-    sig = inspect.signature(db_obj.add_segments)
-    params = sig.parameters
-    kwargs = dict(segments=segments, source=source, tags=tags)
-
-    if "metadata" in params:
-        kwargs["metadata"] = metadata
-    if "positions" in params:
-        kwargs["positions"] = positions
-    if "page" in params:
-        kwargs["page"] = pages
-    elif "pages" in params:
-        kwargs["pages"] = pages
-    if "progress_callback" in params:
-        kwargs["progress_callback"] = progress_callback
-
-    return db_obj.add_segments(**kwargs)
 
 
 def embed_file(
@@ -369,7 +336,9 @@ def embed_file(
             meta["content_type"] = "table" if meta.get("table") else "text"
             all_chunks.append((chunk_text_, meta))
 
-    all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]
+    all_chunks = [
+        (chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)
+    ]
 
     # Separate image OCR chunks.
     if include_image_ocr and file_path.suffix.lower() == ".pdf":
@@ -417,7 +386,9 @@ def embed_file(
             item["source_file"] = meta.get("source_file")
         if meta.get("table") is not None:
             item["table"] = meta.get("table")
+
         char_range = meta.get("char_range")
+
         if isinstance(char_range, tuple) and len(char_range) == 2:
             start_char, end_char = char_range
             if start_char is not None:
@@ -435,163 +406,18 @@ def embed_file(
     if progress_callback:
         progress_callback(45, 100, f"Preparing {len(segments)} chunks from {source}")
 
-    _db_add_segments_compat(
-        db_obj=get_db(),
+    get_db().add_segments(
         segments=segments,
-        source=source_name or file_path.name,
+        source=source,
         tags=tags or ["embedded"],
         positions=positions,
-        pages=pages,
+        page=pages,
         metadata=metadata,
-        progress_callback=lambda current, total, message: (
-            progress_callback(
-                current,
-                total,
-                message,
-            )
-            if progress_callback
-            else None
-        ),
+        progress_callback=progress_callback,
     )
 
     if progress_callback:
         progress_callback(100, 100, f"Finished embedding {source}")
-
-
-def _exact_query_terms(query: str) -> List[str]:
-    return [
-        term
-        for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9-]{4,}[A-Za-z0-9]", query)
-        if any(char.isdigit() for char in term)
-    ]
-
-
-def _exact_search(query: str, top_k: int, exclude_sources: Optional[set] = None) -> List[Dict]:
-    terms = [term.lower() for term in _exact_query_terms(query)]
-    if not terms:
-        return []
-
-    merged_exclude = set(exclude_sources or [])
-    merged_exclude.update(get_inactive_sources())
-    data = get_db().collection.get(include=["documents", "metadatas"])
-    documents = data.get("documents", []) or []
-    metadatas = data.get("metadatas", []) or []
-    ids = data.get("ids", []) or []
-    matches = []
-    for doc, meta, seg_id in zip(documents, metadatas, ids):
-        src = meta.get("source", "unknown")
-        if src in merged_exclude:
-            continue
-        text = doc or ""
-        lowered = text.lower()
-        if not all(term in lowered for term in terms):
-            continue
-        matches.append(
-            {
-                "text": text.strip().replace("\n", " "),
-                "source": src,
-                "score": 1.0,
-                "page": meta.get("page", None),
-                "content_type": meta.get("content_type", "text"),
-                "image_index": meta.get("image_index", None),
-                "segment_id": seg_id,
-            }
-        )
-        if len(matches) >= top_k:
-            break
-    return matches
-
-
-def _normalize_for_lexical_search(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-
-
-def _lexical_query_terms(query: str) -> List[str]:
-    stopwords = {
-        "about",
-        "also",
-        "and",
-        "are",
-        "can",
-        "for",
-        "from",
-        "get",
-        "give",
-        "into",
-        "that",
-        "the",
-        "this",
-        "with",
-        "you",
-    }
-    terms = []
-    seen = set()
-    for term in _normalize_for_lexical_search(query).split():
-        if term in stopwords:
-            continue
-        if len(term) < 3 and not term.isdigit():
-            continue
-        if term in seen:
-            continue
-        seen.add(term)
-        terms.append(term)
-    return terms
-
-
-def _result_from_doc(
-    doc: str, meta: Dict[str, Any], seg_id: Optional[str], score: Optional[float]
-) -> Dict:
-    return {
-        "text": doc.strip().replace("\n", " "),
-        "source": meta.get("source", "unknown"),
-        "score": score,
-        "page": meta.get("page", None),
-        "content_type": meta.get("content_type", "text"),
-        "image_index": meta.get("image_index", None),
-        "segment_id": seg_id,
-    }
-
-
-def _lexical_search(query: str, top_k: int, exclude_sources: Optional[set] = None) -> List[Dict]:
-    terms = _lexical_query_terms(query)
-    if not terms:
-        return []
-
-    merged_exclude = set(exclude_sources or [])
-    merged_exclude.update(get_inactive_sources())
-    query_text = " ".join(terms)
-    min_matches = min(2, len(terms))
-
-    data = get_db().collection.get(include=["documents", "metadatas"])
-    documents = data.get("documents", []) or []
-    metadatas = data.get("metadatas", []) or []
-    ids = data.get("ids", []) or []
-    matches: List[tuple[float, Dict]] = []
-
-    for doc, meta, seg_id in zip(documents, metadatas, ids):
-        src = meta.get("source", "unknown")
-        if src in merged_exclude:
-            continue
-
-        text = doc or ""
-        normalized = _normalize_for_lexical_search(text)
-        if not normalized:
-            continue
-
-        term_hits = [term for term in terms if re.search(rf"\b{re.escape(term)}\b", normalized)]
-        if len(term_hits) < min_matches:
-            continue
-
-        weighted_hits = sum(1.5 if term.isdigit() else 1.0 for term in term_hits)
-        coverage = len(term_hits) / len(terms)
-        phrase_bonus = 1.0 if query_text in normalized else 0.0
-        image_bonus = 0.35 if meta.get("content_type") == "image_ocr" else 0.0
-        score = weighted_hits + coverage + phrase_bonus + image_bonus
-
-        matches.append((score, _result_from_doc(text, meta, seg_id, score)))
-
-    matches.sort(key=lambda item: (-item[0], item[1].get("page") or 0))
-    return [item for _, item in matches[:top_k]]
 
 
 def embed_directory(
@@ -619,14 +445,13 @@ def embed_directory(
         )
 
 
-def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) -> List[Dict]:
+def search(
+    query: str, top_k: int = 5, exclude_sources: Optional[set] = None
+) -> List[Dict]:
     """Perform a vector similarity search over embedded segments."""
 
     if top_k <= 0:
         return []
-    exact_matches = []
-    if _exact_query_terms(query):
-        exact_matches = _exact_search(query, top_k, exclude_sources)
 
     embedding = get_db().embed([query])[0]
     results = get_db().collection.query(query_embeddings=[embedding], n_results=top_k)
@@ -639,6 +464,7 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
     ids = ids[: len(documents)]
     merged_exclude = set(exclude_sources or [])
     merged_exclude.update(get_inactive_sources())
+
     # Chroma returns ascending distance (best match first). Keep that order and
     # expose score as a higher-is-better similarity so the UI matches user expectations.
     rows: List[tuple[float, Dict]] = []
@@ -651,32 +477,14 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
         rows.append(
             (
                 d,
-                _result_from_doc(doc, meta, seg_id, sim),
+                {
+                    "text": doc.strip().replace("\n", " "),
+                    "source": src,
+                    "score": sim,
+                    "page": meta.get("page", None),
+                    "segment_id": seg_id,
+                },
             )
         )
     rows.sort(key=lambda t: t[0])
-    vector_matches = [item for _, item in rows]
-
-    seen = {item.get("segment_id") for item in exact_matches if item.get("segment_id")}
-    merged = list(exact_matches)
-    for item in vector_matches:
-        segment_id = item.get("segment_id")
-        if segment_id and segment_id in seen:
-            continue
-        merged.append(item)
-        if segment_id:
-            seen.add(segment_id)
-        if len(merged) >= top_k:
-            break
-
-    if len(merged) < top_k:
-        for item in _lexical_search(query, top_k, exclude_sources):
-            segment_id = item.get("segment_id")
-            if segment_id and segment_id in seen:
-                continue
-            merged.append(item)
-            if segment_id:
-                seen.add(segment_id)
-            if len(merged) >= top_k:
-                break
-    return merged[:top_k]
+    return [item for _, item in rows]
