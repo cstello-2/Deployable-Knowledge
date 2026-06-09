@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import '@material-design-icons/font/filled.css';
+	import 'material-symbols/rounded.css';
 	import '$lib/styles/base.css';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import favicon from '$lib/assets/favicon.svg';
+	import { initLayoutPresetStorage } from '$lib/layoutPresets';
 	import { initWindowStateStorage } from '$lib/windowState';
 
 	let { children } = $props();
 
 	onMount(() => {
 		initWindowStateStorage();
+		initLayoutPresetStorage();
 	});
 </script>
 
