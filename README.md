@@ -33,7 +33,7 @@ make run
 **Windows (PowerShell):**
 
 ```powershell
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 # If your default python interpreter is already 3.11, you may also use:
 # python -m venv .venv
 .\venv\Scripts\Activate.ps1
