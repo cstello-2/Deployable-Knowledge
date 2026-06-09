@@ -1044,3 +1044,41 @@ textarea:disabled {
 		min-width: 0;
 	}
 }
+
+.form {
+    display: grid;
+    gap: 12px;
+}
+
+.search-bar {
+    display: grid;
+    grid-template-columns: 1fr 130px auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.miniwin .content {
+    padding: 14px;
+    transition: grid-template-rows 0.2s, padding 0.2s, opacity 0.2s;
+    display: grid;
+    grid-template-rows: 1fr;
+    flex: 1 1 0%;
+    min-height: 0px;
+}
+
+.result-card {
+    border: 1px solid var(--border);
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.result-meta {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+}
