@@ -23,19 +23,23 @@ def getCorpus():
         corpusGet.append(parse_pdf(i))
 
     corpusText = []
+    corpusData = []
     
     for pageDict in corpusGet:
         for j in pageDict:
             corpusText.append(j["text"])
+
+    for pageDict in corpusGet:
+        for j in pageDict:
+            corpusData.append(j["page"])
     
-    print(corpusText)
-    return corpusText
+    return corpusText, corpusData
 
 #This function is meant purely for the test testing
 #Please remove when you are ready to make use of this
 def testQuery():
     print("Getting query...")
-    query = "How do I perform a 9-line?"
+    query = "How do I perform a 9-line when reporting an injured soldier?"
     
     return query 
 
@@ -77,18 +81,20 @@ def ranker(queryTokens, corpusIndex):
     
     return results, scores
 
-def finalResults(results, scores):
+def finalResults(results, scores, corpusText, corpusData):
     print("Final results:")
     #stolen from the BM25s GitHub readme
     #prints the ranked results
     for i in range(results.shape[1]):
         doc, score = results[0, i], scores[0, i]
-        print(f"Rank {i+1} (score: {score:.2f}): {doc}")
+        print(f"\nRank {i+1} (score: {score:.2f}): {doc} \n")
+        #print('\n' + corpusText[doc])
+        print("Page number: " + str(corpusData[doc]))
 
 def main():
     #Main function
     #executes the above functions w/ the parameters 
-    corpus = getCorpus()
+    corpus, pageNum = getCorpus()
     #query = getQuery()
     
     #Testing query 
@@ -97,7 +103,7 @@ def main():
     corpusIndex = tokenizeCorpus(corpus)
     queryTokens = tokenizeQuery(query)
     results, scores = ranker(queryTokens, corpusIndex)
-    finalResults(results, scores)
+    finalResults(results, scores, corpus, pageNum)
     print("Done")
 
 main()
