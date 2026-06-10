@@ -33,9 +33,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+#app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.mount("/documents", StaticFiles(directory=UPLOAD_DIR), name="documents")
-manager, settings = setup_auth(app, load_settings_from_config())
+manager, settings = setup_auth(app, load_settings_from_config()) #TAG UNUSED
 
 # Register routes
 app.include_router(ui_router)
