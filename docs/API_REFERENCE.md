@@ -10,7 +10,6 @@
 | `/upload` | POST | Multipart upload of one or more documents |
 | `/remove` | POST | Remove an uploaded document by filename |
 | `/ingest` | POST | Parse PDFs and schedule background embedding |
-| `/clear_db` | POST | Delete all vectors from ChromaDB |
 | `/sessions` | GET | List stored chat sessions |
 | `/sessions/{id}` | GET | Retrieve a session's history |
 | `/session` | GET/POST | Fetch or create a session cookie |

@@ -6,6 +6,7 @@ import markdown2
 
 from core.models import ChatRequest
 from core import pipeline
+from core.validation import validate_identifier
 from core.sessions import SessionStore, ChatSession
 from core.providers import (
     ProviderUnavailableError,
@@ -13,7 +14,8 @@ from core.providers import (
     get_available_provider_record,
 )
 from core.settings import update_settings
-from api.utils import validate_identifier, validate_session_id, clamp_int
+from api.utils import validate_session_id, clamp_int
+
 from config import MIN_TOP_K, MAX_TOP_K
 
 router = APIRouter()

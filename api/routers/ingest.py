@@ -13,7 +13,7 @@ from core.folder_sync import forget_synced_source
 from core.rag.chunking import parse_pdf
 from api.utils import sanitize_filename
 from config import UPLOAD_DIR, PDF_DIR, ALLOWED_DOCUMENT_EXTENSIONS
-from core.progress import create_job, fail_job, finish_job, get_job, update_job
+from core.progress import create_job, fail_job, finish_job, update_job
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -207,11 +207,11 @@ async def ingest_documents(background_tasks: BackgroundTasks):
     return {"status": "started", "message": "Parsed PDFs and scheduled ingestion."}
 
 
-@router.post("/clear_db")
-async def clear_db(): #TAG NOT USED
-    """Delete all vectors from the backing ChromaDB collection."""
-    try:
-        db.clear_collection()
-        return JSONResponse({"status": "success", "message": "ChromaDB collection cleared."})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)})
+# @router.post("/clear_db")
+# async def clear_db(): #TAG NOT USED
+#     """Delete all vectors from the backing ChromaDB collection."""
+#     try:
+#         db.clear_collection()
+#         return JSONResponse({"status": "success", "message": "ChromaDB collection cleared."})
+#     except Exception as e:
+#         return JSONResponse({"status": "error", "message": str(e)})

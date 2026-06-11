@@ -69,7 +69,7 @@ class SessionSettings(BaseModel):
         "/healthz",
         "/favicon.ico",
     }
-    allow_path_prefixes: Set[str] = {"/static", "/documents"}
+    allow_path_prefixes: Set[str] = {"/documents"}
 
     legacy_session_dir: Optional[str] = "user_sessions"
 
@@ -110,7 +110,7 @@ def load_settings_from_config() -> "SessionSettings":
                 )
             ),
             allow_path_prefixes=set(
-                getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/static", "/documents"})
+                getattr(auth_config, "AUTH_ALLOW_PATH_PREFIXES", {"/documents"})
             ),
             legacy_session_dir=getattr(
                 auth_config,

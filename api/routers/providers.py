@@ -21,8 +21,6 @@ router = APIRouter(tags=["providers"])
 
 
 class ProviderPatch(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     api_key: str | None = None
 
 

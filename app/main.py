@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from config import BASE_DIR, UPLOAD_DIR
+from config import UPLOAD_DIR
 from contextlib import asynccontextmanager
 
 from core.database import init_db
@@ -33,9 +33,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-#app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.mount("/documents", StaticFiles(directory=UPLOAD_DIR), name="documents")
-manager, settings = setup_auth(app, load_settings_from_config()) #TAG UNUSED
+setup_auth(app, load_settings_from_config())
 
 # Register routes
 app.include_router(ui_router)

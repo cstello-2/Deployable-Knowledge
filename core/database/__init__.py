@@ -36,8 +36,6 @@ engine = create_engine(
 
 
 def init_db() -> None:
-    from core.database import models  # noqa: F401
-
     SQLModel.metadata.create_all(engine)
 
 

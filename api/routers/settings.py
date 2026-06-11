@@ -12,7 +12,7 @@ from core.settings import (
     list_prompt_templates,
     get_prompt_template,
 )
-from api.utils import validate_identifier
+from core.validation import validate_identifier
 
 router = APIRouter(prefix="/api", tags=["settings"])
 

@@ -109,8 +109,6 @@ PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class PromptTemplate(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
     id: str
     name: str
     description: Optional[str] = None

@@ -3,7 +3,7 @@
 	import 'material-symbols/rounded.css';
 	import '$lib/styles/base.css';
 	import AppHeader from '$lib/components/AppHeader.svelte';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/icon.svg';
 	import { initLayoutPresetStorage } from '$lib/layoutPresets';
 	import { initWindowStateStorage } from '$lib/windowState';
 

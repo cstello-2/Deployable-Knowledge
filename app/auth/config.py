@@ -13,5 +13,5 @@ SESSION_BIND_USER_AGENT = True
 SESSION_BIND_IP_PREFIX_CIDR = None  # e.g., 24 to bind /24
 
 AUTH_ALLOW_PATHS = {"/", "/begin", "/logout", "/docs", "/openapi.json", "/healthz", "/favicon.ico"}
-AUTH_ALLOW_PATH_PREFIXES = {"/static", "/documents"}
+AUTH_ALLOW_PATH_PREFIXES = {"/documents"}
 LEGACY_SESSION_DIR = "user_sessions"

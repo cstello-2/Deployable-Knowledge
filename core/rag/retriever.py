@@ -71,7 +71,7 @@ class DBManager:
             batch = all_ids[i : i + batch_size]
             self.collection.delete(ids=batch)
 
-    def embed(self, docs: List[str], max_batch_tokens: int = 5120):
+    def embed(self, docs: List[str], max_batch_tokens: int = 5120):  #Emdedding done here
         """Embed ``docs`` using the stored sentence-transformer model."""
 
         embeddings: List[List[float]] = []
@@ -318,8 +318,9 @@ def embed_file(
     if progress_callback:
         progress_callback(0, 100, f"Extracting text from {source}")
     pages_dicts = extract_text(file_path)
+    print(pages_dicts) #TODO DELETE ME
     if progress_callback:
-        progress_callback(10, 100, f"Chunking text from {source}")
+        progress_callback(10, 100, f"Chun   king text from {source}")
     all_chunks: List[Any] = []
 
     # Normal text and table chunks.

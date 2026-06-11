@@ -5,9 +5,8 @@ const backendTarget = process.env.BACKEND_URL ?? 'http://127.0.0.1:8000';
 const backendRoutes = [
 	'/api', 
 	'/begin', 
-	// '/logout', //TAG NOT USED
-	// '/healthz', //TAG NOT USED
-	// '/static', //TAG NOT USED
+	'/logout',
+	'/healthz', //TAG NOT USED?
 	'/documents', 
 	'/search', 
 	'/remove', 
@@ -15,7 +14,6 @@ const backendRoutes = [
 	'/upload-local', 
 	'/upload-progress', 
 	// '/ingest', //TAG NOT USED
-	// '/clear_db', //TAG NOT USED
 	'/folders', 
 	'/progress', 
 	'/corpus', 
