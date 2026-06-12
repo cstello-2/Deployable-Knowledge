@@ -1,21 +1,17 @@
 <script lang="ts">
   import "../app.css";
-  import { onMount, setContext } from "svelte";
+  import { setContext } from "svelte";
   import "material-symbols/rounded.css";
   import AppHeader from "$lib/components/layout/AppHeader.svelte";
   import favicon from "$lib/assets/favicon.svg";
-  import { initLayoutPresetStorage } from "$lib/utils/layoutPresets";
-  import { initWindowStateStorage } from "$lib/utils/windowState";
+  import { initWorkspaceStateStorage } from "$lib/utils/workspaceState";
   import { createAppState } from "$lib/state.svelte";
 
   let { children } = $props();
   const appState = createAppState();
   setContext("appState", appState);
 
-  onMount(() => {
-    initWindowStateStorage();
-    initLayoutPresetStorage();
-  });
+  initWorkspaceStateStorage();
 </script>
 
 <svelte:head>

@@ -1,10 +1,19 @@
-import { get, writable } from "svelte/store";
-import {
-  normalizeWindowPlacements,
-  restoreWindowPlacements,
-  windowPlacements,
-  type WindowPlacement,
-} from "./windowState";
+import { derived, get, writable } from "svelte/store";
+import { windowDefinitions, type WindowColumn } from "$lib/components/windows";
+
+export type WindowPlacement = {
+  id: string;
+  column: WindowColumn;
+  visible: boolean;
+  collapsed: boolean;
+  height: number | null;
+};
+
+type WindowDropPlacement = {
+  windowId: string | null;
+  columnId: string | null;
+  columnIndex: number;
+};
 
 export type WorkspaceLayoutSnapshot = {
   windowPlacements: WindowPlacement[];
@@ -25,7 +34,31 @@ type StoredLayoutPresetState = {
 const LAYOUT_PRESET_STATE_STORAGE_KEY = "layout:presetState";
 const LEGACY_LAYOUT_PRESETS_STORAGE_KEY = "layout:presets";
 const LEGACY_ACTIVE_LAYOUT_PRESET_STORAGE_KEY = "layout:activePreset";
+const WINDOW_PLACEMENTS_STORAGE_KEY = "layout:windowPlacements";
+const DEFAULT_WINDOW_HEIGHT = 320;
+const definitionsById = new Map(
+  windowDefinitions.map((definition) => [definition.id, definition]),
+);
 
+export const windowPlacements = writable<WindowPlacement[]>(
+  defaultWindowPlacements(),
+);
+export const visibleWindows = derived(windowPlacements, ($placements) =>
+  $placements
+    .filter((placement) => placement.visible)
+    .map((placement) => {
+      const definition = definitionsById.get(placement.id);
+      return definition
+        ? {
+            ...definition,
+            column: placement.column,
+            collapsed: placement.collapsed,
+            height: placement.height,
+          }
+        : null;
+    })
+    .filter((definition) => definition !== null),
+);
 export const leftPaneCollapsed = writable(false);
 export const leftPaneWidth = writable<number | null>(null);
 export const layoutPresets = writable<LayoutPreset[]>([
@@ -36,8 +69,10 @@ export const activeLayoutPresetId = writable("layout-default");
 let storageInitialized = false;
 let suppressPresetAutoSave = false;
 
-export function initLayoutPresetStorage() {
+export function initWorkspaceStateStorage() {
   if (storageInitialized || typeof localStorage === "undefined") return;
+
+  windowPlacements.set(readWindowPlacements());
 
   const storedState = readLayoutPresetState();
   const presets =
@@ -56,22 +91,126 @@ export function initLayoutPresetStorage() {
 
   layoutPresets.subscribe(saveLayoutPresetState);
   activeLayoutPresetId.subscribe(saveLayoutPresetState);
+  windowPlacements.subscribe(saveWindowPlacements);
   windowPlacements.subscribe(autoSaveActiveLayoutPreset);
   leftPaneCollapsed.subscribe(autoSaveActiveLayoutPreset);
   leftPaneWidth.subscribe(autoSaveActiveLayoutPreset);
 }
 
+export function showWindow(id: string) {
+  windowPlacements.update((placements) =>
+    placements.map((placement) =>
+      placement.id === id
+        ? {
+            ...placement,
+            visible: true,
+            collapsed: false,
+            height: placement.height ?? DEFAULT_WINDOW_HEIGHT,
+          }
+        : placement,
+    ),
+  );
+}
+
+export function closeWindow(id: string) {
+  windowPlacements.update((placements) =>
+    placements.map((placement) =>
+      placement.id === id ? { ...placement, visible: false } : placement,
+    ),
+  );
+}
+
+export function toggleWindowCollapsed(id: string) {
+  windowPlacements.update((placements) =>
+    placements.map((placement) =>
+      placement.id === id
+        ? { ...placement, collapsed: !placement.collapsed }
+        : placement,
+    ),
+  );
+}
+
+export function setWindowHeights(updates: { id: string; height: number }[]) {
+  const heights = new Map(
+    updates.map(({ id, height }) => [id, Math.max(0, Math.round(height))]),
+  );
+
+  windowPlacements.update((placements) =>
+    placements.map((placement) =>
+      heights.has(placement.id)
+        ? {
+            ...placement,
+            height: heights.get(placement.id) ?? placement.height,
+          }
+        : placement,
+    ),
+  );
+}
+
+export function placeWindowFromDrop({
+  windowId,
+  columnId,
+  columnIndex,
+}: WindowDropPlacement) {
+  if (!windowId || !isWindowColumn(columnId)) return;
+
+  windowPlacements.update((placements) => {
+    const moving = placements.find((placement) => placement.id === windowId);
+    if (!moving) return placements;
+
+    const nextMoving = {
+      ...moving,
+      column: columnId,
+      visible: true,
+      height: moving.height ?? DEFAULT_WINDOW_HEIGHT,
+    };
+    const remaining = placements.filter(
+      (placement) => placement.id !== windowId,
+    );
+    const targetColumnWindows = remaining.filter(
+      (placement) => placement.visible && placement.column === columnId,
+    );
+    const before = targetColumnWindows[columnIndex];
+
+    if (before) {
+      const insertAt = remaining.findIndex(
+        (placement) => placement.id === before.id,
+      );
+      return ensureVisibleWindowHeights([
+        ...remaining.slice(0, insertAt),
+        nextMoving,
+        ...remaining.slice(insertAt),
+      ]);
+    }
+
+    const lastTarget = targetColumnWindows.at(-1);
+    if (lastTarget) {
+      const insertAt =
+        remaining.findIndex((placement) => placement.id === lastTarget.id) + 1;
+      return ensureVisibleWindowHeights([
+        ...remaining.slice(0, insertAt),
+        nextMoving,
+        ...remaining.slice(insertAt),
+      ]);
+    }
+
+    return ensureVisibleWindowHeights([...remaining, nextMoving]);
+  });
+}
+
 export function toggleLeftPaneCollapsed() {
-  ensureLayoutPresetStorage();
+  ensureWorkspaceStateStorage();
   leftPaneCollapsed.update((collapsed) => !collapsed);
 }
 
 export function setLeftPaneWidth(width: number | null) {
-  leftPaneWidth.set(width && Number.isFinite(width) && width > 0 ? Math.round(width) : null);
+  leftPaneWidth.set(
+    width && Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+  );
 }
 
 export function applyLayoutPreset(id: string) {
-  ensureLayoutPresetStorage();
+  ensureWorkspaceStateStorage();
 
   const preset = get(layoutPresets).find((candidate) => candidate.id === id);
   if (!preset) return;
@@ -80,7 +219,7 @@ export function applyLayoutPreset(id: string) {
 }
 
 export function deleteActiveLayoutPreset() {
-  ensureLayoutPresetStorage();
+  ensureWorkspaceStateStorage();
 
   const activeId = get(activeLayoutPresetId);
   const presets = get(layoutPresets);
@@ -105,7 +244,7 @@ export function deleteActiveLayoutPreset() {
 }
 
 export function addLayoutPreset() {
-  ensureLayoutPresetStorage();
+  ensureWorkspaceStateStorage();
 
   const preset = createLayoutPreset(createPresetId(), captureWorkspaceLayout());
 
@@ -164,10 +303,89 @@ function restoreLayoutSnapshot(id: string, snapshot: WorkspaceLayoutSnapshot) {
     activeLayoutPresetId.set(id);
     leftPaneWidth.set(nextSnapshot.leftWidth);
     leftPaneCollapsed.set(nextSnapshot.leftPaneCollapsed);
-    restoreWindowPlacements(nextSnapshot.windowPlacements);
+    windowPlacements.set(
+      normalizeWindowPlacements(nextSnapshot.windowPlacements),
+    );
   } finally {
     suppressPresetAutoSave = wasSuppressing;
   }
+}
+
+function defaultWindowPlacements(): WindowPlacement[] {
+  return windowDefinitions.map((definition) => ({
+    id: definition.id,
+    column: definition.column,
+    visible: true,
+    collapsed: false,
+    height: DEFAULT_WINDOW_HEIGHT,
+  }));
+}
+
+function readWindowPlacements() {
+  const stored = localStorage.getItem(WINDOW_PLACEMENTS_STORAGE_KEY);
+  if (!stored) return defaultWindowPlacements();
+
+  return normalizeWindowPlacements(JSON.parse(stored));
+}
+
+function saveWindowPlacements(placements: WindowPlacement[]) {
+  localStorage.setItem(
+    WINDOW_PLACEMENTS_STORAGE_KEY,
+    JSON.stringify(placements),
+  );
+}
+
+function normalizeWindowPlacements(value: unknown) {
+  const fallback = defaultWindowPlacements();
+  if (!Array.isArray(value)) return fallback;
+
+  const fallbackById = new Map(
+    fallback.map((placement) => [placement.id, placement]),
+  );
+  const seen = new Set<string>();
+  const next: WindowPlacement[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || seen.has(item.id)) {
+      continue;
+    }
+
+    const defaultPlacement = fallbackById.get(item.id);
+    if (!defaultPlacement) continue;
+
+    next.push({
+      id: defaultPlacement.id,
+      column: isWindowColumn(item.column)
+        ? item.column
+        : defaultPlacement.column,
+      visible:
+        typeof item.visible === "boolean"
+          ? item.visible
+          : defaultPlacement.visible,
+      collapsed:
+        typeof item.collapsed === "boolean"
+          ? item.collapsed
+          : defaultPlacement.collapsed,
+      height: parseWindowHeight(item.height) ?? defaultPlacement.height,
+    });
+    seen.add(item.id);
+  }
+
+  return [...next, ...fallback.filter((placement) => !seen.has(placement.id))];
+}
+
+function parseWindowHeight(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.round(value))
+    : null;
+}
+
+function ensureVisibleWindowHeights(placements: WindowPlacement[]) {
+  return placements.map((placement) =>
+    placement.visible && placement.height === null
+      ? { ...placement, height: DEFAULT_WINDOW_HEIGHT }
+      : placement,
+  );
 }
 
 function saveLayoutPresetState() {
@@ -287,10 +505,14 @@ function createPresetId() {
     : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function ensureLayoutPresetStorage() {
-  if (!storageInitialized) initLayoutPresetStorage();
+function ensureWorkspaceStateStorage() {
+  if (!storageInitialized) initWorkspaceStateStorage();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isWindowColumn(value: unknown): value is WindowColumn {
+  return value === "left" || value === "right";
 }

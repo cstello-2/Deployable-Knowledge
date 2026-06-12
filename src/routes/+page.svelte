@@ -2,19 +2,17 @@
   import { onMount } from "svelte";
   import { windowDragLayout } from "$lib/utils/draggable";
   import {
+    closeWindow,
     leftPaneCollapsed,
     leftPaneWidth,
-    setLeftPaneWidth,
-  } from "$lib/utils/layoutPresets";
-  import { columnSplitter } from "$lib/utils/splitter";
-  import AppSidebar from "$lib/components/layout/AppSidebar.svelte";
-  import {
-    closeWindow,
     placeWindowFromDrop,
+    setLeftPaneWidth,
     setWindowHeights,
     toggleWindowCollapsed,
     visibleWindows,
-  } from "$lib/utils/windowState";
+  } from "$lib/utils/workspaceState";
+  import { columnSplitter } from "$lib/utils/splitter";
+  import AppSidebar from "$lib/components/layout/AppSidebar.svelte";
   import type { WindowColumn, WindowDefinition } from "$lib/components/windows";
 
   const MIN_PANE_WINDOW_HEIGHT = 120;

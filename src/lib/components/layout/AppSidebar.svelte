@@ -3,18 +3,12 @@
     activeLayoutPresetId,
     addLayoutPreset,
     applyLayoutPreset,
-    initLayoutPresetStorage,
     layoutPresets,
     leftPaneCollapsed,
     deleteActiveLayoutPreset,
     toggleLeftPaneCollapsed,
-  } from "$lib/utils/layoutPresets";
-  import { onMount } from "svelte";
+  } from "$lib/utils/workspaceState";
   import Icon from "$lib/components/utils/Icon.svelte";
-
-  onMount(() => {
-    initLayoutPresetStorage();
-  });
 
   function presetLabel(index: number) {
     return String(index + 1);

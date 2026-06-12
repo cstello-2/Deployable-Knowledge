@@ -9,7 +9,7 @@
   //   startNewSession,
   // } from "$lib/client/sessionState";
   import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
-  import { showWindow, windowPlacements } from "$lib/utils/windowState";
+  import { showWindow, windowPlacements } from "$lib/utils/workspaceState";
   import { windowDefinitions } from "$lib/components/windows";
 
   let menuOpen = $state(false);
