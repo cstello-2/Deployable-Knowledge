@@ -1,12 +1,12 @@
 # Deployable-Knowledge
 
-**Version vA0.2.2**
+**Version vA0.3.0**
 
 Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
 
 ## Overview
 
-Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally and queried through FastAPI endpoints which power the JavaScript front end.
+Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally, the frontend is developed in [Sveltekit](https://svelte.dev), the backend is written in [Typescript](https://typescriptlang.org).
 
 ## Features
 
@@ -16,50 +16,18 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 - **Configurable prompts** and persona editing
 - **Authentication middleware** with session and CSRF protection
 
-## Quick Start for Usage
-
-- For verbose start/run, simply run (double-click) `Launch-DeployableKnowledge.bat` or `Launch-DeployableKnowledge.ps1`
-- For user-friendly/silent start, simply run (double-click) `Launch-DeployableKnowledge.bat-User` or `Launch-DeployableKnowledge-User.ps1`
-
 ## Quick Start for Development
 
-**Unix / macOS:**
-
 ```bash
-make setup
-make run
+# First time setup (don't do this everytime)
+npm run db:generate
+npm run db:migrate
+
+# After and every other startup run 
+npm run dev
 ```
-
-**Windows (PowerShell):**
-
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Use `python -m pip` and `python -m pytest` so installs and tests use the same Python as your shell; this avoids "script location not on PATH" or "pytest not recognized" when the venv Scripts folder is not on PATH.
-
-**Run tests:**
-
-```bash
-python -m pytest tests/ -q
-```
-
-Visit <http://localhost:8000> once the server starts. Ollama is available by default with the seeded `llama3` model; use **Manage API Keys** in the prompt editor to connect hosted providers.
-
-**If you see "script location not on PATH" or "pytest not recognized":** run `pip` and `pytest` as modules so the active Python is used: `python -m pip install -r requirements.txt` and `python -m pytest tests/ -q`.
 
 ## Architecture overview
-
-The system is split into three layers:
-
-```text
-core/  – retrieval, prompt rendering and LLM adapters
-api/   – FastAPI routers translating HTTP ↔ core
-app/   – static assets and UI routes
-```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data‑flow breakdowns.
 
@@ -75,9 +43,9 @@ Additional guides live in the [`docs/`](docs) folder:
 
 ## Contributing
 
-1. Create a feature branch off `main`.
-2. Add tests and run `python -m pytest tests/` before submitting a pull request.
-3. Follow the existing coding style and keep docstrings concise.
+1. Create a fork off this repo
+2. Create a feature branch off `cancun` on your fork.
+3. Follow the existing coding style (run formatter, before committing `npm run format`). 
 4. Open a PR describing the change and link to any relevant issues.
 
 ---

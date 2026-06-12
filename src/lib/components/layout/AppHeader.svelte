@@ -130,7 +130,7 @@
   </div>
 
   <div class="brand">
-    <strong>Deployable Knowledge vA0.2.2</strong>
+    <strong>Deployable Knowledge vA0.3.0</strong>
   </div>
 
   <div class="right">
