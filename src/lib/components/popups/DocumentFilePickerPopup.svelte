@@ -1,11 +1,11 @@
 <script lang="ts">
   import Popup from "$lib/components/Popup.svelte";
-  import type { DirectoryItem } from "$lib/sdk";
+  // import type { DirectoryItem } from "$lib/sdk";
 
   type Props = {
     open: boolean;
     pathLabel: string;
-    items: DirectoryItem[];
+    // items: DirectoryItem[];
     selectedFilePath?: string;
     message?: string;
     busy?: boolean;
@@ -14,13 +14,13 @@
     onBack: () => void;
     onSelectCurrent: () => void;
     onOpenFolder: (path: string) => void;
-    onSelectFile: (item: DirectoryItem) => void;
+    // onSelectFile: (item: DirectoryItem) => void;
   };
 
   let {
     open,
     pathLabel,
-    items,
+    // items,
     selectedFilePath = "",
     message = "PDF files only.",
     busy = false,
@@ -29,21 +29,21 @@
     onBack,
     onSelectCurrent,
     onOpenFolder,
-    onSelectFile,
+    // onSelectFile,
   }: Props = $props();
 
   function isPdf(name: string) {
     return name.toLowerCase().endsWith(".pdf");
   }
 
-  function visibleItems() {
-    return items.filter((item) => item.kind === "folder" || isPdf(item.name));
-  }
+  // function visibleItems() {
+  //   return items.filter((item) => item.kind === "folder" || isPdf(item.name));
+  // }
 
-  function choose(item: DirectoryItem) {
-    if (item.kind === "folder") onOpenFolder(item.path);
-    else onSelectFile(item);
-  }
+  // function choose(item: DirectoryItem) {
+  //   if (item.kind === "folder") onOpenFolder(item.path);
+  //   else onSelectFile(item);
+  // }
 </script>
 
 <Popup
@@ -65,21 +65,21 @@
     </div>
 
     <div class="file-picker-list">
-      {#each visibleItems() as item}
-        <button
-          class:selected={item.absolute_path === selectedFilePath}
-          class="file-picker-row"
-          type="button"
-          title={item.path}
-          onclick={() => choose(item)}
-        >
-          <span class="file-picker-icon">{item.kind === "folder" ? "[dir]" : "[pdf]"}</span>
-          <span class="file-picker-name">{item.name}</span>
-          <span class="file-picker-kind">{item.kind}</span>
-        </button>
-      {:else}
-        <div class="empty-state">No PDF files or folders shown.</div>
-      {/each}
+      <!-- {#each visibleItems() as item} -->
+      <!--   <button -->
+      <!--     class:selected={item.absolute_path === selectedFilePath} -->
+      <!--     class="file-picker-row" -->
+      <!--     type="button" -->
+      <!--     title={item.path} -->
+      <!--     onclick={() => choose(item)} -->
+      <!--   > -->
+      <!--     <span class="file-picker-icon">{item.kind === "folder" ? "[dir]" : "[pdf]"}</span> -->
+      <!--     <span class="file-picker-name">{item.name}</span> -->
+      <!--     <span class="file-picker-kind">{item.kind}</span> -->
+      <!--   </button> -->
+      <!-- {:else} -->
+      <!--   <div class="empty-state">No PDF files or folders shown.</div> -->
+      <!-- {/each} -->
     </div>
 
     <div class="status-line">{message}</div>

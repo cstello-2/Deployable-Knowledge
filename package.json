@@ -4,10 +4,11 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "node scripts/dev.mjs",
-		"dev:frontend": "vite dev",
-		"dev:backend": "node scripts/dev.mjs backend",
+		"dev": "vite dev",
 		"build": "vite build",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"db:push": "drizzle-kit push",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -18,12 +19,17 @@
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@types/node": "^25.9.2",
+		"drizzle-kit": "^0.31.10",
 		"svelte": "^5.55.2",
 		"svelte-check": "^4.4.6",
+		"tsx": "^4.22.4",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7"
 	},
 	"dependencies": {
+		"@libsql/client": "^0.17.3",
+		"dotenv": "^17.4.2",
+		"drizzle-orm": "^0.45.2",
 		"material-symbols": "^0.44.12"
 	}
 }

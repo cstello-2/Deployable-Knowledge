@@ -1,5 +1,5 @@
 import { derived, writable } from 'svelte/store';
-import { windowDefinitions, type WindowColumn } from './windows';
+import { windowDefinitions, type WindowColumn } from '../components/windows';
 
 export type WindowPlacement = {
 	id: string;

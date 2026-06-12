@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import Icon from "$lib/components/Icon.svelte";
-  import ThemePopup from "$lib/popups/ThemePopup.svelte";
-  import {
-    currentUser,
-    initializeSessionState,
-    logout,
-    startNewSession,
-  } from "$lib/sessionState";
-  import { applyThemeSettings, readThemeSettings } from "$lib/theme";
-  import { showWindow, windowPlacements } from "$lib/windowState";
-  import { windowDefinitions } from "$lib/windows";
+  import Icon from "$lib/components/utils/Icon.svelte";
+  import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
+  // import {
+  //   currentUser,
+  //   initializeSessionState,
+  //   logout,
+  //   startNewSession,
+  // } from "$lib/client/sessionState";
+  import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
+  import { showWindow, windowPlacements } from "$lib/utils/windowState";
+  import { windowDefinitions } from "$lib/components/windows";
 
   let menuOpen = $state(false);
   let toolsOpen = $state(false);
@@ -19,9 +19,9 @@
 
   onMount(() => {
     applyThemeSettings(readThemeSettings());
-    initializeSessionState().catch((error) => {
-      console.error("Session initialization failed", error);
-    });
+    // initializeSessionState().catch((error) => {
+    //   console.error("Session initialization failed", error);
+    // });
   });
 
   function openThemePopup() {
@@ -46,7 +46,7 @@
   }
 
   async function createNewChat() {
-    await startNewSession();
+    // await startNewSession();
     menuOpen = false;
     toolsOpen = false;
     userOpen = false;
@@ -142,17 +142,18 @@
         aria-expanded={userOpen}
         onclick={toggleUserMenu}
       >
-        {$currentUser?.user || "User"}
+        <!-- {$currentUser?.user || "User"} -->
+        User
         <Icon name="expand_more" size={16} />
       </button>
       {#if userOpen}
         <div class="menu-dropdown user-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={logout}>Reset Local Session</button
-          >
+          <!-- <button -->
+          <!--   class="menu-item" -->
+          <!--   type="button" -->
+          <!--   role="menuitem" -->
+          <!--   onclick={logout}>Reset Local Session</button -->
+          <!-- > -->
         </div>
       {/if}
     </div>

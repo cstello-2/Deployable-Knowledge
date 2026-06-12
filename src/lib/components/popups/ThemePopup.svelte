@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Popup from "$lib/components/Popup.svelte";
+  import Popup from "$lib/components/popups/Popup.svelte";
   import {
     readThemeSettings,
     saveThemeSettings,
@@ -7,7 +7,7 @@
     themeModes,
     type ThemeColor,
     type ThemeMode,
-  } from "$lib/theme";
+  } from "$lib/utils/theme";
 
   type Props = {
     open: boolean;

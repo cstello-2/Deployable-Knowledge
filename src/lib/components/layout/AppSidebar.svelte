@@ -8,9 +8,9 @@
     leftPaneCollapsed,
     deleteActiveLayoutPreset,
     toggleLeftPaneCollapsed,
-  } from "$lib/layoutPresets";
+  } from "$lib/utils/layoutPresets";
   import { onMount } from "svelte";
-  import Icon from "./Icon.svelte";
+  import Icon from "$lib/components/utils/Icon.svelte";
 
   onMount(() => {
     initLayoutPresetStorage();

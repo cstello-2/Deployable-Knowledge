@@ -1,21 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { windowDragLayout } from "$lib/draggable";
+  import { windowDragLayout } from "$lib/utils/draggable";
   import {
     leftPaneCollapsed,
     leftPaneWidth,
     setLeftPaneWidth,
-  } from "$lib/layoutPresets";
-  import { columnSplitter } from "$lib/splitter";
-  import AppSidebar from "$lib/components/AppSidebar.svelte";
+  } from "$lib/utils/layoutPresets";
+  import { columnSplitter } from "$lib/utils/splitter";
+  import AppSidebar from "$lib/components/layout/AppSidebar.svelte";
   import {
     closeWindow,
     placeWindowFromDrop,
     setWindowHeights,
     toggleWindowCollapsed,
     visibleWindows,
-  } from "$lib/windowState";
-  import type { WindowColumn, WindowDefinition } from "$lib/windows";
+  } from "$lib/utils/windowState";
+  import type { WindowColumn, WindowDefinition } from "$lib/components/windows";
 
   const MIN_PANE_WINDOW_HEIGHT = 120;
   const COLLAPSED_PANE_WINDOW_HEIGHT = 36;
@@ -136,6 +136,7 @@
       handleWindowDrop(
         event as CustomEvent<Parameters<typeof placeWindowFromDrop>[0]>,
       );
+
     columnsElement.addEventListener("windowdrop", handler);
     return () => columnsElement.removeEventListener("windowdrop", handler);
   });

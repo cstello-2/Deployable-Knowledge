@@ -8,11 +8,11 @@
     setActivePersona,
     type AssistantRuntimePayload,
     type ModelOption,
-  } from "$lib/assistantState";
-  import BaseWindow from "$lib/components/BaseWindow.svelte";
-  import { errorMessage } from "$lib/errors";
-  import { AssistantApiKeyPopup } from "$lib/popups";
-  import { dkClient, type PromptTemplate, type ProviderRecord } from "$lib/sdk";
+  } from "$lib/client/assistantState";
+  import BaseWindow from "$lib/client/components/BaseWindow.svelte";
+  import { errorMessage } from "$lib/client/errors";
+  import { AssistantApiKeyPopup } from "$lib/client/popups";
+  import { dkClient, type PromptTemplate, type ProviderRecord } from "$lib/client/sdk";
   import type { WindowInstanceProps } from "./index.ts";
 
   let {
