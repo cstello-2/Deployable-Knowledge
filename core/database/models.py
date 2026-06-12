@@ -111,3 +111,22 @@ class UserSettingsRecord(SQLModel, table=True):
     top_k: int = 40
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+class BM25ChunkRecord(SQLModel, table=True):
+    __tablename__ = "bm_chunk"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    file_name: str = ""
+    text: str = ""
+    page: int = -1
+    file_type: str = "text" #Text or image
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+class BM25FileRecord(SQLModel, table=True):
+    __tablename__ = "bm_files"
+
+    file_id: Optional[int] = Field(default=None, primary_key=True)
+    file_name: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

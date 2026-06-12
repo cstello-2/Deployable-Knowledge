@@ -6,6 +6,8 @@ from core.rag import retriever
 from api.utils import clamp_int
 from config import MIN_TOP_K, MAX_TOP_K
 
+from core.rag import new_bm25
+
 router = APIRouter()
 
 
@@ -18,7 +20,13 @@ def search(
     """Perform a similarity search against the document store."""
 
     exclude = set(json.loads(inactive)) if inactive else None
-    results = retriever.search(
+
+    # results = retriever.search(
+    #     q, top_k=clamp_int(top_k, MIN_TOP_K, MAX_TOP_K), exclude_sources=exclude
+    # )
+
+    results = new_bm25.run_bm(
         q, top_k=clamp_int(top_k, MIN_TOP_K, MAX_TOP_K), exclude_sources=exclude
     )
+
     return {"results": results}

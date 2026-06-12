@@ -6,7 +6,8 @@ import inspect, re
 from config import CHROMA_DB_DIR, COLLECTION_NAME
 from core.corpus_registry import get_inactive_sources
 from .chunking import pagerank_chunk_text
-from .chunking import parse_pdf
+from core.rag.chunking import parse_pdf
+from core.sessions import KnowledgeBaseStore
 
 import uuid
 
@@ -354,6 +355,7 @@ def embed_file(
     if progress_callback:
         progress_callback(10, 100, f"Chunking text from {source}")
     all_chunks: List[Any] = []
+    print("Starting chuking")
 
     # Normal text and table chunks.
     for page in pages_dicts:
@@ -369,8 +371,10 @@ def embed_file(
             meta["content_type"] = "table" if meta.get("table") else "text"
             all_chunks.append((chunk_text_, meta))
 
-    all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]
+            print("all_chunks.append((chunk_text_, meta)): " + str(chunk_text_) + str(meta["page"]))
 
+    all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]
+    # # print("all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]: " + str(all_chunks))
     # Separate image OCR chunks.
     if include_image_ocr and file_path.suffix.lower() == ".pdf":
         try:
@@ -389,11 +393,42 @@ def embed_file(
                     "image_index": image_segment.get("image_index"),
                     "source_file": image_segment.get("source_file"),
                 }
+                #print("Image: " + str(image_text) + str(image_meta["page"]) + "image")
                 all_chunks.append((image_text, image_meta))
+                # print("all_chunks = [(chunk, meta) for chunk, meta in all_chunks if keep_chunk(chunk, filter_chunks)]" + str(all_chunks))
         except Exception as e:
             print(f"[WARN] Image OCR failed for {file_path}: {e}")
 
-    segments = [chunk for chunk, _ in all_chunks]
+        segments = [chunk for chunk, _ in all_chunks]
+    # print("segments = [chunk for chunk, _ in all_chunks]: " + str(segments))
+
+    kb_store = KnowledgeBaseStore()
+    
+    # Use enumerate to guarantee a unique, sequence-based string ID for every chunk
+
+    try:
+        for seq, (text, meta) in enumerate(all_chunks):
+            # 1. Create a unique string ID
+            chunk_id = f"{file_path.stem}_chunk_{seq}"
+            
+            # 2. Extract metadata carefully
+            page_num = meta.get("page", -1)
+            content_type = meta.get("content_type", "text")
+            
+            # 3. CRITICAL: Use explicit keyword arguments!
+            kb_store.create_chunk(
+                id=chunk_id,
+                file_name=file_path.name,
+                text=text,
+                page=page_num,
+                file_type=content_type
+            )
+            
+            print(f"Stored chunk: {chunk_id} | Page: {page_num} | Type: {content_type}")
+    except Exception as e:
+        print(f"[ERROR] Failed to store chunks in DB: {e}")
+        pass
+    
     positions = []
     for _, meta in all_chunks:
         char_range = meta.get("char_range")
@@ -659,6 +694,7 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
 
     seen = {item.get("segment_id") for item in exact_matches if item.get("segment_id")}
     merged = list(exact_matches)
+    # print(merged)
     for item in vector_matches:
         segment_id = item.get("segment_id")
         if segment_id and segment_id in seen:
@@ -679,4 +715,5 @@ def search(query: str, top_k: int = 5, exclude_sources: Optional[set] = None) ->
                 seen.add(segment_id)
             if len(merged) >= top_k:
                 break
+    # print("Something happens above here: " + str(merged))
     return merged[:top_k]

@@ -6,6 +6,8 @@ from .models import ChatRequest, ChatResponse, ChatChunk, Source
 from .prompts import renderer
 from .rag import retriever
 
+from .rag import new_bm25
+
 
 def _to_sources(blocks: List[dict]) -> List[Source]:
     """Convert raw retrieval blocks into :class:`Source` objects."""
@@ -29,11 +31,18 @@ def _to_sources(blocks: List[dict]) -> List[Source]:
 def chat_once(req: ChatRequest) -> ChatResponse:
     """Execute a full chat turn and return the complete response."""
 
-    context = retriever.search(
+    context = new_bm25.run_bm(
         req.message,
         top_k=req.top_k,
         exclude_sources=set(req.inactive_sources or []),
     )
+
+    # context = retriever.search(
+    #     req.message,
+    #     top_k=req.top_k,
+    #     exclude_sources=set(req.inactive_sources or []),
+    # )
+
     prompt = renderer.build_prompt(
         summary="",
         history=[],
@@ -49,11 +58,18 @@ def chat_once(req: ChatRequest) -> ChatResponse:
 def chat_stream(req: ChatRequest) -> Iterator[ChatChunk]:
     """Yield chat response chunks as they are produced by the LLM."""
 
-    context = retriever.search(
+    context = new_bm25.run_bm(
         req.message,
         top_k=req.top_k,
         exclude_sources=set(req.inactive_sources or []),
     )
+
+    # context = retriever.search(
+    #     req.message,
+    #     top_k=req.top_k,
+    #     exclude_sources=set(req.inactive_sources or []),
+    # )
+
     prompt = renderer.build_prompt(
         summary="",
         history=[],
