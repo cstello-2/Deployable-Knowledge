@@ -2,6 +2,7 @@
 import ChatWindow from "./ChatWindow.svelte";
 // import DocumentsWindow from "./DocumentsWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
+import NotebookWindow from "./NotebookWindow.svelte";
 
 import type { Component } from "svelte";
 
@@ -47,4 +48,11 @@ export const windowDefinitions = [
     column: "left",
     component: ChatHistoryWindow,
   },
+  {
+    id: "notebook-window",
+    title: "Notebook",
+    column: "right",
+    component: NotebookWindow,
+  },
+  
 ] satisfies WindowDefinition[];

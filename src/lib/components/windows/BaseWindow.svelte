@@ -13,6 +13,7 @@
     collapsed?: boolean;
     onToggleCollapse?: () => void;
     onClose?: () => void;
+    titlebarActions?: Snippet;
     children?: Snippet;
   };
 
@@ -27,6 +28,7 @@
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
+    titlebarActions,
     children,
   }: Props = $props();
 
@@ -50,8 +52,12 @@
       <Icon name="drag_indicator" size={16} />
       <div class="title">{title}</div>
     </div>
-    {#if closable || collapsible}
+    {#if closable || collapsible || titlebarActions}
       <div class="actions">
+        {#if titlebarActions}
+          {@render titlebarActions()}
+        {/if}
+
         {#if collapsible}
           <button
             class="icon-btn"

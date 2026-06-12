@@ -170,3 +170,116 @@ function queryRequired(root: HTMLElement, selector: string): HTMLElement {
     throw new Error(`Missing splitter element: ${selector}`);
   return element;
 }
+
+export type NotebookSplitterOptions = {
+	mainSelector?: string;
+	notebookSelector?: string;
+	splitterSelector?: string;
+	storageKey?: string;
+	minNotebookPx?: number;
+	maxNotebookPx?: number;
+	defaultNotebookPx?: number;
+};
+
+type ResolvedNotebookSplitterOptions = Required<NotebookSplitterOptions>;
+
+const defaultNotebookOptions: ResolvedNotebookSplitterOptions = {
+	mainSelector: '[data-split-pane="main-workspace"]',
+	notebookSelector: '[data-split-pane="notebook"]',
+	splitterSelector: '[data-notebook-splitter]',
+	storageKey: 'layout:notebookWidth',
+	minNotebookPx: 260,
+	maxNotebookPx: 560,
+	defaultNotebookPx: 360
+};
+
+export function notebookSplitter(node: HTMLElement, options: NotebookSplitterOptions = {}) {
+	const settings: ResolvedNotebookSplitterOptions = {
+		...defaultNotebookOptions,
+		...options
+	};
+
+	const main = queryRequired(node, settings.mainSelector);
+	const notebook = queryRequired(node, settings.notebookSelector);
+	const splitter = queryRequired(node, settings.splitterSelector);
+
+	let dragging = false;
+	let startX = 0;
+	let startNotebookWidth = 0;
+
+	function notebookWidth() {
+		return notebook.getBoundingClientRect().width;
+	}
+
+	function applyNotebookWidth(px: number) {
+		const availableWidth = node.clientWidth - splitter.getBoundingClientRect().width;
+		const maxNotebook = Math.min(settings.maxNotebookPx, availableWidth - 520);
+
+		const clamped = Math.max(
+			settings.minNotebookPx,
+			Math.min(maxNotebook, px)
+		);
+
+		main.style.flex = '1 1 auto';
+		main.style.minWidth = '0';
+
+		notebook.style.width = `${clamped}px`;
+		notebook.style.flex = `0 0 ${clamped}px`;
+		notebook.style.minWidth = `${settings.minNotebookPx}px`;
+		notebook.style.maxWidth = `${settings.maxNotebookPx}px`;
+	}
+
+	function onDown(event: PointerEvent) {
+		if (!event.isPrimary || event.button !== 0) return;
+
+		event.preventDefault();
+
+		dragging = true;
+		startX = event.clientX;
+		startNotebookWidth = notebookWidth();
+
+		splitter.classList.add('dragging');
+
+		document.addEventListener('pointermove', onMove);
+		document.addEventListener('pointerup', onUp, { once: true });
+	}
+
+	function onMove(event: PointerEvent) {
+		if (!dragging) return;
+
+		const delta = event.clientX - startX;
+
+		// Dragging left should make the notebook wider.
+		// Dragging right should make it smaller.
+		applyNotebookWidth(startNotebookWidth - delta);
+	}
+
+	function onUp() {
+		if (!dragging) return;
+
+		dragging = false;
+		splitter.classList.remove('dragging');
+
+		localStorage.setItem(settings.storageKey, String(Math.round(notebookWidth())));
+
+		document.removeEventListener('pointermove', onMove);
+	}
+
+	function onResize() {
+		applyNotebookWidth(notebookWidth());
+	}
+
+	const saved = Number(localStorage.getItem(settings.storageKey));
+	applyNotebookWidth(Number.isFinite(saved) && saved > 0 ? saved : settings.defaultNotebookPx);
+
+	splitter.addEventListener('pointerdown', onDown);
+	window.addEventListener('resize', onResize);
+
+	return {
+		destroy() {
+			splitter.removeEventListener('pointerdown', onDown);
+			window.removeEventListener('resize', onResize);
+			document.removeEventListener('pointermove', onMove);
+		}
+	};
+}
