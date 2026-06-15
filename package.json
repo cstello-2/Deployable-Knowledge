@@ -24,12 +24,13 @@
 		"svelte-check": "^4.4.6",
 		"tsx": "^4.22.4",
 		"typescript": "^6.0.2",
-		"vite": "^8.0.7"
+		"vite": "^8.0.16"
 	},
 	"dependencies": {
 		"@libsql/client": "^0.17.3",
 		"dotenv": "^17.4.2",
 		"drizzle-orm": "^0.45.2",
-		"material-symbols": "^0.44.12"
+		"material-symbols": "^0.44.12",
+		"scribe.js-ocr": "^0.12.6"
 	}
 }
