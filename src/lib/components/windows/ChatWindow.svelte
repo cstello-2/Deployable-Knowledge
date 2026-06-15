@@ -18,6 +18,7 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
+
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
   let status = $state("");
@@ -45,7 +46,6 @@
   ): Promise<SessionMessage[]> {
     if (!sessionId) return [];
 
-    // Get messages
     const req = new Request(`/sessions/${sessionId}`, {
       method: "GET",
     });
@@ -68,16 +68,13 @@
     const text = draft.trim();
     if (!text) return;
 
-    // clear text box
     draft = "";
-
     busy = true;
     status = "";
 
     const session = appState.currentSession ?? (await createSession());
     appState.currentSession = session;
 
-    // We create a fact local only version of the user prompt, for visual purposes
     const lastMessage = messages[messages.length - 1];
     const fakeMessage: SessionMessage = {
       id: (lastMessage?.id ?? 0) + 1,
@@ -92,44 +89,88 @@
 
     await scrollToBottom();
 
-    const resp = await fetch(
-      `/sessions/${encodeURIComponent(session.id)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          model_id: "granite4:350m",
-          provider_id: "ollama",
-        }),
-      },
-    );
+    try {
+      const resp = await fetch(
+        `/sessions/${encodeURIComponent(session.id)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            model_id: "granite4:350m",
+            provider_id: "ollama",
+          }),
+        },
+      );
 
-    const reader = resp.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
+      if (!resp.ok) {
+        throw new Error(`Chat request failed: ${resp.status} ${resp.statusText}`);
+      }
 
-    if (!reader) throw new Error("reader could not be created.");
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      if (!reader) throw new Error("reader could not be created.");
 
-      const chunk = decoder.decode(value, { stream: true });
-      const tokens = chunk.split("\n").filter(Boolean);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      for (const token of tokens) {
-        messageStream += token;
+        const chunk = decoder.decode(value, { stream: true });
+        messageStream += chunk;
         await scrollToBottom();
       }
+
+      const streamedAssistantText = messageStream;
+
+      const assistantMessage: SessionMessage = {
+        id: fakeMessage.id + 1,
+        role: "assistant",
+        content: streamedAssistantText,
+        createdAt: new Date().toISOString(),
+        sessionId: session.id,
+        metadata: undefined,
+      };
+
+      messages = [...messages, assistantMessage];
+      messageStream = "";
+
+      try {
+        const savedMessages = await loadMessages(session.id);
+
+        const savedHasAssistantResponse = savedMessages.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.content.trim() === streamedAssistantText.trim(),
+        );
+
+        if (savedHasAssistantResponse) {
+          messages = savedMessages;
+        } else {
+          console.warn(
+            "Saved messages did not include the streamed assistant response yet. Keeping local streamed message.",
+            {
+              savedMessages,
+              streamedAssistantText,
+            },
+          );
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to reload messages after stream. Keeping local messages.",
+          error,
+        );
+      }
+
+      loadedSessionId = session.id;
+    } catch (error) {
+      console.error("Chat submit failed:", error);
+      status = error instanceof Error ? error.message : String(error);
+    } finally {
+      busy = false;
+      messageStream = "";
+      await scrollToBottom();
     }
-
-    // Get messages from api after generation.
-    messages = await loadMessages(session.id);
-    loadedSessionId = session.id;
-
-    busy = false;
-    messageStream = "";
-    await scrollToBottom();
   }
 
   async function createNewChat() {
@@ -169,67 +210,21 @@
             {message.content}
           {:else if message.role === "assistant"}
             {message.content}
-            <!-- pending indicator -->
-            <!-- <div class="msg-md msg-pending" role="status" aria-live="polite"> -->
-            <!--   <span class="typing-indicator" aria-hidden="true"> -->
-            <!--     <span></span><span></span><span></span> -->
-            <!--   </span> -->
-            <!--   <span class="typing-text">Generating response...</span> -->
-            <!-- </div> -->
-          {:else}
-            <!-- <div class="msg-md" class:msg-error={message.error}> -->
-            <!--   {#if message.error} -->
-            <!--     <em>Error:</em> {message.text} -->
-            <!--   {:else} -->
-            <!--     {message.text} -->
-            <!--   {/if} -->
-            <!-- </div> -->
-            <!--
-            {#if message.sources?.length}
-              <div class="msg-citations">
-                <div class="msg-citations-label">Sources</div>
-                <ol class="chat-source-list">
-                  {#each message.sources as source, index}
-                    {@const href = sourceHref(source)}
-                    {@const percent = angularSimilarityPercent(source)}
-                    <li class="chat-source-row">
-                      <div class="chat-source-main">
-                        <div class="chat-source-text-block">
-                          <span class="chat-source-num">{index + 1}.</span>
-                          <span class="chat-source-text"
-                            >{sourceDescription(source)}</span
-                          >
-                        </div>
-                        <div class="chat-source-action-line">
-                          <div class="chat-source-action-left">
-                            {#if href}
-                              <a
-                                class="btn btn-sm chat-source-btn"
-                                {href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {sourceName(source)}
-                              </a>
-                            {/if}
-                          </div>
-                          <span
-                            class="chat-source-score"
-                            style={`--score-pct: ${percent ?? 0}%`}
-                          >
-                            Angular Similarity: {sourceScoreLabel(source)}
-                          </span>
-                        </div>
-                      </div>
-                    </li>
-                  {/each}
-                </ol>
-              </div>
-            {/if}
-            -->
           {/if}
         </div>
       {/each}
+
+      {#if busy && messageStream.length === 0}
+        <div class="msg assistant">
+          <div class="msg-md msg-pending" role="status" aria-live="polite">
+            <span class="typing-indicator" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="typing-text"></span>
+          </div>
+        </div>
+      {/if}
+
       {#if messageStream.length !== 0}
         <div class="msg assistant">{messageStream}</div>
       {/if}
@@ -244,6 +239,7 @@
         aria-label="Message"
         disabled={busy}
       />
+
       <button
         class="chat-action-button chat-new-button"
         type="button"
@@ -254,6 +250,7 @@
       >
         <Icon name="add_comment" size={16} />
       </button>
+
       <button
         class="chat-action-button chat-send-button"
         type="submit"
@@ -458,117 +455,6 @@
     }
   }
 
-  /*
-  .msg-citations {
-    display: grid;
-    gap: 6px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
-  }
-
-  .msg-citations-label {
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .chat-source-list {
-    display: grid;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .chat-source-row {
-    display: block;
-    overflow: hidden;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-  }
-
-  .chat-source-main {
-    display: grid;
-    min-width: 0;
-    gap: 6px;
-  }
-
-  .chat-source-text-block {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px;
-    align-items: start;
-  }
-
-  .chat-source-num {
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .chat-source-text {
-    display: -webkit-box;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.35;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-  }
-
-  .chat-source-action-line {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    padding-left: 20px;
-  }
-
-  .chat-source-action-left {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-  }
-
-  .chat-source-btn {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chat-source-score {
-    display: inline-flex;
-    min-width: 150px;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: linear-gradient(
-      90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct) 100%
-    );
-    color: var(--text);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  */
-
   .chat-input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -649,13 +535,6 @@
   }
 
   @media (max-width: 680px) {
-    /*
-    .chat-source-action-line {
-      grid-template-columns: 1fr;
-      padding-left: 0;
-    }
-    */
-
     .chat-input {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
@@ -680,12 +559,5 @@
     .chat-new-button {
       border-radius: 0 0 0 13px;
     }
-
-    /*
-    .chat-source-score {
-      width: 100%;
-      min-width: 0;
-    }
-    */
   }
 </style>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import BaseWindow from "$lib/components/BaseWindow.svelte";
-  import Icon from "$lib/components/Icon.svelte";
+  import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import Icon from "$lib/components/utils/Icon.svelte";
   import type { WindowInstanceProps } from "./index.ts";
 
   type NotebookPage = {

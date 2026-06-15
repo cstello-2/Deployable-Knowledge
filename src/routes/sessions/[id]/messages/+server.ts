@@ -1,143 +1,23 @@
-import { asc, eq } from "drizzle-orm";
-import { db } from "$lib/server/database/database";
-import {
-  type SessionMessage,
-  sessions,
-  session_messages,
-} from "$lib/server/database/schema";
-import { getProvider, type Provider } from "$lib/server/providers/provider";
 import type { RequestHandler } from "./$types";
-
-// This is where we construct the final prompt
-function createPrompt(
-  messages: SessionMessage[],
-  userMessage: string,
-  persona = "",
-) {
-  const lines = [];
-
-  // Set persona
-  if (persona.trim()) lines.push(`System: ${persona.trim()}`);
-
-  // Only take top 20 messages
-  for (const message of messages.slice(-20)) {
-    lines.push(`${message.role}: ${message.content}`);
-  }
-
-  // Push in prompt
-  lines.push(`user: ${userMessage}`, "assistant:");
-  return lines.join("\n\n");
-}
-
-async function createTitle(
-  userMessage: string,
-  provider: Provider,
-  modelId: string,
-): Promise<string> {
-  const prompt = `
-    You write short, informative chat titles. Return only the title. Do not use quotation marks. 
-    Do not add commentary. Keep the title under 7 words when possible. 
-    Focus on the user's main task, not minor details.
-
-    ${userMessage}
-  `;
-
-  let title = "";
-
-  for await (const chunk of provider.chat(prompt, modelId)) {
-    title += chunk;
-  }
-
-  return title.trim().split("\n")[0] || "New conversation";
-}
+import { createChatResponseStream } from "$lib/server/chat/chatService";
 
 export const POST: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const message = String(body.message).trim();
-  const modelId = String(body.model_id);
-  const providerId = String(body.provider_id);
+  const sessionId = params.id;
 
-  // WARNING: currently unused
-  const persona = "";
-
-  const [existing] = await db
-    .select()
-    .from(sessions)
-    .where(eq(sessions.id, params.id))
-    .limit(1);
-
-  if (!existing) {
-    const timestamp = new Date().toISOString();
-    await db.insert(sessions).values({
-      id: params.id,
-      userId: "default",
-      title: "New Conversation",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
+  if (!sessionId) {
+    return new Response("Missing session id", { status: 400 });
   }
 
-  const messages: SessionMessage[] = await db
-    .select()
-    .from(session_messages)
-    .where(eq(session_messages.sessionId, params.id))
-    .orderBy(asc(session_messages.id));
+  const body = await request.json();
+  const message = String(body.message ?? "").trim();
 
-  const provider = await getProvider(providerId);
-  const prompt = createPrompt(messages, message, persona);
+  if (!message) {
+    return new Response("Missing message", { status: 400 });
+  }
 
-  // If you want to see the prompt getting sent this is it.
-  // console.log(prompt);
-
-  const timestamp = new Date().toISOString();
-
-  // Create a ReadableStream to stream chunks to the client
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      let fullResponse = "";
-
-      try {
-        for await (const chunk of provider.chat(prompt, modelId)) {
-          fullResponse += chunk;
-          controller.enqueue(encoder.encode(chunk));
-        }
-
-        // After streaming completes, save to DB
-        await db.insert(session_messages).values([
-          {
-            sessionId: params.id,
-            role: "user",
-            content: message,
-            metadata: null,
-            createdAt: timestamp,
-          },
-          {
-            sessionId: params.id,
-            role: "assistant",
-            content: fullResponse,
-            metadata: {
-              provider_id: providerId,
-              model_id: modelId,
-            },
-            createdAt: timestamp,
-          },
-        ]);
-
-        await db
-          .update(sessions)
-          .set({
-            title: await createTitle(message, provider, modelId),
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(sessions.id, params.id));
-      } catch (error) {
-        console.error("Streaming error:", error);
-        controller.error(error);
-      } finally {
-        controller.close();
-      }
-    },
+  const stream = await createChatResponseStream({
+    sessionId,
+    userMessage: message,
   });
 
   return new Response(stream, {

@@ -1,4 +1,4 @@
-import type { Provider } from "./provider";
+import type { Provider, ProviderChatOptions } from "./provider";
 
 const LLAMA_API_URL = "http://localhost:11434";
 
@@ -6,18 +6,30 @@ export class Ollama implements Provider {
   id = "ollama";
   name = "Ollama";
 
-  async *chat(prompt: string, model: string): AsyncGenerator<string> {
-    let req = new Request(`${LLAMA_API_URL}/api/chat`, {
+  async *chat(
+    prompt: string,
+    model: string,
+    options: ProviderChatOptions = {},
+  ): AsyncGenerator<string> {
+    const resp = await fetch(`${LLAMA_API_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: prompt }],
         stream: true,
+        options: {
+          temperature: options.temperature,
+          top_k: options.topK,
+          num_predict: options.maxTokens,
+        },
       }),
     });
 
-    const resp = await fetch(req);
+    if (!resp.ok) {
+      throw new Error(`Ollama request failed: ${resp.status} ${resp.statusText}`);
+    }
+
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
@@ -25,6 +37,7 @@ export class Ollama implements Provider {
 
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
@@ -41,23 +54,16 @@ export class Ollama implements Provider {
   }
 
   async listModels(): Promise<string[]> {
-    let req = new Request(`${LLAMA_API_URL}/api/tags`, {
+    const resp = await fetch(`${LLAMA_API_URL}/api/tags`, {
       method: "GET",
     });
 
-    const resp = await fetch(req);
+    if (!resp.ok) {
+      return [];
+    }
+
     const data = await resp.json();
 
-    return data.models.map((x: any) => x.model) ?? [];
+    return data.models?.map((model: any) => model.model) ?? [];
   }
-}
-
-/// DEBUG ONLY `$ node ./ollama.ts llama3.1:8b` 
-let provider = new Ollama();
-
-for await (const chunk of provider.chat(
-  "How far away is the sun from the earth?",
-  process.argv[2],
-)) {
-  process.stdout.write(chunk);
 }
