@@ -1,10 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
-import {
-  session_messages,
-  sessions,
-} from "$lib/server/database/schema";
+import { session_messages, sessions } from "$lib/server/database/schema";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -41,9 +38,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
     .delete(session_messages)
     .where(eq(session_messages.sessionId, params.id));
 
-  await db
-    .delete(sessions)
-    .where(eq(sessions.id, params.id));
+  await db.delete(sessions).where(eq(sessions.id, params.id));
 
   return json({ status: "ok", session_id: params.id });
 };

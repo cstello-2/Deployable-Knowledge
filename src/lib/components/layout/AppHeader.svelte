@@ -2,12 +2,7 @@
   import { onMount } from "svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
-  // import {
-  //   currentUser,
-  //   initializeSessionState,
-  //   logout,
-  //   startNewSession,
-  // } from "$lib/client/sessionState";
+
   import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
   import { showWindow, windowPlacements } from "$lib/utils/workspaceState";
   import { windowDefinitions } from "$lib/components/windows";
@@ -19,9 +14,6 @@
 
   onMount(() => {
     applyThemeSettings(readThemeSettings());
-    // initializeSessionState().catch((error) => {
-    //   console.error("Session initialization failed", error);
-    // });
   });
 
   function openThemePopup() {
@@ -46,7 +38,6 @@
   }
 
   async function createNewChat() {
-    // await startNewSession();
     menuOpen = false;
     toolsOpen = false;
     userOpen = false;
@@ -142,18 +133,17 @@
         aria-expanded={userOpen}
         onclick={toggleUserMenu}
       >
-        <!-- {$currentUser?.user || "User"} -->
-        User
+        local-user
         <Icon name="expand_more" size={16} />
       </button>
       {#if userOpen}
         <div class="menu-dropdown user-dropdown" role="menu">
-          <!-- <button -->
-          <!--   class="menu-item" -->
-          <!--   type="button" -->
-          <!--   role="menuitem" -->
-          <!--   onclick={logout}>Reset Local Session</button -->
-          <!-- > -->
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={true}>Logout</button
+          >
         </div>
       {/if}
     </div>

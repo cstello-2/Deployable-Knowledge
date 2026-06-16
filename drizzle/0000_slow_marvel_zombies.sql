@@ -19,4 +19,19 @@ CREATE TABLE `sessions` (
 );
 --> statement-breakpoint
 CREATE INDEX `sessions_user_idx` ON `sessions` (`user_id`);--> statement-breakpoint
-CREATE INDEX `sessions_updated_idx` ON `sessions` (`updated_at`);
+CREATE INDEX `sessions_updated_idx` ON `sessions` (`updated_at`);--> statement-breakpoint
+CREATE TABLE `user_sessions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` integer,
+	`secret_hash` text(128),
+	`created_at` integer DEFAULT (unixepoch()),
+	`token` text(255)
+);
+--> statement-breakpoint
+CREATE TABLE `users` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`username` text(255) NOT NULL,
+	`password` text(128),
+	`salt` text(128),
+	`last_login` integer DEFAULT (unixepoch())
+);

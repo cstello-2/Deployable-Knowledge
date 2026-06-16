@@ -1,5 +1,5 @@
 <script lang="ts">
-  import "../app.css";
+  import "../../app.css";
   import { setContext } from "svelte";
   import "material-symbols/rounded.css";
   import AppHeader from "$lib/components/layout/AppHeader.svelte";
