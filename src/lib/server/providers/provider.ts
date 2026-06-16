@@ -1,6 +1,10 @@
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
-import { provider_records } from "$lib/server/database/schema";
+import {
+  provider_records,
+  type NewProviderRecord,
+  type ProviderRecord,
+} from "$lib/server/database/schema";
 import { Ollama } from "./ollama";
 
 export type ProviderChatOptions = {
@@ -22,14 +26,7 @@ export interface Provider {
   listModels(refresh?: boolean): Promise<string[]>;
 }
 
-type ProviderSpec = {
-  id: string;
-  label: string;
-  apiKeyRequired: boolean;
-  fallbackModels: string[];
-};
-
-type ProviderPublicRecord = {
+export type ProviderPublicRecord = {
   id: string;
   label: string;
   api_key_required: boolean;
@@ -38,85 +35,12 @@ type ProviderPublicRecord = {
   models: string[];
 };
 
-const DEFAULT_PROVIDER_SPECS: Record<string, ProviderSpec> = {
-  ollama: {
-    id: "ollama",
-    label: "Ollama",
-    apiKeyRequired: false,
-    fallbackModels: [],
-  },
-  openai: {
-    id: "openai",
-    label: "OpenAI",
-    apiKeyRequired: true,
-    fallbackModels: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
-  },
-  anthropic: {
-    id: "anthropic",
-    label: "Anthropic",
-    apiKeyRequired: true,
-    fallbackModels: [
-      "claude-3-5-haiku-latest",
-      "claude-3-5-sonnet-latest",
-      "claude-3-7-sonnet-latest",
-    ],
-  },
-  gemini: {
-    id: "gemini",
-    label: "Gemini",
-    apiKeyRequired: true,
-    fallbackModels: [
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-2.0-flash",
-    ],
-  },
-  github: {
-    id: "github",
-    label: "GitHub Models",
-    apiKeyRequired: true,
-    fallbackModels: ["openai/gpt-4.1"],
-  },
+type ProviderDefinition = {
+  id: string;
+  label: string;
+  apiKeyRequired: boolean;
+  create: (apiKey: string) => Provider;
 };
-
-function now() {
-  return new Date().toISOString();
-}
-
-function getSpec(providerId: string) {
-  const spec = DEFAULT_PROVIDER_SPECS[providerId];
-
-  if (!spec) {
-    throw new Error(`Unknown provider: ${providerId}`);
-  }
-
-  return spec;
-}
-
-async function getStoredApiKey(providerId: string) {
-  const spec = getSpec(providerId);
-
-  if (!spec.apiKeyRequired) {
-    return "";
-  }
-
-  const [record] = await db
-    .select()
-    .from(provider_records)
-    .where(eq(provider_records.id, providerId))
-    .limit(1);
-
-  return record?.apiKey?.trim() ?? "";
-}
-
-async function providerAvailable(providerId: string) {
-  const spec = getSpec(providerId);
-
-  if (!spec.apiKeyRequired) return true;
-
-  const apiKey = await getStoredApiKey(providerId);
-  return Boolean(apiKey);
-}
 
 class OpenAICompatibleProvider implements Provider {
   id: string;
@@ -125,7 +49,7 @@ class OpenAICompatibleProvider implements Provider {
   private apiKey: string;
   private baseUrl: string;
   private defaultModel: string;
-  private fallbackModels: string[];
+  private modelOptions: string[];
   private extraHeaders: Record<string, string>;
 
   constructor({
@@ -134,7 +58,7 @@ class OpenAICompatibleProvider implements Provider {
     apiKey,
     baseUrl,
     defaultModel,
-    fallbackModels,
+    modelOptions,
     extraHeaders = {},
   }: {
     id: string;
@@ -142,7 +66,7 @@ class OpenAICompatibleProvider implements Provider {
     apiKey: string;
     baseUrl: string;
     defaultModel: string;
-    fallbackModels: string[];
+    modelOptions: string[];
     extraHeaders?: Record<string, string>;
   }) {
     this.id = id;
@@ -150,7 +74,7 @@ class OpenAICompatibleProvider implements Provider {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.defaultModel = defaultModel;
-    this.fallbackModels = fallbackModels;
+    this.modelOptions = modelOptions;
     this.extraHeaders = extraHeaders;
   }
 
@@ -194,35 +118,37 @@ class OpenAICompatibleProvider implements Provider {
       throw new Error(`${this.name} response reader could not be created.`);
     }
 
-    while (true) {
-      const { done, value } = await reader.read();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
 
-      if (done) break;
+        if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n").filter(Boolean);
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter(Boolean);
 
-      for (const line of lines) {
-        const cleanLine = line.replace(/^data:\s*/, "").trim();
+        for (const line of lines) {
+          const cleanLine = line.replace(/^data:\s*/, "").trim();
 
-        if (!cleanLine || cleanLine === "[DONE]") continue;
+          if (!cleanLine || cleanLine === "[DONE]") continue;
 
-        try {
-          const data = JSON.parse(cleanLine);
-          const content = data.choices?.[0]?.delta?.content;
+          try {
+            const data = JSON.parse(cleanLine);
+            const content = data.choices?.[0]?.delta?.content;
 
-          if (content) yield content;
-        } catch {
-          // Ignore partial stream chunks.
+            if (content) yield content;
+          } catch {
+            // Ignore partial stream chunks.
+          }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-
-    reader.releaseLock();
   }
 
   async listModels(): Promise<string[]> {
-    return this.fallbackModels;
+    return this.modelOptions;
   }
 }
 
@@ -230,10 +156,13 @@ class AnthropicProvider implements Provider {
   id = "anthropic";
   name = "Anthropic";
 
-  constructor(
-    private apiKey: string,
-    private fallbackModels: string[],
-  ) {}
+  private modelOptions = [
+    "claude-3-5-haiku-latest",
+    "claude-3-5-sonnet-latest",
+    "claude-3-7-sonnet-latest",
+  ];
+
+  constructor(private apiKey: string) {}
 
   async *chat(
     prompt: string,
@@ -252,7 +181,7 @@ class AnthropicProvider implements Provider {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: model || "claude-3-5-haiku-latest",
+        model: model || this.modelOptions[0],
         max_tokens: options.maxTokens ?? 512,
         temperature: options.temperature,
         stream: true,
@@ -275,35 +204,37 @@ class AnthropicProvider implements Provider {
       throw new Error("Anthropic response reader could not be created.");
     }
 
-    while (true) {
-      const { done, value } = await reader.read();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
 
-      if (done) break;
+        if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n").filter(Boolean);
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter(Boolean);
 
-      for (const line of lines) {
-        const cleanLine = line.replace(/^data:\s*/, "").trim();
+        for (const line of lines) {
+          const cleanLine = line.replace(/^data:\s*/, "").trim();
 
-        if (!cleanLine || cleanLine === "[DONE]") continue;
+          if (!cleanLine || cleanLine === "[DONE]") continue;
 
-        try {
-          const data = JSON.parse(cleanLine);
-          const text = data.delta?.text;
+          try {
+            const data = JSON.parse(cleanLine);
+            const text = data.delta?.text;
 
-          if (text) yield text;
-        } catch {
-          // Ignore non-JSON event lines.
+            if (text) yield text;
+          } catch {
+            // Ignore non-JSON event lines.
+          }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-
-    reader.releaseLock();
   }
 
   async listModels(): Promise<string[]> {
-    return this.fallbackModels;
+    return this.modelOptions;
   }
 }
 
@@ -311,10 +242,13 @@ class GeminiProvider implements Provider {
   id = "gemini";
   name = "Gemini";
 
-  constructor(
-    private apiKey: string,
-    private fallbackModels: string[],
-  ) {}
+  private modelOptions = [
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash",
+  ];
+
+  constructor(private apiKey: string) {}
 
   async *chat(
     prompt: string,
@@ -325,7 +259,7 @@ class GeminiProvider implements Provider {
       throw new Error("Gemini API key is not configured");
     }
 
-    const selectedModel = model || "gemini-1.5-flash";
+    const selectedModel = model || this.modelOptions[0];
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
@@ -360,60 +294,106 @@ class GeminiProvider implements Provider {
     }
 
     const data = await response.json();
+
     const text =
       data.candidates?.[0]?.content?.parts
-        ?.map((part: any) => part.text ?? "")
+        ?.map((part: { text?: string }) => part.text ?? "")
         .join("") ?? "";
 
     if (text) yield text;
   }
 
   async listModels(): Promise<string[]> {
-    return this.fallbackModels;
+    return this.modelOptions;
   }
 }
 
-export async function getProvider(providerId: string): Promise<Provider> {
-  const spec = getSpec(providerId);
-  const apiKey = await getStoredApiKey(providerId);
-
-  switch (providerId) {
-    case "ollama":
-      return new Ollama();
-
-    case "openai":
-      return new OpenAICompatibleProvider({
+const providerDefinitions: ProviderDefinition[] = [
+  {
+    id: "ollama",
+    label: "Ollama",
+    apiKeyRequired: false,
+    create: () => new Ollama(),
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    apiKeyRequired: true,
+    create: (apiKey) =>
+      new OpenAICompatibleProvider({
         id: "openai",
         name: "OpenAI",
         apiKey,
         baseUrl: "https://api.openai.com/v1",
         defaultModel: "gpt-4o-mini",
-        fallbackModels: spec.fallbackModels,
-      });
-
-    case "github":
-      return new OpenAICompatibleProvider({
+        modelOptions: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
+      }),
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    apiKeyRequired: true,
+    create: (apiKey) => new AnthropicProvider(apiKey),
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    apiKeyRequired: true,
+    create: (apiKey) => new GeminiProvider(apiKey),
+  },
+  {
+    id: "github",
+    label: "GitHub Models",
+    apiKeyRequired: true,
+    create: (apiKey) =>
+      new OpenAICompatibleProvider({
         id: "github",
         name: "GitHub Models",
         apiKey,
         baseUrl: "https://models.github.ai/inference",
         defaultModel: "openai/gpt-4.1",
-        fallbackModels: spec.fallbackModels,
+        modelOptions: ["openai/gpt-4.1"],
         extraHeaders: {
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-      });
+      }),
+  },
+];
 
-    case "anthropic":
-      return new AnthropicProvider(apiKey, spec.fallbackModels);
+function getProviderDefinition(providerId: string) {
+  const definition = providerDefinitions.find(
+    (provider) => provider.id === providerId,
+  );
 
-    case "gemini":
-      return new GeminiProvider(apiKey, spec.fallbackModels);
-
-    default:
-      throw new Error(`No provider found for "${providerId}"`);
+  if (!definition) {
+    throw new Error(`Unknown provider: ${providerId}`);
   }
+
+  return definition;
+}
+
+async function getProviderApiKey(providerId: string) {
+  const definition = getProviderDefinition(providerId);
+
+  if (!definition.apiKeyRequired) {
+    return "";
+  }
+
+  const records: ProviderRecord[] = await db
+    .select()
+    .from(provider_records)
+    .where(eq(provider_records.id, providerId))
+    .limit(1);
+
+  return records[0]?.apiKey?.trim() ?? "";
+}
+
+export async function getProvider(providerId: string): Promise<Provider> {
+  const definition = getProviderDefinition(providerId);
+  const apiKey = await getProviderApiKey(providerId);
+
+  return definition.create(apiKey);
 }
 
 export async function listProviderPublicRecords({
@@ -423,81 +403,84 @@ export async function listProviderPublicRecords({
   includeUnavailable?: boolean;
   refresh?: boolean;
 } = {}): Promise<ProviderPublicRecord[]> {
-  const output: ProviderPublicRecord[] = [];
+  const providers: ProviderPublicRecord[] = [];
 
-  for (const spec of Object.values(DEFAULT_PROVIDER_SPECS)) {
-    const apiKey = await getStoredApiKey(spec.id);
-    const available = !spec.apiKeyRequired || Boolean(apiKey);
+  for (const definition of providerDefinitions) {
+    const apiKey = await getProviderApiKey(definition.id);
+    const available = !definition.apiKeyRequired || Boolean(apiKey);
 
     if (!includeUnavailable && !available) {
       continue;
     }
 
+    const provider = definition.create(apiKey);
+
     let models: string[] = [];
 
-    if (available) {
+    if (available || definition.id === "ollama") {
       try {
-        const provider = await getProvider(spec.id);
         models = await provider.listModels(refresh);
       } catch {
-        models = spec.fallbackModels;
+        models = [];
       }
     } else {
-      models = spec.fallbackModels;
+      models = await provider.listModels(refresh);
     }
 
-    output.push({
-      id: spec.id,
-      label: spec.label,
-      api_key_required: spec.apiKeyRequired,
+    providers.push({
+      id: definition.id,
+      label: definition.label,
+      api_key_required: definition.apiKeyRequired,
       has_api_key: Boolean(apiKey),
       available,
       models,
     });
   }
 
-  return output;
+  return providers;
+}
+
+export async function getProviderRecords() {
+  return listProviderPublicRecords({
+    includeUnavailable: true,
+    refresh: true,
+  });
 }
 
 export async function patchProviderRecord(
   providerId: string,
   patch: { api_key?: string | null },
 ): Promise<ProviderPublicRecord> {
-  const spec = getSpec(providerId);
+  const definition = getProviderDefinition(providerId);
   const apiKey = String(patch.api_key ?? "").trim();
 
-  if (spec.apiKeyRequired && !apiKey) {
+  if (definition.apiKeyRequired && !apiKey) {
     throw new Error("API key is required");
   }
 
-  if (apiKey) {
-    await db
-      .insert(provider_records)
-      .values({
-        id: spec.id,
-        apiKey,
-        updatedAt: now(),
-      })
-      .onConflictDoUpdate({
-        target: provider_records.id,
-        set: {
-          apiKey,
-          updatedAt: now(),
-        },
-      });
-  }
+  const values: NewProviderRecord = {
+    id: definition.id,
+    apiKey,
+    updatedAt: new Date().toISOString(),
+  };
 
-  const [record] = await listProviderPublicRecords({
+  await db
+    .insert(provider_records)
+    .values(values)
+    .onConflictDoUpdate({
+      target: provider_records.id,
+      set: {
+        apiKey: values.apiKey,
+        updatedAt: values.updatedAt,
+      },
+    });
+
+  const providers = await listProviderPublicRecords({
     includeUnavailable: true,
     refresh: false,
   });
 
-  const provider = (
-    await listProviderPublicRecords({
-      includeUnavailable: true,
-      refresh: false,
-    })
-  ).find((item) => item.id === providerId);
+  const provider = providers.find((item) => item.id === providerId);
 
   if (!provider) {
     throw new Error(`Unknown provider: ${providerId}`);
@@ -509,16 +492,16 @@ export async function patchProviderRecord(
 export async function clearProviderApiKey(
   providerId: string,
 ): Promise<ProviderPublicRecord> {
-  const spec = getSpec(providerId);
+  const definition = getProviderDefinition(providerId);
 
-  await db.delete(provider_records).where(eq(provider_records.id, spec.id));
+  await db.delete(provider_records).where(eq(provider_records.id, definition.id));
 
-  const provider = (
-    await listProviderPublicRecords({
-      includeUnavailable: true,
-      refresh: false,
-    })
-  ).find((item) => item.id === providerId);
+  const providers = await listProviderPublicRecords({
+    includeUnavailable: true,
+    refresh: false,
+  });
+
+  const provider = providers.find((item) => item.id === providerId);
 
   if (!provider) {
     throw new Error(`Unknown provider: ${providerId}`);

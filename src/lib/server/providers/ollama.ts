@@ -1,4 +1,5 @@
 import type { Provider, ProviderChatOptions } from "./provider";
+import process from "node:process";
 
 const LLAMA_API_URL = "http://localhost:11434";
 
@@ -44,12 +45,15 @@ export class Ollama implements Provider {
       const lines = chunk.split("\n").filter(Boolean);
 
       for (const line of lines) {
-        const data = JSON.parse(line);
-
-        if (data.message?.content) yield data.message.content;
+        try{
+          const data = JSON.parse(line);
+          const content = data.message?.content ?? data.response ?? "";
+          if (content) yield content;
+        } catch {
+          yield line;
+        }
       }
     }
-
     reader.releaseLock();
   }
 
@@ -63,7 +67,21 @@ export class Ollama implements Provider {
     }
 
     const data = await resp.json();
-
-    return data.models?.map((model: any) => model.model) ?? [];
+    return data.models?.map((model: any) => model.model) ?? []; 
   }
 }
+/// DEBUG ONLY `$ npx tsx src/lib/server/providers/ollama.ts llama3.1:8b`
+if (process.argv[1]?.endsWith("ollama.ts")) {
+  const provider = new Ollama();
+
+  for await (const chunk of provider.chat(
+    "How far away is the sun from the earth?",
+    process.argv[2] ?? "granite4:350m",
+  )) {
+    process.stdout.write(chunk);
+  }
+}
+
+
+  
+

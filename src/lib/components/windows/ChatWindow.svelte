@@ -6,6 +6,7 @@
   import type { AppState } from "$lib/state.svelte";
   import type { SessionMessage } from "$lib/server/database/schema";
   import { createSession } from "$lib/api/sessions";
+  import { loadAssistantRuntimeData } from "$lib/utils/assistantState";
 
   let {
     id,
@@ -88,6 +89,11 @@
     messages = [...messages, fakeMessage];
 
     await scrollToBottom();
+    const assistantData = await loadAssistantRuntimeData({ refresh: true });
+
+    const activeTemplate = assistantData.templates.find(
+      (template) => template.id === assistantData.runtime.templateId,
+    );
 
     try {
       const resp = await fetch(
@@ -97,8 +103,28 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
-            model_id: "granite4:350m",
-            provider_id: "ollama",
+
+            provider_id: assistantData.runtime.providerId,
+            model_id: assistantData.runtime.modelId,
+            prompt_template_id: assistantData.runtime.templateId,
+            persona_id: assistantData.runtime.personaId,
+
+            system: activeTemplate?.system ?? "",
+            include_history:
+            activeTemplate?.includeHistory ?? activeTemplate?.include_history ?? true,
+
+            temperature:
+              activeTemplate?.temperature ?? assistantData.settings.temperature,
+
+            top_k:
+              activeTemplate?.topK ??
+              activeTemplate?.top_k ??
+              assistantData.settings.top_k,
+
+            max_tokens:
+              activeTemplate?.maxTokens ??
+              activeTemplate?.max_tokens ??
+              assistantData.settings.max_tokens,
           }),
         },
       );

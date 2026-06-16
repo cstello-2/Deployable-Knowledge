@@ -175,11 +175,27 @@ export type SessionMessage = typeof session_messages.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type NewSessionMessage = typeof session_messages.$inferInsert;
 
+
 export type AssistantSettings = typeof assistant_settings.$inferSelect;
+export type NewAssistantSettings = typeof assistant_settings.$inferInsert;
+
 export type PromptTemplate = typeof prompt_templates.$inferSelect;
+export type NewPromptTemplate = typeof prompt_templates.$inferInsert;
+
 export type Persona = typeof personas.$inferSelect;
+export type NewPersona = typeof personas.$inferInsert;
+
 export type AssistantProfile = typeof assistant_profiles.$inferSelect;
+export type NewAssistantProfile = typeof assistant_profiles.$inferInsert;
+
 export type NotebookState = typeof notebook_state.$inferSelect;
+export type NewNotebookState = typeof notebook_state.$inferInsert;
+
 export type Notebook = typeof notebooks.$inferSelect;
+export type NewNotebook = typeof notebooks.$inferInsert;
+
 export type NotebookPage = typeof notebook_pages.$inferSelect;
+export type NewNotebookPage = typeof notebook_pages.$inferInsert;
+
 export type ProviderRecord = typeof provider_records.$inferSelect;
+export type NewProviderRecord = typeof provider_records.$inferInsert;

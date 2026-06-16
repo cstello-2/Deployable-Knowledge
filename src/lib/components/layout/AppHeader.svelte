@@ -83,19 +83,14 @@
             class="menu-item"
             type="button"
             role="menuitem"
-            onclick={createNewChat}
+            onclick={createNewChat}>New Chat</button
           >
-            New Chat
-          </button>
-
           <button
             class="menu-item"
             type="button"
             role="menuitem"
-            onclick={openThemePopup}
+            onclick={openThemePopup}>Theme</button
           >
-            Theme
-          </button>
         </div>
       {/if}
     </div>
@@ -151,17 +146,14 @@
         User
         <Icon name="expand_more" size={16} />
       </button>
-
       {#if userOpen}
         <div class="menu-dropdown user-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={logout}
-          >
-            Reset Local Session
-          </button>
+          <!-- <button -->
+          <!--   class="menu-item" -->
+          <!--   type="button" -->
+          <!--   role="menuitem" -->
+          <!--   onclick={logout}>Reset Local Session</button -->
+          <!-- > -->
         </div>
       {/if}
     </div>
@@ -219,13 +211,16 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: hsl(var(--h) var(--sat) var(--l-panel));
     color: var(--text);
-    cursor: pointer;
     font-size: 12px;
+  }
+
+  .menu-trigger {
+    padding: 6px 10px;
+    cursor: pointer;
   }
 
   .menu-trigger:hover {
@@ -251,11 +246,8 @@
   }
 
   .menu-item {
-    display: grid;
+    display: block;
     width: 100%;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
     padding: 8px 10px;
     border: 0;
     border-radius: 8px;
@@ -264,6 +256,13 @@
     cursor: pointer;
     font-size: 12px;
     text-align: left;
+  }
+
+  .menu-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
   }
 
   .menu-item.visible {

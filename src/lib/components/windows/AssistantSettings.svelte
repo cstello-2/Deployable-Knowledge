@@ -3,58 +3,19 @@
   import BaseWindow from "./BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import AssistantApiKeyPopup from "$lib/components/popups/AssistantApiKeyPopup.svelte";
+  import {
+    builtInPersonas,
+    builtInTemplates,
+    protectedPersonaIds,
+    protectedTemplateIds,
+    type AssistantProfile,
+    type PersonaRecord,
+    type PromptTemplate as AssistantPromptTemplate,
+    type ProviderRecord,
+  } from "$lib/utils/assistantState";
   import type { WindowInstanceProps } from "./index";
 
-  type ProviderRecord = {
-    id: string;
-    name?: string;
-    label?: string;
-    models?: string[];
-  };
-
-  type PromptTemplate = {
-    id: string;
-    name: string;
-    description?: string;
-    system: string;
-    includeHistory?: boolean;
-    include_history?: boolean;
-    temperature?: number | null;
-    topK?: number | null;
-    top_k?: number | null;
-    maxTokens?: number | null;
-    max_tokens?: number | null;
-    builtIn?: boolean;
-  };
-
-  type PersonaRecord = {
-    id: string;
-    name: string;
-    text: string;
-    builtIn?: boolean;
-  };
-
-  type AssistantProfile = {
-    id: string;
-    name: string;
-    promptTemplateId?: string;
-    prompt_template_id?: string;
-    providerId?: string;
-    provider_id?: string;
-    modelId?: string;
-    model_id?: string;
-    personaId?: string | null;
-    persona_id?: string | null;
-    personaText?: string | null;
-    persona_text?: string | null;
-    temperature?: number;
-    topK?: number;
-    top_k?: number;
-    maxTokens?: number;
-    max_tokens?: number;
-  };
-
-  type AssistantSettings = {
+  type AssistantRuntimeSettings = {
     id?: string;
     userId?: string;
     user_id?: string;
@@ -74,8 +35,8 @@
   };
 
   type AssistantStateResponse = {
-    settings: AssistantSettings;
-    templates: PromptTemplate[];
+    settings: AssistantRuntimeSettings;
+    templates: AssistantPromptTemplate[];
     personas: PersonaRecord[];
     profiles: AssistantProfile[];
     providers: ProviderRecord[];
@@ -99,6 +60,16 @@
   const NONE_VALUE = "__none__";
   const CREATE_NEW_VALUE = "__create_your_own__";
 
+  const protectedPromptIds = new Set<string>([
+    NONE_VALUE,
+    CREATE_NEW_VALUE,
+    ...Array.from(protectedTemplateIds),
+  ]);
+
+  const protectedPersonaIdSet = new Set<string>(
+    Array.from(protectedPersonaIds),
+  );
+
   const TEMPERATURE_HELP =
     "Controls response randomness. Higher temperature makes answers more creative and varied; lower temperature makes answers more precise and consistent.";
 
@@ -108,8 +79,8 @@
   const MAX_TOKENS_HELP =
     "Sets the maximum response length. 512 tokens usually produces roughly 350–400 words, depending on formatting and word length.";
 
-  let templates = $state<PromptTemplate[]>([]);
-  let currentTemplate = $state<PromptTemplate | null>(null);
+  let templates = $state<AssistantPromptTemplate[]>([]);
+  let currentTemplate = $state<AssistantPromptTemplate | null>(null);
   let selectedPromptTemplateId = $state("rag_chat");
 
   let promptAction = $state("");
@@ -141,6 +112,7 @@
   let personaAction = $state("");
   let selectedPersonaId = $state("");
   let loadedPersonaId = $state<string | null>(null);
+  let savedPersonaId = $state<string | null>(null);
   let personaCopyId = $state("");
   let personaName = $state("");
   let personaText = $state("");
@@ -148,19 +120,6 @@
 
   let loading = $state(false);
   let toastMessage = $state("");
-
-  function formatError(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
-  }
-
-  const protectedTemplateIds = [
-    NONE_VALUE,
-    CREATE_NEW_VALUE,
-    "default",
-    "rag_chat",
-    "tech_helper",
-    "title_summarizer",
-  ];
 
   const showProfileCreate = $derived(profileAction === "create");
   const showProfileSelect = $derived(
@@ -186,7 +145,7 @@
   const loadedPromptIsProtected = $derived(
     templateSelect !== NONE_VALUE &&
       templateSelect !== CREATE_NEW_VALUE &&
-      protectedTemplateIds.includes(templateSelect),
+      protectedPromptIds.has(templateSelect),
   );
 
   const promptDetailsVisible = $derived(
@@ -199,7 +158,7 @@
       Boolean(
         currentTemplate &&
           templateSelect !== NONE_VALUE &&
-          !protectedTemplateIds.includes(templateSelect),
+          !protectedPromptIds.has(templateSelect),
       ),
   );
 
@@ -224,83 +183,36 @@
     personaAction === "create" || Boolean(loadedPersonaId),
   );
 
-  function settingProviderId(settings: AssistantSettings) {
-    return settings.providerId ?? settings.provider_id ?? "ollama";
-  }
-
-  function settingModelId(settings: AssistantSettings) {
-    return settings.modelId ?? settings.model_id ?? "";
-  }
-
-  function settingPromptTemplateId(settings: AssistantSettings) {
-    return settings.promptTemplateId ?? settings.prompt_template_id ?? "rag_chat";
-  }
-
-  function settingPersonaId(settings: AssistantSettings) {
-    return settings.personaId ?? settings.persona_id ?? null;
-  }
-
-  function settingTopK(settings: AssistantSettings) {
-    return settings.topK ?? settings.top_k ?? 8;
-  }
-
-  function settingMaxTokens(settings: AssistantSettings) {
-    return settings.maxTokens ?? settings.max_tokens ?? 512;
-  }
-
-  function profilePromptTemplateId(profile: AssistantProfile) {
-    return profile.promptTemplateId ?? profile.prompt_template_id ?? "rag_chat";
-  }
-
-  function profileProviderId(profile: AssistantProfile) {
-    return profile.providerId ?? profile.provider_id ?? "ollama";
-  }
-
-  function profileModelId(profile: AssistantProfile) {
-    return profile.modelId ?? profile.model_id ?? "";
-  }
-
-  function profilePersonaId(profile: AssistantProfile) {
-    return profile.personaId ?? profile.persona_id ?? null;
-  }
-
-  function profilePersonaText(profile: AssistantProfile) {
-    return profile.personaText ?? profile.persona_text ?? "";
-  }
-
-  function profileTopK(profile: AssistantProfile) {
-    return profile.topK ?? profile.top_k ?? 8;
-  }
-
-  function profileMaxTokens(profile: AssistantProfile) {
-    return profile.maxTokens ?? profile.max_tokens ?? 512;
-  }
-
-  function templateTopK(template: PromptTemplate) {
-    return template.topK ?? template.top_k ?? null;
-  }
-
-  function templateMaxTokens(template: PromptTemplate) {
-    return template.maxTokens ?? template.max_tokens ?? null;
-  }
-
-  function templateIncludeHistory(template: PromptTemplate) {
-    return template.includeHistory ?? template.include_history ?? true;
-  }
-
-  function personaIsProtected(personaId: string | null) {
-    if (!personaId) return false;
-
-    return Boolean(
-      personas.find((persona) => persona.id === personaId)?.builtIn,
-    );
-  }
-
   const loadedPersonaIsProtected = $derived(
-    personaIsProtected(loadedPersonaId),
+    loadedPersonaId ? protectedPersonaIdSet.has(loadedPersonaId) : false,
   );
 
   const personaCanEdit = $derived(!loadedPersonaIsProtected);
+
+  function formatError(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function mergeById<T extends { id: string }>(
+    builtIns: readonly T[],
+    saved: readonly T[],
+  ): T[] {
+    const seen = new Set<string>();
+    const merged: T[] = [];
+
+    for (const item of [...builtIns, ...saved]) {
+      if (seen.has(item.id)) continue;
+
+      seen.add(item.id);
+      merged.push(item);
+    }
+
+    return merged;
+  }
+
+  function personaIsProtected(personaId: string | null) {
+    return personaId ? protectedPersonaIdSet.has(personaId) : false;
+  }
 
   function showToast(message: string) {
     toastMessage = message;
@@ -360,7 +272,7 @@
   async function assistantStateRequest(
     body?: Record<string, unknown>,
   ): Promise<AssistantStateResponse> {
-    const response = await fetch("/assistant-state", {
+    const response = await fetch("/assistant", {
       method: body ? "POST" : "GET",
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -368,6 +280,7 @@
 
     if (!response.ok) {
       const text = await response.text();
+
       throw new Error(
         text || `Assistant settings request failed: ${response.status}`,
       );
@@ -376,33 +289,18 @@
     return (await response.json()) as AssistantStateResponse;
   }
 
-  function modelOptionsForProvider(
-    providerList: ProviderRecord[],
-    nextProviderId: string,
-    selectedModel: string | null = null,
-  ): ModelOption[] {
-    const provider = providerList.find((item) => item.id === nextProviderId);
-    const models = provider?.models ?? [];
-
-    if (!models.length && selectedModel) {
-      return [{ value: selectedModel, label: selectedModel }];
-    }
-
-    return models.map((model) => ({
-      value: model,
-      label: model,
-    }));
-  }
-
   function populateModelsForProvider(
     nextProviderId: string,
     selectedModel: string | null = null,
   ) {
-    modelOptions = modelOptionsForProvider(
-      providers,
-      nextProviderId,
-      selectedModel,
-    );
+    const provider = providers.find((item) => item.id === nextProviderId);
+    const models = provider?.models ?? [];
+
+    modelOptions = models.length
+      ? models.map((model) => ({ value: model, label: model }))
+      : selectedModel
+        ? [{ value: selectedModel, label: selectedModel }]
+        : [];
 
     if (
       selectedModel &&
@@ -415,7 +313,9 @@
     modelId = modelOptions[0]?.value ?? selectedModel ?? "";
   }
 
-  function setPromptDetailModeForTemplate(template: PromptTemplate | null) {
+  function setPromptDetailModeForTemplate(
+    template: AssistantPromptTemplate | null,
+  ) {
     currentTemplate = template;
 
     if (!template) {
@@ -433,76 +333,79 @@
       temperature = String(template.temperature);
     }
 
-    const nextMaxTokens = templateMaxTokens(template);
-    if (nextMaxTokens !== undefined && nextMaxTokens !== null) {
-      maxTokens = String(nextMaxTokens);
+    const templateMaxTokens = template.maxTokens ?? template.max_tokens ?? null;
+    if (templateMaxTokens !== null) {
+      maxTokens = String(templateMaxTokens);
     }
 
-    const nextTopK = templateTopK(template);
-    if (nextTopK !== undefined && nextTopK !== null) {
-      topK = String(nextTopK);
+    const templateTopK = template.topK ?? template.top_k ?? null;
+    if (templateTopK !== null) {
+      topK = String(templateTopK);
     }
   }
 
   async function refreshState(selectedTemplateId: string | null = null) {
     const data = await assistantStateRequest();
+    const settings = data.settings ?? {};
 
-    templates = data.templates ?? [];
-    personas = data.personas ?? [];
+    templates = mergeById<AssistantPromptTemplate>(
+      builtInTemplates,
+      data.templates ?? [],
+    );
+
+    personas = mergeById<PersonaRecord>(
+      builtInPersonas,
+      data.personas ?? [],
+    );
+
     profiles = data.profiles ?? [];
+
     providers = data.providers?.length
       ? data.providers
       : [{ id: "ollama", name: "Ollama", label: "Ollama", models: [] }];
 
-    const settings = data.settings ?? {};
-
     temperature = String(settings.temperature ?? 0.2);
-    maxTokens = String(settingMaxTokens(settings));
-    topK = String(settingTopK(settings));
+    maxTokens = String(settings.maxTokens ?? settings.max_tokens ?? 512);
+    topK = String(settings.topK ?? settings.top_k ?? 8);
 
     selectedPromptTemplateId =
-      selectedTemplateId ?? settingPromptTemplateId(settings) ?? "rag_chat";
+      selectedTemplateId ??
+      settings.promptTemplateId ??
+      settings.prompt_template_id ??
+      "rag_chat";
 
-    templateSelect = selectedPromptTemplateId || NONE_VALUE;
+    templateSelect = selectedTemplateId ? selectedPromptTemplateId : NONE_VALUE;
 
-    providerId = settingProviderId(settings);
-    populateModelsForProvider(providerId, settingModelId(settings));
-
-    loadedPersonaId = settingPersonaId(settings);
-
-    const activePersona = personas.find(
-      (persona) => persona.id === loadedPersonaId,
+    providerId = settings.providerId ?? settings.provider_id ?? "ollama";
+    populateModelsForProvider(
+      providerId,
+      settings.modelId ?? settings.model_id ?? "",
     );
 
-    if (activePersona) {
-      personaName = activePersona.name;
-      personaText = activePersona.text;
-    } else {
-      personaName = "";
-      personaText = "";
-    }
+    savedPersonaId = settings.personaId ?? settings.persona_id ?? null;
+    loadedPersonaId = null;
+    personaName = "";
+    personaText = "";
 
     if (templateSelect === NONE_VALUE) {
       setPromptDetailModeForTemplate(null);
-    } else {
-      const template = templates.find((item) => item.id === templateSelect) ?? null;
-      setPromptDetailModeForTemplate(template);
+      return;
     }
+
+    setPromptDetailModeForTemplate(
+      templates.find((item) => item.id === templateSelect) ?? null,
+    );
   }
 
   async function saveRuntimeSettings() {
-    const tempValue = toNumberOrNull(temperature);
-    const maxTokenValue = toIntOrNull(maxTokens);
-    const topKValue = toIntOrNull(topK);
-
     const settings = {
       providerId: providerId || "ollama",
       modelId: modelId || "",
       promptTemplateId: selectedPromptTemplateId || "rag_chat",
-      personaId: loadedPersonaId,
-      temperature: tempValue ?? 0.2,
-      maxTokens: maxTokenValue ?? 512,
-      topK: topKValue ?? 8,
+      personaId: loadedPersonaId ?? savedPersonaId,
+      temperature: toNumberOrNull(temperature) ?? 0.2,
+      maxTokens: toIntOrNull(maxTokens) ?? 512,
+      topK: toIntOrNull(topK) ?? 8,
     };
 
     try {
@@ -511,6 +414,7 @@
         settings,
       });
 
+      savedPersonaId = settings.personaId ?? null;
       showToast("Assistant settings updated");
     } catch (error) {
       alert("Settings save failed: " + formatError(error));
@@ -530,7 +434,7 @@
 
     if (templateSelect === CREATE_NEW_VALUE) {
       templateSelect = NONE_VALUE;
-      selectedPromptTemplateId = "default";
+      selectedPromptTemplateId = "rag_chat";
       currentTemplate = null;
       templateName = "";
       templateDescription = "";
@@ -559,12 +463,13 @@
 
     if (action === "create") {
       templateSelect = CREATE_NEW_VALUE;
-      selectedPromptTemplateId = "default";
+      selectedPromptTemplateId = "rag_chat";
       setPromptDetailModeForTemplate(null);
       temperature = "0.2";
       maxTokens = "512";
       topK = "8";
       loadedPersonaId = null;
+      savedPersonaId = null;
       personaName = "";
       personaText = "";
     }
@@ -581,7 +486,7 @@
 
     if (action === "create") {
       templateSelect = CREATE_NEW_VALUE;
-      selectedPromptTemplateId = "default";
+      selectedPromptTemplateId = "rag_chat";
       setPromptDetailModeForTemplate(null);
       templateName = "";
       templateDescription = "";
@@ -626,7 +531,7 @@
     }
 
     if (promptAction === "delete") {
-      if (protectedTemplateIds.includes(selectedTemplate.id)) {
+      if (protectedPromptIds.has(selectedTemplate.id)) {
         alert(
           "Default prompt templates cannot be deleted. Use Create Prompt → Copy Prompt to make an editable version.",
         );
@@ -651,7 +556,7 @@
 
         templateSelect = NONE_VALUE;
         currentTemplate = null;
-        await refreshState("rag_chat");
+        await refreshState();
         resetPromptAction();
         showToast("Prompt template deleted");
       } catch (error) {
@@ -690,23 +595,29 @@
     templateDescription = selectedTemplate.description || "";
     templateSystem = selectedTemplate.system || "";
 
-    if (selectedTemplate.temperature !== undefined && selectedTemplate.temperature !== null) {
+    if (
+      selectedTemplate.temperature !== undefined &&
+      selectedTemplate.temperature !== null
+    ) {
       temperature = String(selectedTemplate.temperature);
     }
 
-    const copiedMaxTokens = templateMaxTokens(selectedTemplate);
+    const copiedMaxTokens =
+      selectedTemplate.maxTokens ?? selectedTemplate.max_tokens ?? null;
+
     if (copiedMaxTokens !== null) {
       maxTokens = String(copiedMaxTokens);
     }
 
-    const copiedTopK = templateTopK(selectedTemplate);
+    const copiedTopK = selectedTemplate.topK ?? selectedTemplate.top_k ?? null;
+
     if (copiedTopK !== null) {
       topK = String(copiedTopK);
     }
 
     promptAction = "create";
     templateSelect = CREATE_NEW_VALUE;
-    selectedPromptTemplateId = "default";
+    selectedPromptTemplateId = "rag_chat";
     currentTemplate = null;
     showToast("Prompt copied into editor");
   }
@@ -719,7 +630,7 @@
     if (
       templateSelect !== CREATE_NEW_VALUE &&
       templateSelect !== NONE_VALUE &&
-      protectedTemplateIds.includes(templateSelect)
+      protectedPromptIds.has(templateSelect)
     ) {
       alert(
         "Default prompt templates cannot be edited directly. Use Create Prompt → Copy Prompt to make an editable version.",
@@ -755,7 +666,9 @@
           description,
           system,
           includeHistory: currentTemplate
-            ? templateIncludeHistory(currentTemplate)
+            ? currentTemplate.includeHistory ??
+              currentTemplate.include_history ??
+              true
             : true,
           temperature: toNumberOrNull(temperature),
           maxTokens: toIntOrNull(maxTokens),
@@ -766,8 +679,8 @@
       selectedPromptTemplateId = templateId;
       templateSelect = templateId;
 
-      await refreshState(templateId);
       await saveRuntimeSettings();
+      await refreshState(templateId);
 
       promptAction = "";
       selectedPromptActionTemplateId = "";
@@ -815,14 +728,15 @@
           topK: toIntOrNull(topK) ?? 8,
           modelId: modelId || "",
           providerId: providerId || "ollama",
-          personaId: loadedPersonaId,
+          personaId: loadedPersonaId ?? savedPersonaId,
           personaText: personaText.trim() || null,
         },
       });
 
       loadedProfileId = profileId;
-      await refreshState(promptTemplateId);
+      selectedPromptTemplateId = promptTemplateId;
       await saveRuntimeSettings();
+      await refreshState(promptTemplateId);
 
       resetProfileAction();
       showToast("Profile saved");
@@ -868,13 +782,14 @@
           topK: toIntOrNull(topK) ?? 8,
           modelId: modelId || "",
           providerId: providerId || "ollama",
-          personaId: loadedPersonaId,
+          personaId: loadedPersonaId ?? savedPersonaId,
           personaText: personaText.trim() || null,
         },
       });
 
-      await refreshState(promptTemplateId);
+      selectedPromptTemplateId = promptTemplateId;
       await saveRuntimeSettings();
+      await refreshState(promptTemplateId);
 
       showToast("Profile edits saved");
     } catch (error) {
@@ -920,31 +835,40 @@
     }
 
     if (profileAction === "load") {
+      const profileTemplateId =
+        profile.promptTemplateId ?? profile.prompt_template_id ?? "rag_chat";
+
       loadedProfileId = profile.id;
-
-      const profileTemplateId = profilePromptTemplateId(profile);
-
       templateSelect = profileTemplateId;
       selectedPromptTemplateId = profileTemplateId;
+
       setPromptDetailModeForTemplate(
         templates.find((template) => template.id === profileTemplateId) ?? null,
       );
 
       temperature = String(profile.temperature ?? 0.2);
-      maxTokens = String(profileMaxTokens(profile));
-      topK = String(profileTopK(profile));
+      maxTokens = String(profile.maxTokens ?? profile.max_tokens ?? 512);
+      topK = String(profile.topK ?? profile.top_k ?? 8);
 
-      providerId = profileProviderId(profile);
-      populateModelsForProvider(providerId, profileModelId(profile));
+      providerId = profile.providerId ?? profile.provider_id ?? "ollama";
+      populateModelsForProvider(
+        providerId,
+        profile.modelId ?? profile.model_id ?? "",
+      );
 
-      loadedPersonaId = profilePersonaId(profile);
+      savedPersonaId = profile.personaId ?? profile.persona_id ?? null;
+      loadedPersonaId = savedPersonaId;
 
       const matchingPersona = personas.find(
-        (item) => item.id === loadedPersonaId,
+        (item) => item.id === savedPersonaId,
       );
 
       personaName = matchingPersona?.name || "";
-      personaText = profilePersonaText(profile) || matchingPersona?.text || "";
+      personaText =
+        profile.personaText ??
+        profile.persona_text ??
+        matchingPersona?.text ??
+        "";
 
       await saveRuntimeSettings();
 
@@ -968,7 +892,7 @@
       return;
     }
 
-    if (personaIsProtected(loadedPersonaId)) {
+    if (loadedPersonaId && protectedPersonaIdSet.has(loadedPersonaId)) {
       alert(
         "Default personas cannot be edited directly. Use Create Persona → Copy Persona to make an editable version.",
       );
@@ -996,10 +920,12 @@
       });
 
       loadedPersonaId = personaId;
+      savedPersonaId = personaId;
 
-      await refreshState(selectedPromptTemplateId);
       await saveRuntimeSettings();
+      await refreshState(selectedPromptTemplateId);
 
+      savedPersonaId = personaId;
       personaAction = "";
       personaCopyId = "";
       showToast(isCreate ? "Persona created" : "Persona saved");
@@ -1044,6 +970,7 @@
 
     if (personaAction === "load") {
       loadedPersonaId = persona.id;
+      savedPersonaId = persona.id;
       personaName = persona.name || "";
       personaText = persona.text || "";
       await saveRuntimeSettings();
@@ -1053,7 +980,7 @@
     }
 
     if (personaAction === "delete") {
-      if (persona.builtIn) {
+      if (protectedPersonaIdSet.has(persona.id)) {
         alert(
           "Default personas cannot be deleted. Use Create Persona → Copy Persona to make an editable version.",
         );
@@ -1075,9 +1002,13 @@
           personaText = "";
         }
 
+        if (savedPersonaId === selectedPersonaId) {
+          savedPersonaId = null;
+        }
+
         selectedPersonaId = "";
-        await refreshState(selectedPromptTemplateId);
         await saveRuntimeSettings();
+        await refreshState(selectedPromptTemplateId);
 
         showToast("Persona deleted");
       } catch (error) {
@@ -1111,6 +1042,7 @@
     initialize();
   });
 </script>
+
 
 {#snippet sectionLabel(text: string)}
   <div class="field-label">{text}</div>
@@ -1306,7 +1238,7 @@
 
               {#each templates as template (template.id)}
                 <option value={template.id}>
-                  {template.name || template.id}{protectedTemplateIds.includes(template.id) ? " (default)" : ""}
+                  {template.name || template.id}{protectedPromptIds.has(template.id) ? " (default)" : ""}
                 </option>
               {/each}
             {:else}
@@ -1345,7 +1277,7 @@
 
             {#each templates as template (template.id)}
               <option value={template.id}>
-                {template.name || template.id}{protectedTemplateIds.includes(template.id) ? " (default)" : ""}
+                {template.name || template.id}{protectedPromptIds.has(template.id) ? " (default)" : ""}
               </option>
             {/each}
           </select>
@@ -1427,7 +1359,6 @@
 
     {#if loadedPromptIsProtected}
       <div class="row prompt-protected-note">
-        Default prompt templates cannot be edited directly. Use Create Prompt → Copy Prompt to make an editable version.
       </div>
     {/if}
 
@@ -1461,7 +1392,7 @@
 
               {#each personas as persona (persona.id)}
                 <option value={persona.id}>
-                  {persona.name || persona.id}{persona.builtIn ? " (default)" : ""}
+                  {persona.name || persona.id}{personaIsProtected(persona.id) ? " (default)" : ""}
                 </option>
               {/each}
             {:else}
@@ -1500,7 +1431,7 @@
 
             {#each personas as persona (persona.id)}
               <option value={persona.id}>
-                {persona.name || persona.id}{persona.builtIn ? " (default)" : ""}
+                {persona.name || persona.id}{personaIsProtected(persona.id) ? " (default)" : ""}
               </option>
             {/each}
           </select>
@@ -1566,7 +1497,6 @@
 
           {#if !personaCanEdit}
             <div class="row persona-protected-note">
-              Default personas cannot be edited directly. Use Create Persona → Copy Persona to make an editable version.
             </div>
           {/if}
         </div>
@@ -1795,7 +1725,6 @@
   .settings-save-button {
     color: #102a10;
   }
-
 
   .assistant-compact-row {
     display: flex;

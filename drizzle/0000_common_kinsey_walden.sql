@@ -9,7 +9,6 @@ CREATE TABLE `session_messages` (
 );
 --> statement-breakpoint
 CREATE INDEX `session_messages_session_idx` ON `session_messages` (`session_id`);--> statement-breakpoint
-CREATE INDEX `session_messages_created_idx` ON `session_messages` (`created_at`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text DEFAULT 'default' NOT NULL,
