@@ -20,8 +20,10 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 
 ```bash
 # First time setup (don't do this everytime)
+npm install
 npm run db:generate
-npm run db:migrate
+
+npm run db:migrate # to be run if there were upstream database changes
 
 # After and every other startup run 
 npm run dev
