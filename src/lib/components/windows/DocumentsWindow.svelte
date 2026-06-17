@@ -12,6 +12,7 @@
   } from "$lib/components/popups";
   import type { WindowInstanceProps } from "./index.ts";
     import { not } from "drizzle-orm";
+    //import { json } from "node:stream/consumers";
 
   type Mode = "all" | "active" | "inactive";
   type Doc = {
@@ -28,6 +29,12 @@
     docs: Doc[];
     folderPath?: string;
   };
+
+  type FolderGroup = {
+    path: string;
+    documents: { source_name: string }[];
+  };
+
   type BulkAction = "add-tag" | "remove-tag" | "activate" | "deactivate";
 
   let {
@@ -52,6 +59,7 @@
   let status = $state("");
   let tagMenuOpen = $state(false);
   let filePickerOpen = $state(false);
+  let folderGroups = $state<FolderGroup[]>([]);
   let collector = $state<DirectoryItem[]>([]);
 
   let docTagMenu = $state<string | null>(null);
@@ -60,6 +68,7 @@
 
   let pickerOpen = $state(false);
   let pickerPath = $state("DeployableKnowledge");
+  let pickerItems = $state<DirectoryItem[]>([]);
   let pickerRelPath = $state("");
   let pickerAbsPath = $state("");
   let pickerHistory = $state<string[]>([]);
@@ -109,7 +118,8 @@
 
   async function refresh(message = "") {
     loading = true;
-    getFiles();
+    await getFiles();
+    loading = false;
     // try {
     //   const [docRows, tagRows, folderRows] = await Promise.all([
     //     dkClient.listDocuments(),
@@ -151,42 +161,42 @@
     });
   }
 
-  function groups(): Group[] {
-    const visible = visibleDocs();
-    const visibleById = new Map(visible.map((doc) => [doc.id, doc]));
-    const grouped = new Set<string>();
-    const rows: Group[] = [];
+function groups(): Group[] {
+  console.log("Group is going");
+  const visible = visibleDocs();
+  const visibleById = new Map(visible.map((doc) => [doc.id, doc]));
+  const grouped = new Set<string>();
+  const rows: Group[] = [];
 
-    // for (const folder of folderGroups) {
-    //   const folderDocs = (folder.documents || [])
-    //     .map((item) => item.source_name)
-    //     .map((docId) => visibleById.get(docId))
-    //     .filter((doc): doc is Doc => Boolean(doc));
+  for (const folder of folderGroups) {
+    const folderDocs = (folder.documents || [])
+      .map((item) => item.source_name)
+      .map((docId) => visibleById.get(docId))
+      .filter((doc): doc is Doc => doc !== undefined);
 
-    //   for (const doc of folderDocs) grouped.add(doc.id);
-    //   if (!folderDocs.length) continue;
+    for (const doc of folderDocs) grouped.add(doc.id);
+    if (!folderDocs.length) continue;
 
-    //   rows.push({
-    //     key: folder.path,
-    //     label: filename(folder.path),
-    //     subtitle: `${folderDocs.length} document${folderDocs.length === 1 ? "" : "s"} - ${folder.path}`,
-    //     docs: folderDocs,
-    //     folderPath: folder.path,
-    //   });
-    // }
-
-    const loose = visible.filter((doc) => !grouped.has(doc.id));
-    if (loose.length) {
-      rows.push({
-        key: "individual",
-        label: "Individual files",
-        subtitle: `${loose.length} document${loose.length === 1 ? "" : "s"}`,
-        docs: loose,
-      });
-    }
-
-    return rows;
+    rows.push({
+      key: folder.path, 
+      label: filename(folder.path), 
+      subtitle: `${folderDocs.length} document${folderDocs.length === 1 ? "" : "s"} - ${folder.path}`,
+      docs: folderDocs,
+      folderPath: folder.path,
+    });
   }
+
+  const loose = visible.filter((doc) => !grouped.has(doc.id));
+  if (loose.length) {
+    rows.push({
+      key: "individual",
+      label: "Individual files",
+      subtitle: `${loose.length} document${loose.length === 1 ? "" : "s"}`,
+      docs: loose,
+    });
+  }
+  return rows;
+}
 
   function toggleInList(list: string[], value: string) {
     return list.includes(value)
@@ -380,7 +390,14 @@
     if (addHistory) pickerHistory = [...pickerHistory, pickerRelPath];
 
     try {
-      console.log("Not implemented");
+      const data = await getFiles(path);
+      pickerRelPath = path;
+      pickerAbsPath = path;
+      pickerPath = `DeployableKnowledge${path ? `/${path}` : ""}`;
+      pickerItems = data;
+      pickerFilePath = "";
+      pickerFileName = "";
+      pickerMessage = "Choose files or select the current folder.";
     } catch (error) {
       pickerMessage = error instanceof Error ? error.message : String(error);
     }
@@ -400,6 +417,49 @@
 
     console.log(data)
     return data
+  }
+
+  async function selectPickerTarget() {
+    if (!pickerAbsPath && !pickerFilePath) return;
+
+    pickerBusy = true;
+    try {
+      if (pickerFilePath) {
+        await withProgress("Embedding selected file...", async () => {
+          const job = await uploadFiles();
+          //const result = await poll(job.job_id);
+          //const failed = failedUploads(result);
+          // if (failed.length)
+          //   throw new Error(
+          //     failed.map((item) => item.message || item.filename).join("\n"),
+          //   );
+        });
+        await refresh("Selected file embedded.");
+      // } else {
+      //   await syncFolder(pickerAbsPath, !folders.includes(pickerAbsPath));
+      }
+      pickerOpen = false;
+    } catch (error) {
+      showError(error);
+    } finally {
+      pickerBusy = false;
+    }
+  }
+
+    function selectPickerFile(item: DirectoryItem) {
+    if (!item.name.toLowerCase().endsWith(".pdf")) {
+      pickerMessage = "Only PDF files can be selected.";
+      return;
+    }
+    pickerFilePath = item.absolute_path;
+    pickerFileName = item.name;
+    pickerMessage = `Selected file: ${item.name}`;
+  }
+
+  async function pickerBack() {
+    const previous = pickerHistory.at(-1) || "";
+    pickerHistory = pickerHistory.slice(0, -1);
+    await openDirectory(previous, false);
   }
 </script>
 
@@ -633,25 +693,9 @@
     </div>
 
     <div class="document-add">
-      <button class="btn" type="button" onclick={() => (filePickerOpen = !filePickerOpen)}
+      <button class="btn" type="button" onclick={openPicker}
         >Add document or folder</button
       >
-      {#if filePickerOpen}
-        <DocumentFilePickerPopup
-          open={filePickerOpen}
-          items={await getFiles()}
-          pathLabel={pickerPath}
-          selectedFilePath={pickerFilePath}
-          message={pickerMessage}
-          busy={pickerBusy}
-          canGoBack={Boolean(pickerHistory.length || pickerRelPath)}
-          onClose={() => (filePickerOpen = false)}
-          onBack={notImplemented}
-          onSelectCurrent={notImplemented}
-          onOpenFolder={(path) => openDirectory(path)}
-          onSelectFile={uploadFiles}
-        />
-      {/if}
       <div class="status-line">{status}</div>
       <input
         bind:this={fileInput}
@@ -692,17 +736,17 @@
 
 <DocumentFilePickerPopup
   open={pickerOpen}
-  items={[]}
+  items={pickerItems}
   pathLabel={pickerPath}
   selectedFilePath={pickerFilePath}
   message={pickerMessage}
   busy={pickerBusy}
   canGoBack={Boolean(pickerHistory.length || pickerRelPath)}
-  onClose={() => (pickerOpen = false)}
+  onClose={() => (pickerOpen = false, loading = false)}
   onBack={notImplemented}
-  onSelectCurrent={notImplemented}
+  onSelectCurrent={selectPickerTarget}
   onOpenFolder={(path) => openDirectory(path)}
-  onSelectFile={notImplemented}
+  onSelectFile={selectPickerFile}
 />
 
 <DocumentTagPickerPopup
