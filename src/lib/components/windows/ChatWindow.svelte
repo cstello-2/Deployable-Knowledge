@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, tick } from "svelte";
+  import { getContext, tick, onMount } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { type WindowInstanceProps } from "./index.ts";
@@ -25,6 +25,10 @@
   let messageStream = $state("");
   let sendDisabled = $derived(busy ? true : draft.trim().length === 0);
   let loadedSessionId: string | undefined;
+  let selectedAssistantText = $state("");
+  let sendToNotebookVisible = $state(false);
+  let sendToNotebookTop = $state(0);
+  let sendToNotebookLeft = $state(0);
 
   $effect(() => {
     const sessionId = appState.currentSession?.id;
@@ -70,6 +74,63 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
+  function handleSendToChat(event: Event) {
+    const text = String(
+      (event as CustomEvent<{ text?: string }>).detail?.text ?? "",
+    ).trim();
+
+    if (!text) return;
+
+    draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+  }
+
+  function handleAssistantSelection() {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() ?? "";
+
+    if (!selection || !selectedText || selection.rangeCount === 0) {
+      selectedAssistantText = "";
+      sendToNotebookVisible = false;
+      return;
+    }
+
+    const node = selection.anchorNode;
+    const element =
+      node instanceof HTMLElement ? node : node?.parentElement ?? null;
+    const messageElement = element?.closest(".msg.assistant");
+
+    if (!messageElement || !logElement?.contains(messageElement)) {
+      selectedAssistantText = "";
+      sendToNotebookVisible = false;
+      return;
+    }
+
+    const rangeRect = selection.getRangeAt(0).getBoundingClientRect();
+    const logRect = logElement.getBoundingClientRect();
+
+    selectedAssistantText = selectedText;
+    sendToNotebookLeft = Math.max(8, rangeRect.left - logRect.left);
+    sendToNotebookTop = Math.max(8, rangeRect.top - logRect.top - 38);
+    sendToNotebookVisible = true;
+  }
+
+  function sendSelectionToNotebook() {
+    if (!selectedAssistantText.trim()) return;
+
+    window.dispatchEvent(
+      new CustomEvent("dk:send-to-notebook", {
+        detail: {
+          text: selectedAssistantText.trim(),
+        },
+      }),
+    );
+
+    selectedAssistantText = "";
+    sendToNotebookVisible = false;
+    status = "Sent to notebook";
+    window.getSelection()?.removeAllRanges();
+  }
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
@@ -77,7 +138,6 @@
     const text = draft.trim();
     if (!text) return;
 
-    // clear text box
     draft = "";
 
     busy = true;
@@ -86,7 +146,6 @@
     const session = appState.currentSession ?? (await createSession());
     appState.currentSession = session;
 
-    // We create a fact local only version of the user prompt, for visual purposes
     const lastMessage = messages[messages.length - 1];
     const fakeMessage: SessionMessage = {
       id: (lastMessage?.id ?? 0) + 1,
@@ -137,7 +196,6 @@
       }
     }
 
-    // Get messages from api after generation.
     messages = await loadMessages(session.id);
     loadedSessionId = session.id;
 
@@ -153,6 +211,18 @@
     messages = [];
     appState.currentSession = await createSession();
   }
+
+  onMount(() => {
+    window.addEventListener("dk:send-to-chat", handleSendToChat);
+    document.addEventListener("mouseup", handleAssistantSelection);
+    document.addEventListener("keyup", handleAssistantSelection);
+
+    return () => {
+      window.removeEventListener("dk:send-to-chat", handleSendToChat);
+      document.removeEventListener("mouseup", handleAssistantSelection);
+      document.removeEventListener("keyup", handleAssistantSelection);
+    };
+  });
 </script>
 
 <BaseWindow
@@ -173,6 +243,17 @@
     {/if}
 
     <div class="chat-log" bind:this={logElement} aria-live="polite">
+      {#if sendToNotebookVisible}
+        <button
+          class="selection-action chat-selection-action"
+          type="button"
+          style={`top: ${sendToNotebookTop}px; left: ${sendToNotebookLeft}px;`}
+          onclick={sendSelectionToNotebook}
+        >
+          Send to Notebook
+        </button>
+      {/if}
+
       {#each messages as message (message.id)}
         <div
           class="msg"
@@ -244,6 +325,7 @@
           {/if}
         </div>
       {/each}
+
       {#if messageStream.length !== 0}
         <div class="msg assistant">{messageStream}</div>
       {/if}
@@ -324,6 +406,7 @@
   }
 
   .chat-log {
+    position: relative;
     display: flex;
     min-height: 0;
     flex: 1 1 auto;
@@ -335,6 +418,27 @@
     scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
       hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
     scrollbar-width: thin;
+  }
+
+  .selection-action {
+    position: absolute;
+    z-index: 30;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .selection-action:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+  }
+
+  .chat-selection-action {
+    white-space: nowrap;
   }
 
   .msg {

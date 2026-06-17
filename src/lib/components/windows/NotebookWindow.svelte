@@ -22,6 +22,8 @@
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let selectedNotebookText = $state("");
+  let notebookSelectionButtonVisible = $state(false);
 
   const activeNotebook = $derived(
     notebooks.find((notebook) => notebook.id === activeNotebookId) ??
@@ -228,10 +230,57 @@
     await saveCurrentPage();
   }
 
+  function handleNotebookSelection() {
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      ".notebook-textarea",
+    );
+
+    if (!textarea) return;
+
+    const selected = textarea.value
+      .slice(textarea.selectionStart, textarea.selectionEnd)
+      .trim();
+
+    selectedNotebookText = selected;
+    notebookSelectionButtonVisible = selected.length > 0;
+  }
+
+  function sendSelectionToChat() {
+    if (!selectedNotebookText.trim()) return;
+
+    window.dispatchEvent(
+      new CustomEvent("dk:send-to-chat", {
+        detail: {
+          text: selectedNotebookText.trim(),
+        },
+      }),
+    );
+
+    notebookSelectionButtonVisible = false;
+    selectedNotebookText = "";
+    saveStatus = "Sent to chat";
+  }
+
+  async function appendTextFromChat(event: Event) {
+    const text = String((event as CustomEvent<{ text?: string }>).detail?.text ?? "")
+      .trim();
+
+    if (!text || !activePage) return;
+
+    notes = notes.trim()
+      ? `${notes.trimEnd()}\n\n${text}`
+      : text;
+
+    await saveCurrentPage();
+    saveStatus = "Added from chat";
+  }
+
   onMount(() => {
     loadNotebookState();
+    window.addEventListener("dk:send-to-notebook", appendTextFromChat);
 
     return () => {
+      window.addEventListener("dk:send-to-notebook", appendTextFromChat);
       if (saveTimer) {
         clearTimeout(saveTimer);
       }
@@ -371,6 +420,32 @@
       </div>
     {/if}
 
+    <div class="notebook-editor-wrap">
+      {#if notebookSelectionButtonVisible}
+        <button
+          class="selection-action notebook-selection-action"
+          type="button"
+          onclick={sendSelectionToChat}
+        >
+          Send to Chat
+        </button>
+      {/if}
+
+      <textarea
+        class="notebook-textarea"
+        bind:value={notes}
+        oninput={queueSaveCurrentPage}
+        onmouseup={handleNotebookSelection}
+        onkeyup={handleNotebookSelection}
+       onblur={() => {
+          window.setTimeout(() => {
+            notebookSelectionButtonVisible = false;
+          }, 180);
+        }}
+        placeholder="Write notes here..."
+        aria-label="Notebook notes"
+      ></textarea>
+    </div>
     <textarea
       class="notebook-textarea"
       bind:value={notes}
@@ -592,6 +667,36 @@
     line-height: 1.45;
     resize: none;
     flex: 1 1 auto;
+  }
+  .notebook-editor-wrap {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .selection-action {
+    position: absolute;
+    z-index: 30;
+    top: 10px;
+    right: 14px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .selection-action:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+  }
+
+  .notebook-selection-action {
+    top: 10px;
+    right: 14px;
   }
 
   .notebook-textarea:focus {
