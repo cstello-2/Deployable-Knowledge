@@ -359,17 +359,28 @@ function groups(): Group[] {
     );
   }
 
-  async function uploadFiles() {
-    const files = Array.from(fileInput?.files || []);
-    if (!files.length) return;
+  async function makeEmbeddingCall(abspath: string) {
+    console.log("Initializing embedding");
+    const req = new Request(`/documents?path=${encodeURIComponent(abspath)}`, {
+      method: "POST",
+    });
+    const resp = await fetch(req);
+  }
 
-    if (files.some((file) => !file.name.toLowerCase().endsWith(".pdf"))) {
-      alert("Only PDF files can be added.");
-      if (fileInput) fileInput.value = "";
-      return;
-    }
+  async function uploadFiles(pickerAbsPath: String, pickerFilePath: String) {
+    const files = Array.from(fileInput?.files || []);
+    console.log(files, "meow");
+    //if (!files.length) return;
+    console.log("Meow");
+
+    // if (files.some((file) => !file.name.toLowerCase().endsWith(".pdf"))) {
+    //   alert("Only PDF files can be added.");
+    //   if (fileInput) fileInput.value = "";
+    //   return;
+    // }
 
     try {
+      await makeEmbeddingCall(pickerFilePath);
       if (fileInput) fileInput.value = "";
       pickerOpen = false;
       await refresh("Files uploaded and embedded.");
@@ -420,13 +431,15 @@ function groups(): Group[] {
   }
 
   async function selectPickerTarget() {
+    console.log("Embedding", pickerAbsPath, pickerFilePath);
     if (!pickerAbsPath && !pickerFilePath) return;
 
     pickerBusy = true;
+
     try {
       if (pickerFilePath) {
         await withProgress("Embedding selected file...", async () => {
-          const job = await uploadFiles();
+          const job = await uploadFiles(pickerAbsPath, pickerFilePath);
           //const result = await poll(job.job_id);
           //const failed = failedUploads(result);
           // if (failed.length)

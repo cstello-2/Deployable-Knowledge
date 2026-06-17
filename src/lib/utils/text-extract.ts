@@ -1,4 +1,5 @@
 // Typescript file for PDF/Document text extraction used in the parse pipeline
+
 // Imports:
 import scribe from "scribe.js-ocr"; //Extraxtion Library
 
@@ -75,11 +76,6 @@ type LayoutTablePageLike = {
 // Normalize repeated spaces while keeping line structures for filtering
 function normalizeLineWhitespace(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
-}
-
-// Python style helper for table markers
-function tableMarker(csvData: string): string {
-  return `[Table: ${csvData}]`;
 }
 
 // Simple CSV serializer kept local for table text output
@@ -274,14 +270,14 @@ function buildTableItems(
 
       return {
         bbox: unionBboxes(table.boxes.map((box) => box.coords)),
-        text: tableMarker(csvData),
+        text: `[Table: ${csvData}]`,
       } satisfies PageItem;
     })
     .filter((item): item is PageItem => item !== null);
 }
 
 // Main entry for layout aware PDF extraction used by semantic chunking
-export async function TextExtract(
+export async function textExtract(
   file: Source,
   repeatedLineThreshold: number = 0.9,
 ): Promise<Chunk[]> {
