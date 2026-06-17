@@ -1,5 +1,4 @@
 // Typescript file for PDF/Document text extraction used in the parse pipeline
-let key: String = "pqV2J62oaPPv3sSgdXUQhfhseMgu0NXZGrYl2pamcxMblJlSqzThEZm9c8NcR0ve";
 // Imports:
 import scribe from "scribe.js-ocr"; //Extraxtion Library
 
