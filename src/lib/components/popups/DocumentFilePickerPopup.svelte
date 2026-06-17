@@ -35,7 +35,7 @@
     onBack,
     onSelectCurrent,
     onOpenFolder,
-    // onSelectFile,
+    onSelectFile,
   }: Props = $props();
 
   function isPdf(name: string) {
@@ -48,7 +48,7 @@
 
   function choose(item: DirectoryItem) {
     if (item.kind === "folder") onOpenFolder(item.path);
-    //else onSelectFile(item);
+    else onSelectFile(item);
   }
 </script>
 

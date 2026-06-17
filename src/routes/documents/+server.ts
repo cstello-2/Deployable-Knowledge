@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ url }) => {
           const files = await readdir(_base);
           
           // Map over the array of file names and construct the paths
-          const collector: DirectoryItem[] = files.map(file => {
+          const collector: DirectoryItem[] = await files.map(file => {
               const absolutePath = path.resolve(_base, file);
               
               return {
@@ -28,6 +28,8 @@ export const GET: RequestHandler = async ({ url }) => {
                   absolute_path: absolutePath
               };
           });
+
+          console.log(collector);
   
           return json(collector);
   

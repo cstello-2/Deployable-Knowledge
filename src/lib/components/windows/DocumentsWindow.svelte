@@ -109,7 +109,7 @@
 
   async function refresh(message = "") {
     loading = true;
-    getFiles()
+    getFiles();
     // try {
     //   const [docRows, tagRows, folderRows] = await Promise.all([
     //     dkClient.listDocuments(),
@@ -360,7 +360,6 @@
     }
 
     try {
-      console.log("Not implemented");
       if (fileInput) fileInput.value = "";
       pickerOpen = false;
       await refresh("Files uploaded and embedded.");
@@ -391,18 +390,16 @@
     console.log("Not implemented");
   }
 
-  async function getFiles() {
-    const response = await fetch(
-      `/documents`,
-      {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+  async function getFiles(url: String = `/`) {
+    const req = new Request(`/documents` + url, {
+      method: "GET",
+    });
 
-    console.log(response); 
-    // let dummy: DirectoryItem = {path: "meow", kind: "meow", name: "meow", absolute_path: "meow"}
-    return JSON.parse(String(response))
+    const resp = await fetch(req);
+    const data = (await resp.json()) as DirectoryItem[];
+
+    console.log(data)
+    return data
   }
 </script>
 
@@ -652,7 +649,7 @@
           onBack={notImplemented}
           onSelectCurrent={notImplemented}
           onOpenFolder={(path) => openDirectory(path)}
-          onSelectFile={notImplemented}
+          onSelectFile={uploadFiles}
         />
       {/if}
       <div class="status-line">{status}</div>
