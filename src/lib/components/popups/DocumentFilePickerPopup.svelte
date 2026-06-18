@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Popup from "$lib/components/Popup.svelte";
+  import Popup from "$lib/components/popups/Popup.svelte";
   // import type { DirectoryItem } from "$lib/sdk";
 
   type Props = {

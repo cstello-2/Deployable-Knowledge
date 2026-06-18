@@ -7,9 +7,13 @@
   import { initWorkspaceStateStorage } from "$lib/utils/workspaceState";
   import { createAppState } from "$lib/state.svelte";
 
-  let { children } = $props();
+  let { children, data } = $props();
   const appState = createAppState();
   setContext("appState", appState);
+
+  $effect(() => {
+    appState.applySettings(data.settings);
+  });
 
   initWorkspaceStateStorage();
 </script>

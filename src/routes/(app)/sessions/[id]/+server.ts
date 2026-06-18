@@ -27,7 +27,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   const title = String(body.title ?? "").trim();
   await db
     .update(sessions)
-    .set({ title, updatedAt: new Date().toISOString() })
+    .set({ title, updatedAt: new Date() })
     .where(eq(sessions.id, params.id));
 
   return json({ status: "ok", session_id: params.id, title });

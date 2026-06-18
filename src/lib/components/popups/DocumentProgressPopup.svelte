@@ -1,6 +1,13 @@
 <script lang="ts">
   import Popup from "$lib/components/popups/Popup.svelte";
-  import type { ProgressResponse } from "$lib/sdk";
+
+  type ProgressResponse = {
+    percent?: number;
+    total?: number;
+    current?: number;
+    label?: string;
+    message?: string;
+  };
 
   type Props = {
     open: boolean;

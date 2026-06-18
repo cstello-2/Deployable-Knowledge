@@ -4,8 +4,13 @@ import {
   type SessionMessage,
   sessions,
   session_messages,
+  settings,
 } from "$lib/server/database/schema";
-import { getProvider, type Provider } from "$lib/server/providers/provider";
+import {
+  getProvider,
+  type Provider,
+  type ProviderChatOptions,
+} from "$lib/server/providers/provider";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -33,6 +38,7 @@ async function createTitle(
   userMessage: string,
   provider: Provider,
   modelId: string,
+  options: ProviderChatOptions,
 ): Promise<string> {
   const prompt = `
     You write short, informative chat titles. Return only the title. Do not use quotation marks. 
@@ -44,7 +50,7 @@ async function createTitle(
 
   let title = "";
 
-  for await (const chunk of provider.chat(prompt, modelId)) {
+  for await (const chunk of provider.chat(prompt, modelId, options)) {
     title += chunk;
   }
 
@@ -53,12 +59,21 @@ async function createTitle(
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const body = await request.json();
-  const message = String(body.message).trim();
-  const modelId = String(body.model_id);
-  const providerId = String(body.provider_id);
+  const userSettings = (await db
+    .select()
+    .from(settings)
+    .where(eq(settings.id, "local_user"))
+    .get())!;
 
-  // WARNING: currently unused
-  const persona = "";
+  const message = String(body.message).trim();
+  const modelId = body.model_id || userSettings.model;
+  const providerId = body.provider_id || userSettings.provider;
+  const persona = body.persona || userSettings.persona || "";
+  const options = {
+    temperature: body.temperature ?? userSettings.temperature,
+    topK: body.top_k ?? userSettings.topK,
+    maxTokens: body.max_tokens ?? userSettings.maxTokens,
+  };
 
   const [existing] = await db
     .select()
@@ -67,10 +82,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .limit(1);
 
   if (!existing) {
-    const timestamp = new Date().toISOString();
+    const timestamp = new Date();
     await db.insert(sessions).values({
       id: params.id,
-      userId: "default",
+      userId: "local_user",
       title: "New Conversation",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -89,7 +104,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   // If you want to see the prompt getting sent this is it.
   // console.log(prompt);
 
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date();
 
   // Create a ReadableStream to stream chunks to the client
   const stream = new ReadableStream({
@@ -98,7 +113,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       let fullResponse = "";
 
       try {
-        for await (const chunk of provider.chat(prompt, modelId)) {
+        for await (const chunk of provider.chat(prompt, modelId, options)) {
           fullResponse += chunk;
           controller.enqueue(encoder.encode(chunk));
         }
@@ -116,10 +131,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: {
-              provider_id: providerId,
-              model_id: modelId,
-            },
+            metadata: null,
             createdAt: timestamp,
           },
         ]);
@@ -127,8 +139,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
         await db
           .update(sessions)
           .set({
-            title: await createTitle(message, provider, modelId),
-            updatedAt: new Date().toISOString(),
+            title: await createTitle(message, provider, modelId, options),
+            updatedAt: new Date(),
           })
           .where(eq(sessions.id, params.id));
       } catch (error) {

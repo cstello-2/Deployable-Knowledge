@@ -1,4 +1,4 @@
-import type { Provider } from "./provider";
+import type { Provider, ProviderChatOptions } from "./provider";
 
 const LLAMA_API_URL = "http://localhost:11434";
 
@@ -6,13 +6,22 @@ export class Ollama implements Provider {
   id = "ollama";
   name = "Ollama";
 
-  async *chat(prompt: string, model: string): AsyncGenerator<string> {
+  async *chat(
+    prompt: string,
+    model: string,
+    options: ProviderChatOptions = {},
+  ): AsyncGenerator<string> {
     let req = new Request(`${LLAMA_API_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: prompt }],
+        options: {
+          temperature: options.temperature,
+          top_k: options.topK,
+          num_predict: options.maxTokens,
+        },
         stream: true,
       }),
     });
@@ -50,14 +59,4 @@ export class Ollama implements Provider {
 
     return data.models.map((x: any) => x.model) ?? [];
   }
-}
-
-/// DEBUG ONLY `$ node ./ollama.ts llama3.1:8b` 
-let provider = new Ollama();
-
-for await (const chunk of provider.chat(
-  "How far away is the sun from the earth?",
-  process.argv[2],
-)) {
-  process.stdout.write(chunk);
 }

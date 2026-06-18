@@ -4,11 +4,6 @@
   import type { WindowInstanceProps } from "./index.ts";
   import type { AppState } from "$lib/state.svelte";
   import type { Session } from "$lib/server/database/schema";
-  import {
-    deleteSession as removeSession,
-    getSessions,
-    renameSession as saveSessionTitle,
-  } from "$lib/api/sessions";
 
   let {
     id,
@@ -31,7 +26,29 @@
   });
 
   async function refreshSessions() {
-    sessions = await getSessions();
+    sessions = await loadSessions();
+  }
+
+  async function loadSessions(): Promise<Session[]> {
+    const resp = await fetch("/sessions", {
+      method: "GET",
+    });
+
+    return (await resp.json()) as Session[];
+  }
+
+  async function saveSessionTitle(id: string, title: string) {
+    await fetch(`/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async function removeSession(id: string) {
+    await fetch(`/sessions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
   }
 
   async function handleSessionKeydown(event: KeyboardEvent, session: Session) {
@@ -68,7 +85,9 @@
     await refreshSessions();
   }
 
-  function formatDate(value: string) {
+  function formatDate(value: string | number | Date | null) {
+    if (!value) return "";
+
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
 

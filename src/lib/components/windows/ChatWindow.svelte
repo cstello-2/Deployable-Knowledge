@@ -4,8 +4,7 @@
   import Icon from "$lib/components/utils/Icon.svelte";
   import { type WindowInstanceProps } from "./index.ts";
   import type { AppState } from "$lib/state.svelte";
-  import type { SessionMessage } from "$lib/server/database/schema";
-  import { createSession } from "$lib/api/sessions";
+  import type { Session, SessionMessage } from "$lib/server/database/schema";
 
   let {
     id,
@@ -45,15 +44,25 @@
   ): Promise<SessionMessage[]> {
     if (!sessionId) return [];
 
-    // Get messages
-    const req = new Request(`/sessions/${sessionId}`, {
+    const resp = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
       method: "GET",
     });
-
-    const resp = await fetch(req);
     const data = (await resp.json()) as SessionMessage[];
 
     return data || [];
+  }
+
+  async function createSession(): Promise<Session> {
+    const resp = await fetch("/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = (await resp.json()) as Session;
+
+    window.dispatchEvent(new CustomEvent("sessions:refresh"));
+
+    return data;
   }
 
   async function scrollToBottom() {
@@ -83,7 +92,7 @@
       id: (lastMessage?.id ?? 0) + 1,
       role: "user",
       content: text,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(),
       sessionId: session.id,
       metadata: undefined,
     };
@@ -99,8 +108,12 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          model_id: "granite4:350m",
-          provider_id: "ollama",
+          model_id: appState.currentModelId,
+          provider_id: appState.currentProviderId,
+          max_tokens: appState.maxTokens,
+          temperature: appState.temperature,
+          top_k: appState.topK,
+          persona: appState.persona,
         }),
       },
     );
