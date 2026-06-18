@@ -175,9 +175,6 @@ export type NewSession = typeof sessions.$inferInsert;
 export type SessionMessage = typeof session_messages.$inferSelect;
 export type NewSessionMessage = typeof session_messages.$inferInsert;
 
-export type NotebookState = typeof notebook_state.$inferSelect;
-export type NewNotebookState = typeof notebook_state.$inferInsert;
-
 export type Notebook = typeof notebooks.$inferSelect;
 export type NewNotebook = typeof notebooks.$inferInsert;
 
