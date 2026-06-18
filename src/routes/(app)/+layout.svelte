@@ -3,7 +3,7 @@
   import { setContext } from "svelte";
   import "material-symbols/rounded.css";
   import AppHeader from "$lib/components/layout/AppHeader.svelte";
-  import favicon from "$lib/assets/favicon.svg";
+  import favicon from "$lib/assets/icon.svg";
   import { initWorkspaceStateStorage } from "$lib/utils/workspaceState";
   import { createAppState } from "$lib/state.svelte";
 
