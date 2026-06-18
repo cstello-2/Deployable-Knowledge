@@ -162,7 +162,6 @@
   }
 
 function groups(): Group[] {
-  console.log("Group is going");
   const visible = visibleDocs();
   const visibleById = new Map(visible.map((doc) => [doc.id, doc]));
   const grouped = new Set<string>();
@@ -360,18 +359,15 @@ function groups(): Group[] {
   }
 
   async function makeEmbeddingCall(abspath: string) {
-    console.log("Initializing embedding");
     const req = new Request(`/documents?path=${encodeURIComponent(abspath)}`, {
       method: "POST",
     });
     const resp = await fetch(req);
   }
 
-  async function uploadFiles(pickerAbsPath: String, pickerFilePath: String) {
+  async function uploadFiles(pickerAbsPath: String, pickerFilePath: string) {
     const files = Array.from(fileInput?.files || []);
-    console.log(files, "meow");
     //if (!files.length) return;
-    console.log("Meow");
 
     // if (files.some((file) => !file.name.toLowerCase().endsWith(".pdf"))) {
     //   alert("Only PDF files can be added.");
@@ -426,12 +422,10 @@ function groups(): Group[] {
     const resp = await fetch(req);
     const data = (await resp.json()) as DirectoryItem[];
 
-    console.log(data)
     return data
   }
 
   async function selectPickerTarget() {
-    console.log("Embedding", pickerAbsPath, pickerFilePath);
     if (!pickerAbsPath && !pickerFilePath) return;
 
     pickerBusy = true;

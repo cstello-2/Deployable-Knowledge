@@ -43,7 +43,6 @@
   }
 
   function visibleItems() {
-    console.log("From Popup", items);
     return items.filter((item) => item.kind === "folder" || isPdf(item.name));
   }
 
