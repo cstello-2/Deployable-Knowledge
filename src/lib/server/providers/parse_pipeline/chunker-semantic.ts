@@ -68,15 +68,17 @@ type SentenceSpan = {
 };
 
 // Small defaults for semantic grouping
-// Keeps full coverage, then uses local similarity to decide where chunks should break.
+// Keeps full coverage, then uses local similarity to decide where chunks should break
 const STRUCTURAL_BREAK_THRESHOLD = 0.35;
 const LONG_CHUNK_BREAK_THRESHOLD = 0.25;
 const MIN_BREAK_RATIO = 0.55;
 const LONG_BREAK_RATIO = 0.8;
-const RUNNING_TEXT_PREFIXES = [
-  /^CENTER FOR ARMY LESSONS LEARNED(?:\s+|$)/i,
-  /^TACTICAL COMBAT CASUALTY CARE HANDBOOK(?:\s+|$)/i,
-];
+
+//CAN NOT HAVE CHEATS LIKE THIS!
+// const RUNNING_TEXT_PREFIXES = [
+//   /^CENTER FOR ARMY LESSONS LEARNED(?:\s+|$)/i,
+//   /^TACTICAL COMBAT CASUALTY CARE HANDBOOK(?:\s+|$)/i,
+// ];
 
 // Normalize all line endings & repeated spaces 
 function normalizeWhitespace(text: string): string {
@@ -99,7 +101,7 @@ export function cleanPageText(text: string): string {
         return "";
       }
 
-      // Figure/table labels are useful, but trailing page numbers are not.
+      // Figure/table labels are useful, but trailing page numbers are not
       if (/^(?:Figure|Table|Appendix|Chapter|Phase|Step)\b/i.test(cleaned)) {
         cleaned = cleaned.replace(/\s+\d{1,3}$/, "").trim();
       }
