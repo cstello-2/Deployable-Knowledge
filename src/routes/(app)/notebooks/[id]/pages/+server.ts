@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages, type NewNotebookPage } from "$lib/server/database/schema";
-import { loadNotebookState, setActiveNotebook } from "../../utils";
+import { loadNotebookState, setActiveNotebook } from "$notebooks/utils";
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const notebookId = params.id;

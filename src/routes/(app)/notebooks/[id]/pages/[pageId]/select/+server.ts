@@ -2,7 +2,7 @@ import { json, type RequestHandler } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages } from "$lib/server/database/schema";
-import { loadNotebookState, setActiveNotebook } from "../../../../utils";
+import { loadNotebookState, setActiveNotebook } from "$notebooks/utils";
 
 export const POST: RequestHandler = async ({ params }) => {
   const notebookId = params.id;

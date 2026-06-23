@@ -22,60 +22,48 @@
   let selectorOpen = $state(false);
   let loading = $state(false);
   let saveStatus = $state("");
+  let toastMessage = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
 
-  function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
-    appState.notebooks = data.notebooks ?? [];
-    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
-    appState.activeNotebook =
-      appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ??
-      appState.notebooks[0] ??
-      null;
-    appState.activePage =
-      appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ??
-      appState.activeNotebook?.pages[0] ??
-      null;
-    notes = appState.activePage?.content ?? "";
-  }
-
-  async function fetchNotebookState(url: string, options?: RequestInit, status = "") {
-    const res = await fetch(url, options);
-    if (!res.ok) throw new Error((await res.text()) || `Request failed: ${res.status}`);
-    applyState(await res.json());
-    if (status) saveStatus = status;
+  function showToast(message: string) {
+    toastMessage = message;
+    window.setTimeout(() => {
+      if (toastMessage === message) toastMessage = "";
+    }, 2000);
   }
 
   async function loadNotebooks() {
     loading = true;
     try {
-      await fetchNotebookState("/notebooks");
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook failed to load: ${error}`);
+      const res = await fetch("/notebooks");
+      if (!res.ok) { showToast("Notebook failed to load"); return; }
+      const data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] } = await res.json();
+      appState.notebooks = data.notebooks ?? [];
+      appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
+      appState.activeNotebook = appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
+      appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+      notes = appState.activePage?.content ?? "";
     } finally {
       loading = false;
     }
   }
 
   async function saveCurrentPage() {
+    const nb = appState.activeNotebook;
     const page = appState.activePage;
-    if (!page) return;
+    if (!nb || !page) return;
 
-    try {
-      const res = await fetch(`/notebooks/${appState.activeNotebook?.id}/pages/${page.id}/update`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: notes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      applyState(await res.json());
-      saveStatus = "Saved";
-    } catch (error) {
-      saveStatus = "Save failed";
-      console.error(error);
-    }
+    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/update`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: notes }),
+    });
+
+    if (!res.ok) { saveStatus = "Save failed"; return; }
+    appState.notebooks = (await res.json()).notebooks ?? appState.notebooks;
+    saveStatus = "Saved";
   }
 
   function queueSaveCurrentPage() {
@@ -86,40 +74,41 @@
 
   async function selectNotebook(notebookId: string) {
     if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
-    try {
-      await fetchNotebookState(`/notebooks/${notebookId}/select`, { method: "POST" });
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch(`/notebooks/${notebookId}/select`, { method: "POST" });
+    if (!res.ok) { showToast("Failed to select notebook"); return; }
+    appState.activeNotebookId = notebookId;
+    appState.activeNotebook = appState.notebooks.find((nb) => nb.id === notebookId) ?? appState.notebooks[0] ?? null;
+    appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+    notes = appState.activePage?.content ?? "";
   }
 
   async function selectPage(page: NotebookPage) {
     const nb = appState.activeNotebook;
     if (!nb) return;
     if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
-    try {
-      await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
-      selectorOpen = false;
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
+    if (!res.ok) { showToast("Failed to select page"); return; }
+    appState.activePage = nb.pages.find((p) => p.id === page.id) ?? nb.pages[0] ?? null;
+    notes = appState.activePage?.content ?? "";
+    selectorOpen = false;
   }
 
   async function createNotebook() {
     const notebookTitle = window.prompt("Notebook name", "New Notebook");
     if (notebookTitle === null) return;
-    try {
-      await fetchNotebookState("/notebooks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: notebookTitle.trim() || "New Notebook" }),
-      }, "Notebook created");
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch("/notebooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: notebookTitle.trim() || "New Notebook" }),
+    });
+    if (!res.ok) { showToast("Failed to create notebook"); return; }
+    const data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] } = await res.json();
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebookId = data.activeNotebookId;
+    appState.activeNotebook = appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
+    appState.activePage = appState.activeNotebook?.pages[0] ?? null;
+    notes = appState.activePage?.content ?? "";
+    showToast("Notebook created");
   }
 
   async function createPage() {
@@ -127,28 +116,33 @@
     if (!nb) return;
     const pageTitle = window.prompt("Page name", `Page ${nb.pages.length + 1}`);
     if (pageTitle === null) return;
-    try {
-      await fetchNotebookState(`/notebooks/${nb.id}/pages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: pageTitle.trim() || `Page ${nb.pages.length + 1}` }),
-      }, "Page created");
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch(`/notebooks/${nb.id}/pages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: pageTitle.trim() || `Page ${nb.pages.length + 1}` }),
+    });
+    if (!res.ok) { showToast("Failed to create page"); return; }
+    const data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] } = await res.json();
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebook = appState.notebooks.find((n) => n.id === nb.id) ?? appState.activeNotebook;
+    appState.activePage = appState.activeNotebook?.pages.at(-1) ?? null;
+    notes = appState.activePage?.content ?? "";
+    showToast("Page created");
   }
 
   async function deleteActiveNotebook() {
     const nb = appState.activeNotebook;
     if (!nb) return;
     if (!window.confirm(`Are you sure you want to delete this notebook?\n\n${nb.title}`)) return;
-    try {
-      await fetchNotebookState(`/notebooks/${nb.id}/delete`, { method: "DELETE" }, "Notebook deleted");
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch(`/notebooks/${nb.id}/delete`, { method: "DELETE" });
+    if (!res.ok) { showToast("Failed to delete notebook"); return; }
+    const data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] } = await res.json();
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebookId = data.activeNotebookId;
+    appState.activeNotebook = appState.notebooks.find((n) => n.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
+    appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+    notes = appState.activePage?.content ?? "";
+    showToast("Notebook deleted");
   }
 
   async function deleteActivePage() {
@@ -156,12 +150,14 @@
     const page = appState.activePage;
     if (!nb || !page) return;
     if (!window.confirm(`Are you sure you want to delete this page?\n\n${page.title}`)) return;
-    try {
-      await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" }, "Page deleted");
-    } catch (error) {
-      console.error(error);
-      alert(`Notebook action failed: ${error}`);
-    }
+    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" });
+    if (!res.ok) { showToast("Failed to delete page"); return; }
+    const data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] } = await res.json();
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebook = appState.notebooks.find((n) => n.id === nb.id) ?? appState.notebooks[0] ?? null;
+    appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+    notes = appState.activePage?.content ?? "";
+    showToast("Page deleted");
   }
 
   async function clearNotes() {
@@ -362,6 +358,10 @@
       ></textarea>
     </div>
   </section>
+
+  {#if toastMessage}
+    <div class="toast">{toastMessage}</div>
+  {/if}
 </BaseWindow>
 
 <style>
@@ -611,5 +611,21 @@
     border: 0;
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
     outline: none;
+  }
+
+  .toast {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-elev) + 4%));
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+    z-index: 200;
   }
 </style>
