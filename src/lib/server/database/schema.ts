@@ -39,19 +39,12 @@ export const apiKeys = sqliteTable(
   {
     id: text("id").primaryKey(),
     providerId: text("provider_id", { length: 128 }).notNull(),
-    userId: integer("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
     apiKey: text("api_key").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
   },
   (table) => [
-    uniqueIndex("api_keys_provider_user_idx").on(
-      table.providerId,
-      table.userId,
-    ),
-    index("api_keys_user_idx").on(table.userId),
+    uniqueIndex("api_keys_provider_idx").on(table.providerId),
   ],
 );
 

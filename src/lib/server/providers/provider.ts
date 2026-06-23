@@ -1,4 +1,7 @@
-import { Ollama } from "./ollama.ts";
+import { eq } from "drizzle-orm";
+
+import { db } from "../database/database.ts";
+import { apiKeys } from "../database/schema.ts";
 
 export type ProviderChatOptions = {
   temperature?: number;
@@ -6,28 +9,28 @@ export type ProviderChatOptions = {
   maxTokens?: number;
 };
 
-export interface Provider {
-  id: string;
-  name: string;
-  apiKeyRequired: boolean;
+export abstract class Provider {
+  abstract id: string;
+  abstract name: string;
+  abstract apiKeyRequired: boolean;
 
-  chat(
+  async getApiKey() {
+    if (!this.apiKeyRequired) return null;
+
+    const key = await db
+      .select({ apiKey: apiKeys.apiKey })
+      .from(apiKeys)
+      .where(eq(apiKeys.providerId, this.id))
+      .get();
+
+    return key?.apiKey ?? null;
+  }
+
+  abstract chat(
     prompt: string,
     model: string,
     options?: ProviderChatOptions,
   ): AsyncGenerator<string>;
-  listModels(): Promise<string[]>;
-}
 
-export async function getProviders(): Promise<Provider[]> {
-  return [new Ollama()];
-}
-
-export async function getProvider(provider: string): Promise<Provider> {
-  switch (provider) {
-    case "ollama":
-      return new Ollama();
-    default:
-      throw new Error("no provider found");
-  }
+  abstract listModels(): Promise<string[]>;
 }

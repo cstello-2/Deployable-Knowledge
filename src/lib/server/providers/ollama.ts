@@ -1,13 +1,13 @@
-import type { Provider, ProviderChatOptions } from "./provider";
+import { Provider, type ProviderChatOptions } from "./provider.ts";
 
 const LLAMA_API_URL = "http://localhost:11434";
 
-export class Ollama implements Provider {
-  id = "ollama";
-  name = "Ollama";
-  apiKeyRequired = false;
+export class Ollama extends Provider {
+  override id = "ollama";
+  override name = "Ollama";
+  override apiKeyRequired = false;
 
-  async *chat(
+  override async *chat(
     prompt: string,
     model: string,
     options: ProviderChatOptions = {},
@@ -50,7 +50,7 @@ export class Ollama implements Provider {
     reader.releaseLock();
   }
 
-  async listModels(): Promise<string[]> {
+  override async listModels(): Promise<string[]> {
     let req = new Request(`${LLAMA_API_URL}/api/tags`, {
       method: "GET",
     });

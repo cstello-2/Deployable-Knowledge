@@ -99,21 +99,39 @@
   }
 
   async function loadProviders() {
-    const resp = await fetch("/providers", {
+    const resp = await fetch("/providers?available=true", {
       method: "GET",
     });
 
     providers = (await resp.json()) as ProviderOption[];
+
+    if (
+      providers.length &&
+      !providers.some((provider) => provider.id === appState.currentProviderId)
+    ) {
+      appState.currentProviderId = providers[0].id;
+    }
   }
 
   async function loadModels() {
+    if (!appState.currentProviderId) {
+      models = [];
+      appState.currentModelId = "";
+      return;
+    }
+
     const providerId = encodeURIComponent(appState.currentProviderId);
-    const resp = await fetch(`/providers/${providerId}`, { method: "GET" });
+    const resp = await fetch(
+      `/providers/${providerId}?available=true`,
+      { method: "GET" },
+    );
 
     models = (await resp.json()) as string[];
 
     if (models.length && !models.includes(appState.currentModelId)) {
       appState.currentModelId = models[0];
+    } else if (!models.length) {
+      appState.currentModelId = "";
     }
   }
 
@@ -257,6 +275,11 @@
 
   async function handleModelChange() {
     await saveRuntimeSettings();
+  }
+
+  async function handleApiKeysChanged() {
+    await loadProviders();
+    await loadModels();
   }
 </script>
 
@@ -490,7 +513,7 @@
 <AssistantApiKeyPopup
   open={apiKeyPopupOpen}
   onClose={() => (apiKeyPopupOpen = false)}
-  onChanged={loadProviders}
+  onChanged={handleApiKeysChanged}
 />
 
 <style>

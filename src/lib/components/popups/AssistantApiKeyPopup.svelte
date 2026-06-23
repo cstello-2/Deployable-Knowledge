@@ -6,8 +6,6 @@
     id: string;
     name: string;
     apiKeyRequired: boolean;
-    hasApiKey: boolean;
-    available: boolean;
   };
 
   type Props = {
@@ -82,14 +80,9 @@
     <div class="api-key-provider-main">
       <div class="api-key-provider-name">{provider.name}</div>
 
-      <div
-        class="api-key-provider-status"
-        class:connected={provider.available}
-      >
+      <div class="api-key-provider-status" class:connected={!provider.apiKeyRequired}>
         {#if !provider.apiKeyRequired}
           No API key required
-        {:else if provider.hasApiKey}
-          API key saved
         {:else}
           API key required
         {/if}
@@ -102,7 +95,7 @@
           class="input api-key-input"
           type="password"
           autocomplete="off"
-          placeholder={provider.hasApiKey ? "Saved API key" : "API key"}
+          placeholder="API key"
           value={apiKeyInputs[provider.id] || ""}
           oninput={(event) =>
             setApiKeyInput(provider.id, event.currentTarget.value)}
@@ -120,7 +113,6 @@
           <button
             type="button"
             class="btn"
-            disabled={!provider.hasApiKey}
             onclick={() => clearProviderApiKey(provider)}
           >
             Clear

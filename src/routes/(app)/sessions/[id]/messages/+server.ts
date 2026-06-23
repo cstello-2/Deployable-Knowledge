@@ -7,10 +7,10 @@ import {
   session_messages,
   settings,
 } from "$lib/server/database/schema";
-import {
-  getProvider,
-  type Provider,
-  type ProviderChatOptions,
+import { getProvider } from "$lib/server/providers/registry";
+import type {
+  Provider,
+  ProviderChatOptions,
 } from "$lib/server/providers/provider";
 import type { RequestHandler } from "./$types";
 
@@ -104,7 +104,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(session_messages.sessionId, params.id))
     .orderBy(asc(session_messages.id));
 
-  const provider = await getProvider(providerId);
+  const provider = getProvider(providerId);
   const promptTemplate =
     typeof promptTemplateId === "string" && promptTemplateId.trim()
       ? await db

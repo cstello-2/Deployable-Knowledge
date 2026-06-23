@@ -1,35 +1,25 @@
 import { json } from "@sveltejs/kit";
-import { eq } from "drizzle-orm";
 
 import { db } from "$lib/server/database/database";
 import { apiKeys } from "$lib/server/database/schema";
-import { seedLocalUser } from "$lib/server/database/seed";
-import { getProviders } from "$lib/server/providers/provider";
+import { getProviders } from "$lib/server/providers/registry";
 
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async () => {
-  const { settings } = await seedLocalUser();
-  const providers = await getProviders();
-  const savedKeys = await db
-    .select({ providerId: apiKeys.providerId })
-    .from(apiKeys)
-    .where(eq(apiKeys.userId, settings.userId));
-  const providersWithKeys = new Set(
-    savedKeys.map((key) => key.providerId),
-  );
+export const GET: RequestHandler = async ({ url }) => {
+  const available = url.searchParams.get("available") === "true";
 
-  return json(
-    providers.map((provider) => {
-      const hasApiKey = providersWithKeys.has(provider.id);
+  let providers = getProviders();
 
-      return {
-        id: provider.id,
-        name: provider.name,
-        apiKeyRequired: provider.apiKeyRequired,
-        hasApiKey,
-        available: !provider.apiKeyRequired || hasApiKey,
-      };
-    }),
-  );
+  if (available) {
+    const availableProviders = (
+      await db.select({ providerId: apiKeys.providerId }).from(apiKeys)
+    ).map((x) => x.providerId);
+
+    providers = providers.filter(
+      (x) => !x.apiKeyRequired || availableProviders.includes(x.id),
+    );
+  }
+
+  return json(providers);
 };

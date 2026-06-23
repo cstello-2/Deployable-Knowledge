@@ -1,25 +1,30 @@
 import { randomUUID } from "node:crypto";
 
 import { error, json } from "@sveltejs/kit";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { db } from "$lib/server/database/database";
 import { apiKeys } from "$lib/server/database/schema";
-import { seedLocalUser } from "$lib/server/database/seed";
-import { getProvider } from "$lib/server/providers/provider";
+import { getProvider } from "$lib/server/providers/registry";
 
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
   if (!params.id) return json({ status: "error", provider_id: params.id });
 
-  const provider = await getProvider(params.id);
+  const provider = getProvider(params.id);
+  const availableOnly = url.searchParams.get("available") === "true";
+  const apiKey = await provider.getApiKey();
+
+  if (availableOnly && provider.apiKeyRequired && !apiKey) {
+    return json([]);
+  }
 
   return json(await provider.listModels());
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  const provider = await getProvider(params.id);
+  const provider = getProvider(params.id);
 
   if (!provider.apiKeyRequired) {
     throw error(400, `${provider.name} does not require an API key`);
@@ -32,16 +37,10 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     throw error(400, "API key is required");
   }
 
-  const { settings } = await seedLocalUser();
   const existing = await db
     .select()
     .from(apiKeys)
-    .where(
-      and(
-        eq(apiKeys.providerId, provider.id),
-        eq(apiKeys.userId, settings.userId),
-      ),
-    )
+    .where(eq(apiKeys.providerId, provider.id))
     .get();
 
   const timestamp = new Date();
@@ -55,7 +54,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     await db.insert(apiKeys).values({
       id: randomUUID(),
       providerId: provider.id,
-      userId: settings.userId,
       apiKey,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -66,17 +64,11 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {
-  const provider = await getProvider(params.id);
-  const { settings } = await seedLocalUser();
+  const provider = getProvider(params.id);
 
   await db
     .delete(apiKeys)
-    .where(
-      and(
-        eq(apiKeys.providerId, provider.id),
-        eq(apiKeys.userId, settings.userId),
-      ),
-    );
+    .where(eq(apiKeys.providerId, provider.id));
 
   return json({ providerId: provider.id, hasApiKey: false });
 };
