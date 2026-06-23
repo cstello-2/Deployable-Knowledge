@@ -1,24 +1,18 @@
+// CURRENTLY NO CHANGES FROM chunker.ts
+
+// CHANGES NEEDED: Base chunks off page rank, follow core logic of pyhton version
+
+
 // ----------------------------
 // Typescript file for chunking extracted PDF/document text 
 // ----------------------------
 
-// No longer follows Legacy Python Logic with PageRank as that left out too many sentences!
-
-//Now senctences are embed and sorted through in order to do the following:
-// - keep joining nearby pieces together
-// - break when the chunk gets too big
-// - also break when the topic/structure clearly shifts
-// Additioanlly, small overlap added to help with chunk edges and overall context for LLM
-
-// Embedding function moved to embedding-model.ts
-
-
 // Imports
 import { createHash } from "node:crypto"; 
+import { env, pipeline } from "@huggingface/transformers";
 //Used for creating deterministic indexes to be used as primary keys in SQL database.
 // Also prevents duplicate ids if document is reuploaded. 
 import type { Chunk as ExtractedChunk, ChunkType, Source } from "./text-extract";
-import { embedTexts } from "../../rag/embedding-model";
 
 
 //Chunk Metadata (Start & End charecters, word & sentence counts)
@@ -63,84 +57,38 @@ const DEFAULT_OPTIONS: Required<ChunkerOptions> = {
 type SentenceSpan = {
   text: string;
   start: number;
-  end: number;
-  startsBlock: boolean;
-};
+  end: number;};
 
 // Small defaults for semantic grouping
-// Keeps full coverage, then uses local similarity to decide where chunks should break
-const STRUCTURAL_BREAK_THRESHOLD = 0.35;
-const LONG_CHUNK_BREAK_THRESHOLD = 0.25;
-const MIN_BREAK_RATIO = 0.55;
-const LONG_BREAK_RATIO = 0.8;
+// Notes: EXPANSION_THRESHOLD started at 0.5, tried 0.4, trying 0.35, trying 0.45
+const SIM_THRESHOLD = 0.5;
+const EXPANSION_THRESHOLD = 0.40;
+const PAGERANK_TOP_K = 5;
+const PAGERANK_DAMPING = 0.85;
+const PAGERANK_ITERATIONS = 30;
+const PAGERANK_TOLERANCE = 1e-6;
+const EMBEDDING_MODEL =
+  process.env.SEMANTIC_EMBED_MODEL ?? "Xenova/all-MiniLM-L6-v2";
+const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
+const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
+const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
 
-//CAN NOT HAVE CHEATS LIKE THIS!
-// const RUNNING_TEXT_PREFIXES = [
-//   /^CENTER FOR ARMY LESSONS LEARNED(?:\s+|$)/i,
-//   /^TACTICAL COMBAT CASUALTY CARE HANDBOOK(?:\s+|$)/i,
-// ];
+env.cacheDir = "/Users/matthewplambeck/Desktop/Deployable-Knowledge/tmp_model/transformersjs";
+env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 
 // Normalize all line endings & repeated spaces 
 function normalizeWhitespace(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();}
 
-// Remove repeated running headers/footers but keep useful anchors like Table/Figure labels.
-export function cleanPageText(text: string): string {
-  const cleanedLines = text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => {
-      let cleaned = line.replace(/[ \t]+/g, " ").trim();
-      if (!cleaned) return "";
-
-      for (const prefix of RUNNING_TEXT_PREFIXES) {
-        cleaned = cleaned.replace(prefix, "").trim();
-      }
-
-      if (!cleaned || /^\d{1,3}$/.test(cleaned)) {
-        return "";
-      }
-
-      // Figure/table labels are useful, but trailing page numbers are not
-      if (/^(?:Figure|Table|Appendix|Chapter|Phase|Step)\b/i.test(cleaned)) {
-        cleaned = cleaned.replace(/\s+\d{1,3}$/, "").trim();
-      }
-
-      return cleaned;
-    })
-    .filter(Boolean);
-
-  return normalizeWhitespace(cleanedLines.join("\n"));
-}
-
-// Tables should be retrieved as their own chunks, not mixed into normal prose chunks.
-export function stripInlineTables(text: string): string {
-  return normalizeWhitespace(text.replace(/\[Table: .*?\]/gs, " "));
-}
-
-// Short figure/table labels can still be useful retrieval anchors.
-function isReferenceAnchor(text: string): boolean {
-  return /^(?:Figure|Table|Appendix|Chapter|Phase|Step)\b/i.test(text.trim());
-}
-
 // Helper function to track word counts
 function wordCount(text: string): number {
   const words = text.trim().match(/\S+/g);
-  return words ? words.length : 0;}
+  return words ? words.length : 0;
+}
 
 // Rollover from python pipeline to remove very small chunks
 function shouldKeepChunk(text: string, minWords: number): boolean {
-  if (isReferenceAnchor(text)) return true;
-  return wordCount(text) >= minWords;}
-
-// Small hard rule set for lines that should start a fresh semantic unit.
-function startsStructuralBlock(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-
-  return /^(?:[*•○♦]\s*[*•○♦]*|\d+\.(?:\s|$)|(?:NOTE|CAUTION|WARNING|OBJECTIVE|REFERENCE|EVALUATION|MATERIALS|INDICATIONS)\s*:|(?:Figure|Table|Appendix|Phase|Step)\b)/i.test(
-    trimmed,
-  );
+  return wordCount(text) >= minWords;
 }
 
 //Small hard rule set to prevent broken sentence splitting. Can add to this list. 
@@ -159,7 +107,8 @@ const PROTECTED_ABBREVIATIONS = new Set([
   "sgt.",
   "cpl.",
   "pfc.",
-  "spc."]);
+  "spc.",
+]);
 
 // Small helper to prevent obvious false sentence splits
 function shouldSplitAtPeriod(text: string, index: number): boolean {
@@ -193,100 +142,89 @@ function shouldSplitAtPeriod(text: string, index: number): boolean {
 
   return true;}
 
-// Split a page into sentence like spans while keeping character offsets. 
-// Offsets used for start/end data. 
+// Split a page into sentence like spans while keeping character offsets. Offsets used for start/end data. 
 function splitSentencesWithOffsets(text: string): SentenceSpan[] {
-  const normalized = normalizeWhitespace(text);
-  if (!normalized) return [];
+  const trimmed = normalizeWhitespace(text);
+  if (!trimmed) return [];
 
   const spans: SentenceSpan[] = [];
-  let blockStart = -1;
-  let blockEnd = -1;
-  let blockStartsStructural = false;
+  let sentenceStart = 0;
 
-  const flushBlock = () => {
-    if (blockStart < 0 || blockEnd <= blockStart) return;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+    const nextChar = trimmed[i + 1] ?? "";
+    const hasSentenceBreak = nextChar === "" || /\s/.test(nextChar);
+    const isBoundary =
+      ((char === "!" || char === "?") && hasSentenceBreak) ||
+      (char === "." && hasSentenceBreak && shouldSplitAtPeriod(trimmed, i));
 
-    const blockText = normalized.slice(blockStart, blockEnd);
-    let sentenceStart = 0;
-    let emitted = 0;
+    if (!isBoundary) continue;
 
-    for (let i = 0; i < blockText.length; i += 1) {
-      const char = blockText[i];
-      const nextChar = blockText[i + 1] ?? "";
-      const hasSentenceBreak = nextChar === "" || /\s/.test(nextChar);
-      const isBoundary =
-        ((char === "!" || char === "?") && hasSentenceBreak) ||
-        (char === "." && hasSentenceBreak && shouldSplitAtPeriod(blockText, i));
+    const raw = trimmed.slice(sentenceStart, i + 1);
+    const leadingWhitespace = raw.length - raw.trimStart().length;
+    const trailingWhitespace = raw.length - raw.trimEnd().length;
+    const value = raw.trim();
+    const start = sentenceStart + leadingWhitespace;
+    const end = i + 1 - trailingWhitespace;
 
-      if (!isBoundary) continue;
-
-      const raw = blockText.slice(sentenceStart, i + 1);
-      const leadingWhitespace = raw.length - raw.trimStart().length;
-      const trailingWhitespace = raw.length - raw.trimEnd().length;
-      const value = raw.trim();
-      const start = blockStart + sentenceStart + leadingWhitespace;
-      const end = blockStart + i + 1 - trailingWhitespace;
-
-      if (value) {
-        spans.push({
-          text: value,
-          start,
-          end,
-          startsBlock: blockStartsStructural && emitted === 0,
-        });
-        emitted += 1;
-      }
-
-      sentenceStart = i + 1;
-    }
-
-    const tail = blockText.slice(sentenceStart);
-    if (tail.trim()) {
-      const leadingWhitespace = tail.length - tail.trimStart().length;
-      const trailingWhitespace = tail.length - tail.trimEnd().length;
+    if (value) {
       spans.push({
-        text: tail.trim(),
-        start: blockStart + sentenceStart + leadingWhitespace,
-        end: blockStart + blockText.length - trailingWhitespace,
-        startsBlock: blockStartsStructural && emitted === 0,
+        text: value,
+        start,
+        end,
       });
     }
 
-    blockStart = -1;
-    blockEnd = -1;
-    blockStartsStructural = false;
-  };
-
-  let cursor = 0;
-  for (const line of normalized.split("\n")) {
-    const lineStart = cursor;
-    const lineEnd = cursor + line.length;
-    cursor = lineEnd + 1;
-
-    const value = line.trim();
-    if (!value) continue;
-
-    const leadingWhitespace = line.length - line.trimStart().length;
-    const trailingWhitespace = line.length - line.trimEnd().length;
-    const start = lineStart + leadingWhitespace;
-    const end = lineEnd - trailingWhitespace;
-    const structural = startsStructuralBlock(value);
-
-    if (blockStart >= 0 && structural) {
-      flushBlock();
-    }
-
-    if (blockStart < 0) {
-      blockStart = start;
-      blockStartsStructural = structural;
-    }
-    blockEnd = end;
+    sentenceStart = i + 1;
   }
 
-  flushBlock();
+  const tail = trimmed.slice(sentenceStart);
+  if (tail.trim()) {
+    const leadingWhitespace = tail.length - tail.trimStart().length;
+    const trailingWhitespace = tail.length - tail.trimEnd().length;
+    spans.push({
+      text: tail.trim(),
+      start: sentenceStart + leadingWhitespace,
+      end: trimmed.length - trailingWhitespace,
+    });
+  }
 
-  return spans;}
+  return spans;
+}
+
+let embeddingPipelinePromise: ReturnType<typeof pipeline> | null = null;
+
+// Load one local JS embedding model and reuse it for all semantic runs.
+async function getEmbeddingPipeline() {
+  if (!embeddingPipelinePromise) {
+    embeddingPipelinePromise = pipeline("feature-extraction", EMBEDDING_MODEL, {
+      dtype: EMBEDDING_DTYPE as "q8" | "q4" | "fp32" | "fp16",
+    });
+  }
+
+  return embeddingPipelinePromise;
+}
+
+// Create sentence embeddings using a local JS model.
+async function vectorizeSentences(sentences: string[]): Promise<number[][]> {
+  if (sentences.length === 0) return [];
+
+  const extractor = await getEmbeddingPipeline();
+  const embeddings: number[][] = [];
+
+  for (let index = 0; index < sentences.length; index += EMBEDDING_BATCH_SIZE) {
+    const batch = sentences.slice(index, index + EMBEDDING_BATCH_SIZE);
+    const output = await extractor(batch, {
+      pooling: "mean",
+      normalize: true,
+    });
+
+    embeddings.push(...(output.tolist() as number[][]));
+  }
+
+  return embeddings;
+}
+
 // Cosine similarity over numeric embedding vectors
 function cosineSimilarity(left: number[], right: number[]): number {
   if (left.length === 0 || right.length === 0) return 0;
@@ -308,23 +246,82 @@ function cosineSimilarity(left: number[], right: number[]): number {
   }
 
   if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));}
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+}
 
-// Rollover typescript version of Python's remove_frequent_lines()
-// Tries to remove repeated lines, ex: headers or footers 
+// Build pairwise similarity scores between sentence seed units
+function buildSimilarityMatrix(vectors: number[][]): number[][] {
+  const matrix = Array.from({ length: vectors.length }, () =>
+    Array.from({ length: vectors.length }, () => 0),
+  );
+
+  for (let i = 0; i < vectors.length; i += 1) {
+    matrix[i][i] = 1;
+
+    for (let j = i + 1; j < vectors.length; j += 1) {
+      const similarity = cosineSimilarity(vectors[i], vectors[j]);
+      matrix[i][j] = similarity;
+      matrix[j][i] = similarity;
+    }
+  }
+
+  return matrix;
+}
+
+// Lightweight PageRank over similarity graph
+function runPageRank(matrix: number[][], threshold: number): number[] {
+  const count = matrix.length;
+  if (count === 0) return [];
+
+  const ranks = Array.from({ length: count }, () => 1 / count);
+  const neighbors = matrix.map((row, index) =>
+    row
+      .map((weight, neighbor) => ({ weight, neighbor }))
+      .filter(({ weight, neighbor }) => neighbor !== index && weight > threshold),
+  );
+  const outgoing = neighbors.map((row) =>
+    row.reduce((sum, edge) => sum + edge.weight, 0),
+  );
+
+  for (let step = 0; step < PAGERANK_ITERATIONS; step += 1) {
+    const next = Array.from({ length: count }, () => (1 - PAGERANK_DAMPING) / count);
+
+    for (let i = 0; i < count; i += 1) {
+      if (outgoing[i] === 0) {
+        const shared = (PAGERANK_DAMPING * ranks[i]) / count;
+
+        for (let j = 0; j < count; j += 1) {
+          next[j] += shared;
+        }
+        continue;
+      }
+
+      for (const edge of neighbors[i]) {
+        next[edge.neighbor] +=
+          PAGERANK_DAMPING * ranks[i] * (edge.weight / outgoing[i]);
+      }
+    }
+
+    const delta = next.reduce((sum, value, index) => sum + Math.abs(value - ranks[index]), 0);
+    for (let i = 0; i < count; i += 1) {
+      ranks[i] = next[i];
+    }
+
+    if (delta < PAGERANK_TOLERANCE) {
+      break;
+    }
+  }
+
+  return ranks;
+}
+
+// Rollover typescript version of Python's remove_frequent_lines().
+// Tries to remove repeated lines like headers or footers 
 function removeFrequentLines(
   pages: ExtractedChunk[],
   threshold: number,
 ): ExtractedChunk[] {
-  const cleanedPages = pages.map((page) =>
-    page.chunkType === "TEXT"
-      ? {
-          ...page,
-          content: cleanPageText(page.content),
-        }
-      : page,
-  );
-  const textPages = cleanedPages.filter((page) => page.chunkType === "TEXT");
+  const textPages = pages.filter((page) => page.chunkType === "TEXT");
   if (textPages.length < 2) return pages;
 
   const lineCounts = new Map<string, number>();
@@ -349,9 +346,9 @@ function removeFrequentLines(
     }
   }
 
-  if (commonLines.size === 0) return cleanedPages;
+  if (commonLines.size === 0) return pages;
 
-  return cleanedPages.map((page) => {
+  return pages.map((page) => {
     if (page.chunkType !== "TEXT") return page;
 
     const filtered = page.content
@@ -366,7 +363,7 @@ function removeFrequentLines(
   });
 }
 
-// Used to create deterministic ids
+// Used to create deterministic ids.
 // Needed if document is reprocessed and prevents duplicate chunks from occuring. 
 function buildChunkId(
   source: Source,
@@ -385,10 +382,12 @@ function buildChunkId(
     .update(chunkType)
     .update("\n")
     .update(content)
-    .digest("hex");}
+    .digest("hex");
+}
 
-// Groups sentence like spans into full coverage chunks.
-// Semantic similarity helps decide where to break the chunks
+
+// Groups sentence spans by semantic similarity using PageRank seed selection.
+// Also keeps final chunks the same as source order.
 function chunkSemanticSpans(
   page: ExtractedChunk,
   spans: SentenceSpan[],
@@ -397,48 +396,59 @@ function chunkSemanticSpans(
 ): ChunkRecord[] {
   if (spans.length === 0) return [];
 
-  const chunks: ChunkRecord[] = [];
-  let chunkIndex = 0;
-  let cursor = 0;
+  const matrix = buildSimilarityMatrix(embeddings);
+  const ranks = runPageRank(matrix, SIM_THRESHOLD);
+  const seedIndices = ranks
+    .map((rank, index) => ({ rank, index }))
+    .sort((left, right) => right.rank - left.rank)
+    .slice(0, PAGERANK_TOP_K)
+    .map((entry) => entry.index);
 
-  while (cursor < spans.length) {
-    let end = cursor;
-    let currentLength = 0;
+  const used = new Set<number>();
+  const selectedChunks: number[][] = [];
 
-    while (end < spans.length) {
-      const candidateLength =
-        spans[end].end - spans[cursor].start + (end > cursor ? 1 : 0);
+  // Seed chunks from top ranked sentences, then expand locally.
+  for (const seedIndex of seedIndices) {
+    if (used.has(seedIndex)) continue;
 
-      if (end > cursor && candidateLength > options.maxChars) {
-        break;
-      }
+    const chunk = [seedIndex];
+    used.add(seedIndex);
 
-      if (end > cursor) {
-        const similarity = cosineSimilarity(embeddings[end - 1], embeddings[end]);
-        const currentLongEnough =
-          currentLength >= Math.floor(options.maxChars * MIN_BREAK_RATIO);
-        const currentVeryLong =
-          currentLength >= Math.floor(options.maxChars * LONG_BREAK_RATIO);
+    let left = seedIndex - 1;
+    while (left >= 0 && !used.has(left)) {
+      const similarity = matrix[left][chunk[0]];
 
-        if (
-          (spans[end].startsBlock &&
-            currentLongEnough &&
-            similarity < STRUCTURAL_BREAK_THRESHOLD) ||
-          (currentVeryLong && similarity < LONG_CHUNK_BREAK_THRESHOLD)
-        ) {
-          break;}}
+      if (similarity <= EXPANSION_THRESHOLD) break;
 
-      currentLength = candidateLength;
-      end += 1;}
+      chunk.unshift(left);
+      used.add(left);
+      left -= 1;
+    }
 
-    const selected = spans.slice(cursor, end);
-    const startChar = selected[0].start;
-    const endChar = selected[selected.length - 1].end;
-    const content = normalizeWhitespace(
-      page.content.slice(startChar, endChar).replace(/\n+/g, " "),);
+    let right = seedIndex + 1;
+    while (right < spans.length && !used.has(right)) {
+      const similarity = matrix[right][chunk[chunk.length - 1]];
 
-    if (content) {
-      chunks.push({
+      if (similarity <= EXPANSION_THRESHOLD) break;
+
+      chunk.push(right);
+      used.add(right);
+      right += 1;
+    }
+
+    selectedChunks.push(chunk);
+  }
+
+  return selectedChunks
+    .sort((left, right) => left[0] - right[0])
+    .map((sentenceIndexes, chunkIndex) => {
+      const startChar = spans[sentenceIndexes[0]].start;
+      const endChar = spans[sentenceIndexes[sentenceIndexes.length - 1]].end;
+      const content = normalizeWhitespace(
+        page.content.slice(startChar, endChar).replace(/\n+/g, " "),
+      );
+
+      return {
         chunkId: buildChunkId(
           page.source,
           Number(page.pageIndex),
@@ -455,33 +465,23 @@ function chunkSemanticSpans(
           startChar,
           endChar,
           wordCount: wordCount(content),
-          sentenceCount: selected.length,
+          sentenceCount: sentenceIndexes.length,
         },
-      });
-      chunkIndex += 1;
-    }
+      };
+    })
+    .filter((chunk) => shouldKeepChunk(chunk.content, options.minWords));
+}
 
-    if (end >= spans.length) {
-      break;
-    }
+//Funciton to turn extracted pages into chunks following the rules set above. 
+// Keeps Images & Tables as existing.  
 
-    cursor = Math.max(end - options.overlapSentences, cursor + 1);
-  }
-
-  return chunks.filter((chunk) => shouldKeepChunk(chunk.content, options.minWords));}
-
-//Funciton to turn extracted pages into chunks following the rules set above
-// Keeps Images & Tables as existing 
 function chunkSinglePage(
   page: ExtractedChunk,
   options: Required<ChunkerOptions>,
   spans: SentenceSpan[] = [],
   embeddings: number[][] = [],
 ): ChunkRecord[] {
-  const content =
-    page.chunkType === "TEXT"
-      ? stripInlineTables(cleanPageText(page.content))
-      : normalizeWhitespace(page.content);
+  const content = normalizeWhitespace(page.content); //Clean page
   if (!content) return [];
 
   //Skip over IMAGES & TABLES, keeping them as is
@@ -566,7 +566,7 @@ export async function chunkPages(
   const textPages = preparedPages
     .filter((page) => page.chunkType === "TEXT")
     .map((page) => {
-      const content = stripInlineTables(cleanPageText(page.content));
+      const content = normalizeWhitespace(page.content);
       const spans = content ? splitSentencesWithOffsets(content) : [];
 
       return {
@@ -578,7 +578,7 @@ export async function chunkPages(
     .filter((entry) => entry.content);
 
   const allSentences = textPages.flatMap((entry) => entry.spans.map((span) => span.text));
-  const allEmbeddings = await embedTexts(allSentences);
+  const allEmbeddings = await vectorizeSentences(allSentences);
   let cursor = 0;
   const textPageEmbeddings = new Map<ExtractedChunk, number[][]>();
 
@@ -592,10 +592,11 @@ export async function chunkPages(
       return chunkSinglePage(page, resolved);
     }
 
-    const content = stripInlineTables(cleanPageText(page.content));
+    const content = normalizeWhitespace(page.content);
     if (!content) return [];
 
     const spans = splitSentencesWithOffsets(content);
     const embeddings = textPageEmbeddings.get(page) ?? [];
     return chunkSinglePage(page, resolved, spans, embeddings);
-  });}
+  });
+}
