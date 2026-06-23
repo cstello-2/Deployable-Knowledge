@@ -43,30 +43,19 @@
     if (sessionId === appState.currentSession?.id) messages = nextMessages;
   }
 
-  async function loadMessages(
-    sessionId = appState.currentSession?.id,
-  ): Promise<SessionMessage[]> {
+  async function loadMessages(sessionId = appState.currentSession?.id): Promise<SessionMessage[]> {
     if (!sessionId) return [];
-
-    const resp = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
-      method: "GET",
-    });
-    const data = (await resp.json()) as SessionMessage[];
-
-    return data || [];
+    return await fetch(`/sessions/${sessionId}`).then((r) => r.json());
   }
 
   async function createSession(): Promise<Session> {
-    const resp = await fetch("/sessions", {
+    const session = await fetch("/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-    });
-    const data = (await resp.json()) as Session;
-
+    }).then((r) => r.json()) as Session;
     window.dispatchEvent(new CustomEvent("sessions:refresh"));
-
-    return data;
+    return session;
   }
 
   async function scrollToBottom() {
@@ -75,38 +64,24 @@
   }
 
   function handleSendToChat(event: Event) {
-    const text = String(
-      (event as CustomEvent<{ text?: string }>).detail?.text ?? "",
-    ).trim();
-
-    if (!text) return;
-
-    draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+    const { text } = (event as CustomEvent<{ text: string }>).detail;
+    if (!text?.trim()) return;
+    draft = draft.trim() ? `${draft.trimEnd()}\n\n${text.trim()}` : text.trim();
   }
 
   function handleAssistantSelection() {
     const selection = window.getSelection();
-    const selectedText = selection?.toString().trim() ?? "";
+    const selectedText = selection?.toString().trim();
+    const messageElement = selection?.anchorNode?.parentElement?.closest(".msg.assistant");
 
-    if (!selection || !selectedText || selection.rangeCount === 0) {
+    if (!selectedText || !messageElement || !logElement?.contains(messageElement)) {
       selectedAssistantText = "";
       sendToNotebookVisible = false;
       return;
     }
 
-    const node = selection.anchorNode;
-    const element =
-      node instanceof HTMLElement ? node : node?.parentElement ?? null;
-    const messageElement = element?.closest(".msg.assistant");
-
-    if (!messageElement || !logElement?.contains(messageElement)) {
-      selectedAssistantText = "";
-      sendToNotebookVisible = false;
-      return;
-    }
-
-    const rangeRect = selection.getRangeAt(0).getBoundingClientRect();
-    const logRect = logElement.getBoundingClientRect();
+    const rangeRect = selection!.getRangeAt(0).getBoundingClientRect();
+    const logRect = logElement!.getBoundingClientRect();
 
     selectedAssistantText = selectedText;
     sendToNotebookLeft = Math.max(8, rangeRect.left - logRect.left);
@@ -115,16 +90,7 @@
   }
 
   function sendSelectionToNotebook() {
-    if (!selectedAssistantText.trim()) return;
-
-    window.dispatchEvent(
-      new CustomEvent("dk:send-to-notebook", {
-        detail: {
-          text: selectedAssistantText.trim(),
-        },
-      }),
-    );
-
+    window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail: { text: selectedAssistantText } }));
     selectedAssistantText = "";
     sendToNotebookVisible = false;
     status = "Sent to notebook";
@@ -139,58 +105,45 @@
     if (!text) return;
 
     draft = "";
-
     busy = true;
     status = "";
 
     const session = appState.currentSession ?? (await createSession());
     appState.currentSession = session;
 
-    const lastMessage = messages[messages.length - 1];
-    const fakeMessage: SessionMessage = {
-      id: (lastMessage?.id ?? 0) + 1,
+    messages = [...messages, {
+      id: (messages.at(-1)?.id ?? 0) + 1,
       role: "user",
       content: text,
       createdAt: new Date(),
       sessionId: session.id,
-      metadata: undefined,
-    };
-
-    messages = [...messages, fakeMessage];
+      metadata: null,
+    }];
 
     await scrollToBottom();
 
-    const resp = await fetch(
-      `/sessions/${encodeURIComponent(session.id)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          model_id: appState.currentModelId,
-          provider_id: appState.currentProviderId,
-          max_tokens: appState.maxTokens,
-          temperature: appState.temperature,
-          top_k: appState.topK,
-          prompt_template_id: appState.promptTemplateId || null,
-          persona: appState.persona,
-        }),
-      },
-    );
+    const res = await fetch(`/sessions/${session.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        model_id: appState.currentModelId,
+        provider_id: appState.currentProviderId,
+        max_tokens: appState.maxTokens,
+        temperature: appState.temperature,
+        top_k: appState.topK,
+        prompt_template_id: appState.promptTemplateId || null,
+        persona: appState.persona,
+      }),
+    });
 
-    const reader = resp.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
-
-    if (!reader) throw new Error("reader could not be created.");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const tokens = chunk.split("\n").filter(Boolean);
-
-      for (const token of tokens) {
+      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
         messageStream += token;
         await scrollToBottom();
       }
@@ -198,7 +151,6 @@
 
     messages = await loadMessages(session.id);
     loadedSessionId = session.id;
-
     busy = false;
     messageStream = "";
     await scrollToBottom();
@@ -206,7 +158,6 @@
 
   async function createNewChat() {
     if (busy) return;
-
     status = "";
     messages = [];
     appState.currentSession = await createSession();
@@ -214,13 +165,11 @@
 
   onMount(() => {
     window.addEventListener("dk:send-to-chat", handleSendToChat);
-    document.addEventListener("mouseup", handleAssistantSelection);
-    document.addEventListener("keyup", handleAssistantSelection);
+    document.addEventListener("selectionchange", handleAssistantSelection);
 
     return () => {
       window.removeEventListener("dk:send-to-chat", handleSendToChat);
-      document.removeEventListener("mouseup", handleAssistantSelection);
-      document.removeEventListener("keyup", handleAssistantSelection);
+      document.removeEventListener("selectionchange", handleAssistantSelection);
     };
   });
 </script>
@@ -260,69 +209,7 @@
           class:user={message.role === "user"}
           class:assistant={message.role === "assistant"}
         >
-          {#if message.role === "user"}
-            {message.content}
-          {:else if message.role === "assistant"}
-            {message.content}
-            <!-- pending indicator -->
-            <!-- <div class="msg-md msg-pending" role="status" aria-live="polite"> -->
-            <!--   <span class="typing-indicator" aria-hidden="true"> -->
-            <!--     <span></span><span></span><span></span> -->
-            <!--   </span> -->
-            <!--   <span class="typing-text">Generating response...</span> -->
-            <!-- </div> -->
-          {:else}
-            <!-- <div class="msg-md" class:msg-error={message.error}> -->
-            <!--   {#if message.error} -->
-            <!--     <em>Error:</em> {message.text} -->
-            <!--   {:else} -->
-            <!--     {message.text} -->
-            <!--   {/if} -->
-            <!-- </div> -->
-            <!--
-            {#if message.sources?.length}
-              <div class="msg-citations">
-                <div class="msg-citations-label">Sources</div>
-                <ol class="chat-source-list">
-                  {#each message.sources as source, index}
-                    {@const href = sourceHref(source)}
-                    {@const percent = angularSimilarityPercent(source)}
-                    <li class="chat-source-row">
-                      <div class="chat-source-main">
-                        <div class="chat-source-text-block">
-                          <span class="chat-source-num">{index + 1}.</span>
-                          <span class="chat-source-text"
-                            >{sourceDescription(source)}</span
-                          >
-                        </div>
-                        <div class="chat-source-action-line">
-                          <div class="chat-source-action-left">
-                            {#if href}
-                              <a
-                                class="btn btn-sm chat-source-btn"
-                                {href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {sourceName(source)}
-                              </a>
-                            {/if}
-                          </div>
-                          <span
-                            class="chat-source-score"
-                            style={`--score-pct: ${percent ?? 0}%`}
-                          >
-                            Angular Similarity: {sourceScoreLabel(source)}
-                          </span>
-                        </div>
-                      </div>
-                    </li>
-                  {/each}
-                </ol>
-              </div>
-            {/if}
-            -->
-          {/if}
+          {message.content}
         </div>
       {/each}
 
@@ -463,230 +350,6 @@
     overflow-wrap: anywhere;
   }
 
-  .msg-md {
-    min-width: 0;
-    max-width: 100%;
-    min-height: 1em;
-    overflow-wrap: anywhere;
-  }
-
-  .msg-md > :global(:first-child) {
-    margin-top: 0;
-  }
-
-  .msg-md > :global(:last-child) {
-    margin-bottom: 0;
-  }
-
-  .msg-md :global(p),
-  .msg-md :global(li),
-  .msg-md :global(blockquote),
-  .msg-md :global(h1),
-  .msg-md :global(h2),
-  .msg-md :global(h3),
-  .msg-md :global(h4),
-  .msg-md :global(h5),
-  .msg-md :global(h6),
-  .msg-md :global(a) {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-  }
-
-  .msg-md :global(p) {
-    margin: 0 0 0.75em;
-  }
-
-  .msg-md :global(pre) {
-    max-width: 100%;
-    overflow-x: auto;
-    white-space: pre-wrap;
-  }
-
-  .msg-md :global(code) {
-    white-space: pre-wrap;
-  }
-
-  .msg-error {
-    color: var(--danger);
-  }
-
-  .msg-md :global(table) {
-    display: block;
-    max-width: 100%;
-    overflow-x: auto;
-    border-collapse: collapse;
-  }
-
-  .msg-md :global(img) {
-    max-width: 100%;
-    height: auto;
-  }
-
-  .msg-pending {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-  }
-
-  .typing-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .typing-indicator span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    animation: typing-dot 1.1s infinite ease-in-out;
-    background: var(--accent);
-    opacity: 0.35;
-  }
-
-  .typing-indicator span:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-
-  .typing-indicator span:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-
-  .typing-text {
-    font-size: 12px;
-  }
-
-  @keyframes typing-dot {
-    0%,
-    80%,
-    100% {
-      opacity: 0.35;
-      transform: translateY(0);
-    }
-
-    40% {
-      opacity: 1;
-      transform: translateY(-3px);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .typing-indicator span {
-      animation: none;
-    }
-  }
-
-  /*
-  .msg-citations {
-    display: grid;
-    gap: 6px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
-  }
-
-  .msg-citations-label {
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .chat-source-list {
-    display: grid;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .chat-source-row {
-    display: block;
-    overflow: hidden;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-  }
-
-  .chat-source-main {
-    display: grid;
-    min-width: 0;
-    gap: 6px;
-  }
-
-  .chat-source-text-block {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px;
-    align-items: start;
-  }
-
-  .chat-source-num {
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .chat-source-text {
-    display: -webkit-box;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.35;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-  }
-
-  .chat-source-action-line {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    padding-left: 20px;
-  }
-
-  .chat-source-action-left {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-  }
-
-  .chat-source-btn {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chat-source-score {
-    display: inline-flex;
-    min-width: 150px;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: linear-gradient(
-      90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct) 100%
-    );
-    color: var(--text);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  */
-
   .chat-input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -767,13 +430,6 @@
   }
 
   @media (max-width: 680px) {
-    /*
-    .chat-source-action-line {
-      grid-template-columns: 1fr;
-      padding-left: 0;
-    }
-    */
-
     .chat-input {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
@@ -798,12 +454,5 @@
     .chat-new-button {
       border-radius: 0 0 0 13px;
     }
-
-    /*
-    .chat-source-score {
-      width: 100%;
-      min-width: 0;
-    }
-    */
   }
 </style>
