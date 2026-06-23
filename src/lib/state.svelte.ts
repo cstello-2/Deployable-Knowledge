@@ -1,4 +1,8 @@
-import type { Session, UserSettings } from "$lib/server/database/schema";
+import type {
+  PromptTemplate,
+  Session,
+  UserSettings,
+} from "$lib/server/database/schema";
 
 export type Settings = {
   provider: string;
@@ -6,7 +10,7 @@ export type Settings = {
   maxTokens: number;
   temperature: number;
   topK: number;
-  prompt: string;
+  promptTemplateId: string | null;
   persona: string;
 };
 
@@ -17,7 +21,8 @@ class AppState {
   maxTokens = $state(512);
   temperature = $state(0.2);
   topK = $state(8);
-  prompt = $state("");
+  promptTemplateId = $state("");
+  promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
 
   constructor(settings?: UserSettings | null) {
@@ -32,7 +37,7 @@ class AppState {
     this.maxTokens = settings.maxTokens ?? 512;
     this.temperature = settings.temperature ?? 0.2;
     this.topK = settings.topK ?? 8;
-    this.prompt = settings.prompt || "";
+    this.promptTemplateId = settings.promptTemplateId || "";
     this.persona = settings.persona || "";
   }
 
@@ -43,7 +48,7 @@ class AppState {
       maxTokens: this.maxTokens,
       temperature: this.temperature,
       topK: this.topK,
-      prompt: this.prompt,
+      promptTemplateId: this.promptTemplateId || null,
       persona: this.persona,
     };
   }

@@ -9,6 +9,7 @@ export type ProviderChatOptions = {
 export interface Provider {
   id: string;
   name: string;
+  apiKeyRequired: boolean;
 
   chat(
     prompt: string,

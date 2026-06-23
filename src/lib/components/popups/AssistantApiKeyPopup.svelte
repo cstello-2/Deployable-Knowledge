@@ -1,177 +1,160 @@
 <script lang="ts">
   import Popup from "$lib/components/popups/Popup.svelte";
-  // import { dkClient, type ProviderRecord } from "$lib/client/sdk";
-  //
-  // type ApiKeyProvider = ProviderRecord & {
-  //   available?: boolean;
-  //   api_key_required?: boolean;
-  //   has_api_key?: boolean;
-  // };
+  import { showToast } from "$lib/components/utils/ToastHost.svelte";
 
-  // type Props = {
-  //   open: boolean;
-  //   onClose: () => void;
-  //   onChanged?: () => Promise<void> | void;
-  //   onToast?: (message: string) => void;
-  // };
-  //
-  // let {
-  //   open,
-  //   onClose,
-  //   onChanged = () => {},
-  //   onToast = () => {},
-  // }: Props = $props();
-  //
-  // // let providersPromise = $state<Promise<ApiKeyProvider[]> | null>(null);
-  // let apiKeyInputs = $state<Record<string, string>>({});
-  //
-  // $effect(() => {
-  //   if (!open) {
-  //     providersPromise = null;
-  //     apiKeyInputs = {};
-  //     return;
-  //   }
-  //
-  //   apiKeyInputs = {};
-  //   refreshProviders();
-  // });
-  //
-  // async function fetchApiKeyProviders() {
-  //   const data = await dkClient.listProviders({
-  //     includeUnavailable: true,
-  //     refresh: true,
-  //   });
-  //
-  //   return (data?.providers || []) as ApiKeyProvider[];
-  // }
-  //
-  // function refreshProviders() {
-  //   providersPromise = fetchApiKeyProviders();
-  // }
-  //
-  // function setApiKeyInput(providerId: string, value: string) {
-  //   apiKeyInputs = {
-  //     ...apiKeyInputs,
-  //     [providerId]: value,
-  //   };
-  // }
-  //
-  // async function saveProviderApiKey(provider: ApiKeyProvider) {
-  //   const key = (apiKeyInputs[provider.id] || "").trim();
-  //
-  //   if (provider.api_key_required && !key) {
-  //     onToast("Enter an API key to save");
-  //     return;
-  //   }
-  //
-  //   try {
-  //     await dkClient.patchProvider(provider.id, {
-  //       api_key: key,
-  //     });
-  //
-  //     await onChanged();
-  //     refreshProviders();
-  //     onToast("Provider saved");
-  //   } catch (error) {
-  //     alert(`Provider save failed: ${error}`);
-  //   }
-  // }
-  //
-  // async function clearProviderApiKey(provider: ApiKeyProvider) {
-  //   try {
-  //     await dkClient.clearProviderApiKey(provider.id);
-  //     await onChanged();
-  //     refreshProviders();
-  //     onToast("API key cleared");
-  //   } catch (error) {
-  //     alert(`API key clear failed: ${error}`);
-  //   }
-  // }
+  type ApiKeyProvider = {
+    id: string;
+    name: string;
+    apiKeyRequired: boolean;
+    hasApiKey: boolean;
+    available: boolean;
+  };
+
+  type Props = {
+    open: boolean;
+    onClose: () => void;
+    onChanged?: () => Promise<void> | void;
+  };
+
+  let { open, onClose, onChanged = () => {} }: Props = $props();
+  let providers = $state<ApiKeyProvider[]>([]);
+  let apiKeyInputs = $state<Record<string, string>>({});
+  let loading = $state(false);
+
+  $effect(() => {
+    if (!open) {
+      providers = [];
+      apiKeyInputs = {};
+      return;
+    }
+
+    loadProviders();
+  });
+
+  async function loadProviders() {
+    loading = true;
+    const resp = await fetch("/providers", { method: "GET" });
+
+    providers = (await resp.json()) as ApiKeyProvider[];
+    apiKeyInputs = {};
+    loading = false;
+  }
+
+  function setApiKeyInput(providerId: string, value: string) {
+    apiKeyInputs = {
+      ...apiKeyInputs,
+      [providerId]: value,
+    };
+  }
+
+  async function saveProviderApiKey(provider: ApiKeyProvider) {
+    const apiKey = (apiKeyInputs[provider.id] || "").trim();
+
+    if (!apiKey) {
+      showToast("Enter an API key to save");
+      return;
+    }
+
+    await fetch(`/providers/${encodeURIComponent(provider.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+
+    await onChanged();
+    await loadProviders();
+    showToast("API key saved");
+  }
+
+  async function clearProviderApiKey(provider: ApiKeyProvider) {
+    await fetch(`/providers/${encodeURIComponent(provider.id)}`, {
+      method: "DELETE",
+    });
+
+    await onChanged();
+    await loadProviders();
+    showToast("API key cleared");
+  }
 </script>
 
-<!-- {#snippet apiKeyProviderRow(provider: ApiKeyProvider)} -->
-<!--   <div class="api-key-provider-row"> -->
-<!--     <div class="api-key-provider-main"> -->
-<!--       <div> -->
-<!--         <div class="api-key-provider-name">{provider.label || provider.id}</div> -->
-<!---->
-<!--         <div -->
-<!--           class:connected={provider.available} -->
-<!--           class="api-key-provider-status" -->
-<!--         > -->
-<!--           {#if provider.available} -->
-<!--             Connected -->
-<!--           {:else} -->
-<!--             Not connected -->
-<!--           {/if} -->
-<!--         </div> -->
-<!--       </div> -->
-<!--     </div> -->
-<!---->
-<!--     <div class="api-key-provider-controls"> -->
-<!--       <input -->
-<!--         class="input api-key-input" -->
-<!--         type="password" -->
-<!--         autocomplete="off" -->
-<!--         placeholder={provider.has_api_key ? "Saved API key" : "API key"} -->
-<!--         disabled={!provider.api_key_required} -->
-<!--         value={apiKeyInputs[provider.id] || ""} -->
-<!--         oninput={(event) => -->
-<!--           setApiKeyInput(provider.id, event.currentTarget.value)} -->
-<!--       /> -->
-<!---->
-<!--       <div class="api-key-provider-actions"> -->
-<!--         <button -->
-<!--           type="button" -->
-<!--           class="btn api-key-save" -->
-<!--           onclick={() => saveProviderApiKey(provider)} -->
-<!--         > -->
-<!--           Save -->
-<!--         </button> -->
-<!---->
-<!--         <button -->
-<!--           type="button" -->
-<!--           class="btn api-key-clear" -->
-<!--           disabled={!provider.api_key_required} -->
-<!--           onclick={() => clearProviderApiKey(provider)} -->
-<!--         > -->
-<!--           Clear -->
-<!--         </button> -->
-<!--       </div> -->
-<!--     </div> -->
-<!--   </div> -->
-<!-- {/snippet} -->
+{#snippet providerRow(provider: ApiKeyProvider)}
+  <div class="api-key-provider-row">
+    <div class="api-key-provider-main">
+      <div class="api-key-provider-name">{provider.name}</div>
 
-<!-- <Popup -->
-<!--   {open} -->
-<!--   title="API Keys" -->
-<!--   id="api-key-manager" -->
-<!--   contentLabel="API key manager" -->
-<!--   width="720px" -->
-<!--   {onClose} -->
-<!-- > -->
-<!--   <div class="api-key-manager"> -->
-<!--     <div class="api-key-provider-list"> -->
-<!--       {#if providersPromise} -->
-<!--         {#await providersPromise} -->
-<!--           <div class="api-key-manager-empty">Loading providers...</div> -->
-<!--         {:then apiKeyProviders} -->
-<!--           {#each apiKeyProviders as provider (provider.id)} -->
-<!--             {@render apiKeyProviderRow(provider)} -->
-<!--           {:else} -->
-<!--             <div class="api-key-manager-empty">No providers found.</div> -->
-<!--           {/each} -->
-<!--         {:catch error} -->
-<!--           <div class="api-key-manager-empty"> -->
-<!--             Provider load failed: {error} -->
-<!--           </div> -->
-<!--         {/await} -->
-<!--       {:else} -->
-<!--         <div class="api-key-manager-empty">Loading providers...</div> -->
-<!--       {/if} -->
-<!--     </div> -->
-<!--   </div> -->
-<!-- </Popup> -->
+      <div
+        class="api-key-provider-status"
+        class:connected={provider.available}
+      >
+        {#if !provider.apiKeyRequired}
+          No API key required
+        {:else if provider.hasApiKey}
+          API key saved
+        {:else}
+          API key required
+        {/if}
+      </div>
+    </div>
+
+    {#if provider.apiKeyRequired}
+      <div class="api-key-provider-controls">
+        <input
+          class="input api-key-input"
+          type="password"
+          autocomplete="off"
+          placeholder={provider.hasApiKey ? "Saved API key" : "API key"}
+          value={apiKeyInputs[provider.id] || ""}
+          oninput={(event) =>
+            setApiKeyInput(provider.id, event.currentTarget.value)}
+        />
+
+        <div class="api-key-provider-actions">
+          <button
+            type="button"
+            class="btn btn-primary"
+            onclick={() => saveProviderApiKey(provider)}
+          >
+            Save
+          </button>
+
+          <button
+            type="button"
+            class="btn"
+            disabled={!provider.hasApiKey}
+            onclick={() => clearProviderApiKey(provider)}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="api-key-provider-note">Local provider</div>
+    {/if}
+  </div>
+{/snippet}
+
+<Popup
+  {open}
+  title="API Keys"
+  id="api-key-manager"
+  contentLabel="API key manager"
+  width="720px"
+  {onClose}
+>
+  <div class="api-key-manager">
+    {#if loading}
+      <div class="api-key-manager-empty">Loading providers...</div>
+    {:else}
+      <div class="api-key-provider-list">
+        {#each providers as provider (provider.id)}
+          {@render providerRow(provider)}
+        {:else}
+          <div class="api-key-manager-empty">No providers found.</div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+</Popup>
 
 <style>
   .api-key-manager {
@@ -201,13 +184,19 @@
     font-weight: 600;
   }
 
-  .api-key-provider-status {
+  .api-key-provider-status,
+  .api-key-provider-note,
+  .api-key-manager-empty {
     color: var(--muted);
     font-size: 12px;
   }
 
   .api-key-provider-status.connected {
     color: var(--accent);
+  }
+
+  .api-key-provider-note {
+    justify-self: end;
   }
 
   .api-key-provider-controls {
@@ -224,7 +213,6 @@
   }
 
   .api-key-manager-empty {
-    color: var(--muted);
     padding: 12px;
   }
 
@@ -239,6 +227,10 @@
 
     .api-key-provider-actions {
       justify-content: flex-start;
+    }
+
+    .api-key-provider-note {
+      justify-self: start;
     }
   }
 </style>

@@ -5,6 +5,7 @@ const LLAMA_API_URL = "http://localhost:11434";
 export class Ollama implements Provider {
   id = "ollama";
   name = "Ollama";
+  apiKeyRequired = false;
 
   async *chat(
     prompt: string,

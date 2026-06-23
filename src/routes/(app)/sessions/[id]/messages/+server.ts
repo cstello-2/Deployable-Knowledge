@@ -1,6 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import {
+  promptTemplates,
   type SessionMessage,
   sessions,
   session_messages,
@@ -17,12 +18,13 @@ import type { RequestHandler } from "./$types";
 function createPrompt(
   messages: SessionMessage[],
   userMessage: string,
+  systemPrompt = "",
   persona = "",
 ) {
   const lines = [];
+  const systemParts = [systemPrompt, persona].map((part) => part.trim());
 
-  // Set persona
-  if (persona.trim()) lines.push(`System: ${persona.trim()}`);
+  if (systemParts.length) lines.push(`system: ${systemParts.join("\n\n")}`);
 
   // Only take top 20 messages
   for (const message of messages.slice(-20)) {
@@ -69,6 +71,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const modelId = body.model_id || userSettings.model;
   const providerId = body.provider_id || userSettings.provider;
   const persona = body.persona || userSettings.persona || "";
+  const promptTemplateId =
+    body.prompt_template_id ||
+    body.promptTemplateId ||
+    userSettings.promptTemplateId;
   const options = {
     temperature: body.temperature ?? userSettings.temperature,
     topK: body.top_k ?? userSettings.topK,
@@ -99,7 +105,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .orderBy(asc(session_messages.id));
 
   const provider = await getProvider(providerId);
-  const prompt = createPrompt(messages, message, persona);
+  const promptTemplate =
+    typeof promptTemplateId === "string" && promptTemplateId.trim()
+      ? await db
+          .select()
+          .from(promptTemplates)
+          .where(
+            and(
+              eq(promptTemplates.id, promptTemplateId.trim()),
+              eq(promptTemplates.userId, userSettings.userId),
+            ),
+          )
+          .get()
+      : null;
+  const prompt = createPrompt(
+    messages,
+    message,
+    promptTemplate?.systemPrompt || "",
+    persona,
+  );
 
   // If you want to see the prompt getting sent this is it.
   // console.log(prompt);

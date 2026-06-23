@@ -46,8 +46,10 @@
         aria-modal="true"
         aria-label={contentLabel}
       >
-        {#if closable}
-          <div class="popup-topbar">
+        <div class="popup-topbar">
+          <div class="popup-title">{title}</div>
+
+          {#if closable}
             <button
               class="popup-close"
               type="button"
@@ -57,8 +59,8 @@
             >
               <Icon name="close" size={18} />
             </button>
-          </div>
-        {/if}
+          {/if}
+        </div>
 
         {#if children}
           {@render children()}
@@ -87,9 +89,22 @@
   }
 
   .popup-topbar {
-    display: flex;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     flex: 0 0 auto;
+    gap: 8px;
+  }
+
+  .popup-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .popup-close {

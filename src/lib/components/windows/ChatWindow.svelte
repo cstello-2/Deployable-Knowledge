@@ -113,6 +113,7 @@
           max_tokens: appState.maxTokens,
           temperature: appState.temperature,
           top_k: appState.topK,
+          prompt_template_id: appState.promptTemplateId || null,
           persona: appState.persona,
         }),
       },

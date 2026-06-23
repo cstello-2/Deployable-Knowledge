@@ -4,6 +4,7 @@ import {
   real,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -13,6 +14,46 @@ export const users = sqliteTable("users", {
   salt: text({ length: 128 }),
   lastLogin: integer("last_login", { mode: "timestamp" }),
 });
+
+export const promptTemplates = sqliteTable(
+  "prompt_templates",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name", { length: 255 }).notNull(),
+    description: text("description", { length: 1024 }).notNull().default(""),
+    systemPrompt: text("system_prompt").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("prompt_templates_user_idx").on(table.userId),
+    index("prompt_templates_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    providerId: text("provider_id", { length: 128 }).notNull(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    apiKey: text("api_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("api_keys_provider_user_idx").on(
+      table.providerId,
+      table.userId,
+    ),
+    index("api_keys_user_idx").on(table.userId),
+  ],
+);
 
 export const sessions = sqliteTable(
   "sessions",
@@ -67,6 +108,10 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
+    promptTemplateId: text("prompt_template_id").references(
+      () => promptTemplates.id,
+      { onDelete: "set null" },
+    ),
     prompt: text({ length: 1024 }),
     persona: text({ length: 1024 }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
@@ -85,6 +130,12 @@ export type NewSessionMessage = typeof session_messages.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type SafeUser = Omit<User, "password" | "salt" | "lastLogin">;
+
+export type PromptTemplate = typeof promptTemplates.$inferSelect;
+export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export type UserSession = typeof userSessions.$inferSelect;
 export type NewUserSession = typeof userSessions.$inferInsert;

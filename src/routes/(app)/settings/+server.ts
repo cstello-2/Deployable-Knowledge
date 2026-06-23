@@ -16,6 +16,11 @@ export const GET: RequestHandler = async () => {
 
 export const PATCH: RequestHandler = async ({ request }) => {
   const body = await request.json();
+  const promptTemplateId =
+    typeof body.promptTemplateId === "string" && body.promptTemplateId.trim()
+      ? body.promptTemplateId.trim()
+      : null;
+
   const [row] = await db
     .update(settings)
     .set({
@@ -24,7 +29,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
       maxTokens: body.maxTokens,
       temperature: body.temperature,
       topK: body.topK,
-      prompt: body.prompt,
+      promptTemplateId,
       persona: body.persona,
       updatedAt: new Date(),
     })
