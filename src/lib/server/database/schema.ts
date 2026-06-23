@@ -140,8 +140,6 @@ export const userSessions = sqliteTable("user_sessions", {
   id: text("id").primaryKey(),
   userId: integer("user_id"),
   secretHash: text("secret_hash", { length: 128 }),
-  createdAt: integer("created_at", { mode: "timestamp" }),
-  token: text({ length: 255 }),
   createdAt: integer("created_at", { mode: "timestamp" }).default(
     sql`(unixepoch())`,
   ),

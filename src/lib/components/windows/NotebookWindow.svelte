@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
-  import { notebookRequest, type Notebook, type NotebookPage } from "$lib/api/notebook";
+  import type { AppState } from "$lib/state.svelte";
+  import type { NotebookPage } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
   let {
@@ -15,8 +16,8 @@
     onClose = () => {},
   }: WindowInstanceProps = $props();
 
-  let notebooks = $state<Notebook[]>([]);
-  let activeNotebookId = $state<string | null>(null);
+  const appState = getContext<AppState>("appState");
+
   let notes = $state("");
   let selectorOpen = $state(false);
   let loading = $state(false);
@@ -25,94 +26,37 @@
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
 
-  const activeNotebook = $derived(
-    notebooks.find((notebook) => notebook.id === activeNotebookId) ??
-      notebooks[0] ??
-      null,
-  );
+  async function fetchNotebookState(url: string, options?: RequestInit, status = "") {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error((await res.text()) || `Request failed: ${res.status}`);
+    appState.applyNotebookState(await res.json());
+    notes = appState.activePage?.content ?? "";
+    if (status) saveStatus = status;
+  }
 
-  const activePage = $derived(
-    activeNotebook?.pages.find((page) => page.id === activeNotebook.activePageId) ??
-      activeNotebook?.pages[0] ??
-      null,
-  );
-
-  async function loadNotebookState() {
+  async function loadNotebooks() {
     loading = true;
-
     try {
-      const data = await notebookRequest();
-      notebooks = data.notebooks ?? [];
-      activeNotebookId = data.activeNotebookId ?? notebooks[0]?.id ?? null;
-      notes =
-        notebooks
-          .find((notebook) => notebook.id === activeNotebookId)
-          ?.pages.find((page) => page.id === notebooks.find((notebook) => notebook.id === activeNotebookId)?.activePageId)
-          ?.content ??
-        notebooks.find((notebook) => notebook.id === activeNotebookId)?.pages[0]?.content ??
-        "";
+      await fetchNotebookState("/notebooks");
     } catch (error) {
-      alert(
-        "Notebook failed to load: " +
-          (error instanceof Error ? error.message : String(error)),
-      );
+      alert("Notebook failed to load: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       loading = false;
     }
   }
 
-  function applyNotebookState(data: { activeNotebookId: string | null; notebooks: Notebook[] }) {
-    notebooks = data.notebooks ?? [];
-    activeNotebookId = data.activeNotebookId ?? notebooks[0]?.id ?? null;
-
-    const notebook =
-      notebooks.find((item) => item.id === activeNotebookId) ?? notebooks[0] ?? null;
-    const page =
-      notebook?.pages.find((item) => item.id === notebook.activePageId) ??
-      notebook?.pages[0] ??
-      null;
-
-    notes = page?.content ?? "";
-  }
-
-  async function runNotebookAction(
-    action: Parameters<typeof notebookRequest>[0],
-    status = "",
-  ) {
-    if (!action) return;
-
-    try {
-      applyNotebookState(await notebookRequest(action));
-      saveStatus = status;
-    } catch (error) {
-      alert(
-        "Notebook action failed: " +
-          (error instanceof Error ? error.message : String(error)),
-      );
-    }
-  }
-
   async function saveCurrentPage() {
-    if (!activePage) return;
+    const page = appState.activePage;
+    if (!page) return;
 
     try {
-      await notebookRequest({
-        action: "page.update",
-        pageId: activePage.id,
-        content: notes,
+      const res = await fetch(`/notebooks/${appState.activeNotebook?.id}/pages/${page.id}/update`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: notes }),
       });
-
-      notebooks = notebooks.map((notebook) =>
-        notebook.id === activeNotebook?.id
-          ? {
-              ...notebook,
-              pages: notebook.pages.map((page) =>
-                page.id === activePage.id ? { ...page, content: notes } : page,
-              ),
-            }
-          : notebook,
-      );
-
+      if (!res.ok) throw new Error(await res.text());
+      appState.applyNotebookState(await res.json());
       saveStatus = "Saved";
     } catch (error) {
       saveStatus = "Save failed";
@@ -122,107 +66,82 @@
 
   function queueSaveCurrentPage() {
     saveStatus = "Saving…";
-
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-    }
-
-    saveTimer = setTimeout(() => {
-      saveCurrentPage();
-    }, 350);
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveCurrentPage(); }, 350);
   }
 
   async function selectNotebook(notebookId: string) {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      await saveCurrentPage();
+    if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
+    try {
+      await fetchNotebookState(`/notebooks/${notebookId}/select`, { method: "POST" });
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
     }
-
-    await runNotebookAction({ action: "notebook.select", notebookId });
   }
 
   async function selectPage(page: NotebookPage) {
-    if (!activeNotebook) return;
-
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      await saveCurrentPage();
+    const nb = appState.activeNotebook;
+    if (!nb) return;
+    if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
+    try {
+      await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
+      selectorOpen = false;
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
     }
-
-    await runNotebookAction({
-      action: "page.select",
-      notebookId: activeNotebook.id,
-      pageId: page.id,
-    });
-
-    selectorOpen = false;
   }
 
   async function createNotebook() {
     const notebookTitle = window.prompt("Notebook name", "New Notebook");
     if (notebookTitle === null) return;
-
-    await runNotebookAction(
-      {
-        action: "notebook.create",
-        title: notebookTitle.trim() || "New Notebook",
-      },
-      "Notebook created",
-    );
+    try {
+      await fetchNotebookState("/notebooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: notebookTitle.trim() || "New Notebook" }),
+      }, "Notebook created");
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   async function createPage() {
-    if (!activeNotebook) return;
-
-    const pageTitle = window.prompt(
-      "Page name",
-      `Page ${activeNotebook.pages.length + 1}`,
-    );
-
+    const nb = appState.activeNotebook;
+    if (!nb) return;
+    const pageTitle = window.prompt("Page name", `Page ${nb.pages.length + 1}`);
     if (pageTitle === null) return;
-
-    await runNotebookAction(
-      {
-        action: "page.create",
-        notebookId: activeNotebook.id,
-        title: pageTitle.trim() || `Page ${activeNotebook.pages.length + 1}`,
-      },
-      "Page created",
-    );
+    try {
+      await fetchNotebookState(`/notebooks/${nb.id}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: pageTitle.trim() || `Page ${nb.pages.length + 1}` }),
+      }, "Page created");
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   async function deleteActiveNotebook() {
-    if (!activeNotebook) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete this notebook?\n\n${activeNotebook.title}`,
-    );
-
-    if (!confirmed) return;
-
-    await runNotebookAction(
-      { action: "notebook.delete", notebookId: activeNotebook.id },
-      "Notebook deleted",
-    );
+    const nb = appState.activeNotebook;
+    if (!nb) return;
+    if (!window.confirm(`Are you sure you want to delete this notebook?\n\n${nb.title}`)) return;
+    try {
+      await fetchNotebookState(`/notebooks/${nb.id}/delete`, { method: "DELETE" }, "Notebook deleted");
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   async function deleteActivePage() {
-    if (!activeNotebook || !activePage) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete this page?\n\n${activePage.title}`,
-    );
-
-    if (!confirmed) return;
-
-    await runNotebookAction(
-      {
-        action: "page.delete",
-        notebookId: activeNotebook.id,
-        pageId: activePage.id,
-      },
-      "Page deleted",
-    );
+    const nb = appState.activeNotebook;
+    const page = appState.activePage;
+    if (!nb || !page) return;
+    if (!window.confirm(`Are you sure you want to delete this page?\n\n${page.title}`)) return;
+    try {
+      await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" }, "Page deleted");
+    } catch (error) {
+      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+    }
   }
 
   async function clearNotes() {
@@ -231,59 +150,35 @@
   }
 
   function handleNotebookSelection() {
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      ".notebook-textarea",
-    );
-
+    const textarea = document.querySelector<HTMLTextAreaElement>(".notebook-textarea");
     if (!textarea) return;
-
-    const selected = textarea.value
-      .slice(textarea.selectionStart, textarea.selectionEnd)
-      .trim();
-
+    const selected = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd).trim();
     selectedNotebookText = selected;
     notebookSelectionButtonVisible = selected.length > 0;
   }
 
   function sendSelectionToChat() {
     if (!selectedNotebookText.trim()) return;
-
-    window.dispatchEvent(
-      new CustomEvent("dk:send-to-chat", {
-        detail: {
-          text: selectedNotebookText.trim(),
-        },
-      }),
-    );
-
+    window.dispatchEvent(new CustomEvent("dk:send-to-chat", { detail: { text: selectedNotebookText.trim() } }));
     notebookSelectionButtonVisible = false;
     selectedNotebookText = "";
     saveStatus = "Sent to chat";
   }
 
   async function appendTextFromChat(event: Event) {
-    const text = String((event as CustomEvent<{ text?: string }>).detail?.text ?? "")
-      .trim();
-
-    if (!text || !activePage) return;
-
-    notes = notes.trim()
-      ? `${notes.trimEnd()}\n\n${text}`
-      : text;
-
+    const text = String((event as CustomEvent<{ text?: string }>).detail?.text ?? "").trim();
+    if (!text || !appState.activePage) return;
+    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text}` : text;
     await saveCurrentPage();
     saveStatus = "Added from chat";
   }
 
   onMount(() => {
-    loadNotebookState();
+    loadNotebooks();
     window.addEventListener("dk:send-to-notebook", appendTextFromChat);
-
     return () => {
-      window.addEventListener("dk:send-to-notebook", appendTextFromChat);
-      if (saveTimer) {
-        clearTimeout(saveTimer);
-      }
+      window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
+      if (saveTimer) clearTimeout(saveTimer);
     };
   });
 </script>
@@ -301,12 +196,12 @@
   <section class="notebook-main">
     <header class="notebook-header">
       <div>
-        <h2>{activePage?.title ?? activeNotebook?.title ?? "Notebook"}</h2>
+        <h2>{appState.activePage?.title ?? appState.activeNotebook?.title ?? "Notebook"}</h2>
         <p>
           {#if loading}
             Loading notebook…
           {:else}
-            {activeNotebook?.title ?? "Scratch notes for your current work."}
+            {appState.activeNotebook?.title ?? "Scratch notes for your current work."}
             {#if saveStatus}
               · {saveStatus}
             {/if}
@@ -363,10 +258,10 @@
           </header>
 
           <div class="selector-list">
-            {#each notebooks as notebook (notebook.id)}
+            {#each appState.notebooks as notebook (notebook.id)}
               <button
                 class="selector-item"
-                class:active={notebook.id === activeNotebookId}
+                class:active={notebook.id === appState.activeNotebookId}
                 type="button"
                 title={notebook.title}
                 onclick={() => selectNotebook(notebook.id)}
@@ -404,10 +299,10 @@
           </header>
 
           <div class="selector-list">
-            {#each activeNotebook?.pages ?? [] as page (page.id)}
+            {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
               <button
                 class="selector-item"
-                class:active={page.id === activeNotebook?.activePageId}
+                class:active={page.id === appState.activeNotebook?.activePageId}
                 type="button"
                 title={page.title}
                 onclick={() => selectPage(page)}
@@ -446,13 +341,6 @@
         aria-label="Notebook notes"
       ></textarea>
     </div>
-    <textarea
-      class="notebook-textarea"
-      bind:value={notes}
-      oninput={queueSaveCurrentPage}
-      placeholder="Write notes here..."
-      aria-label="Notebook notes"
-    ></textarea>
   </section>
 </BaseWindow>
 
