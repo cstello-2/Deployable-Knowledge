@@ -213,6 +213,27 @@ export function cleanPageText(text: string): string {
         return "";
       }
 
+      if (startsWithBullet(cleaned)) {
+        let index = 0;
+
+        while (index < cleaned.length) {
+          const char = cleaned[index] ?? "";
+          if (char === " ") {
+            index += 1;
+            continue;
+          }
+
+          if (!BULLET_CHARS.has(char)) {
+            break;
+          }
+
+          index += 1;
+        }
+
+        const tail = cleaned.slice(index).trimStart();
+        cleaned = tail ? `* ${tail}` : "*";
+      }
+
       if (looksLikeLabelLine(cleaned)) {
         cleaned = stripTrailingShortNumber(cleaned);}
 
@@ -401,8 +422,15 @@ export function splitSentencesWithOffsets(text: string): SentenceSpan[] {
     const end = lineEnd - trailingWhitespace;
     const structural = startsStructuralBlock(value);
 
-    if (blockStart >= 0 && structural) {
+    if (structural) {
       flushBlock();
+      spans.push({
+        text: value,
+        start,
+        end,
+        startsBlock: true,
+      });
+      continue;
     }
 
     if (blockStart < 0) {
