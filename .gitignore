@@ -21,10 +21,15 @@ Thumbs.db
 chroma_db/
 app.db
 app.db-*
-drizzle/
 
 # --- Model cache or sentence-transformers ---
 models/
+tmp_model/
 
 # --- Agents --- 
 .codex
+
+# python
+venv/
+__pycache__/
+*.pyc
