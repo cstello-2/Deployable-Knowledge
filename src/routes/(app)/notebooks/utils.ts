@@ -10,9 +10,8 @@ import {
   type NewNotebookState,
   type Notebook,
   type NotebookPage,
+  type NotebookWithPages,
 } from "$lib/server/database/schema";
-
-export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
 
 export type NotebookStateResponse = {
   activeNotebookId: string | null;

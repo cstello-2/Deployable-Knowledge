@@ -1,12 +1,10 @@
 import type {
-  Notebook,
   NotebookPage,
+  NotebookWithPages,
   PromptTemplate,
   Session,
   UserSettings,
 } from "$lib/server/database/schema";
-
-export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
 
 export type Settings = {
   provider: string;
@@ -22,25 +20,8 @@ class AppState {
   currentSession = $state<Session | undefined>(undefined);
   notebooks = $state<NotebookWithPages[]>([]);
   activeNotebookId = $state<string | null>(null);
-
-  get activeNotebook(): NotebookWithPages | null {
-    return (
-      this.notebooks.find((nb) => nb.id === this.activeNotebookId) ??
-      this.notebooks[0] ??
-      null
-    );
-  }
-
-  get activePage(): NotebookPage | null {
-    const nb = this.activeNotebook;
-    return nb?.pages.find((p) => p.id === nb.activePageId) ?? nb?.pages[0] ?? null;
-  }
-
-  applyNotebookState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
-    this.notebooks = data.notebooks ?? [];
-    this.activeNotebookId = data.activeNotebookId ?? this.notebooks[0]?.id ?? null;
-  }
-
+  activeNotebook = $state<NotebookWithPages | null>(null);
+  activePage = $state<NotebookPage | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");
   maxTokens = $state(512);

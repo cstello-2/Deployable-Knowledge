@@ -184,6 +184,8 @@ export type NewNotebook = typeof notebooks.$inferInsert;
 export type NotebookPage = typeof notebook_pages.$inferSelect;
 export type NewNotebookPage = typeof notebook_pages.$inferInsert;
 
+export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
+
 
 
 export type User = typeof users.$inferSelect;

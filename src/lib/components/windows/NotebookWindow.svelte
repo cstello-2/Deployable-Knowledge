@@ -3,7 +3,7 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import type { AppState } from "$lib/state.svelte";
-  import type { NotebookPage } from "$lib/server/database/schema";
+  import type { NotebookPage, NotebookWithPages } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
   let {
@@ -26,11 +26,24 @@
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
 
+  function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
+    appState.activeNotebook =
+      appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ??
+      appState.notebooks[0] ??
+      null;
+    appState.activePage =
+      appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ??
+      appState.activeNotebook?.pages[0] ??
+      null;
+    notes = appState.activePage?.content ?? "";
+  }
+
   async function fetchNotebookState(url: string, options?: RequestInit, status = "") {
     const res = await fetch(url, options);
     if (!res.ok) throw new Error((await res.text()) || `Request failed: ${res.status}`);
-    appState.applyNotebookState(await res.json());
-    notes = appState.activePage?.content ?? "";
+    applyState(await res.json());
     if (status) saveStatus = status;
   }
 
@@ -39,7 +52,8 @@
     try {
       await fetchNotebookState("/notebooks");
     } catch (error) {
-      alert("Notebook failed to load: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook failed to load: ${error}`);
     } finally {
       loading = false;
     }
@@ -56,7 +70,7 @@
         body: JSON.stringify({ content: notes }),
       });
       if (!res.ok) throw new Error(await res.text());
-      appState.applyNotebookState(await res.json());
+      applyState(await res.json());
       saveStatus = "Saved";
     } catch (error) {
       saveStatus = "Save failed";
@@ -75,7 +89,8 @@
     try {
       await fetchNotebookState(`/notebooks/${notebookId}/select`, { method: "POST" });
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
@@ -87,7 +102,8 @@
       await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
       selectorOpen = false;
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
@@ -101,7 +117,8 @@
         body: JSON.stringify({ title: notebookTitle.trim() || "New Notebook" }),
       }, "Notebook created");
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
@@ -117,7 +134,8 @@
         body: JSON.stringify({ title: pageTitle.trim() || `Page ${nb.pages.length + 1}` }),
       }, "Page created");
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
@@ -128,7 +146,8 @@
     try {
       await fetchNotebookState(`/notebooks/${nb.id}/delete`, { method: "DELETE" }, "Notebook deleted");
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
@@ -140,7 +159,8 @@
     try {
       await fetchNotebookState(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" }, "Page deleted");
     } catch (error) {
-      alert("Notebook action failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error(error);
+      alert(`Notebook action failed: ${error}`);
     }
   }
 
