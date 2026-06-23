@@ -76,6 +76,50 @@ export const settings = sqliteTable(
 
 export const profiles = settings;
 
+export const documents = sqliteTable(
+  "documents",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    sourcePath: text("source_path").notNull(),
+    sourceType: text("source_type").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("documents_source_path_idx").on(table.sourcePath),
+    index("documents_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+export const document_chunks = sqliteTable(
+  "document_chunks",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    chunkType: text("chunk_type").notNull(),
+    pageIndex: integer("page_index").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    content: text("content").notNull(),
+    startChar: integer("start_char"),
+    endChar: integer("end_char"),
+    wordCount: integer("word_count").notNull(),
+    sentenceCount: integer("sentence_count").notNull(),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown> | null>(),
+    embedding: blob("embedding", { mode: "buffer" }).notNull(),
+    embeddingModel: text("embedding_model").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("document_chunks_document_id_idx").on(table.documentId),
+    index("document_chunks_chunk_type_idx").on(table.chunkType),
+    index("document_chunks_page_idx").on(table.pageIndex),
+    index("document_chunks_document_chunk_idx").on(table.documentId, table.chunkIndex),
+  ],
+);
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
@@ -91,3 +135,9 @@ export type NewUserSession = typeof userSessions.$inferInsert;
 
 export type UserSettings = typeof settings.$inferSelect;
 export type NewUserSettings = typeof settings.$inferInsert;
+
+export type Document = typeof documents.$inferSelect;
+export type NewDocument = typeof documents.$inferInsert;
+
+export type DocumentChunk = typeof document_chunks.$inferSelect;
+export type NewDocumentChunk = typeof document_chunks.$inferInsert;

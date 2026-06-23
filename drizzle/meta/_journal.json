@@ -22,13 +22,6 @@
       "when": 1781802485550,
       "tag": "0002_woozy_justice",
       "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1782218875694,
-      "tag": "0003_panoramic_norrin_radd",
-      "breakpoints": true
     }
   ]
 }
