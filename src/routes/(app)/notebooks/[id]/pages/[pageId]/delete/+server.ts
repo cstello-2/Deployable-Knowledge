@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages, type NewNotebookPage, type NotebookPage } from "$lib/server/database/schema";
-import { loadNotebookState, setActiveNotebook } from "$notebooks/utils";
+import { loadNotebookState, setActiveNotebook } from "$routes/(app)/notebooks/utils";
 
 export const DELETE: RequestHandler = async ({ params }) => {
   const notebookId = params.id;

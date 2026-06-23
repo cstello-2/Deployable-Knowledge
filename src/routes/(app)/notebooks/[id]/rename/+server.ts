@@ -2,7 +2,7 @@ import { json, type RequestHandler } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks } from "$lib/server/database/schema";
-import { loadNotebookState } from "$notebooks/utils";
+import { loadNotebookState } from "$routes/(app)/notebooks/utils";
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
   const id = params.id;

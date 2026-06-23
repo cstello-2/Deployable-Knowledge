@@ -10,7 +10,7 @@ const config = {
   kit: {
     adapter: adapter(),
     alias: {
-      $notebooks: "src/routes/(app)/notebooks",
+      $routes: "src/routes",
     },
   }
 };

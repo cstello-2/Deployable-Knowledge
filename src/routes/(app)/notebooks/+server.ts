@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages, type NewNotebook, type NewNotebookPage } from "$lib/server/database/schema";
-import { loadNotebookState, setActiveNotebook } from "$notebooks/utils";
+import { loadNotebookState, setActiveNotebook } from "$routes/(app)/notebooks/utils";
 
 const USER_ID = "default";
 

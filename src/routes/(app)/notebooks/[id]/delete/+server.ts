@@ -2,7 +2,7 @@ import { json, type RequestHandler } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, type Notebook } from "$lib/server/database/schema";
-import { createDefaultNotebook, loadNotebookState, setActiveNotebook } from "$notebooks/utils";
+import { createDefaultNotebook, loadNotebookState, setActiveNotebook } from "$routes/(app)/notebooks/utils";
 
 const USER_ID = "default";
 
