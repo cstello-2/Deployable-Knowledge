@@ -26,6 +26,58 @@
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
+  let editingId = $state<string | null>(null);
+  let editingTitle = $state("");
+
+  function focusOnMount(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+
+  function startEdit(id: string, currentTitle: string) {
+    editingId = id;
+    editingTitle = currentTitle;
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    editingTitle = "";
+  }
+
+  async function commitEdit(type: "notebook" | "page", id: string) {
+    const title = editingTitle.trim();
+    editingId = null;
+    editingTitle = "";
+    if (!title) return;
+    if (type === "notebook") {
+      await renameNotebook(id, title);
+    } else {
+      const page = appState.activeNotebook?.pages.find((p) => p.id === id);
+      if (page) await renamePage(page, title);
+    }
+  }
+
+  async function renameNotebook(notebookId: string, title: string) {
+    const res = await fetch(`/notebooks/${notebookId}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) { showToast("Failed to rename notebook"); return; }
+    applyState(await res.json());
+  }
+
+  async function renamePage(page: NotebookPage, title: string) {
+    const nb = appState.activeNotebook;
+    if (!nb) return;
+    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) { showToast("Failed to rename page"); return; }
+    applyState(await res.json());
+  }
 
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
     appState.notebooks = data.notebooks ?? [];
@@ -218,63 +270,99 @@
 
     {#if selectorOpen && !collapsed}
       <div class="notebook-selector" data-window-action>
-        <div class="tag-menu">
-          <div class="tag-menu-title">Notebooks</div>
-          <div class="tag-menu-list">
+        <section class="selector-column">
+          <header class="selector-header">
+            <span>Notebooks</span>
+            <div class="segmented-actions">
+              <button type="button" title="Create notebook" aria-label="Create notebook" onclick={createNotebook}>
+                <Icon name="add" size={14} />
+              </button>
+              <div aria-hidden="true"></div>
+              <button
+                class="danger"
+                type="button"
+                title="Delete selected notebook"
+                aria-label="Delete selected notebook"
+                onclick={() => appState.activeNotebookId && deleteNotebook(appState.activeNotebookId)}
+              >
+                <Icon name="delete" size={14} />
+              </button>
+            </div>
+          </header>
+          <div class="selector-list">
             {#each appState.notebooks as notebook (notebook.id)}
               <button
-                class="tag-chip"
-                class:selected={notebook.id === appState.activeNotebookId}
+                class="selector-item"
+                class:active={notebook.id === appState.activeNotebookId}
                 type="button"
                 title={notebook.title}
                 onclick={() => selectNotebook(notebook.id)}
+                ondblclick={(e) => { e.stopPropagation(); startEdit(`nb-${notebook.id}`, notebook.title); }}
               >
-                <span>{notebook.title}</span>
-                <span
-                  class="tag-chip-x"
-                  aria-hidden="true"
-                  onclick={(e) => { e.stopPropagation(); deleteNotebook(notebook.id); }}
-                >
-                  <Icon name="close" size={12} />
-                </span>
+                {#if editingId === `nb-${notebook.id}`}
+                  <input
+                    class="item-edit-input"
+                    type="text"
+                    bind:value={editingTitle}
+                    use:focusOnMount
+                    onclick={(e) => e.stopPropagation()}
+                    onblur={() => commitEdit("notebook", notebook.id)}
+                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
+                  />
+                {:else}
+                  {notebook.title}
+                {/if}
               </button>
-            {:else}
-              <div class="li-subtle menu-empty">No notebooks yet.</div>
             {/each}
           </div>
-          <button class="btn btn-sm" type="button" onclick={createNotebook}>
-            <Icon name="add" size={14} /> New Notebook
-          </button>
-        </div>
+        </section>
 
-        <div class="tag-menu">
-          <div class="tag-menu-title">Pages</div>
-          <div class="tag-menu-list">
+        <section class="selector-column">
+          <header class="selector-header">
+            <span>Pages</span>
+            <div class="segmented-actions">
+              <button type="button" title="Create page" aria-label="Create page" onclick={createPage}>
+                <Icon name="add" size={14} />
+              </button>
+              <div aria-hidden="true"></div>
+              <button
+                class="danger"
+                type="button"
+                title="Delete selected page"
+                aria-label="Delete selected page"
+                onclick={() => appState.activePage && deletePage(appState.activePage)}
+              >
+                <Icon name="delete" size={14} />
+              </button>
+            </div>
+          </header>
+          <div class="selector-list">
             {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
               <button
-                class="tag-chip"
-                class:selected={page.id === appState.activeNotebook?.activePageId}
+                class="selector-item"
+                class:active={page.id === appState.activeNotebook?.activePageId}
                 type="button"
                 title={page.title}
                 onclick={() => selectPage(page)}
+                ondblclick={(e) => { e.stopPropagation(); startEdit(`pg-${page.id}`, page.title); }}
               >
-                <span>{page.title}</span>
-                <span
-                  class="tag-chip-x"
-                  aria-hidden="true"
-                  onclick={(e) => { e.stopPropagation(); deletePage(page); }}
-                >
-                  <Icon name="close" size={12} />
-                </span>
+                {#if editingId === `pg-${page.id}`}
+                  <input
+                    class="item-edit-input"
+                    type="text"
+                    bind:value={editingTitle}
+                    use:focusOnMount
+                    onclick={(e) => e.stopPropagation()}
+                    onblur={() => commitEdit("page", page.id)}
+                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
+                  />
+                {:else}
+                  {page.title}
+                {/if}
               </button>
-            {:else}
-              <div class="li-subtle menu-empty">No pages yet.</div>
             {/each}
           </div>
-          <button class="btn btn-sm" type="button" onclick={createPage}>
-            <Icon name="add" size={14} /> New Page
-          </button>
-        </div>
+        </section>
       </div>
     {/if}
 
@@ -390,13 +478,131 @@
     top: 56px;
     right: 10px;
     z-index: 100;
-    display: flex;
-    gap: 6px;
+    display: grid;
+    width: min(320px, 72vw);
+    height: min(430px, 62vh);
+    overflow: hidden;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
+    box-shadow: var(--shadow);
   }
 
-  .notebook-selector :global(.tag-menu) {
-    position: static;
-    width: min(160px, 38vw);
+  .selector-column {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .selector-column + .selector-column {
+    border-left: 1px solid var(--border);
+  }
+
+  .selector-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    min-height: 36px;
+    padding: 5px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .selector-header span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .segmented-actions {
+    display: grid;
+    width: 58px;
+    height: 24px;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+  }
+
+  .segmented-actions div {
+    background: var(--border);
+  }
+
+  .segmented-actions button {
+    display: grid;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    line-height: 1;
+    place-items: center;
+  }
+
+  .segmented-actions button:hover {
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+  }
+
+  .segmented-actions button.danger {
+    color: color-mix(in oklab, #ff6b6b 78%, var(--text));
+  }
+
+  .segmented-actions button.danger:hover {
+    background: color-mix(in oklab, #ff6b6b 12%, transparent);
+  }
+
+  .selector-list {
+    display: flex;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .selector-item {
+    width: 100%;
+    min-height: 30px;
+    padding: 7px 8px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .selector-item:hover {
+    border-color: var(--border);
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+  }
+
+  .selector-item.active {
+    border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+    background: color-mix(in oklab, var(--accent) 14%, transparent);
+  }
+
+  .item-edit-input {
+    width: 100%;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: inherit;
   }
 
   .notebook-textarea {
