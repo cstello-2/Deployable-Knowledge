@@ -559,6 +559,8 @@
   }
 
   .chat-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
