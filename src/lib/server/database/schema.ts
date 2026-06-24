@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -83,12 +84,66 @@ export const session_messages = sqliteTable(
   ],
 );
 
+export const notebook_state = sqliteTable("notebook_state", {
+  userId: text("user_id").primaryKey().default("default"),
+  activeNotebookId: text("active_notebook_id"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const notebooks = sqliteTable(
+  "notebooks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().default("default"),
+
+    title: text("title").notNull(),
+    activePageId: text("active_page_id"),
+
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("notebooks_user_idx").on(table.userId),
+    index("notebooks_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const notebook_pages = sqliteTable(
+  "notebook_pages",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("notebook_pages_notebook_idx").on(table.notebookId),
+    index("notebook_pages_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const provider_records = sqliteTable("providers", {
+  id: text("id").primaryKey(),
+  apiKey: text("api_key").notNull().default(""),
+  updatedAt: text("updated_at").notNull(),
+});
+
+
+
 export const userSessions = sqliteTable("user_sessions", {
   id: text("id").primaryKey(),
   userId: integer("user_id"),
   secretHash: text("secret_hash", { length: 128 }),
-  createdAt: integer("created_at", { mode: "timestamp" }),
-  token: text({ length: 255 }),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(unixepoch())`,
+  ),
+  token: text("token", { length: 255 }),
 });
 
 export const settings = sqliteTable(
@@ -119,6 +174,19 @@ export type NewSession = typeof sessions.$inferInsert;
 
 export type SessionMessage = typeof session_messages.$inferSelect;
 export type NewSessionMessage = typeof session_messages.$inferInsert;
+
+export type NotebookState = typeof notebook_state.$inferSelect;
+export type NewNotebookState = typeof notebook_state.$inferInsert;
+
+export type Notebook = typeof notebooks.$inferSelect;
+export type NewNotebook = typeof notebooks.$inferInsert;
+
+export type NotebookPage = typeof notebook_pages.$inferSelect;
+export type NewNotebookPage = typeof notebook_pages.$inferInsert;
+
+export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
+
+
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

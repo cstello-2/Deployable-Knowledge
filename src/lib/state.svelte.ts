@@ -1,4 +1,6 @@
 import type {
+  NotebookPage,
+  NotebookWithPages,
   PromptTemplate,
   Session,
   UserSettings,
@@ -16,6 +18,10 @@ export type Settings = {
 
 class AppState {
   currentSession = $state<Session | undefined>(undefined);
+  notebooks = $state<NotebookWithPages[]>([]);
+  activeNotebookId = $state<string | null>(null);
+  activeNotebook = $state<NotebookWithPages | null>(null);
+  activePage = $state<NotebookPage | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");
   maxTokens = $state(512);
