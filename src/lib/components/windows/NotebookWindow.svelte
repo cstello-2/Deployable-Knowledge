@@ -275,7 +275,7 @@
             <span>Notebooks</span>
             <div class="segmented-actions">
               <button type="button" title="Create notebook" aria-label="Create notebook" onclick={createNotebook}>
-                <Icon name="add" size={14} />
+                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
               <div aria-hidden="true"></div>
               <button
@@ -285,7 +285,7 @@
                 aria-label="Delete selected notebook"
                 onclick={() => appState.activeNotebookId && deleteNotebook(appState.activeNotebookId)}
               >
-                <Icon name="delete" size={14} />
+                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
               </button>
             </div>
           </header>
@@ -322,7 +322,7 @@
             <span>Pages</span>
             <div class="segmented-actions">
               <button type="button" title="Create page" aria-label="Create page" onclick={createPage}>
-                <Icon name="add" size={14} />
+                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
               <div aria-hidden="true"></div>
               <button
@@ -332,7 +332,7 @@
                 aria-label="Delete selected page"
                 onclick={() => appState.activePage && deletePage(appState.activePage)}
               >
-                <Icon name="delete" size={14} />
+                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
               </button>
             </div>
           </header>
@@ -520,33 +520,48 @@
   }
 
   .segmented-actions {
-    display: grid;
+    display: flex;
     width: 58px;
     height: 24px;
     overflow: hidden;
-    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
     border: 1px solid var(--border);
     border-radius: 8px;
     background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+    align-items: stretch;
   }
 
   .segmented-actions div {
+    width: 1px;
+    flex-shrink: 0;
     background: var(--border);
   }
 
   .segmented-actions button {
-    display: grid;
-    min-width: 0;
+    position: relative;
+    display: flex;
+    flex: 1;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--text);
     cursor: pointer;
-    line-height: 1;
-    place-items: center;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
   }
 
-  .segmented-actions button:hover {
+  .segmented-actions button::before {
+    content: '';
+    position: absolute;
+    width: 35px;
+    height: 30px;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+  }
+
+  .segmented-actions button:hover::before {
     background: color-mix(in oklab, var(--accent) 12%, transparent);
   }
 
@@ -554,8 +569,20 @@
     color: color-mix(in oklab, #ff6b6b 78%, var(--text));
   }
 
-  .segmented-actions button.danger:hover {
+  .segmented-actions button.danger:hover::before {
     background: color-mix(in oklab, #ff6b6b 12%, transparent);
+  }
+
+  .seg-icon {
+    position: relative;
+    display: block;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    transform: translateY(-3px);
   }
 
   .selector-list {
