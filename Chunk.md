@@ -1,51 +1,60 @@
-# Chunk / Embed TS Handoff
+# Chunk Handoff
 
-## What this work does
+This file is for pass-off and testing.
 
-This branch adds a Typescript chunking + embedding flow for PDF text.
+Use [Chunk-Logic.md](/Users/matthewplambeck/Desktop/Deployable-Knowledge/Chunk-Logic.md:1) for the deeper logic and design notes.
 
-Main behavior:
-- coverage-preserving semantic chunking
-- post-processing for dedupe / table handling / fallback coverage
-- chunk embeddings stored in SQLite via Drizzle
-- `documents` and `document_chunks` tables used for storage
+## What This Pipeline Produces
 
-## Main files
+- page-aware PDF extraction
+- semantic chunking in TypeScript
+- final postprocessed chunks for RAG
+- embeddings stored in SQLite via Drizzle
+- chunk storage in `documents` and `document_chunks`
 
-Core chunking:
+## Main Files
+
+Chunking:
+- [src/lib/server/providers/parse_pipeline/text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
 - [src/lib/server/providers/parse_pipeline/chunker-semantic.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
 - [src/lib/server/providers/parse_pipeline/chunk-postprocess.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
-- [src/lib/server/providers/parse_pipeline/text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
 
-Embedding / DB storage:
+Embedding and DB storage:
 - [src/lib/server/rag/embedding-model.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding-model.ts)
 - [src/lib/server/rag/embedding.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding.ts)
 - [src/lib/server/database/schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
 - [src/lib/server/database/database.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/database.ts)
 
-Test / analysis:
+Testing and analysis:
 - [src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts)
 - [output/jupyter-notebook/compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
 
-Migration files:
+Migrations:
 - [drizzle/0000_strange_saracen.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0000_strange_saracen.sql)
 - [drizzle/0001_overconfident_excalibur.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0001_overconfident_excalibur.sql)
 - [drizzle/0002_woozy_justice.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0002_woozy_justice.sql)
 - [drizzle/meta/_journal.json](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/meta/_journal.json)
 
-## Required DB tables
+## Final Outputs To Know
 
-The chunk/embed flow writes to:
+- `outputs-test/chunker-semantic-raw.json`
+  - pre-postprocessing chunk output
+  - notebook label: `semantic_raw`
+
+- `outputs-test/chunker-semantic.json`
+  - final postprocessed chunk output
+  - notebook label: `semantic_ts`
+  - this is the version intended for embedding and DB storage
+  - json file created for testing and examination 
+
+## Required Tables
+
+The chunk/embed path writes to:
+
 - `documents`
 - `document_chunks`
 
-`document_chunks` stores:
-- chunk text
-- metadata JSON text
-- embedding BLOB
-- embedding model name
-
-## First-time setup
+## First-Time Setup
 
 Run from:
 
@@ -59,7 +68,7 @@ Install JS deps:
 npm install
 ```
 
-## Rebuild DB from scratch
+## Rebuild DB From Scratch
 
 If starting clean:
 
@@ -73,10 +82,10 @@ Preferred migration command:
 npm run db:migrate
 ```
 
-If `drizzle-kit migrate` hangs or does not create tables, apply the SQL files directly:
+If that hangs or does not create the chunk tables, apply SQL directly:
 
 ```bash
-python3 - <<'PY'
+/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
 import sqlite3
 from pathlib import Path
 
@@ -95,7 +104,7 @@ PY
 Quick DB check:
 
 ```bash
-python3 - <<'PY'
+/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
 import sqlite3
 conn = sqlite3.connect("app.db")
 for row in conn.execute("select name from sqlite_master where type='table' order by name"):
@@ -104,12 +113,13 @@ PY
 ```
 
 Expected chunk tables:
+
 - `documents`
 - `document_chunks`
 
-## Run chunking test
+## Run Chunking Test
 
-Allow model download on first run:
+Use this to regenerate both test JSON files.
 
 ```bash
 SEMANTIC_EMBED_ALLOW_REMOTE=1 \
@@ -117,16 +127,27 @@ CHUNK_OUTPUT_PATH=/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-te
 node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts
 ```
 
-Expected result:
-- writes `outputs-test/chunker-semantic.json`
-- writes `outputs-test/chunker-semantic-raw.json`
-- current handbook run should be about `223` final chunks
+Expected outputs:
 
-## Run end-to-end ingest test
+- `outputs-test/chunker-semantic-raw.json`
+- `outputs-test/chunker-semantic.json`
 
-This tests:
+Current handbook test shape:
+
+- about `218` raw chunks
+- about `218` final chunks
+
+Important:
+
+- first run may need `SEMANTIC_EMBED_ALLOW_REMOTE=1`
+- later runs can use the local model cache if already warm
+
+## Run End-to-End Ingest Test
+
+This runs:
+
 - extract
-- semantic chunk
+- chunk
 - postprocess
 - embed
 - insert into DB
@@ -157,15 +178,15 @@ Expected result shape:
 ```json
 {
   "documentId": "...",
-  "chunkCount": 223,
+  "chunkCount": 218,
   "embeddingModel": "Xenova/all-MiniLM-L6-v2"
 }
 ```
 
-## Verify rows were inserted
+## Verify DB Rows
 
 ```bash
-python3 - <<'PY'
+/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
 import sqlite3
 conn = sqlite3.connect("app.db")
 print("documents", conn.execute("select count(*) from documents").fetchone()[0])
@@ -173,34 +194,65 @@ print("document_chunks", conn.execute("select count(*) from document_chunks").fe
 PY
 ```
 
-## Embedding model notes
+Expected:
 
-Current default model:
-- `Xenova/all-MiniLM-L6-v2`
+- `documents` should increase or stay at `1` for the same source path
+- `document_chunks` should match the final chunk count for that document
 
-Current behavior:
-- local cache path is under `tmp_model/transformersjs`
-- remote download is blocked unless:
+## Notebook Use
 
-```bash
-SEMANTIC_EMBED_ALLOW_REMOTE=1
-```
+Notebook:
+- [output/jupyter-notebook/compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
 
-Use that env var on first run if the model is not cached yet.
+Use it for:
 
-## Important pass-off notes
+- chunk-size distribution checks
+- source coverage checks
+- spot-checking individual pages
+- comparing `semantic_raw` vs `semantic_ts`
 
-- `schema.ts` must stay in sync with the Drizzle SQL migrations.
-- If `embedding.ts` throws `does not provide an export named 'document_chunks'`, check [schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts).
-- If ingest throws `no such table: documents`, the DB was not migrated correctly.
-- The chunk/embed flow depends on:
-  - `documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf`
-  - JS dependencies being installed
-  - model access or a warm local cache
+Dataset meanings:
 
-## Files most likely needed in a pass-off commit
+- `cleaned_source`
+  - cleaned extracted page text baseline
+- `semantic_raw`
+  - pre-postprocessing output
+- `semantic_ts`
+  - final postprocessed output intended for RAG
+- `python_legacy`
+  - reference only
 
-- `.gitignore`
+If the notebook kernel cannot find `node`, the setup cell now points to `/opt/homebrew/bin/node` first.
+
+## Current Verification Notes
+
+On the current handbook test:
+
+- `semantic_raw` keeps `100%` of unique source words
+- `semantic_ts` also keeps `100%` of unique source words
+- final chunk count is currently about `218`
+- page `127` is present in the final output
+
+Remaining final drops are mainly all-caps figure-label pages because of the final all-caps filter.
+
+## Common Failure Modes
+
+- `Error: local_files_only=true ... file was not found locally`
+  - the embedding model is not cached locally and remote download is disabled
+  - run once with `SEMANTIC_EMBED_ALLOW_REMOTE=1`
+
+- `no such table: documents`
+  - migrations were not applied correctly
+
+- `does not provide an export named 'document_chunks'`
+  - schema/export mismatch in [schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
+
+- notebook `FileNotFoundError` for `node`
+  - notebook kernel PATH did not include Node
+  - the notebook now uses `/opt/homebrew/bin/node` first
+
+## Files To Need For Pass Off Comit
+
 - `package.json`
 - `package-lock.json`
 - `drizzle.config.ts`
@@ -211,16 +263,16 @@ Use that env var on first run if the model is not cached yet.
 - `drizzle/meta/0000_snapshot.json`
 - `src/lib/server/database/schema.ts`
 - `src/lib/server/database/database.ts`
-- `src/lib/server/providers/parse_pipeline/chunk-postprocess.ts`
-- `src/lib/server/providers/parse_pipeline/chunker-semantic.ts`
-- `src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts`
-- `src/lib/server/providers/parse_pipeline/chunker-test.ts`
-- `src/lib/server/providers/parse_pipeline/chunker.ts`
 - `src/lib/server/providers/parse_pipeline/text-extract.ts`
+- `src/lib/server/providers/parse_pipeline/chunker-semantic.ts`
+- `src/lib/server/providers/parse_pipeline/chunk-postprocess.ts`
+- `src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts`
 - `src/lib/server/rag/embedding-model.ts`
 - `src/lib/server/rag/embedding.ts`
+- `Chunk.md`
+- `Chunk-Logic.md`
 - `output/jupyter-notebook/compare-chunking-outputs.ipynb`
 
 Optional artifacts:
-- `outputs-test/*`
 
+- `outputs-test/*`

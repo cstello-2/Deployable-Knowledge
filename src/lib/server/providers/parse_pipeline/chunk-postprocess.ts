@@ -69,16 +69,11 @@ function isAllCaps(text: string, threshold: number = 0.8): boolean {
   return upperCount / cleaned.length >= threshold;
 }
 
-// Catch obvious visual noise like ellipses or separator dashes.
-function hasRepeatedSubstring(text: string): boolean {
-  const chars = text.replace(/\s+/g, "");
-  return /\.{3,}|-{3,}|_{3,}/.test(chars);
-}
-
 // Final keep/drop rule from the Python retriever flow.
 function keepChunk(text: string, filterChunks: boolean, minWords: number): boolean {
   if (isTableChunk(text)) return true;
-  if (filterChunks && (isAllCaps(text) || hasRepeatedSubstring(text))) {
+  // Potential future change: only drop when the chunk is short and mostly punctuation/separators.
+  if (filterChunks && isAllCaps(text)) {
     return false;
   }
 

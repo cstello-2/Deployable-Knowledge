@@ -143,7 +143,7 @@ function looksLikeLabelLine(text: string): boolean {
     titleishWords >= Math.max(2, Math.ceil(words.length / 2)));}
 
 // Removes short trailing page refs from label style lines
-// ex: "Army Administration 14" -> "Army Administration"
+// ex: "Army Administration 67" -> "Army Administration"
 function stripTrailingShortNumber(text: string): string {
   const parts = text.trim().split(/\s+/);
   const tail = parts.at(-1) ?? "";
@@ -197,8 +197,7 @@ function endsWithRepeatedInitials(text: string): boolean {
   if (index < 0) return true;
 
   const boundary = snippet[index] ?? "";
-  return boundary === " " || boundary === "(";
-}
+  return boundary === " " || boundary === "(";}
 
 // Remove repeated running headers/footers but try to keep useful anchors such as Table/Figure labels
 export function cleanPageText(text: string): string {
@@ -210,8 +209,7 @@ export function cleanPageText(text: string): string {
       if (!cleaned) return "";
 
       if (!cleaned || isShortNumericText(cleaned)) {
-        return "";
-      }
+        return "";}
 
       if (startsWithBullet(cleaned)) {
         let index = 0;
@@ -260,8 +258,7 @@ function wordCount(text: string): number {
       count += 1;
       inWord = true;
     }}
-  return count;
-}
+  return count;}
 
 // Rollover from python pipeline to remove very small chunks
 function shouldKeepChunk(text: string, minWords: number): boolean {
