@@ -113,21 +113,18 @@
     showToast("Page created");
   }
 
-  async function deleteActiveNotebook() {
-    const nb = appState.activeNotebook;
-    if (!nb) return;
-    if (!window.confirm(`Are you sure you want to delete this notebook?\n\n${nb.title}`)) return;
-    const res = await fetch(`/notebooks/${nb.id}/delete`, { method: "DELETE" });
+  async function deleteNotebook(notebookId: string) {
+    const nb = appState.notebooks.find((n) => n.id === notebookId);
+    if (!nb || !window.confirm(`Delete "${nb.title}"?`)) return;
+    const res = await fetch(`/notebooks/${notebookId}/delete`, { method: "DELETE" });
     if (!res.ok) { showToast("Failed to delete notebook"); return; }
     applyState(await res.json());
     showToast("Notebook deleted");
   }
 
-  async function deleteActivePage() {
+  async function deletePage(page: NotebookPage) {
     const nb = appState.activeNotebook;
-    const page = appState.activePage;
-    if (!nb || !page) return;
-    if (!window.confirm(`Are you sure you want to delete this page?\n\n${page.title}`)) return;
+    if (!nb || !window.confirm(`Delete "${page.title}"?`)) return;
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" });
     if (!res.ok) { showToast("Failed to delete page"); return; }
     applyState(await res.json());
@@ -156,9 +153,9 @@
   }
 
   async function appendTextFromChat(event: Event) {
-    const text = String((event as CustomEvent<{ text?: string }>).detail?.text ?? "").trim();
-    if (!text || !appState.activePage) return;
-    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text}` : text;
+    const { text } = (event as CustomEvent<{ text: string }>).detail;
+    if (!text?.trim() || !appState.activePage) return;
+    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text.trim()}` : text.trim();
     await saveCurrentPage();
     saveStatus = "Added from chat";
   }
@@ -221,87 +218,63 @@
 
     {#if selectorOpen && !collapsed}
       <div class="notebook-selector" data-window-action>
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Notebooks</span>
-
-            <div class="segmented-actions">
-              <button
-                type="button"
-                title="Create notebook"
-                aria-label="Create notebook"
-                onclick={createNotebook}
-              >
-                +
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected notebook"
-                aria-label="Delete selected notebook"
-                onclick={deleteActiveNotebook}
-              >
-                ×
-              </button>
-            </div>
-          </header>
-
-          <div class="selector-list">
+        <div class="tag-menu">
+          <div class="tag-menu-title">Notebooks</div>
+          <div class="tag-menu-list">
             {#each appState.notebooks as notebook (notebook.id)}
               <button
-                class="selector-item"
-                class:active={notebook.id === appState.activeNotebookId}
+                class="tag-chip"
+                class:selected={notebook.id === appState.activeNotebookId}
                 type="button"
                 title={notebook.title}
                 onclick={() => selectNotebook(notebook.id)}
               >
-                {notebook.title}
+                <span>{notebook.title}</span>
+                <span
+                  class="tag-chip-x"
+                  aria-hidden="true"
+                  onclick={(e) => { e.stopPropagation(); deleteNotebook(notebook.id); }}
+                >
+                  <Icon name="close" size={12} />
+                </span>
               </button>
+            {:else}
+              <div class="li-subtle menu-empty">No notebooks yet.</div>
             {/each}
           </div>
-        </section>
+          <button class="btn btn-sm" type="button" onclick={createNotebook}>
+            <Icon name="add" size={14} /> New Notebook
+          </button>
+        </div>
 
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Pages</span>
-
-            <div class="segmented-actions">
-              <button
-                type="button"
-                title="Create page"
-                aria-label="Create page"
-                onclick={createPage}
-              >
-                +
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected page"
-                aria-label="Delete selected page"
-                onclick={deleteActivePage}
-              >
-                ×
-              </button>
-            </div>
-          </header>
-
-          <div class="selector-list">
+        <div class="tag-menu">
+          <div class="tag-menu-title">Pages</div>
+          <div class="tag-menu-list">
             {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
               <button
-                class="selector-item"
-                class:active={page.id === appState.activeNotebook?.activePageId}
+                class="tag-chip"
+                class:selected={page.id === appState.activeNotebook?.activePageId}
                 type="button"
                 title={page.title}
                 onclick={() => selectPage(page)}
               >
-                {page.title}
+                <span>{page.title}</span>
+                <span
+                  class="tag-chip-x"
+                  aria-hidden="true"
+                  onclick={(e) => { e.stopPropagation(); deletePage(page); }}
+                >
+                  <Icon name="close" size={12} />
+                </span>
               </button>
+            {:else}
+              <div class="li-subtle menu-empty">No pages yet.</div>
             {/each}
           </div>
-        </section>
+          <button class="btn btn-sm" type="button" onclick={createPage}>
+            <Icon name="add" size={14} /> New Page
+          </button>
+        </div>
       </div>
     {/if}
 
@@ -417,122 +390,13 @@
     top: 56px;
     right: 10px;
     z-index: 100;
-    display: grid;
-    width: min(320px, 72vw);
-    height: min(430px, 62vh);
-    overflow: hidden;
-    grid-template-columns: 1fr 1fr;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
-  }
-
-  .selector-column {
     display: flex;
-    min-width: 0;
-    min-height: 0;
-    flex-direction: column;
-  }
-
-  .selector-column + .selector-column {
-    border-left: 1px solid var(--border);
-  }
-
-  .selector-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px;
-    min-height: 36px;
-    padding: 5px;
-    border-bottom: 1px solid var(--border);
-    align-items: center;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 700;
   }
 
-  .selector-header span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .segmented-actions {
-    display: grid;
-    width: 58px;
-    height: 24px;
-    overflow: hidden;
-    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
-  }
-
-  .segmented-actions div {
-    background: var(--border);
-  }
-
-  .segmented-actions button {
-    display: grid;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 15px;
-    line-height: 1;
-    place-items: center;
-  }
-
-  .segmented-actions button:hover {
-    background: color-mix(in oklab, var(--accent) 12%, transparent);
-  }
-
-  .segmented-actions button.danger {
-    color: color-mix(in oklab, #ff6b6b 78%, var(--text));
-    font-size: 17px;
-  }
-
-  .segmented-actions button.danger:hover {
-    background: color-mix(in oklab, #ff6b6b 12%, transparent);
-  }
-
-  .selector-list {
-    display: flex;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 6px;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .selector-item {
-    width: 100%;
-    min-height: 30px;
-    padding: 7px 8px;
-    overflow: hidden;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12px;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .selector-item:hover {
-    border-color: var(--border);
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
-  }
-
-  .selector-item.active {
-    border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
+  .notebook-selector :global(.tag-menu) {
+    position: static;
+    width: min(160px, 38vw);
   }
 
   .notebook-textarea {
