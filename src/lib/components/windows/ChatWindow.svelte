@@ -257,6 +257,7 @@
           {:else}
             {message.content}
           {/if}
+          {message.content}
         </div>
       {/each}
 
@@ -408,7 +409,6 @@
 
   .msg-md {
     min-width: 0;
-    max-width: 100%;
     min-height: 1em;
     overflow-wrap: anywhere;
   }
@@ -559,8 +559,6 @@
   }
 
   .chat-input {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
