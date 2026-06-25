@@ -1,9 +1,12 @@
+import { sql } from "drizzle-orm";
 import {
-  blob, index,
+  blob,
+  index,
   integer,
   real,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -13,6 +16,39 @@ export const users = sqliteTable("users", {
   salt: text({ length: 128 }),
   lastLogin: integer("last_login", { mode: "timestamp" }),
 });
+
+export const promptTemplates = sqliteTable(
+  "prompt_templates",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name", { length: 255 }).notNull(),
+    description: text("description", { length: 1024 }).notNull().default(""),
+    systemPrompt: text("system_prompt").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("prompt_templates_user_idx").on(table.userId),
+    index("prompt_templates_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    providerId: text("provider_id", { length: 128 }).notNull(),
+    apiKey: text("api_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("api_keys_provider_idx").on(table.providerId),
+  ],
+);
 
 export const sessions = sqliteTable(
   "sessions",
@@ -49,12 +85,60 @@ export const session_messages = sqliteTable(
   ],
 );
 
+export const notebook_state = sqliteTable("notebook_state", {
+  userId: text("user_id").primaryKey().default("default"),
+  activeNotebookId: text("active_notebook_id"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const notebooks = sqliteTable(
+  "notebooks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().default("default"),
+    title: text("title").notNull(),
+    activePageId: text("active_page_id"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("notebooks_user_idx").on(table.userId),
+    index("notebooks_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const notebook_pages = sqliteTable(
+  "notebook_pages",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("notebook_pages_notebook_idx").on(table.notebookId),
+    index("notebook_pages_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const provider_records = sqliteTable("providers", {
+  id: text("id").primaryKey(),
+  apiKey: text("api_key").notNull().default(""),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const userSessions = sqliteTable("user_sessions", {
   id: text("id").primaryKey(),
   userId: integer("user_id"),
   secretHash: text("secret_hash", { length: 128 }),
-  createdAt: integer("created_at", { mode: "timestamp" }),
-  token: text({ length: 255 }),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(unixepoch())`,
+  ),
+  token: text("token", { length: 255 }),
 });
 
 export const settings = sqliteTable(
@@ -67,6 +151,10 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
+    promptTemplateId: text("prompt_template_id").references(
+      () => promptTemplates.id,
+      { onDelete: "set null" },
+    ),
     prompt: text({ length: 1024 }),
     persona: text({ length: 1024 }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
@@ -126,9 +214,26 @@ export type NewSession = typeof sessions.$inferInsert;
 export type SessionMessage = typeof session_messages.$inferSelect;
 export type NewSessionMessage = typeof session_messages.$inferInsert;
 
+export type Notebook = typeof notebooks.$inferSelect;
+export type NewNotebook = typeof notebooks.$inferInsert;
+
+export type NotebookState = typeof notebook_state.$inferSelect;
+export type NewNotebookState = typeof notebook_state.$inferInsert;
+
+export type NotebookPage = typeof notebook_pages.$inferSelect;
+export type NewNotebookPage = typeof notebook_pages.$inferInsert;
+
+export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type SafeUser = Omit<User, "password" | "salt" | "lastLogin">;
+
+export type PromptTemplate = typeof promptTemplates.$inferSelect;
+export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export type UserSession = typeof userSessions.$inferSelect;
 export type NewUserSession = typeof userSessions.$inferInsert;
