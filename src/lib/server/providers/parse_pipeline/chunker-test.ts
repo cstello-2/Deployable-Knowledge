@@ -1,11 +1,13 @@
-import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { chunkPages } from "./chunker";
-import type { Chunk, Source } from "./text-extract";
+import { TextExtract, type Source } from "./text-extract";
 
-const pdfPath =
-  "/Users/matthewplambeck/Desktop/Deployable-Knowledge/documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf";
+const pdfPath = process.argv[2] ?? process.env.CHUNK_TEST_PDF;
+
+if (!pdfPath) {
+  throw new Error("Pass a PDF path as the first argument or set CHUNK_TEST_PDF.");
+}
 
 const source: Source = {
   title: basename(pdfPath),
@@ -13,32 +15,10 @@ const source: Source = {
   path: pdfPath,
 };
 
-const pages = JSON.parse(
-  execFileSync(
-    "python3",
-    [
-      "-c",
-      [
-        "import json, sys",
-        "from pypdf import PdfReader",
-        "reader = PdfReader(sys.argv[1])",
-        "print(json.dumps([page.extract_text() or '' for page in reader.pages]))",
-      ].join("; "),
-      pdfPath,
-    ],
-    { encoding: "utf8" },
-  ),
-) as string[];
+const pages = await TextExtract(source);
 
 const chunks = chunkPages(
-  pages.map(
-    (content, pageIndex): Chunk => ({
-      chunkType: "TEXT",
-      source,
-      pageIndex,
-      content,
-    }),
-  ),
+  pages,
   {
     maxChars: 80,
     minWords: 3,

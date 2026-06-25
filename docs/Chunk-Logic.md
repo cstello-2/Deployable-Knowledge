@@ -497,7 +497,7 @@ This is the most important distinction when reading the notebook.
 ## Notebook Interpretation
 
 File:
-- [compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
+- Historical notebook comparisons were removed from the repo artifact tree; regenerate analysis outputs outside the repo when needed.
 
 ### Current datasets in the notebook
 

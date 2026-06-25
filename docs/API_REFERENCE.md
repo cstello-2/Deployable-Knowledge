@@ -24,7 +24,7 @@
 | `/corpus/bulk` | POST | JSON `{ "sources": [...], "add_tags"?, "remove_tags"?, "active"? }` |
 | `/corpus/activate-by-tags` | POST | JSON `{ "tags": [...] }` — set **active** for every source that contains **all** listed tags; other sources’ `active` flags are unchanged |
 | `/corpus/deactivate-all` | POST | Mark every ingested source inactive for RAG |
-| `/corpus/clear-all` | POST | Clear ChromaDB collection, registry source entries, and uploaded files under `documents/` |
+| `/corpus/clear-all` | POST | Clear the local corpus registry and uploaded document state |
 
 `GET /documents` returns each source with `segments`, `tags`, and `active` from the SQL-backed corpus registry.
 

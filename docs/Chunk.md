@@ -2,7 +2,7 @@
 
 This file is for pass-off and testing.
 
-Use [Chunk-Logic.md](/Users/matthewplambeck/Desktop/Deployable-Knowledge/Chunk-Logic.md:1) for the deeper logic and design notes.
+Use [Chunk-Logic.md](/Users/matthewplambeck/Desktop/Deployable-Knowledge/docs/Chunk-Logic.md:1) for the deeper logic and design notes.
 
 ## What This Pipeline Produces
 
@@ -25,27 +25,20 @@ Embedding and DB storage:
 - [src/lib/server/database/schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
 - [src/lib/server/database/database.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/database.ts)
 
-Testing and analysis:
+Testing:
 - [src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts)
-- [output/jupyter-notebook/compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
-
-Migrations:
-- [drizzle/0000_strange_saracen.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0000_strange_saracen.sql)
-- [drizzle/0001_overconfident_excalibur.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0001_overconfident_excalibur.sql)
-- [drizzle/0002_woozy_justice.sql](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/0002_woozy_justice.sql)
-- [drizzle/meta/_journal.json](/Users/matthewplambeck/Desktop/Deployable-Knowledge/drizzle/meta/_journal.json)
 
 ## Final Outputs To Know
 
-- `outputs-test/chunker-semantic-raw.json`
+- `chunker-semantic-raw.json`
   - pre-postprocessing chunk output
   - notebook label: `semantic_raw`
 
-- `outputs-test/chunker-semantic.json`
+- `chunker-semantic.json`
   - final postprocessed chunk output
   - notebook label: `semantic_ts`
   - this is the version intended for embedding and DB storage
-  - json file created for testing and examination 
+  - json file created wherever `CHUNK_OUTPUT_PATH` points
 
 ## Required Tables
 
@@ -76,29 +69,10 @@ If starting clean:
 rm -f app.db
 ```
 
-Preferred migration command:
+Preferred schema command:
 
 ```bash
-npm run db:migrate
-```
-
-If that hangs or does not create the chunk tables, apply SQL directly:
-
-```bash
-/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
-import sqlite3
-from pathlib import Path
-
-conn = sqlite3.connect("app.db")
-for path in [
-    Path("drizzle/0000_strange_saracen.sql"),
-    Path("drizzle/0001_overconfident_excalibur.sql"),
-    Path("drizzle/0002_woozy_justice.sql"),
-]:
-    conn.executescript(path.read_text())
-conn.commit()
-print("Applied migrations manually.")
-PY
+npm run db:push
 ```
 
 Quick DB check:
@@ -123,8 +97,8 @@ Use this to regenerate both test JSON files.
 
 ```bash
 SEMANTIC_EMBED_ALLOW_REMOTE=1 \
-CHUNK_OUTPUT_PATH=/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-test/chunker-semantic.json \
-node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts
+CHUNK_OUTPUT_PATH=/tmp/chunker-semantic.json \
+node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts /path/to/file.pdf
 ```
 
 
@@ -147,7 +121,7 @@ import { chunkPages } from './src/lib/server/providers/parse_pipeline/chunker-se
 import { postprocessChunks } from './src/lib/server/providers/parse_pipeline/chunk-postprocess.ts';
 import { storeDocumentChunks } from './src/lib/server/rag/embedding.ts';
 
-const pdfPath = '/Users/matthewplambeck/Desktop/Deployable-Knowledge/documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf';
+const pdfPath = '/path/to/file.pdf';
 const source = { title: basename(pdfPath), type: 'PDF', path: pdfPath };
 
 const pages = await TextExtract(source);
@@ -190,12 +164,6 @@ Expected:
 
 - `package.json`
 - `package-lock.json`
-- `drizzle.config.ts`
-- `drizzle/0000_strange_saracen.sql`
-- `drizzle/0001_overconfident_excalibur.sql`
-- `drizzle/0002_woozy_justice.sql`
-- `drizzle/meta/_journal.json`
-- `drizzle/meta/0000_snapshot.json`
 - `src/lib/server/database/schema.ts`
 - `src/lib/server/database/database.ts`
 - `src/lib/server/providers/parse_pipeline/text-extract.ts`
@@ -204,10 +172,5 @@ Expected:
 - `src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts`
 - `src/lib/server/rag/embedding-model.ts`
 - `src/lib/server/rag/embedding.ts`
-- `Chunk.md`
-- `Chunk-Logic.md`
-- `output/jupyter-notebook/compare-chunking-outputs.ipynb`
-
-Optional artifacts:
-
-- `outputs-test/*`
+- `docs/Chunk.md`
+- `docs/Chunk-Logic.md`

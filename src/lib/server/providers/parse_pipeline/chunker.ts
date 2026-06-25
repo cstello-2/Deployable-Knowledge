@@ -885,7 +885,5 @@ export function chunkPages(
 
 
 
-// /Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-test
-
-// CHUNK_OUTPUT_PATH=/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-test/chunker.json npx tsx src/lib/server/providers/parse_pipeline/chunker-test.ts
-// CHUNK_OUTPUT_PATH=/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-test/chunker-semantic.json npx tsx src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts
+// CHUNK_OUTPUT_PATH=/tmp/chunker.json npx tsx src/lib/server/providers/parse_pipeline/chunker-test.ts /path/to/file.pdf
+// CHUNK_OUTPUT_PATH=/tmp/chunker-semantic.json npx tsx src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts /path/to/file.pdf

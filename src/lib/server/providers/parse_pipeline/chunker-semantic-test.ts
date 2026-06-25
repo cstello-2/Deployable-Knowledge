@@ -1,11 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { chunkPages } from "./chunker-semantic";
 import { postprocessChunks } from "./chunk-postprocess";
 import { TextExtract, type Source } from "./text-extract";
 
-const pdfPath =
-  "/Users/matthewplambeck/Desktop/Deployable-Knowledge/documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf";
+const pdfPath = process.argv[2] ?? process.env.CHUNK_TEST_PDF;
+
+if (!pdfPath) {
+  throw new Error("Pass a PDF path as the first argument or set CHUNK_TEST_PDF.");
+}
 
 const source: Source = {
   title: basename(pdfPath),
@@ -30,7 +34,7 @@ const chunks = postprocessChunks(pages, semanticChunks, {
 
 const outputPath =
   process.env.CHUNK_OUTPUT_PATH ??
-  "/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-test/chunker-semantic.json";
+  join(tmpdir(), "chunker-semantic.json");
 const rawOutputPath = outputPath.replace(/\.json$/i, "-raw.json");
 
 mkdirSync(dirname(outputPath), { recursive: true });
