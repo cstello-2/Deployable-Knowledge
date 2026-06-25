@@ -1,29 +1,51 @@
-import * as path from 'path';
-import * as fs from 'fs';
+// @ts-ignore
 import BM25Engine from 'wink-bm25-text-search';
 import { stemmer } from 'stemmer';
 import { eng } from 'stopword';
 
-// Note: Ensure your custom PDF extractors are imported correctly
-// import { parsePdf, extractPdfImages } from './core/rag/chunking';
+// --- DATA CONTRACT INTERFACES ---
 
-// Interfaces for structured data
-interface PageTextData {
-    text: string;
-    page: number;
+interface Source 
+{
+    path: string;
 }
 
-interface PageImageData {
-    page: number;
-    [key: string]: any; 
+interface ChunkMetadata 
+{
+    startChar: number;
+    endChar: number;
+    wordCount: number;
+    sentenceCount: number;
+}
+
+interface ChunkRecord 
+{
+    chunkId: string;  
+    chunkType: "TEXT" | "TABLE" | "IMAGE";
+    source: Source;
+    pageIndex: number;
+    chunkIndex: number; 
+    content: string;
+    metadata: ChunkMetadata;
+}
+
+interface Document 
+{
+    page: string | number;
+    source: string;
+    text: string;
+    segmentID: string;
+    score?: number;
+    [key: string]: any; // Allows for any other dynamic fields you might have
 }
 
 // Global BM25 Engine Setup
 const engine = BM25Engine();
 const stopWordsSet = new Set(eng); // Python-equivalent English stopwords
 
+// Configure engine to index the 'content' field from our chunk assets
 engine.defineConfig({
-    fldWeights: { text: 1 }
+    fldWeights: { content: 1 }
 });
 
 // Text prep pipeline: Clean -> Tokenize -> Filter Stopwords -> Stem
@@ -35,142 +57,51 @@ engine.definePrepTasks([
         .map(token => stemmer(token))
 ]);
 
-// Stub functions simulating your custom PDF utilities
-async function parsePdf(filePath: string): Promise<PageTextData[]> {
-    // Your actual PDF text extraction implementation goes here
-    return [];
-}
+// Registry map to act as our in-memory dictionary
+// Keeps track of the whole ChunkRecord using the unique chunkId string as the primary key
+const chunkRegistry = new Map<string, ChunkRecord>();
 
-async function extractPdfImages(filePath: string): Promise<PageImageData[]> {
-    // Your actual PDF image extraction implementation goes here
-    return [];
-}
+// Indexes the semantic chunks into the Wink BM25 engine while keeping our tracking references aligned
+export function indexSemanticChunks(chunks: ChunkRecord[]): void 
+{
+    console.log(`Indexing ${chunks.length} semantic chunks into BM25 engine...`);
 
-// Utility to suppress console.log (equivalent to suppress_stdout)
-async function suppressStdout<T>(fn: () => Promise<T>): Promise<T> {
-    const originalLog = console.log;
-    console.log = () => {}; 
-    try {
-        return await fn();
-    } finally {
-        console.log = originalLog; 
-    }
-}
-
-async function getCorpus() {
-    console.log("Getting corpus...");
-    
-    const corpusGet: PageTextData[][] = [];
-    const corpusPicGet: PageImageData[][] = [];
-    
-    const baseDir = process.cwd();
-    const documentsDir = path.join(baseDir, 'documents');
-    
-    if (fs.existsSync(documentsDir)) {
-        const files = fs.readdirSync(documentsDir);
-        const pdfFiles = files.filter((file: string) => file.endsWith('.pdf'));
+    chunks.forEach((chunk) => {
+        // Save the chunk in our registry map so we can look up page and source attributes during queries
+        chunkRegistry.set(chunk.chunkId, chunk);
         
-        for (const file of pdfFiles) {
-            const filePath = path.join(documentsDir, file);
-            
-            corpusGet.push(await parsePdf(filePath));
-            
-            const picData = await suppressStdout(() => extractPdfImages(filePath));
-            corpusPicGet.push(picData);
-        }
-    }
-
-    const corpusText: string[] = [];
-    const corpusPageNum: number[] = [];
-    const corpusPicData: PageImageData[] = [];
-    
-    for (const pageDict of corpusGet) {
-        for (const item of pageDict) {
-            corpusText.push(item.text);
-            corpusPageNum.push(item.page);
-        }
-    }
-
-    for (const picInfo of corpusPicGet) {
-        corpusPicData.push(...picInfo);
-    }
-    
-    return { corpusText, corpusPageNum, corpusPicData };
-}
-
-function testQuery(): string {
-    console.log("Getting query...");
-    return "How do I perform a 9-line when reporting an injured soldier?";
-}
-
-function tokenizeCorpus(corpusText: string[]): void {
-    console.log("Tokenizing and indexing corpus...");
-    
-    corpusText.forEach((text, index) => {
-        // Wink BM25 indexes documents as objects with unique string keys
-        engine.addDoc({ text: text }, index.toString());
+        // Feed the text field content into Wink tracked under its unique SHA-256 chunkId
+        engine.addDoc({ content: chunk.content }, chunk.chunkId);
     });
     
+    // Consolidate triggers the final TF/IDF matrix compilation steps
     engine.consolidate();
+    console.log("BM25 Indexing completed successfully.");
 }
 
-function ranker(queryText: string) {
-    console.log("Ranking results...");
-    // Wink automatically tokenizes, removes stopwords, and stems the query internally
-    const rawResults = engine.search(queryText, 10);
+// Query engine utility that formats matches into standard Document shapes for mathRerank
+export function searchBM25(queryText: string, topK: number = 5): Document[] 
+{
+    // Search returns an array of tuples like: [ ['chunkId_1', score_1], ['chunkId_2', score_2] ]
+    const rawResults = engine.search(queryText, topK);
     
-    // Format to match Python's [results, scores] matrix structure
-    const results = [rawResults.map(r => parseInt(r[0]))];
-    const scores = [rawResults.map(r => r[1])];
-    
-    return { results, scores };
-}
-
-function finalResults(
-    results: number[][], 
-    scores: number[][], 
-    corpusData: number[], 
-    picData: PageImageData[]
-) {
-    console.log("Final results:\n");
-    
-    const queryResults = results[0];
-    const queryScores = scores[0];
-
-    if (!queryResults || queryResults.length === 0) {
-        console.log("No matching results found.");
-        return;
-    }
-
-    for (let i = 0; i < queryResults.length; i++) {
-        const docIndex = queryResults[i];
-        const score = queryScores[i];
+    // Explicitly destructure the tuple and type it as [string, number]
+    return rawResults.map(([chunkId, score]: [string, number]) => {
         
-        console.log(`Rank ${i + 1} (score: ${score.toFixed(2)}): Document Index ${docIndex}`);
-        console.log("Page number: " + corpusData[docIndex]);
-
-        for (const x of picData) {
-            if (x.page === corpusData[docIndex]) {
-                console.log("Associated Image Data:", x);
-            }
+        // Grab the original chunk details back from our tracking registry dictionary
+        const originalChunk = chunkRegistry.get(chunkId);
+        
+        if (!originalChunk) 
+        {
+            throw new Error(`Pipeline Error: Chunk ID ${chunkId} was missing from active tracker mapping dictionary.`);
         }
-        console.log(""); // Empty line for spacing
-    }
-}
 
-async function main() {
-    // 1. Load data
-    const { corpusText, corpusPageNum, corpusPicData } = await getCorpus();
-    const query = testQuery();
-    
-    // 2. Index & Search
-    tokenizeCorpus(corpusText);
-    const { results, scores } = ranker(query);
-    
-    // 3. Display Outputs
-    finalResults(results, scores, corpusPageNum, corpusPicData);
-    console.log("Done");
+        return {
+            segmentID: chunkId,
+            text: originalChunk.content,
+            source: originalChunk.source.path,
+            page: originalChunk.pageIndex,
+            score: score
+        };
+    });
 }
-
-// Run script
-main();
