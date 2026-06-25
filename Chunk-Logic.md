@@ -1,38 +1,8 @@
 # Chunk Logic
 
-This document explains the current TypeScript chunking pipeline in this repo:
+Markdown file to document the Deployable-Knowledge Chunking & Embedding Pipeline
 
-- what each stage does
-- why the stage exists
-- what data shape comes out of the stage
-- how the final chunks get embedded and stored in SQLite
-
-This is a logic/design doc, not a setup guide.
-
-## Goal
-
-The current pipeline is optimized first for **coverage and usable retrieval text**, not for matching the legacy Python output.
-
-The design intent is:
-
-- preserve as much useful PDF text as possible
-- keep chunks in source order
-- use semantics to place chunk breaks, not to throw text away
-- keep tables retrievable
-- store deterministic chunk IDs and embeddings in SQLite
-
-## Main Files
-
-- [src/lib/server/providers/parse_pipeline/text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
-- [src/lib/server/providers/parse_pipeline/chunker-semantic.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
-- [src/lib/server/providers/parse_pipeline/chunk-postprocess.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
-- [src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts)
-- [src/lib/server/rag/embedding-model.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding-model.ts)
-- [src/lib/server/rag/embedding.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding.ts)
-- [src/lib/server/database/schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
-- [output/jupyter-notebook/compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
-
-## End-to-End Flow
+## High Level Flow
 
 ```text
 PDF
@@ -51,7 +21,6 @@ PDF
 File:
 - [text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
 
-### What it does
 
 `TextExtract()` opens the PDF with `scribe.js-ocr`, walks page by page, and returns page-level extracted text records.
 
@@ -62,12 +31,7 @@ Each returned record currently looks like:
 - `pageIndex`
 - `content`
 
-### Important current behavior
-
-Even though `ChunkType` includes `"TEXT" | "IMAGE" | "TABLE"`, the current `TextExtract()` path returns page records as `chunkType: "TEXT"` only.
-
-That means:
-
+Note: Even though `ChunkType` includes `"TEXT" | "IMAGE" | "TABLE"`, the current `TextExtract()` path returns page records as `chunkType: "TEXT"` only.
 - table content is not emitted as a separate `"TABLE"` page record
 - table content is injected into page text as inline markers like `[Table: ...]`
 - later stages treat those table markers specially
@@ -89,7 +53,7 @@ For each page:
 6. Text items and table items are merged back into reading order.
 7. Their text is joined with newlines into one page `content` string.
 
-### Why it does this
+### Why 
 
 - page margins reduce obvious header/footer noise
 - table overlap removal avoids duplicate table text

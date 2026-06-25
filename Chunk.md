@@ -127,20 +127,6 @@ CHUNK_OUTPUT_PATH=/Users/matthewplambeck/Desktop/Deployable-Knowledge/outputs-te
 node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts
 ```
 
-Expected outputs:
-
-- `outputs-test/chunker-semantic-raw.json`
-- `outputs-test/chunker-semantic.json`
-
-Current handbook test shape:
-
-- about `218` raw chunks
-- about `218` final chunks
-
-Important:
-
-- first run may need `SEMANTIC_EMBED_ALLOW_REMOTE=1`
-- later runs can use the local model cache if already warm
 
 ## Run End-to-End Ingest Test
 
@@ -173,7 +159,7 @@ console.log(JSON.stringify(result, null, 2));
 "
 ```
 
-Expected result shape:
+Expected result shape For TCCC PDF:
 
 ```json
 {
@@ -199,57 +185,6 @@ Expected:
 - `documents` should increase or stay at `1` for the same source path
 - `document_chunks` should match the final chunk count for that document
 
-## Notebook Use
-
-Notebook:
-- [output/jupyter-notebook/compare-chunking-outputs.ipynb](/Users/matthewplambeck/Desktop/Deployable-Knowledge/output/jupyter-notebook/compare-chunking-outputs.ipynb)
-
-Use it for:
-
-- chunk-size distribution checks
-- source coverage checks
-- spot-checking individual pages
-- comparing `semantic_raw` vs `semantic_ts`
-
-Dataset meanings:
-
-- `cleaned_source`
-  - cleaned extracted page text baseline
-- `semantic_raw`
-  - pre-postprocessing output
-- `semantic_ts`
-  - final postprocessed output intended for RAG
-- `python_legacy`
-  - reference only
-
-If the notebook kernel cannot find `node`, the setup cell now points to `/opt/homebrew/bin/node` first.
-
-## Current Verification Notes
-
-On the current handbook test:
-
-- `semantic_raw` keeps `100%` of unique source words
-- `semantic_ts` also keeps `100%` of unique source words
-- final chunk count is currently about `218`
-- page `127` is present in the final output
-
-Remaining final drops are mainly all-caps figure-label pages because of the final all-caps filter.
-
-## Common Failure Modes
-
-- `Error: local_files_only=true ... file was not found locally`
-  - the embedding model is not cached locally and remote download is disabled
-  - run once with `SEMANTIC_EMBED_ALLOW_REMOTE=1`
-
-- `no such table: documents`
-  - migrations were not applied correctly
-
-- `does not provide an export named 'document_chunks'`
-  - schema/export mismatch in [schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
-
-- notebook `FileNotFoundError` for `node`
-  - notebook kernel PATH did not include Node
-  - the notebook now uses `/opt/homebrew/bin/node` first
 
 ## Files To Need For Pass Off Comit
 
