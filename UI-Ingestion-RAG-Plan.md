@@ -375,6 +375,65 @@ Concern: BM25 currently looks like an in-memory index API over chunk records. Th
 
 Do not wire BM25 or reranking directly into chat until the semantic debug route makes it easy to compare ranked outputs.
 
+### Extended retrieval debug route plan
+
+Next retrieval task: extend `/rag/debug` before changing chat again.
+
+Goal:
+
+- compare retrieval methods without invoking the LLM
+- keep all modes using the same stored SQLite chunks
+- keep `documentId` filters consistent across semantic, BM25, and hybrid
+
+Route shape:
+
+- `GET /rag/debug?q=...&mode=semantic&topK=5`
+- `GET /rag/debug?q=...&mode=bm25&topK=5`
+- `GET /rag/debug?q=...&mode=hybrid&topK=5`
+
+Supported modes:
+
+1. `semantic`: current embedding search over `document_chunks`
+2. `bm25`: keyword search over the same filtered `document_chunks`
+3. `hybrid`: semantic candidates + BM25 candidates passed through `mathRerank.ts`
+
+Suggested implementation files:
+
+- keep `/rag/debug` route as the API surface
+- add `src/lib/server/rag/bm25-search.ts` or similar for DB-backed BM25
+- add `src/lib/server/rag/hybrid-search.ts` only if the route starts getting cluttered
+
+BM25 bridge requirements:
+
+1. load chunks from SQLite with optional `documentIds` and `chunkTypes`
+2. build an in-memory BM25 index for those candidate chunks
+3. search the query and return the same basic match shape as semantic search
+4. keep the implementation simple even if indexing per request is not final-performance optimal
+
+Hybrid requirements:
+
+1. run semantic search with a slightly wider candidate window
+2. run BM25 search with a slightly wider candidate window
+3. convert both result lists into the `Document` shape expected by `mathRerank.ts`
+4. rerank with `weightedReciprocalRankRerank(...)`
+5. return normalized debug rows with rank source fields such as semantic rank, BM25 rank, and combined score
+
+Debug response should clearly show:
+
+- `mode`
+- `query`
+- `topK`
+- `candidateCount`
+- `matches`
+- score fields relevant to the mode
+- page / chunk / document metadata
+- full chunk content
+- timings per stage where easy
+
+Important constraint:
+
+- do not replace the chat retrieval path with hybrid until `/rag/debug` shows that hybrid is actually better on real queries
+
 ### Important design rule
 
 Keep retrieval as its own step, not mixed into prompt construction.
