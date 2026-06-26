@@ -4,7 +4,7 @@ This file documents the retrieval debug path and how it is separate from the rea
 
 ## Current Chat RAG Path
 
-The actual UI chat answer path is still semantic-only.
+The actual UI chat answer path can use semantic, BM25, or hybrid retrieval.
 
 Flow:
 
@@ -12,7 +12,7 @@ Flow:
 ChatWindow
   -> POST /sessions/[id]/messages
   -> retrieveRagContext(...)
-  -> searchSemantic(...)
+  -> selected retrieval mode
   -> provider.chat(...)
 ```
 
@@ -22,12 +22,22 @@ Files:
 - `src/routes/(app)/sessions/[id]/messages/+server.ts`
 - `src/lib/server/rag/retrieve-rag-context.ts`
 - `src/lib/server/rag/semantic-search.ts`
+- `src/lib/server/rag/bm25-search.ts`
+- `src/lib/server/rag/hybrid-search.ts`
 
 Important:
 
-- BM25 is not currently used to generate chat answers.
-- Hybrid reranking is not currently used to generate chat answers.
-- Chat should stay semantic-only until debug results show hybrid is better on real queries.
+- Chat uses `retrieveRagContext(...)`, so most of the UI does not care which retrieval mode produced the context.
+- ChatWindow has a simple retrieval toggle: `Semantic`, `BM25`, `Hybrid`.
+- Hybrid is the UI default for now.
+- Set `RAG_RETRIEVAL_MODE=semantic` or `RAG_RETRIEVAL_MODE=bm25` before starting the app to change the server default for requests that do not send `retrieval_mode`.
+- The current UI sends `retrieval_mode` explicitly.
+
+Example:
+
+```bash
+RAG_RETRIEVAL_MODE=semantic npm run dev
+```
 
 ## Debug Route
 
@@ -79,7 +89,7 @@ This is intentionally separate from `bm25.ts` because the contributor BM25 file 
 
 ### `src/lib/server/rag/hybrid-search.ts`
 
-Debug-only hybrid retrieval adapter.
+Hybrid retrieval adapter.
 
 Why it exists:
 
@@ -87,7 +97,10 @@ Why it exists:
 - passes both ranked lists into `mathRerank.ts`
 - returns combined debug rows with semantic rank, BM25 rank, and fused score
 
-This should not be wired into chat until debug comparisons justify it.
+Current use:
+
+- used by `/rag/debug?mode=hybrid`
+- used by chat through `retrieveRagContext(...)` as the current POC default
 
 ## Existing Contributor BM25 / Rerank Files
 
@@ -145,10 +158,8 @@ curl "http://localhost:5173/rag/debug?q=How%20to%20perform%20a%209-line%3F&mode=
 
 Use `/rag/debug` to compare semantic, BM25, and hybrid on real questions.
 
-Only after hybrid clearly helps should chat move from:
+If hybrid is not clearly better, switch chat back to semantic with:
 
-```text
-retrieveRagContext -> searchSemantic
+```bash
+RAG_RETRIEVAL_MODE=semantic npm run dev
 ```
-
-to a hybrid helper.

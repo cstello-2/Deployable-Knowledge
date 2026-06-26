@@ -18,12 +18,19 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
+  type RetrievalMode = "semantic" | "bm25" | "hybrid";
+  const retrievalModes: { id: RetrievalMode; label: string }[] = [
+    { id: "semantic", label: "Semantic" },
+    { id: "bm25", label: "BM25" },
+    { id: "hybrid", label: "Hybrid" },
+  ];
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
   let status = $state("");
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
+  let retrievalMode = $state<RetrievalMode>("hybrid");
   let sendDisabled = $derived(busy ? true : draft.trim().length === 0);
   let loadedSessionId: string | undefined;
   let selectedAssistantText = $state("");
@@ -148,6 +155,7 @@
         prompt_template_id: appState.promptTemplateId || null,
         persona: appState.persona,
         document_ids: $selectedDocumentIds,
+        retrieval_mode: retrievalMode,
       }),
     });
 
@@ -274,6 +282,23 @@
       {:else if messageStream.length !== 0}
         <div class="msg assistant">{messageStream}</div>
       {/if}
+    </div>
+
+    <div class="retrieval-row" aria-label="Retrieval mode">
+      <span class="retrieval-label">Retrieval</span>
+      <div class="retrieval-toggle" role="group" aria-label="Retrieval mode">
+        {#each retrievalModes as mode}
+          <button
+            class:active={retrievalMode === mode.id}
+            type="button"
+            disabled={busy}
+            aria-pressed={retrievalMode === mode.id}
+            onclick={() => retrievalMode = mode.id}
+          >
+            {mode.label}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <form class="chat-input" onsubmit={handleSubmit}>
@@ -559,6 +584,52 @@
     white-space: nowrap;
   }
 
+  .retrieval-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+  }
+
+  .retrieval-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .retrieval-toggle {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .retrieval-toggle button {
+    min-width: 0;
+    min-height: 28px;
+    padding: 4px 6px;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .retrieval-toggle button:first-child {
+    border-left: 0;
+  }
+
+  .retrieval-toggle button.active {
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    color: var(--text);
+  }
+
   .chat-input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -638,7 +709,12 @@
     border-radius: 0 13px 13px 0;
   }
 
-  @media (max-width: 680px) {
+	  @media (max-width: 680px) {
+    .retrieval-row {
+      grid-template-columns: 1fr;
+      gap: 5px;
+    }
+
     .chat-input {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }

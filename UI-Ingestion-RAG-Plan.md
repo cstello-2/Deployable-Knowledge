@@ -379,7 +379,7 @@ Do not wire BM25 or reranking directly into chat until the semantic debug route 
 
 Next retrieval task: extend `/rag/debug` before changing chat again.
 
-Current status: implemented with semantic, DB-backed BM25, and hybrid modes. Chat still uses semantic retrieval only.
+Current status: implemented with semantic, DB-backed BM25, and hybrid modes. Chat now has a simple UI toggle for `Semantic`, `BM25`, and `Hybrid`, all routed through `retrieveRagContext(...)`.
 
 Goal:
 

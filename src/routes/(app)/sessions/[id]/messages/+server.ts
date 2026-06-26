@@ -12,7 +12,10 @@ import type {
   Provider,
   ProviderChatOptions,
 } from "$lib/server/providers/provider";
-import { retrieveRagContext } from "$lib/server/rag/retrieve-rag-context";
+import {
+  retrieveRagContext,
+  type RagRetrievalMode,
+} from "$lib/server/rag/retrieve-rag-context";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -71,6 +74,14 @@ async function createTitle(
   return title.trim().split("\n")[0] || "New conversation";
 }
 
+function readRetrievalMode(value: unknown): RagRetrievalMode | undefined {
+  if (value === "semantic" || value === "bm25" || value === "hybrid") {
+    return value;
+  }
+
+  return undefined;
+}
+
 export const POST: RequestHandler = async ({ params, request }) => {
   const body = await request.json();
   const userSettings = (await db
@@ -86,6 +97,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const documentIds = Array.isArray(body.document_ids)
     ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
     : [];
+  const retrievalMode = readRetrievalMode(body.retrieval_mode);
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -136,6 +148,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const ragContext = await retrieveRagContext({
     question: message,
     documentIds,
+    mode: retrievalMode,
   });
   const prompt = createPrompt(
     messages,
@@ -176,7 +189,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
             role: "assistant",
             content: fullResponse,
             metadata: ragContext.sources.length
-              ? { sources: ragContext.sources }
+              ? {
+                  retrievalMode: ragContext.mode,
+                  sources: ragContext.sources,
+                }
               : null,
             createdAt: timestamp,
           },

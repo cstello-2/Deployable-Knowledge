@@ -120,6 +120,7 @@ export const GET: RequestHandler = async ({ url }) => {
       topK,
       documentIds,
       chunkTypes,
+      mode: "semantic",
     });
 
     return json({
