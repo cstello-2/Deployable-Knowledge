@@ -246,6 +246,8 @@ Do not try to restore the old full documents window first unless needed.
 
 Only start this after upload + store + list works.
 
+Current status: upload + store + list now work in the UI, and the uploaded document is confirmed in SQLite with stored embeddings.
+
 ### Active chat route
 
 - [src/routes/(app)/sessions/[id]/messages/+server.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/routes/(app)/sessions/[id]/messages/+server.ts)
@@ -254,6 +256,12 @@ Only start this after upload + store + list works.
 
 Add optional `document_ids` to the chat request body.
 
+Default behavior:
+
+- if the user selected one or more documents, search only those documents
+- if no documents are selected, search all stored documents
+- chat should still work as plain model chat if retrieval returns no chunks
+
 Flow:
 
 1. user sends question
@@ -261,6 +269,74 @@ Flow:
 3. pass optional `documentIds`
 4. build a RAG context block from retrieved chunks
 5. send final prompt through the existing provider chat path
+
+### Shared retrieval helper
+
+Add a small server helper instead of putting all retrieval formatting inside the chat route.
+
+Suggested file:
+
+- `src/lib/server/rag/retrieve-rag-context.ts`
+
+Responsibilities:
+
+1. accept question text, `topK`, and optional `documentIds`
+2. call `searchSemantic(...)`
+3. return retrieved matches plus a compact context block for prompting
+4. expose source metadata in a shape the chat UI can display later
+
+Keep this helper simple for now. It should be semantic-only today, but its caller should not care whether candidates later come from semantic search, BM25, reranking, or neighbor expansion.
+
+### Prompt shape
+
+Keep prompt construction readable and explicit.
+
+Suggested context block:
+
+```text
+Retrieved document context:
+
+[1] Title: ...
+Page: ...
+Content:
+...
+
+[2] Title: ...
+Page: ...
+Content:
+...
+```
+
+Then append the user's question after the retrieved context. The model should be told to use the context when relevant and to say when the context does not contain the answer.
+
+### UI document selection
+
+Use the existing minimal Documents window rather than building a full document manager.
+
+First version behavior:
+
+1. document rows have checkboxes
+2. selected document IDs are stored in simple shared client state
+3. ChatWindow includes those selected IDs in the message request body
+4. DocumentsWindow can show a small selected count
+
+Suggested file for shared client state:
+
+- `src/lib/utils/documentSelection.ts`
+
+This avoids coupling ChatWindow directly to DocumentsWindow.
+
+### Citations / source display
+
+The chat UI already has a source display area based on assistant message metadata.
+
+For the first pass:
+
+- save retrieved source metadata on the assistant message
+- include title, page number, chunk id, document id, score, and a short content preview
+- do not add complicated citation rendering yet
+
+This keeps the answer auditable without turning this step into a citation UI rewrite.
 
 ### Important design rule
 
@@ -291,7 +367,7 @@ question
 After the basic UI flow works:
 
 1. multi-file upload
-2. document activation / selection UI
+2. richer document activation / selection UI
 3. semantic retrieval debug view in chat
 4. BM25 integration
 5. reranker integration
@@ -355,6 +431,18 @@ Wire semantic retrieval into chat.
 Done when:
 
 - chat answers are built from retrieved chunk context
+- selected documents narrow retrieval, otherwise all stored documents are searched
+- assistant message metadata includes the retrieved source list
+
+### Step 6
+
+Add minimal document selection UI.
+
+Done when:
+
+- DocumentsWindow lets the user select document IDs
+- ChatWindow sends selected IDs with the chat request
+- no selection means search all stored documents
 
 ## Main Risks
 
