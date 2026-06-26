@@ -12,6 +12,7 @@ import type {
   Provider,
   ProviderChatOptions,
 } from "$lib/server/providers/provider";
+import { retrieveRagContext } from "$lib/server/rag/retrieve-rag-context";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -20,9 +21,20 @@ function createPrompt(
   userMessage: string,
   systemPrompt = "",
   persona = "",
+  ragContext = "",
 ) {
   const lines = [];
-  const systemParts = [systemPrompt, persona].map((part) => part.trim());
+  const retrievalInstruction = ragContext
+    ? [
+        "Use the retrieved document context when it is relevant.",
+        "If the context does not contain the answer, say that clearly.",
+        "",
+        ragContext,
+      ].join("\n")
+    : "";
+  const systemParts = [systemPrompt, persona, retrievalInstruction]
+    .map((part) => part.trim())
+    .filter(Boolean);
 
   if (systemParts.length) lines.push(`system: ${systemParts.join("\n\n")}`);
 
@@ -71,6 +83,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const modelId = body.model_id || userSettings.model;
   const providerId = body.provider_id || userSettings.provider;
   const persona = body.persona || userSettings.persona || "";
+  const documentIds = Array.isArray(body.document_ids)
+    ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
+    : [];
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -118,11 +133,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
           )
           .get()
       : null;
+  const ragContext = await retrieveRagContext({
+    question: message,
+    documentIds,
+  });
   const prompt = createPrompt(
     messages,
     message,
     promptTemplate?.systemPrompt || "",
     persona,
+    ragContext.contextBlock,
   );
 
   // If you want to see the prompt getting sent this is it.
@@ -155,7 +175,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: null,
+            metadata: ragContext.sources.length
+              ? { sources: ragContext.sources }
+              : null,
             createdAt: timestamp,
           },
         ]);

@@ -3,6 +3,12 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import DocumentProgressPopup from "$lib/components/popups/DocumentProgressPopup.svelte";
+  import {
+    keepExistingDocumentSelections,
+    selectDocument,
+    selectedDocumentIds,
+    toggleDocumentSelection,
+  } from "$lib/utils/documentSelection";
   import type { WindowInstanceProps } from "./index.ts";
 
   type DocumentRow = {
@@ -13,6 +19,7 @@
   };
 
   type UploadResult = {
+    documentId: string;
     title: string;
     chunkCount: number;
     timings?: {
@@ -37,6 +44,7 @@
   let busy = $state(false);
   let progressOpen = $state(false);
   let progress = $state<{ label: string; message: string } | null>(null);
+  let selectedCount = $derived($selectedDocumentIds.length);
 
   onMount(() => {
     refreshDocuments().catch(showError);
@@ -75,6 +83,7 @@
 
     const body = await response.json();
     documents = (body.documents ?? []) as DocumentRow[];
+    keepExistingDocumentSelections(new Set(documents.map((document) => document.id)));
     if (message) status = message;
   }
 
@@ -111,6 +120,9 @@
       const result = (await response.json()) as UploadResult;
       selectedFile = null;
       if (fileInput) fileInput.value = "";
+      if ("documentId" in result && typeof result.documentId === "string") {
+        selectDocument(result.documentId);
+      }
       await refreshDocuments(formatUploadStatus(result));
     } catch (error) {
       showError(error);
@@ -176,9 +188,20 @@
       <div class="docs-status li-subtle">{status}</div>
     {/if}
 
+    <div class="docs-selection li-subtle">
+      {selectedCount} selected. If none are selected, chat searches all stored documents.
+    </div>
+
     <div class="docs-list" aria-live="polite">
       {#each documents as document (document.id)}
         <article class="docs-row">
+          <input
+            class="docs-check"
+            type="checkbox"
+            aria-label={`Use ${document.title} in chat`}
+            checked={$selectedDocumentIds.includes(document.id)}
+            onchange={() => toggleDocumentSelection(document.id)}
+          />
           <div class="docs-icon" aria-hidden="true">
             <Icon name="description" size={18} />
           </div>
@@ -215,7 +238,7 @@
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -253,6 +276,10 @@
     overflow-wrap: anywhere;
   }
 
+  .docs-selection {
+    min-height: 16px;
+  }
+
   .docs-list {
     display: grid;
     min-height: 0;
@@ -265,13 +292,20 @@
   .docs-row {
     display: grid;
     min-width: 0;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: hsl(var(--h) var(--sat) var(--l-panel));
+  }
+
+  .docs-check {
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    margin: 0;
   }
 
   .docs-icon {
@@ -318,11 +352,11 @@
     }
 
     .docs-row {
-      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-columns: auto auto minmax(0, 1fr);
     }
 
     .docs-id {
-      grid-column: 2;
+      grid-column: 3;
       justify-self: start;
     }
   }

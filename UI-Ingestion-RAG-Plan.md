@@ -338,6 +338,43 @@ For the first pass:
 
 This keeps the answer auditable without turning this step into a citation UI rewrite.
 
+### Retrieval debug route
+
+Add a route that inspects retrieved chunks without calling the LLM.
+
+Suggested route:
+
+- `GET /rag/debug?q=...&topK=5`
+
+Optional filters:
+
+- `documentId=<id>` repeated or comma-separated
+- `document_id=<id>` repeated or comma-separated
+- `chunkType=TEXT`
+- `chunk_type=TABLE`
+
+Response should include:
+
+- query
+- retrieval mode
+- matches with title, page, chunk, score, and full content
+- source previews
+- timings
+- the exact context block that chat would send to the LLM
+
+This matters because local LLM generation is slow and GPU-heavy. Retrieval tuning should not require invoking the model every time.
+
+### BM25 / reranker note
+
+The repo now has BM25 and math-based reranker files from other contributors:
+
+- `src/lib/server/rag/bm25.ts`
+- `src/lib/server/rag/mathRerank.ts`
+
+Concern: BM25 currently looks like an in-memory index API over chunk records. The active semantic search reads persisted chunks directly from SQLite. Before using BM25 in chat, add a small DB-backed bridge that loads stored `document_chunks`, indexes them, and applies the same `documentId` narrowing rules as semantic search.
+
+Do not wire BM25 or reranking directly into chat until the semantic debug route makes it easy to compare ranked outputs.
+
 ### Important design rule
 
 Keep retrieval as its own step, not mixed into prompt construction.
