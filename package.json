@@ -21,11 +21,12 @@
 		"@types/node": "^25.9.2",
 		"@types/stemmer": "^1.0.2",
 		"@types/stopword": "^2.0.3",
+		"cross-env": "^10.1.0",
 		"drizzle-kit": "^0.31.10",
 		"svelte": "^5.55.2",
 		"svelte-check": "^4.4.6",
 		"tsx": "^4.22.4",
-		"typescript": "^6.0.2",
+		"typescript": "^6.0.3",
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
@@ -48,6 +49,8 @@
 		"esbuild@0.28.0": true,
 		"onnxruntime-node@1.24.3": true,
 		"protobufjs@7.6.4": true,
-		"sharp@0.34.5": true
+		"sharp@0.34.5": true,
+		"stemmer@2.0.1": true,
+		"stopword@3.1.5": true
 	}
 }

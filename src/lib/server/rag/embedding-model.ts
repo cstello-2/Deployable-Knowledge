@@ -8,7 +8,7 @@ const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
 
-env.cacheDir = "/Users/matthewplambeck/Desktop/Deployable-Knowledge/tmp_model/transformersjs";
+env.cacheDir = "./tmp_model/transformersjs";
 env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 
 let embeddingPipelinePromise: Promise<any> | null = null;

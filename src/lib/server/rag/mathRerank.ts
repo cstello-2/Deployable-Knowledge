@@ -1,4 +1,4 @@
-interface Document 
+interface Document
 {
     page: string | number;
     source: string;
@@ -6,7 +6,7 @@ interface Document
     [key: string]: any; // Allows for any other dynamic fields you might have
 }
 
-function reRankData(bm25Rank: Document[], vectorRank: Document[]): Document[] 
+function reRankData(bm25Rank: Document[], vectorRank: Document[]): Document[]
 {
     let bm25 = bm25Rank;
     let vector = vectorRank; 
