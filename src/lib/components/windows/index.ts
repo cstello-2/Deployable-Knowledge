@@ -1,6 +1,6 @@
 import AssistantSettings from "./AssistantSettings.svelte";
 import ChatWindow from "./ChatWindow.svelte";
-// import DocumentsWindow from "./DocumentsWindow.svelte";
+import DocumentsWindow from "./DocumentsWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
 import NotebookWindow from "./NotebookWindow.svelte";
 
@@ -24,12 +24,12 @@ export type WindowDefinition = WindowInstanceProps & {
 };
 
 export const windowDefinitions = [
-  // {
-  //   id: "documents-window",
-  //   title: "Document Library",
-  //   column: "left",
-  //   component: DocumentsWindow,
-  // },
+  {
+    id: "documents-window",
+    title: "Documents",
+    column: "left",
+    component: DocumentsWindow,
+  },
   {
     id: "chat-window",
     title: "Assistant Chat",

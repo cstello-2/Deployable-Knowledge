@@ -257,7 +257,6 @@
           {:else}
             {message.content}
           {/if}
-          {message.content}
         </div>
       {/each}
 

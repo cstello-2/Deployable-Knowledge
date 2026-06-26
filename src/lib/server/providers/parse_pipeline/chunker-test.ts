@@ -3,7 +3,10 @@ import { basename } from "node:path";
 import { chunkPages } from "./chunker";
 import { TextExtract, type Source } from "./text-extract";
 
-const pdfPath = process.argv[2] ?? process.env.CHUNK_TEST_PDF;
+const pdfPath = process.argv[2] ?? process.env.CHUNK_TEST_PDF ?? "/Users/matthewplambeck/Desktop/Deployable-Knowledge/documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf";
+
+// FIle path
+// /Users/matthewplambeck/Desktop/Deployable-Knowledge/documents/17-13-tactical-casualty-combat-care-handbook-v5-may-17-distro-a.pdf
 
 if (!pdfPath) {
   throw new Error("Pass a PDF path as the first argument or set CHUNK_TEST_PDF.");
