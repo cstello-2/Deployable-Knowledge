@@ -1,5 +1,4 @@
-import { seedBM25FromDatabase } from './src/lib/server/rag/bm25.ts';
-import { hybridSearch } from './src/lib/server/rag/hybrid-search.ts';
+import { seedBM25FromDatabase, searchBM25 } from './src/lib/server/rag/bm25.ts';
 
 // Change this to something you know is in your documents
 const TEST_QUERY = 'how do I put on a tourniquet';
@@ -12,7 +11,7 @@ async function run()
 
     console.log(`\nSearching for: "${TEST_QUERY}"\n`);
 
-    const results = await hybridSearch(TEST_QUERY, TOP_K);
+    const results = searchBM25(TEST_QUERY, TOP_K);
 
     if (results.length === 0)
     {
