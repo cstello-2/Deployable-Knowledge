@@ -101,6 +101,15 @@ CHUNK_OUTPUT_PATH=/tmp/chunker-semantic.json \
 node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts /path/to/file.pdf
 ```
 
+PowerShell uses different env var syntax:
+
+```powershell
+$env:SEMANTIC_EMBED_ALLOW_REMOTE="1"
+npm run dev
+```
+
+The embedding model cache defaults to `tmp_model/transformersjs` under the repo checkout. Override with `SEMANTIC_EMBED_CACHE_DIR` only if you need a different cache location.
+
 
 ## Run End-to-End Ingest Test
 

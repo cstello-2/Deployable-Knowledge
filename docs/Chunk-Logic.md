@@ -372,6 +372,7 @@ Key env vars:
 - `SEMANTIC_EMBED_DTYPE`
 - `SEMANTIC_EMBED_BATCH_SIZE`
 - `SEMANTIC_EMBED_ALLOW_REMOTE`
+- `SEMANTIC_EMBED_CACHE_DIR`
 
 Current default model:
 
@@ -379,11 +380,12 @@ Current default model:
 
 Current model cache dir:
 
-- `tmp_model/transformersjs`
+- `tmp_model/transformersjs` under the current repo checkout
 
 Important:
 
 - if `SEMANTIC_EMBED_ALLOW_REMOTE` is not `1`, the model must already exist locally in cache
+- set `SEMANTIC_EMBED_CACHE_DIR` only when you want the model cache outside the repo
 
 ## Stage 5: Store Final Chunks in SQLite
 

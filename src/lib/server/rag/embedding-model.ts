@@ -1,5 +1,6 @@
 // Shared embedding model helper used to create the chunks and embed the final chunks
 
+import { resolve } from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
 
 export const EMBEDDING_MODEL =
@@ -7,8 +8,10 @@ export const EMBEDDING_MODEL =
 const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
+const EMBEDDING_CACHE_DIR =
+  process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), "tmp_model", "transformersjs");
 
-env.cacheDir = "/Users/matthewplambeck/Desktop/Deployable-Knowledge/tmp_model/transformersjs";
+env.cacheDir = EMBEDDING_CACHE_DIR;
 env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 
 let embeddingPipelinePromise: Promise<any> | null = null;
