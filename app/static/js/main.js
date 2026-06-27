@@ -144,4 +144,8 @@ initMenu((action) => {
     // the 3‑D 🌌 fly‑through universe 🚀 — own tab, WASD + mouse 🖱️ to roam.
     window.open("/static/graph3d.html", "_blank", "noopener");
   }
+  if (action === "tool-map") {
+    // the lightweight (no‑Neo4j 🔷) knowledge 🎓 map 🗺️ — server‑bounded, works anywhere ☁️.
+    window.open("/static/graph2d.html", "_blank", "noopener");
+  }
 }, "tools-menu-trigger", "tools-menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });

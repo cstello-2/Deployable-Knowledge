@@ -427,6 +427,43 @@ def graph_3d_data(limit: int = 500, max_edges: int = 3000) -> Dict[str, Any]:
     return {"nodes": nodes, "links": links, "count": len(nodes)}
 
 
+def subgraph(focus: Optional[str] = None, limit: int = 120, hops: int = 1,
+             max_neighbors: int = 14, max_links: int = 600) -> Dict[str, Any]:
+    """a bounded slice 🍰 of the graph 🕸️ for the lightweight viewer 🖼️ (no Neo4j 🔷 needed).
+
+    with no ``focus`` we hand back the busiest entities 🏷️; with a ``focus`` we hand back
+    that entity + its neighbours, hops 🦘 out. the server 🗄️ ALWAYS caps node ⚪ + link 🔗
+    counts, so the browser 🔭 never has to swallow the whole 3k‑page corpus 🏺 at once —
+    that's the trick that keeps it smooth.
+    """
+    idx = get_index()
+    if idx is None:
+        return {"nodes": [], "links": [], "focus": None}
+    G = idx.G
+    if focus:
+        matches = idx.match_entities(focus, limit=1)
+        seed = matches[0] if matches else (focus if G.has_node(focus) else None)
+        if seed is None:
+            return {"nodes": [], "links": [], "focus": None}
+        keep = list(idx.expand([seed], hops=hops, max_neighbors=max_neighbors).keys())[:limit]
+    else:
+        seed = None
+        keep = [n for n, _ in sorted(G.degree, key=lambda kv: kv[1], reverse=True)[:limit]]
+    keepset = set(keep)
+    nodes = [
+        {"id": n, "kind": G.nodes[n].get("kind", "entity"), "count": int(G.nodes[n].get("count", 1)), "degree": G.degree[n]}
+        for n in keep
+    ]
+    links, seen = [], set()
+    for u in keep:
+        for v in G.neighbors(u):
+            if v in keepset and u != v and (v, u) not in seen:
+                seen.add((u, v))
+                links.append({"source": u, "target": v, "weight": int(G[u][v].get("weight", 1))})
+    links.sort(key=lambda l: l["weight"], reverse=True)
+    return {"nodes": nodes, "links": links[:max_links], "focus": seed}
+
+
 def neighbors(entity: str, hops: int = 1, max_neighbors: int = GRAPH_MAX_NEIGHBORS) -> Dict[str, Any]:
     """hand back the neighbourhood 🏘️ of a single entity 🏷️ (feeds the /graph/neighbors endpoint)."""
     idx = get_index()

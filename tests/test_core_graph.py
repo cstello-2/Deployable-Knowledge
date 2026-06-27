@@ -214,6 +214,21 @@ def test_graph_3d_data_has_positions(monkeypatch):
     assert all(isinstance(n[k], (int, float)) for k in ("x", "y", "z"))
 
 
+def test_subgraph_is_bounded_and_focusable(monkeypatch):
+    idx = _build_index()
+    monkeypatch.setattr(kg, "get_index", lambda reload=False: idx)
+    # no focus -> busiest entities, capped at `limit`
+    top = kg.subgraph(limit=3)
+    assert len(top["nodes"]) <= 3 and "links" in top
+    # focus -> centred on the entity, and the entity is present
+    f = kg.subgraph(focus="McDonnell Douglas", limit=10)
+    assert f["focus"] == "McDonnell Douglas"
+    assert "McDonnell Douglas" in {n["id"] for n in f["nodes"]}
+    # links only ever connect nodes that are in the returned set
+    ids = {n["id"] for n in f["nodes"]}
+    assert all(l["source"] in ids and l["target"] in ids for l in f["links"])
+
+
 def test_entity_detail_case_insensitive(monkeypatch):
     idx = _build_index()
     monkeypatch.setattr(kg, "get_index", lambda reload=False: idx)

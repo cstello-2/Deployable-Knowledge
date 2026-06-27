@@ -67,6 +67,16 @@ def data(limit: int = Query(500, ge=10, le=2000)):
     return kg.graph_3d_data(limit=limit)
 
 
+@router.get("/subgraph")
+def subgraph(
+    focus: Optional[str] = Query(None, description="Entity to centre on; omit for the busiest entities"),
+    limit: int = Query(120, ge=10, le=400),
+    hops: int = Query(1, ge=1, le=2),
+):
+    """a server‑bounded slice 🍰 of the graph 🕸️ for the lightweight (no‑Neo4j 🔷) viewer 🖼️."""
+    return kg.subgraph(focus=focus, limit=limit, hops=hops)
+
+
 @router.get("/entity")
 def entity(name: str = Query(..., description="Entity name to describe")):
     """one entity's 🏷️ detail card 🪪 (kind, count, source 🗞️ docs, provenance chunk 🧱 ids 🆔)."""

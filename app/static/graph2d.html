@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Knowledge Map — Deployable Knowledge</title>
+  <link rel="stylesheet" href="/static/css/theme.css" />
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    .toolbar {
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      background: hsl(var(--h) var(--sat) var(--l-panel));
+    }
+    .toolbar strong { font-size: 14px; }
+    .toolbar input { flex: 0 1 280px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    .toolbar button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--accent, #4f9cf0); color: #fff; cursor: pointer; font-size: 13px; }
+    .toolbar .ghost { background: transparent; color: var(--muted); }
+    .legend { display: flex; gap: 12px; align-items: center; margin-left: auto; font-size: 12px; color: var(--muted); }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+    #status { padding: 5px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+    #viz { width: 100vw; height: calc(100vh - 90px); }
+    #panel {
+      display: none; position: fixed; top: 96px; right: 14px; width: 280px; max-height: 70vh; overflow: auto;
+      background: hsl(var(--h) var(--sat) var(--l-panel)); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); font-size: 13px;
+    }
+    #panel h3 { margin: 2px 0 4px; font-size: 15px; }
+    #panel .muted { color: var(--muted); font-size: 12px; }
+    #panel .lbl { margin-top: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    #panel ul { margin: 4px 0; padding-left: 18px; }
+    #panel .prov { margin-top: 10px; }
+    #panel .hint { margin-top: 12px; font-size: 11px; color: var(--muted); }
+    #panel .x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <strong>🗺️ Knowledge Map</strong>
+    <input id="q" placeholder="search an entity (e.g. F-16, avionics, USAF)…" />
+    <button id="go">Search</button>
+    <button id="reset" class="ghost">Reset</button>
+    <span class="legend">
+      <span><i style="background:#4f9cf0"></i>entity</span>
+      <span><i style="background:#3fb27f"></i>acronym</span>
+      <span><i style="background:#e0a23c"></i>measure</span>
+    </span>
+  </div>
+  <div id="status">starting…</div>
+  <div id="viz"></div>
+  <div id="panel"></div>
+  <!-- vendored offline 📴 — vis-network standalone, no CDN, no Neo4j -->
+  <script src="/static/js/vendor/vis-network.min.js"></script>
+  <script src="/static/graph2d.js"></script>
+</body>
+</html>
