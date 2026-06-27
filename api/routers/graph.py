@@ -1,4 +1,4 @@
-"""HTTP endpoints for the knowledge graph (build / inspect / graph-search / neo4j)."""
+"""HTTP 🌐 endpoints for the knowledge 🎓 graph 🕸️ (build / inspect / graph‑search / neo4j 🔷)."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ _INITIAL_CYPHER = (
 
 @router.post("/build")
 def build():
-    """(Re)build the knowledge graph from the chunks currently in ChromaDB."""
+    """(re)build 🔨 the knowledge 🎓 graph 🕸️ from the chunks 🧱 currently in ChromaDB 🗃️."""
     G = kg.build_graph()
     kg.invalidate_index()
     return {
@@ -34,7 +34,7 @@ def build():
 
 @router.get("/stats")
 def stats():
-    """Summary of the current graph: node/edge counts and top entities."""
+    """a summary of the current graph 🕸️: node ⚪ / edge ➰ counts 🔢 + the top entities 🏷️."""
     return kg.graph_stats()
 
 
@@ -43,7 +43,7 @@ def neighbors(
     entity: str = Query(..., description="Entity to look up"),
     hops: int = Query(1, ge=1, le=3),
 ):
-    """Return the neighbourhood of a single entity."""
+    """hand back the neighbourhood 🏘️ of a single entity 🏷️."""
     return kg.neighbors(entity, hops=hops)
 
 
@@ -53,7 +53,7 @@ def search(
     top_k: int = Query(5, ge=MIN_TOP_K, le=MAX_TOP_K),
     inactive: Optional[str] = Query(None),
 ):
-    """Graph-augmented search: vector retrieval + knowledge-graph expansion."""
+    """graph‑augmented search 🔎: vector ↗️ retrieval + knowledge 🎓 graph 🕸️ expansion."""
     exclude = set(json.loads(inactive)) if inactive else None
     results = kg.graph_search(
         q, top_k=clamp_int(top_k, MIN_TOP_K, MAX_TOP_K), exclude_sources=exclude
@@ -63,13 +63,13 @@ def search(
 
 @router.get("/entity")
 def entity(name: str = Query(..., description="Entity name to describe")):
-    """One entity's detail card (kind, count, source docs, provenance chunk ids)."""
+    """one entity's 🏷️ detail card 🪪 (kind, count, source 🗞️ docs, provenance chunk 🧱 ids 🆔)."""
     return kg.entity_detail(name)
 
 
 @router.post("/neo4j")
 def neo4j_load():
-    """Push the built graph into Neo4j (needs `docker compose up -d neo4j`)."""
+    """push the built graph 🕸️ into Neo4j 🔷 (needs `docker compose up -d neo4j` 🐋)."""
     try:
         return {"status": "ok", **kg.load_into_neo4j()}
     except Exception as e:  # neo4j 🔷 down, or no graph 🕸️ built yet — say so plainly.

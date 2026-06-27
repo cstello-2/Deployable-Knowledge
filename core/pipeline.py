@@ -10,11 +10,11 @@ from config import GRAPH_ENABLED
 
 
 def _retrieve(req: ChatRequest) -> List[dict]:
-    """Retrieve context for a chat turn.
+    """fetch the context 📜 for one chat 🗨️ turn 🔄.
 
-    Uses graph-augmented retrieval when ``GRAPH_ENABLED`` is set and a graph has
-    been built; otherwise falls back to plain vector search. ``graph_search``
-    itself degrades to vector search when no graph file is present.
+    uses graph‑augmented retrieval when ``GRAPH_ENABLED`` is set and a graph 🕸️ is built;
+    otherwise it falls back to plain vector ↗️ search 🔎. ``graph_search`` itself degrades 📉
+    to vector search when there's no graph file 🖇️ around.
     """
     exclude = set(req.inactive_sources or [])
     if GRAPH_ENABLED:

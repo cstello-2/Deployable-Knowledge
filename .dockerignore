@@ -1,0 +1,13 @@
+# keep the image lean — but DO keep the baked data (tmp_model, chroma_db,
+# graph_store, documents); those are what make it run offline 📴.
+.git/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+sandbox/
+sandbox-js/
+.claude/
+*.md.bak

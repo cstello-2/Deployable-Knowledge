@@ -1,21 +1,19 @@
-"""Knowledge graph + graph search over the embedded corpus (the "graph" in GraphRAG).
+"""knowledge 🎓 graph 🕸️ + graph 🔎 search over the embedded corpus 🏺 (the "graph" in GraphRAG).
 
-This is the piece that turns plain vector RAG into graph-augmented RAG:
+I think 💭 this is the piece 🧩 that turns 🔄 plain vector ↗️ RAG into graph‑augmented RAG:
 
-  build_graph()   -- read every chunk already in ChromaDB, extract entities, and
-                     build a networkx graph where
-                       nodes = entities (proper nouns, acronyms, measurements)
-                       edges = co-occurrence of two entities in the same chunk
-                     Each node remembers the chunk ids (Chroma segment ids) it
-                     appears in, so retrieval can hop from a query entity to its
-                     neighbours and pull *their* chunks -- context a pure vector
-                     search would miss.
+  build_graph()   -- read every chunk 🧱 already in ChromaDB 🗃️, pull out the entities 🏷️,
+                     and build 🔨 a networkx graph 🕸️ where nodes ⚪ = entities and edges ➰
+                     = 2 ✌️ entities co‑occurring 🤝 in the same chunk. Each node remembers
+                     the chunk ids 🆔 it lives in, so retrieval can hop 🦘 from a query 🙋
+                     entity to its neighbours and pull *their* chunks — context 📜 a plain
+                     vector search would likely 🎲 miss.
 
-  graph_search()  -- vector search + knowledge-graph expansion + re-rank.
+  graph_search()  -- vector search + knowledge graph expansion + re‑rank.
 
-The extractor is deliberately domain-agnostic and dependency-free (regex only,
-no spaCy / no network) to keep the offline-first promise of the project.
-The graph is persisted as node-link JSON under ``config.GRAPH_PATH``.
+The extractor is deliberately domain‑agnostic and dependency‑free (regex only, no spaCy,
+no network 🌐) to keep the offline‑first 📴 promise of the project 🏗️. The graph is saved 💾
+as node‑link JSON under ``config.GRAPH_PATH``.
 """
 from __future__ import annotations
 
@@ -39,26 +37,25 @@ from config import (
 ProgressCallback = Callable[[int, int, str], None]
 
 # --------------------------------------------------------------------------- #
-# Entity extraction (generic, regex-only, offline)
+# entity 🏷️ extraction ⛏️ — generic, regex‑only, offline 📴
 # --------------------------------------------------------------------------- #
 
-# Multi-word proper noun phrases: runs of Capitalised words, allowing small
-# connector words inside (e.g. "United States Air Force", "Bank of England").
+# multi‑word proper nouns 🏷️ — runs of Capitalised words 🔤 with small connectors
+# inside (e.g. "United States Air Force", "Bank of England").
 _PROPER = re.compile(
     r"\b([A-Z][a-zA-Z0-9]+(?:[ -](?:of|the|and|for|de|von|van|al)?[ -]?"
     r"[A-Z][a-zA-Z0-9]+){0,4})\b"
 )
-# Hyphen/slash model codes: AV-8B, F/A-18, F-16, B-52, C-130, Su-27 ...
-# (a leading letter may stand alone before a separator, which the pure-acronym
-#  pattern below cannot express).
+# hyphen/slash model codes — AV-8B, F/A-18, F-16, B-52, C-130, Su-27 … a lone
+# leading letter before a separator, which the pure‑acronym pattern can't say.
 _CODE = re.compile(r"\b([A-Z][A-Z0-9]*(?:[/-][A-Z0-9]+)+)\b")
-# Pure acronyms: USAF, RAG, GPU, NASA -- but not a fragment of a code (AV-8B).
+# pure acronyms — USAF, RAG, GPU, NASA — but not a fragment 🧩 of a code (AV-8B).
 _ACRONYM = re.compile(r"(?<![\w/-])([A-Z]{2,6})(?![\w/-])")
-# Articles stripped from the front of a proper-noun phrase.
+# articles stripped off the front of a proper‑noun phrase.
 _LEADING_ARTICLES = {"the", "a", "an"}
-# Numeric measurements -> normalised "value unit" label. Only UNAMBIGUOUS multi-
-# char physical units: single-letter units (a/g/l/m/v/w/in) and time spans
-# ("30 days") flooded policy docs with junk, so they're deliberately excluded.
+# numeric measurements 📏 -> a tidy "value unit" label. only UNAMBIGUOUS multi‑char
+# physical units: single‑letter units (a/g/l/m/v/w/in) and time ⏰ spans ("30 days")
+# flooded 🌊 policy docs 📄 with junk 🗑️, so they're deliberately left out.
 _MEASURE = re.compile(
     r"\b(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?"
     r"(lbs?|pounds?|kg|kilograms?|tons?|tonnes?|mg|"
@@ -69,8 +66,8 @@ _MEASURE = re.compile(
     re.IGNORECASE,
 )
 
-# Common words that, on their own and capitalised (usually sentence-initial),
-# are noise rather than entities. Multi-word phrases bypass this filter.
+# common words 📜 that, alone and Capitalised (usually sentence‑start), are noise 🗑️
+# rather than entities 🏷️. multi‑word phrases skip 🦘 this filter.
 _STOPWORDS: Set[str] = {
     "the", "a", "an", "and", "or", "but", "if", "then", "this", "that", "these",
     "those", "it", "its", "they", "them", "their", "we", "our", "you", "your",
@@ -86,11 +83,11 @@ _STOPWORDS: Set[str] = {
     "there", "also", "however", "therefore", "thus", "hence", "first", "second",
     "third", "next", "last", "new", "old", "one", "two", "three", "figure",
     "table", "section", "chapter", "page", "note", "see", "however",
-    # document-structure words that show up capitalised but aren't entities
+    # document 📄 ‑structure words that show up Capitalised but aren't entities 🏷️
     "image", "appendix", "paragraph", "attachment", "exhibit", "version",
     "references", "reference", "example", "notes", "figures", "tables",
 }
-# Acronyms that are really stopwords / formatting noise (incl. latin abbrevs).
+# acronyms that are really stopwords 📜 / formatting noise 🗑️ (incl. latin abbrevs).
 _ACRONYM_STOP: Set[str] = {
     "THE", "AND", "FOR", "BUT", "NOT", "ALL", "ANY", "II", "III", "IV",
     "IE", "EG", "ID", "ETC", "VS", "RE", "OK", "AKA", "NA", "TBD",
@@ -100,16 +97,16 @@ _MIN_ENTITY_LEN = 3
 
 
 def _norm_measure(value: str, unit: str) -> str:
-    """Normalise a measurement into a canonical 'value unit' label."""
+    """tidy 🧹 a measurement 📏 into one canonical "value unit" label 🏷️."""
     value = value.replace(",", "")
     return f"{value} {unit.lower()}"
 
 
 def extract_entities(text: str) -> List[Tuple[str, str]]:
-    """Return ``(label, kind)`` entities found in ``text``.
+    """hand back the ``(label, kind)`` entities 🏷️ found in ``text`` 📃.
 
-    ``kind`` is one of ``entity`` (proper noun), ``acronym`` or ``measure``.
-    Labels are de-duplicated within the call, preserving first-seen order.
+    ``kind`` is one 1️⃣ of ``entity`` (proper noun), ``acronym`` or ``measure`` 📏.
+    labels are de‑duplicated within the call, keeping first‑seen order.
     """
     found: "dict[str, str]" = {}
 
@@ -131,17 +128,17 @@ def extract_entities(text: str) -> List[Tuple[str, str]]:
     for m in _PROPER.finditer(text):
         raw = re.sub(r"\s+", " ", m.group(1)).strip(" -")
         toks = raw.split(" ")
-        # Drop leading articles/stopwords ("The AV-8B" -> "AV-8B" code already
-        # captured; "The United States" -> "United States").
+        # drop a leading article 📜 ("The AV-8B" -> "AV-8B", the code is already
+        # caught; "The United States" -> "United States").
         while toks and toks[0].lower() in _LEADING_ARTICLES:
             toks.pop(0)
         label = " ".join(toks)
         if len(label) < _MIN_ENTITY_LEN:
             continue
-        # Single capitalised word that is just a common word -> skip.
+        # a single Capitalised word 🔤 that's just a common word -> skip 🦘.
         if " " not in label and label.lower() in _STOPWORDS:
             continue
-        # Pure-uppercase tokens are acronym/code territory, handled above.
+        # pure‑uppercase tokens are acronym/code turf, handled above.
         if label.upper() == label:
             continue
         found.setdefault(label, "entity")
@@ -150,11 +147,11 @@ def extract_entities(text: str) -> List[Tuple[str, str]]:
 
 
 # --------------------------------------------------------------------------- #
-# Graph construction
+# graph 🕸️ construction 🏗️
 # --------------------------------------------------------------------------- #
 
 def _iter_corpus_chunks(db) -> List[Dict[str, Any]]:
-    """Pull every chunk currently stored in ChromaDB."""
+    """pull every chunk 🧱 currently sitting in ChromaDB 🗃️."""
     data = db.collection.get(include=["documents", "metadatas"])
     ids = data.get("ids", []) or []
     docs = data.get("documents", []) or []
@@ -179,10 +176,10 @@ def build_graph(
     persist: bool = True,
     max_pairs_per_chunk: int = 60,
 ) -> nx.Graph:
-    """Build the knowledge graph from the chunks already embedded in ChromaDB.
+    """build 🔨 the knowledge 🎓 graph 🕸️ from the chunks 🧱 already embedded 🧮 in ChromaDB.
 
-    ``max_pairs_per_chunk`` caps the number of co-occurrence edges added from a
-    single (entity-dense) chunk so one huge chunk can't dominate the graph.
+    ``max_pairs_per_chunk`` caps how many co‑occurrence edges ➰ one (entity‑dense)
+    chunk may add, so a single huge 🐘 chunk can't dominate the graph.
     """
     if db is None:
         from .retriever import get_db
@@ -217,7 +214,7 @@ def build_graph(
                     sources={source},
                 )
 
-        # Co-occurrence edges (undirected). Cap combinatorial blow-up.
+        # co‑occurrence edges ➰ (undirected). cap the combinatorial blow‑up 💥.
         n = len(labels)
         pair_budget = max_pairs_per_chunk
         for a in range(n):
@@ -244,7 +241,7 @@ def build_graph(
 
 
 def save_graph(G: nx.Graph, path: Path = GRAPH_PATH) -> Path:
-    """Persist the graph as node-link JSON (sets serialised as sorted lists)."""
+    """save 💾 the graph 🕸️ as node‑link JSON (sets written as sorted lists 📜)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     H = G.copy()
@@ -257,7 +254,7 @@ def save_graph(G: nx.Graph, path: Path = GRAPH_PATH) -> Path:
 
 
 def load_graph(path: Path = GRAPH_PATH) -> Optional[nx.Graph]:
-    """Load a previously built graph, or ``None`` if it does not exist."""
+    """load 📂 a previously built graph 🕸️, or ``None`` if it isn't there yet."""
     path = Path(path)
     if not path.exists():
         return None
@@ -270,11 +267,11 @@ def load_graph(path: Path = GRAPH_PATH) -> Optional[nx.Graph]:
 # --------------------------------------------------------------------------- #
 
 class GraphIndex:
-    """Loaded knowledge graph with entity-matching and neighbour-walk helpers."""
+    """the loaded knowledge 🎓 graph 🕸️ with entity 🏷️ ‑matching + neighbour‑walk 🚶 helpers."""
 
     def __init__(self, G: nx.Graph):
         self.G = G
-        # Longest labels first so "Air Force Base" beats "Air".
+        # longest labels 🏷️ first so "Air Force Base" beats "Air".
         self._labels = sorted(G.nodes, key=len, reverse=True)
         self._label_lc = {lab.lower(): lab for lab in G.nodes}
 
@@ -287,10 +284,10 @@ class GraphIndex:
         return self.G.number_of_edges()
 
     def match_entities(self, text: str, limit: int = 12) -> List[str]:
-        """Return graph entities whose label occurs in ``text`` (word-boundary)."""
+        """hand back graph 🕸️ entities 🏷️ whose label shows up in ``text`` (word‑boundary)."""
         tl = text.lower()
         hits: List[str] = []
-        consumed = ""  # avoid matching substrings of an already-matched longer span
+        consumed = ""  # don't re‑match a substring of an already‑caught longer span
         for lab in self._labels:
             ll = lab.lower()
             if len(ll) < 3:
@@ -308,10 +305,10 @@ class GraphIndex:
         hops: int = GRAPH_HOPS,
         max_neighbors: int = GRAPH_MAX_NEIGHBORS,
     ) -> Dict[str, int]:
-        """BFS from ``seeds`` up to ``hops`` edges; return ``{label: distance}``.
+        """walk 🚶 out from ``seeds`` up to ``hops`` edges ➰; give back ``{label: distance}``.
 
-        Neighbours at each frontier are visited strongest-edge-first and capped
-        at ``max_neighbors`` so highly-connected hubs don't explode the walk.
+        at each frontier the neighbours are visited strongest‑edge‑first and capped at
+        ``max_neighbors``, so a hugely‑connected hub 🛞 doesn't explode 💥 the walk.
         """
         dist: Dict[str, int] = {}
         frontier = [s for s in seeds if self.G.has_node(s)]
@@ -337,10 +334,10 @@ class GraphIndex:
     def candidate_segments(
         self, dist: Dict[str, int], exclude_seeds: bool = True
     ) -> Dict[str, float]:
-        """Map neighbour entities to chunk ids with a graph-proximity score.
+        """map neighbour entities 🏷️ to chunk 🧱 ids 🆔 with a graph‑proximity 🎯 score.
 
-        A chunk's score is the best (closest) proximity among the entities that
-        point to it; proximity decays as ``1 / (1 + distance)``.
+        a chunk's score is the best (closest) proximity among the entities that point
+        to it; proximity fades 🌫️ as ``1 / (1 + distance)``.
         """
         seg_score: Dict[str, float] = {}
         for label, d in dist.items():
@@ -354,12 +351,12 @@ class GraphIndex:
         return seg_score
 
 
-# --- lazy singleton -------------------------------------------------------- #
+# --- lazy singleton 1️⃣ ------------------------------------------------------ #
 _index: Optional[GraphIndex] = None
 
 
 def get_index(reload: bool = False) -> Optional[GraphIndex]:
-    """Return the loaded :class:`GraphIndex`, or ``None`` if no graph is built."""
+    """hand back the loaded :class:`GraphIndex`, or ``None`` if no graph 🕸️ is built 🔨 yet."""
     global _index
     if reload:
         _index = None
@@ -372,13 +369,13 @@ def get_index(reload: bool = False) -> Optional[GraphIndex]:
 
 
 def invalidate_index() -> None:
-    """Drop the cached index (call after rebuilding the graph)."""
+    """drop 🗑️ the cached index 🗃️ (call after rebuilding the graph 🕸️)."""
     global _index
     _index = None
 
 
 def graph_stats() -> Dict[str, Any]:
-    """Summary counts for the current graph (for the /graph/stats endpoint)."""
+    """summary counts 🔢 for the current graph 🕸️ (feeds the /graph/stats endpoint)."""
     idx = get_index()
     if idx is None:
         return {"built": False, "nodes": 0, "edges": 0}
@@ -396,7 +393,7 @@ def graph_stats() -> Dict[str, Any]:
 
 
 def neighbors(entity: str, hops: int = 1, max_neighbors: int = GRAPH_MAX_NEIGHBORS) -> Dict[str, Any]:
-    """Return the neighbourhood of a single entity (for the /graph/neighbors endpoint)."""
+    """hand back the neighbourhood 🏘️ of a single entity 🏷️ (feeds the /graph/neighbors endpoint)."""
     idx = get_index()
     if idx is None:
         return {"entity": entity, "found": False, "neighbors": []}
@@ -421,7 +418,7 @@ def entity_detail(name: str) -> Dict[str, Any]:
     """
     idx = get_index()
     if idx is None or not idx.G.has_node(name):
-        # fall back to a case-insensitive match so the viewer caption still resolves.
+        # fall back to a case‑insensitive match so the viewer 🖼️ caption still resolves.
         if idx is not None:
             hit = idx._label_lc.get(name.lower())
             if hit:
@@ -449,16 +446,15 @@ def graph_search(
     hops: int = GRAPH_HOPS,
     boost: float = GRAPH_BOOST,
 ) -> List[Dict[str, Any]]:
-    """Graph-augmented retrieval: vector search + knowledge-graph expansion.
+    """graph‑augmented retrieval: vector ↗️ search 🔎 + knowledge 🎓 graph 🕸️ expansion.
 
-    1. Vector search for the strongest ``vector_k`` chunks (semantic).
-    2. Detect entities in the query *and* in those top chunks.
-    3. Walk the knowledge graph to neighbouring entities and pull *their*
-       chunks (the GraphRAG hop).
-    4. Merge and re-rank by ``semantic_similarity + boost * graph_proximity``.
+    1️⃣ vector search for the strongest ``vector_k`` chunks 🧱 (semantic).
+    2️⃣ spot the entities 🏷️ in the query 🙋 *and* in those top chunks.
+    3️⃣ walk 🚶 the graph to neighbouring entities and pull *their* chunks (the GraphRAG hop 🦘).
+    4️⃣ merge and re‑rank by ``semantic_similarity + boost * graph_proximity`` 🎯.
 
-    Falls back to plain vector search when no graph has been built. The return
-    shape matches :func:`core.rag.retriever.search` (with an extra ``via`` key).
+    falls back to plain vector search when no graph 🕸️ is built yet. the return shape matches
+    :func:`core.rag.retriever.search` (with one extra ``via`` key 🗝️).
     """
     from .retriever import get_db, search
     from core.corpus_registry import get_inactive_sources
@@ -470,7 +466,7 @@ def graph_search(
             r["via"] = "vector"
         return vector_rows[:top_k]
 
-    # Seeds: entities in the query plus entities in the strongest vector hits.
+    # seeds 🌱: entities 🏷️ in the query 🙋 plus entities in the strongest vector hits.
     seeds = set(idx.match_entities(query))
     for r in vector_rows[:3]:
         seeds.update(idx.match_entities(r.get("text", "")))
@@ -488,13 +484,13 @@ def graph_search(
         dist = idx.expand(list(seeds), hops=hops)
         seg_score = idx.candidate_segments(dist)
 
-        # Boost vector chunks that the graph also reached.
+        # boost ⬆️ vector chunks 🧱 that the graph 🕸️ also reached.
         for seg, prox in seg_score.items():
             if seg in merged:
                 merged[seg]["graph_prox"] = max(merged[seg]["graph_prox"], prox)
                 merged[seg]["via"] = "vector+graph"
 
-        # Pull graph-only chunks that vector search missed.
+        # pull graph‑only chunks 🧱 that vector search ↗️ missed.
         new_ids = [s for s in seg_score if s not in merged][: max(graph_extra * 4, graph_extra)]
         if new_ids:
             fetched = get_db().collection.get(ids=new_ids, include=["documents", "metadatas"])
@@ -519,12 +515,12 @@ def graph_search(
                         "graph_prox": seg_score[seg],
                     }
                 )
-            # Keep only the strongest graph-only additions.
+            # keep only the strongest graph‑only additions 🏆.
             extra.sort(key=lambda r: r["graph_prox"], reverse=True)
             for r in extra[:graph_extra]:
                 merged[r["segment_id"]] = r
 
-    # Final combined score: semantic similarity + graph-proximity boost.
+    # final combined score 🎯: semantic similarity + a graph‑proximity boost ⬆️.
     def combined(r: Dict[str, Any]) -> float:
         sim = r.get("score")
         sim = float(sim) if sim is not None else 0.0
@@ -552,12 +548,12 @@ def load_into_neo4j(
     password: Optional[str] = None,
     segments_cap: int = NEO4J_SEGMENTS_CAP,
 ) -> Dict[str, int]:
-    """Mirror the networkx knowledge graph into Neo4j so the browser can explore it.
+    """mirror 🪞 the networkx knowledge 🎓 graph 🕸️ into Neo4j 🔷 so the browser 🔭 can explore it.
 
-    Entities become ``(:Entity {name, kind, count, sources, segments})`` and
-    co-occurrence becomes ``[:CO_OCCURS {weight}]``. Reloading is idempotent: the
-    old ``:Entity`` graph is wiped first. Requires a running Neo4j (``docker
-    compose up -d neo4j``); returns ``{nodes, edges}`` counts.
+    entities 🏷️ become ``(:Entity {name, kind, count, sources, segments})`` and co‑occurrence
+    becomes ``[:CO_OCCURS {weight}]``. reloading is idempotent: the old ``:Entity`` graph is
+    wiped 🧽 first. wants a running Neo4j (``docker compose up -d neo4j``); gives back
+    ``{nodes, edges}`` counts 🔢.
     """
     from neo4j import GraphDatabase
     from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
@@ -606,7 +602,7 @@ def load_into_neo4j(
 
 
 # --------------------------------------------------------------------------- #
-# CLI: python -m core.rag.graph build | stats | neo4j
+# CLI 🖥️: python -m core.rag.graph build | stats | neo4j
 # --------------------------------------------------------------------------- #
 
 if __name__ == "__main__":  # pragma: no cover

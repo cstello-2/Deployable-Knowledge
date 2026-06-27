@@ -7,13 +7,13 @@ from core.rag import graph as kg
 
 
 # --------------------------------------------------------------------------- #
-# Fakes: an in-memory stand-in for the ChromaDB collection / DBManager so the
-# graph can be exercised with zero network and no embedding model.
+# fakes 🎭: an in‑memory stand‑in for the ChromaDB 🗃️ collection / DBManager so the
+# graph 🕸️ can be exercised with zero network 🌐 and no embedding 🧮 model 🔮.
 # --------------------------------------------------------------------------- #
 
 class FakeCollection:
     def __init__(self, records):
-        # records: list of (id, text, metadata)
+        # records 🗒️: a list 📜 of (id, text, metadata)
         self._records = records
 
     def get(self, include=None, ids=None):
@@ -52,7 +52,7 @@ def _build_index():
 
 
 # --------------------------------------------------------------------------- #
-# Entity extraction
+# entity 🏷️ extraction ⛏️
 # --------------------------------------------------------------------------- #
 
 def test_extract_entities_kinds():
@@ -66,22 +66,22 @@ def test_extract_entities_kinds():
 
 def test_extract_entities_drops_stopwords():
     ents = dict(kg.extract_entities("The dog ran. This is fine."))
-    # Sentence-initial common words must not become entities.
+    # sentence‑start common words 📜 must not become entities 🏷️.
     assert "The" not in ents
     assert "This" not in ents
 
 
 # --------------------------------------------------------------------------- #
-# Graph construction
+# graph 🕸️ construction 🏗️
 # --------------------------------------------------------------------------- #
 
 def test_build_graph_nodes_and_cooccurrence_edges():
     G = kg.build_graph(db=FakeDB(CORPUS), persist=False)
     assert G.has_node("McDonnell Douglas")
     assert G.has_node("F/A-18")
-    # Co-occur in c1 -> edge exists.
+    # co‑occur in c1 -> the edge ➰ exists.
     assert G.has_edge("AV-8B", "McDonnell Douglas")
-    # "McDonnell Douglas" appears in c1 and c2 -> count 2, two source docs.
+    # "McDonnell Douglas" shows up in c1 and c2 -> count 2 ✌️, 2 source 🗞️ docs 📄.
     node = G.nodes["McDonnell Douglas"]
     assert node["count"] == 2
     assert set(node["sources"]) == {"harrier.pdf", "hornet.pdf"}
@@ -98,7 +98,7 @@ def test_save_and_load_roundtrip(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Entity matching + neighbour walk
+# entity 🏷️ matching + neighbour walk 🚶
 # --------------------------------------------------------------------------- #
 
 def test_match_entities_in_query():
@@ -112,7 +112,7 @@ def test_expand_reaches_neighbours():
     idx = _build_index()
     seeds = idx.match_entities("McDonnell Douglas")
     dist = idx.expand(seeds, hops=2)
-    # One hop from McDonnell Douglas should reach the Harrier and the Hornet.
+    # one hop 🦘 from McDonnell Douglas should reach the Harrier and the Hornet.
     assert dist.get("Harrier", 99) <= 2
     assert dist.get("F/A-18", 99) <= 2
 
@@ -121,20 +121,20 @@ def test_candidate_segments_pulls_neighbour_chunks():
     idx = _build_index()
     dist = idx.expand(idx.match_entities("McDonnell Douglas"), hops=2)
     segs = idx.candidate_segments(dist)
-    # Chunks about the Hornet/Navy should be reachable via the graph.
+    # chunks 🧱 about the Hornet/Navy should be reachable via the graph 🕸️.
     assert "c2" in segs or "c3" in segs
     assert all(0.0 < s <= 1.0 for s in segs.values())
 
 
 # --------------------------------------------------------------------------- #
-# graph_search end-to-end (vector layer stubbed)
+# graph_search end‑to‑end (vector ↗️ layer stubbed)
 # --------------------------------------------------------------------------- #
 
 def test_graph_search_adds_graph_neighbours(monkeypatch):
     idx = _build_index()
     monkeypatch.setattr(kg, "get_index", lambda reload=False: idx)
 
-    # Stub the vector layer: pretend semantic search only found the Harrier chunk.
+    # stub the vector ↗️ layer: pretend semantic search 🔎 only found the Harrier chunk 🧱.
     def fake_search(query, top_k=10, exclude_sources=None):
         return [{
             "text": CORPUS[0][1], "source": "harrier.pdf",
@@ -150,8 +150,8 @@ def test_graph_search_adds_graph_neighbours(monkeypatch):
     seg_ids = {r["segment_id"] for r in results}
     vias = {r["segment_id"]: r["via"] for r in results}
 
-    # The seed chunk survives, and graph expansion surfaces a Hornet/Navy chunk
-    # that pure vector search (stubbed to one hit) would have missed.
+    # the seed 🌱 chunk survives, and graph 🕸️ expansion surfaces a Hornet/Navy chunk
+    # that pure vector search (stubbed to one 1️⃣ hit) would have missed.
     assert "c1" in seg_ids
     assert seg_ids & {"c2", "c3"}
     assert vias["c1"] in ("vector", "vector+graph")
@@ -172,7 +172,7 @@ def test_graph_search_falls_back_without_graph(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Extractor cleanup — all-caps headers / ambiguous units must NOT become entities
+# extractor cleanup 🧹 — all‑caps headers / ambiguous units must NOT become entities 🏷️
 # --------------------------------------------------------------------------- #
 
 def test_extract_drops_allcaps_stopwords_and_latin_abbrevs():
@@ -184,12 +184,12 @@ def test_extract_drops_allcaps_stopwords_and_latin_abbrevs():
 
 def test_extract_drops_ambiguous_single_letter_units():
     ents = dict(kg.extract_entities("Section 38 a applies for 30 days within 5 m of the line."))
-    # single-letter / time units are excluded; nothing like "38 a" or "30 days".
+    # single‑letter / time ⏰ units are left out; nothing like "38 a" or "30 days".
     assert not any(k.endswith(" a") or k.endswith(" days") or k.endswith(" m") for k in ents)
 
 
 # --------------------------------------------------------------------------- #
-# entity_detail — the click card the viewer shows
+# entity_detail — the click 🖱️ card 🪪 the viewer 🖼️ shows
 # --------------------------------------------------------------------------- #
 
 def test_entity_detail(monkeypatch):
@@ -211,7 +211,7 @@ def test_entity_detail_case_insensitive(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# load_into_neo4j — pushes nodes/edges via the driver (fake driver, offline)
+# load_into_neo4j — pushes nodes ⚪/edges ➰ via the driver 🛠️ (fake driver, offline 📴)
 # --------------------------------------------------------------------------- #
 
 class FakeSession:
@@ -254,7 +254,7 @@ def test_load_into_neo4j_builds_nodes_and_edges(monkeypatch):
     assert "DETACH DELETE" in cyphers              # idempotent wipe first
     assert "MERGE (e:Entity" in cyphers            # node upsert
     assert "CO_OCCURS" in cyphers                  # edge upsert
-    # the node UNWIND must carry exactly our entities, with provenance fields.
+    # the node ⚪ UNWIND must carry exactly our entities 🏷️, with provenance 🗞️ fields.
     node_rows = next(p["rows"] for c, p in log if "MERGE (e:Entity" in c and "rows" in p)
     sample = node_rows[0]
     assert {"name", "kind", "count", "sources", "segments"} <= set(sample.keys())

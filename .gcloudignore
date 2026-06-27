@@ -1,0 +1,15 @@
+# 🛰️ this file makes `gcloud run deploy --source .` IGNORE .gitignore and use THIS
+# list instead — so the baked data (tmp_model, chroma_db, graph_store, documents)
+# IS uploaded to Cloud Build and ends up in the image 🖼️. without it, .gitignore
+# would strip the corpus 🏺 and the container would boot empty.
+.git/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+sandbox/
+sandbox-js/
+.claude/
+*.md.bak
