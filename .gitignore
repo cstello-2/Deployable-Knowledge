@@ -35,6 +35,9 @@ Thumbs.db
 # --- ChromaDB persistent vector store ---
 chroma_db/
 
+# --- Knowledge graph store (generated from ChromaDB) ---
+graph_store/
+
 # --- SQL database ---
 app.db
 app.db-*

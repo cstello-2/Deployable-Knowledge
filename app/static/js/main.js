@@ -136,4 +136,8 @@ initMenu((action) => {
   if (action === "tool-segments") {
     spawnWindow({ id: "win_segments", window_type: "window_segments", title: "DB Segments", col: "right", unique: true }, initSegmentsController);
   }
+  if (action === "tool-graph") {
+    // full-screen 🖼️ neovis canvas — opens in its own tab, the knowledge 🎓 graph 🕸️.
+    window.open("/static/graph.html", "_blank", "noopener");
+  }
 }, "tools-menu-trigger", "tools-menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });

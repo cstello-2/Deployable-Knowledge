@@ -5,6 +5,21 @@ import json
 from .models import ChatRequest, ChatResponse, ChatChunk, Source
 from .prompts import renderer
 from .rag import retriever
+from .rag import graph as kg
+from config import GRAPH_ENABLED
+
+
+def _retrieve(req: ChatRequest) -> List[dict]:
+    """Retrieve context for a chat turn.
+
+    Uses graph-augmented retrieval when ``GRAPH_ENABLED`` is set and a graph has
+    been built; otherwise falls back to plain vector search. ``graph_search``
+    itself degrades to vector search when no graph file is present.
+    """
+    exclude = set(req.inactive_sources or [])
+    if GRAPH_ENABLED:
+        return kg.graph_search(req.message, top_k=req.top_k, exclude_sources=exclude)
+    return retriever.search(req.message, top_k=req.top_k, exclude_sources=exclude)
 
 
 def _to_sources(blocks: List[dict]) -> List[Source]:
@@ -29,11 +44,7 @@ def _to_sources(blocks: List[dict]) -> List[Source]:
 def chat_once(req: ChatRequest) -> ChatResponse:
     """Execute a full chat turn and return the complete response."""
 
-    context = retriever.search(
-        req.message,
-        top_k=req.top_k,
-        exclude_sources=set(req.inactive_sources or []),
-    )
+    context = _retrieve(req)
     prompt = renderer.build_prompt(
         summary="",
         history=[],
@@ -54,11 +65,7 @@ def chat_once(req: ChatRequest) -> ChatResponse:
 def chat_stream(req: ChatRequest) -> Iterator[ChatChunk]:
     """Yield chat response chunks as they are produced by the LLM."""
 
-    context = retriever.search(
-        req.message,
-        top_k=req.top_k,
-        exclude_sources=set(req.inactive_sources or []),
-    )
+    context = _retrieve(req)
     meta = json.dumps({"top_k": req.top_k, "template": req.template_id, "context": context})
     yield ChatChunk(type="meta", text=meta)
     

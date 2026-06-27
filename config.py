@@ -11,6 +11,25 @@ MODEL_DIR = BASE_DIR / "tmp_model"
 CHROMA_DB_DIR = BASE_DIR / "chroma_db"
 COLLECTION_NAME = "default_collection"
 
+# === Knowledge Graph (GraphRAG) ===
+# The graph is built from the chunks already in ChromaDB and persisted as JSON.
+GRAPH_DIR = BASE_DIR / "graph_store"
+GRAPH_PATH = Path(os.getenv("GRAPH_PATH", str(GRAPH_DIR / "graph.json")))
+# When set, chat/search use graph-augmented retrieval instead of plain vector search.
+GRAPH_ENABLED = os.getenv("GRAPH_ENABLED", "0") == "1"
+GRAPH_VECTOR_TOPK = int(os.getenv("GRAPH_VECTOR_TOPK", "10"))     # semantic hits before expansion
+GRAPH_EXTRA = int(os.getenv("GRAPH_EXTRA", "5"))                  # max graph-only chunks to add
+GRAPH_HOPS = int(os.getenv("GRAPH_HOPS", "2"))                    # neighbour-walk depth
+GRAPH_MAX_NEIGHBORS = int(os.getenv("GRAPH_MAX_NEIGHBORS", "8"))  # per-node fan-out cap
+GRAPH_BOOST = float(os.getenv("GRAPH_BOOST", "0.25"))            # weight of graph proximity in re-rank
+
+# === Neo4j (interactive graph 🕸️ store 🏪) ===
+# neo4j 🔷 holds the knowledge 🎓 graph for the browser 🔭 viewer 🖼️ — runs via docker 🐳
+# compose 🧱; these are local 🏠 demo 🎬 defaults, override with env vars in any real setup.
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "deployable-knowledge")
+
 # === SQL Database ===
 _database_path = os.getenv("DATABASE_PATH")
 DATABASE_PATH = Path(_database_path).expanduser() if _database_path else BASE_DIR / "app.db"

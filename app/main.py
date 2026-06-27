@@ -8,6 +8,7 @@ from core.folder_watcher import start_folder_watcher, stop_folder_watcher
 from app.routes.ui_routes import router as ui_router
 from api.routers.chat import router as chat_router
 from api.routers.search import router as search_router
+from api.routers.graph import router as graph_router
 from api.routers.ingest import router as ingest_router
 from api.routers.settings import router as settings_router
 from api.routers.corpus import router as corpus_router
@@ -42,6 +43,7 @@ app.include_router(ui_router)
 app.include_router(chat_router)
 app.include_router(providers_router)
 app.include_router(search_router)
+app.include_router(graph_router)
 app.include_router(ingest_router)
 app.include_router(sessions_router)
 app.include_router(segments_router)

@@ -12,6 +12,7 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 
 - **Document ingestion** for PDF and plaintext sources
 - **ChromaDB** vector store with sentence‑transformer embeddings
+- **Knowledge graph + graph search** (GraphRAG) over the same corpus — offline, regex‑based
 - **Chat and search** endpoints with optional streaming responses
 - **Configurable prompts** and persona editing
 - **Authentication middleware** with session and CSRF protection
@@ -72,6 +73,7 @@ Additional guides live in the [`docs/`](docs) folder:
 - [Backend services](docs/BACKEND_SERVICES.md)
 - [Configuration guide](docs/CONFIGURATION.md)
 - [Prompt & LLM integration](docs/PROMPTS_LLM.md)
+- [Knowledge graph & graph search](docs/KNOWLEDGE_GRAPH.md)
 
 ## Contributing
 

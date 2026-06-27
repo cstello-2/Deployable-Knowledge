@@ -1,0 +1,19 @@
+# neo4j 🔷 — the interactive 🕹️ knowledge 🎓 graph 🕸️ store 🏪 for Deployable Knowledge.
+# one service 🛎️, no build 🔨 step: `docker compose up -d neo4j` and it's ready.
+# bolt 🔩 7687 = the browser 🔭 viewer 🖼️ + the python 🐲 loader 🪛 talk here; 7474 = neo4j's own ui.
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: dk-neo4j
+    ports:
+      - "7474:7474"   # neo4j browser (its built-in graph ui)
+      - "7687:7687"   # bolt — what our viewer + loader connect to
+    environment:
+      # user 🧑 neo4j / password 🔑 must match config.py NEO4J_* (local 🏠 demo 🎬 defaults).
+      NEO4J_AUTH: "neo4j/deployable-knowledge"
+      # let the in-app browser 🔭 viewer connect over websockets from localhost.
+      NEO4J_server_bolt_listen__address: "0.0.0.0:7687"
+    volumes:
+      - dk_neo4j_data:/data
+volumes:
+  dk_neo4j_data:

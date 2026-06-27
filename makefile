@@ -11,7 +11,7 @@ APP_MODULE?= app.main:app
 MODEL_ID  ?= sentence-transformers/all-MiniLM-L6-v2
 
 
-.PHONY: setup ensure-venv venv install fetch-model verify-offline run dev embed-dir clean test seed-prompts
+.PHONY: setup ensure-venv venv install fetch-model verify-offline run dev embed-dir graph graph-stats neo4j-up graph-neo4j neo4j-down clean test seed-prompts
 
 # ---------- ONLINE SETUP ----------
 setup: export TRANSFORMERS_OFFLINE=0
@@ -70,10 +70,31 @@ embed-dir:
 	@echo "Embedding from documents/ (override with: make embed-dir DATA_DIR=path)"
 	@PYTHONPATH=. $(PY) -c "from core.rag.retriever import embed_directory; embed_directory(data_dir='$${DATA_DIR:-documents}')"
 
+# ---------- KNOWLEDGE GRAPH ----------
+# Build the knowledge graph from chunks already embedded in ChromaDB.
+graph:
+	@PYTHONPATH=. $(PY) -m core.rag.graph build
+
+graph-stats:
+	@PYTHONPATH=. $(PY) -m core.rag.graph stats
+
+# ---------- NEO4J (interactive graph viewer) ----------
+# Bring up the neo4j service (docker), load the built graph, tear it down.
+neo4j-up:
+	docker compose up -d neo4j
+	@echo "⏳ neo4j starting on bolt://localhost:7687 (give it ~15s), browser at http://localhost:7474"
+
+graph-neo4j:
+	@PYTHONPATH=. $(PY) -m core.rag.graph neo4j
+
+neo4j-down:
+	docker compose down
+
 # ---------- housekeeping ----------
 clean:
 	rm -rf $(VENV_NAME)
 	rm -rf chroma_db/
+	rm -rf graph_store/
 	rm -rf app.db
 
 test:
