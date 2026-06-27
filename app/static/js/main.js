@@ -140,4 +140,8 @@ initMenu((action) => {
     // full-screen 🖼️ neovis canvas — opens in its own tab, the knowledge 🎓 graph 🕸️.
     window.open("/static/graph.html", "_blank", "noopener");
   }
+  if (action === "tool-graph3d") {
+    // the 3‑D 🌌 fly‑through universe 🚀 — own tab, WASD + mouse 🖱️ to roam.
+    window.open("/static/graph3d.html", "_blank", "noopener");
+  }
 }, "tools-menu-trigger", "tools-menu-dropdown", { peerClosers: headerLeftMenuPeerClosers });

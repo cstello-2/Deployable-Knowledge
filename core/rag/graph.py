@@ -392,6 +392,41 @@ def graph_stats() -> Dict[str, Any]:
     }
 
 
+def graph_3d_data(limit: int = 500, max_edges: int = 3000) -> Dict[str, Any]:
+    """lay the top entities 🏷️ out in 3‑D 🌌 space for the fly‑through universe 🚀.
+
+    we take the ``limit`` busiest nodes ⚪ by degree, run a 3‑D spring layout so the
+    graph 🕸️ becomes a star‑field 🌟, and hand back ``{nodes, links}`` with x/y/z each —
+    the browser 🔭 just paints them, no layout maths on the client.
+    """
+    idx = get_index()
+    if idx is None:
+        return {"nodes": [], "links": [], "count": 0}
+    G = idx.G
+    top = [n for n, _ in sorted(G.degree, key=lambda kv: kv[1], reverse=True)[:limit]]
+    sub = G.subgraph(top)
+    pos = nx.spring_layout(sub, dim=3, seed=42)  # seed so the universe 🌌 is stable run‑to‑run
+    SCALE = 600  # blow it up so there's room to fly 🚀 between the stars 🌟
+    nodes = []
+    for n in top:
+        x, y, z = pos[n]
+        d = G.nodes[n]
+        nodes.append(
+            {
+                "id": n,
+                "kind": d.get("kind", "entity"),
+                "count": int(d.get("count", 1)),
+                "degree": G.degree[n],
+                "x": round(float(x) * SCALE, 2),
+                "y": round(float(y) * SCALE, 2),
+                "z": round(float(z) * SCALE, 2),
+            }
+        )
+    edges = sorted(sub.edges(data=True), key=lambda e: e[2].get("weight", 1), reverse=True)[:max_edges]
+    links = [{"source": u, "target": v, "weight": int(dd.get("weight", 1))} for u, v, dd in edges]
+    return {"nodes": nodes, "links": links, "count": len(nodes)}
+
+
 def neighbors(entity: str, hops: int = 1, max_neighbors: int = GRAPH_MAX_NEIGHBORS) -> Dict[str, Any]:
     """hand back the neighbourhood 🏘️ of a single entity 🏷️ (feeds the /graph/neighbors endpoint)."""
     idx = get_index()

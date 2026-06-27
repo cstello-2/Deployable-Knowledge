@@ -61,6 +61,12 @@ def search(
     return {"results": results}
 
 
+@router.get("/data")
+def data(limit: int = Query(500, ge=10, le=2000)):
+    """3‑D 🌌 node‑link data (top entities 🏷️ + positions) for the fly‑through universe 🚀."""
+    return kg.graph_3d_data(limit=limit)
+
+
 @router.get("/entity")
 def entity(name: str = Query(..., description="Entity name to describe")):
     """one entity's 🏷️ detail card 🪪 (kind, count, source 🗞️ docs, provenance chunk 🧱 ids 🆔)."""

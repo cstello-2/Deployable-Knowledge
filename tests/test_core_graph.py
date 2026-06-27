@@ -203,6 +203,17 @@ def test_entity_detail(monkeypatch):
     assert d["segments"]                      # at least one provenance chunk id
 
 
+def test_graph_3d_data_has_positions(monkeypatch):
+    idx = _build_index()
+    monkeypatch.setattr(kg, "get_index", lambda reload=False: idx)
+    d = kg.graph_3d_data(limit=100)
+    assert d["nodes"] and d["links"]
+    n = d["nodes"][0]
+    # every star carries a 3-D position + its kind/degree for the universe viewer.
+    assert {"id", "kind", "degree", "x", "y", "z"} <= set(n.keys())
+    assert all(isinstance(n[k], (int, float)) for k in ("x", "y", "z"))
+
+
 def test_entity_detail_case_insensitive(monkeypatch):
     idx = _build_index()
     monkeypatch.setattr(kg, "get_index", lambda reload=False: idx)
