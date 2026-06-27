@@ -86,6 +86,14 @@ _STOPWORDS: Set[str] = {
     # document 📄 ‑structure words that show up Capitalised but aren't entities 🏷️
     "image", "appendix", "paragraph", "attachment", "exhibit", "version",
     "references", "reference", "example", "notes", "figures", "tables",
+    # sentence‑starter conjunctions/adverbs that get Capitalised — pure noise 🗑️
+    "since", "although", "finally", "moreover", "furthermore", "nevertheless",
+    "meanwhile", "despite", "whereas", "indeed", "additionally", "consequently",
+    "accordingly", "overall", "similarly", "specifically", "typically",
+    "generally", "currently", "previously", "recently", "initially",
+    "subsequently", "ultimately", "essentially", "particularly", "given",
+    "though", "perhaps", "instead", "often", "usually", "including", "within",
+    "without", "upon", "thus", "therefore", "furthermore",
 }
 # acronyms that are really stopwords 📜 / formatting noise 🗑️ (incl. latin abbrevs).
 _ACRONYM_STOP: Set[str] = {
@@ -405,8 +413,8 @@ def graph_3d_data(limit: int = 500, max_edges: int = 3000) -> Dict[str, Any]:
     G = idx.G
     top = [n for n, _ in sorted(G.degree, key=lambda kv: kv[1], reverse=True)[:limit]]
     sub = G.subgraph(top)
-    pos = nx.spring_layout(sub, dim=3, seed=42)  # seed so the universe 🌌 is stable run‑to‑run
-    SCALE = 600  # blow it up so there's room to fly 🚀 between the stars 🌟
+    pos = nx.spring_layout(sub, dim=3, seed=42, k=2.2)  # seed = stable 🌌 run‑to‑run; k spreads the stars 🌟
+    SCALE = 1000  # blow it up so there's room to fly 🚀 between the stars 🌟
     nodes = []
     for n in top:
         x, y, z = pos[n]
@@ -441,8 +449,12 @@ def subgraph(focus: Optional[str] = None, limit: int = 120, hops: int = 1,
         return {"nodes": [], "links": [], "focus": None}
     G = idx.G
     if focus:
-        matches = idx.match_entities(focus, limit=1)
-        seed = matches[0] if matches else (focus if G.has_node(focus) else None)
+        # exact 🎯 match first (O(1)) — on a ~1M‑node graph 🕸️ a full label scan is slow;
+        # only fall back to the substring search when there's no exact hit.
+        seed = focus if G.has_node(focus) else idx._label_lc.get(focus.lower())
+        if seed is None:
+            m = idx.match_entities(focus, limit=1)
+            seed = m[0] if m else None
         if seed is None:
             return {"nodes": [], "links": [], "focus": None}
         keep = list(idx.expand([seed], hops=hops, max_neighbors=max_neighbors).keys())[:limit]

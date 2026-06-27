@@ -25,8 +25,8 @@ function initScene(): void {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05070d);
   scene.fog = new THREE.FogExp2(0x05070d, 0.00038);   // distant stars 🌟 fade 🌫️ into the dark
-  camera = new THREE.PerspectiveCamera(72, W() / H(), 0.1, 8000);
-  camera.position.set(0, 0, 760);
+  camera = new THREE.PerspectiveCamera(72, W() / H(), 0.1, 12000);
+  camera.position.set(0, 0, 1500);
   renderer = new THREE.WebGLRenderer({ canvas: el("scene"), antialias: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(W(), H());
@@ -61,7 +61,7 @@ function buildGraph(data: any): void {
   const byId = new Map<string, any>();
   const geo = new THREE.SphereGeometry(1, 14, 14);
   for (const n of data.nodes) {
-    const r = 3 + Math.sqrt(n.degree) * 1.15;   // busier entity 🏷️ = bigger star 🌟
+    const r = 4 + Math.min(22, Math.log2(1 + n.degree) * 2.0);   // busier entity 🏷️ = bigger star 🌟 (log‑scaled so hubs don't swallow the view 👀)
     const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: KIND_COLORS[n.kind] || 0x8899aa }));
     m.position.set(n.x, n.y, n.z);
     m.scale.setScalar(r);
