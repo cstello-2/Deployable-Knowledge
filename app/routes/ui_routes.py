@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -17,14 +18,34 @@ SESSION_COOKIE_NAME = "chat_session_id"
 store = SessionStore()
 
 
-def get_documents():
+import time as _time
+
+# the document list is a FULL Chroma metadata scan — on a large corpus 🏺 (100k+
+# chunks) that's seconds per call, and it ran on every page load. cache it 💾 so
+# the UI stays snappy; the list only changes when you ingest, and the TTL picks
+# that up within a minute (or call invalidate_documents()).
+_doc_cache = {"data": None, "ts": 0.0}
+_DOC_TTL = float(os.getenv("DK_DOC_CACHE_TTL", "300"))  # seconds; raise it on a big, static corpus
+
+
+def invalidate_documents():
+    _doc_cache["data"] = None
+
+
+def get_documents(force: bool = False):
     """Return a summary of ingested documents with segment counts, tags, and activation."""
+    now = _time.time()
+    if not force and _doc_cache["data"] is not None and now - _doc_cache["ts"] < _DOC_TTL:
+        return _doc_cache["data"]
     try:
         raw = db.collection.get(include=["metadatas"])
-        return merge_document_list(raw)
+        docs = merge_document_list(raw)
+        _doc_cache["data"] = docs
+        _doc_cache["ts"] = now
+        return docs
     except Exception:
         # e.g. embedding model missing or Chroma unavailable — still render the UI
-        return []
+        return _doc_cache["data"] or []
 
 
 @router.get("/documents")

@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from config import BASE_DIR, UPLOAD_DIR
@@ -25,11 +26,20 @@ from app.auth.session import setup_auth, load_settings_from_config
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    await start_folder_watcher()
+    # the folder watcher re‑syncs every 2s with a full collection scan; on a very
+    # large corpus 🏺 that pegs a CPU and starves the event loop, so allow opting out.
+    watch = os.getenv("DK_FOLDER_WATCHER", "1") == "1"
+    if watch:
+        await start_folder_watcher()
+    # warm the document-list cache in the background so the first page load is fast.
+    import asyncio
+    from app.routes.ui_routes import get_documents
+    asyncio.create_task(asyncio.to_thread(get_documents))
     try:
         yield
     finally:
-        await stop_folder_watcher()
+        if watch:
+            await stop_folder_watcher()
 
 
 app = FastAPI(lifespan=lifespan)
