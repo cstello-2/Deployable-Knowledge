@@ -40,6 +40,12 @@ def get_documents(force: bool = False):
     try:
         raw = db.collection.get(include=["metadatas"])
         docs = merge_document_list(raw)
+        # the Document Library renders + fuzzy-filters every row client-side; on a big
+        # corpus (1000s of docs) that locks the browser. cap to the biggest N by segment
+        # count so the UI stays usable (search + the graph viewers still use ALL docs).
+        cap = int(os.getenv("DK_DOC_LIST_MAX", "300"))
+        if len(docs) > cap:
+            docs = sorted(docs, key=lambda d: d.get("segments", 0), reverse=True)[:cap]
         _doc_cache["data"] = docs
         _doc_cache["ts"] = now
         return docs
