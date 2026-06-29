@@ -276,7 +276,7 @@ function chunkSinglePage(
         source: page.source,
         pageIndex: Number(page.pageIndex),
         chunkIndex: 0,
-        content, //Actaual Chunk Text
+        content, //Actual Chunk Text
         metadata: {
           startChar: 0,
           endChar: content.length,
@@ -303,7 +303,7 @@ function chunkSinglePage(
             source: page.source,
             pageIndex: Number(page.pageIndex),
             chunkIndex: 0,
-            content, //Actaual Chunk Text
+            content, //Actual Chunk Text
             metadata: {
               startChar: 0,
               endChar: content.length,
