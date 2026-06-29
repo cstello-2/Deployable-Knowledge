@@ -1,11 +1,16 @@
 # Backend Services Overview
 
-The backend is composed of:
+Backend behavior lives in SvelteKit server routes and shared TypeScript modules.
 
-- **core/** – retrieval utilities, prompt rendering and LLM abstractions
-- **api/** – FastAPI routers wrapping the core library
-- **app/** – UI routes, authentication and static assets
+## Server Modules
 
-Requests flow from the UI to `api/` where they are validated and passed to `core/` functions.  The core interacts with ChromaDB and the configured LLM provider.
+- `src/lib/server/database`: SQLite connection, Drizzle schema, and seed data.
+- `src/lib/server/providers`: provider registry, local provider adapters, and parse pipeline.
+- `src/lib/server/rag`: document ingest, embeddings, semantic search, BM25, hybrid search, and chat retrieval context.
+- `src/lib/server/auth`: session/auth helpers used by app routes.
+
+## Route Boundaries
+
+Routes under `src/routes/(app)` should stay thin. They should validate request data, call shared server modules, and return JSON or Svelte-rendered UI. Terminal workflows and UI workflows should share the same backend modules where possible.
 
 Return to [docs](README.md).

@@ -9,7 +9,6 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
-		"test:rerank": "node --import tsx/esm --test ./src/lib/server/rag/mathRerank.unit.test.ts",
 		"search:semantic": "node --import tsx/esm ./src/lib/server/rag/semantic-search-harness.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

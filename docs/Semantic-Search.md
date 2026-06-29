@@ -28,8 +28,8 @@ Those can plug in later on top of this module.
 ## Current File
 
 File:
-- [semantic-search.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/semantic-search.ts)
-- [semantic-search-harness.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/semantic-search-harness.ts)
+- [semantic-search.ts](../src/lib/server/rag/semantic-search.ts)
+- [semantic-search-harness.ts](../src/lib/server/rag/semantic-search-harness.ts)
 
 ## High Level Flow
 
@@ -46,7 +46,7 @@ user query
 
 ## Why Dot Product
 
-Chunk embeddings are already stored normalized by [embedding-model.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding-model.ts).
+Chunk embeddings are already stored normalized by [embedding-model.ts](../src/lib/server/rag/embedding-model.ts).
 
 The query uses that same helper, so the query embedding is normalized too.
 
@@ -191,7 +191,7 @@ This is important because later hybrid retrieval should not need to care how sem
 
 Standalone table chunks are now typed as `TABLE` during postprocess in:
 
-- [chunk-postprocess.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
+- [chunk-postprocess.ts](../src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
 
 For now semantic search treats table chunks the same as text chunks unless the caller explicitly filters by `chunkTypes`.
 

@@ -1,33 +1,30 @@
 # Configuration Guide
 
-Configuration values live in `config.py` and environment variables.
+Most local configuration is environment-variable driven.
 
-Key paths:
+## Database
 
-- `UPLOAD_DIR` – directory for user uploaded documents
-- `PDF_DIR` – directory scanned for batch ingestion
-- `MODEL_DIR` – location of the embedding model
-- `DATABASE_PATH` – SQLite database path when `DATABASE_URL` is not set, defaulting to `app.db`
+- `DATABASE_URL`: optional libSQL/SQLite connection URL. If unset, the app uses local SQLite through the repo database helper.
 
-Environment variables:
+Useful commands:
 
-- `DATABASE_URL` – SQLModel database URL, defaulting to SQLite at `DATABASE_PATH`
-- `DATABASE_ECHO` – set to `1` to log SQL statements
-- `EMBEDDING_MODEL_ID` – sentence‑transformer to download/cache
-- `EMBEDDINGS_DEVICE` – device string for embeddings (e.g. `cpu`)
-- `EMBEDDINGS_OFFLINE_ONLY` – set to `1` to require an existing local model cache
+```bash
+npm run db:push
+npm run db:migrate
+```
 
-LLM provider credentials and current chat models are stored in the SQL
-`providers` table. Use the UI's **Manage API Keys** button, or the `/providers`
-API, to save keys for OpenAI, Anthropic, Gemini, and GitHub Models. Ollama is
-seeded as an available provider without an API key.
+## Embeddings
 
-Embeddings are configured through `config.py` and environment variables only. The
-settings UI displays `EMBEDDING_MODEL_ID` and the local `MODEL_DIR` as read-only
-status.
+- `SEMANTIC_EMBED_MODEL`: embedding model id. Defaults to `Xenova/all-MiniLM-L6-v2`.
+- `SEMANTIC_EMBED_DTYPE`: optional model dtype override.
+- `SEMANTIC_EMBED_BATCH_SIZE`: embedding batch size.
+- `SEMANTIC_EMBED_ALLOW_REMOTE`: set to `1` to allow first-run model download.
+- `SEMANTIC_EMBED_CACHE_DIR`: optional cache path. Defaults to `tmp_model/transformersjs`.
 
-User chat preferences and auth sessions are stored in the SQL database. Legacy
-`users/*.json` settings are imported on first access when present. Legacy
-`user_sessions/*.json` auth sessions are imported on startup when present.
+`tmp_model/` is ignored by Git.
+
+## Retrieval
+
+- `RAG_RETRIEVAL_MODE`: default retrieval mode for chat when the UI does not provide one. Expected values are `semantic`, `bm25`, or `hybrid`.
 
 Return to [docs](README.md).

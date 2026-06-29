@@ -1,7 +1,15 @@
 # Prompt and LLM Integration
 
-Prompt templates reside in the `prompts/` directory and can be listed or updated through the settings API.  Templates define a system prompt, user formatting and how retrieved context is embedded into the prompt.
+Prompt templates are stored in SQLite and managed through the prompt template routes and UI.
 
-`core/prompts/renderer.py` resolves the active template, renders context and history, then calls the selected LLM provider via `core/llm` factories.  Providers are chosen based on user settings (`ollama` by default).
+Relevant files:
+
+- [src/routes/(app)/prompt-templates/+server.ts](../src/routes/(app)/prompt-templates/+server.ts)
+- [src/routes/(app)/prompt-templates/[id]/+server.ts](../src/routes/(app)/prompt-templates/[id]/+server.ts)
+- [src/lib/server/providers/registry.ts](../src/lib/server/providers/registry.ts)
+- [src/lib/server/providers/provider.ts](../src/lib/server/providers/provider.ts)
+- [src/routes/(app)/sessions/[id]/messages/+server.ts](../src/routes/(app)/sessions/[id]/messages/+server.ts)
+
+The chat message route is the main integration point. It loads session state, retrieves RAG context, selects the requested provider/model, and stores assistant metadata with the retrieval mode used for the response.
 
 Return to [docs](README.md).

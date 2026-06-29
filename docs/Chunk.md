@@ -1,8 +1,8 @@
 # Chunk Handoff
 
-This file is for pass-off and testing.
+This file is for pass-off.
 
-Use [Chunk-Logic.md](/Users/matthewplambeck/Desktop/Deployable-Knowledge/docs/Chunk-Logic.md:1) for the deeper logic and design notes.
+Use [Chunk-Logic.md](Chunk-Logic.md:1) for the deeper logic and design notes.
 
 ## What This Pipeline Produces
 
@@ -15,30 +15,27 @@ Use [Chunk-Logic.md](/Users/matthewplambeck/Desktop/Deployable-Knowledge/docs/Ch
 ## Main Files
 
 Chunking:
-- [src/lib/server/providers/parse_pipeline/text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
-- [src/lib/server/providers/parse_pipeline/chunker-semantic.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
-- [src/lib/server/providers/parse_pipeline/chunk-postprocess.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
+- [src/lib/server/providers/parse_pipeline/text-extract.ts](../src/lib/server/providers/parse_pipeline/text-extract.ts)
+- [src/lib/server/providers/parse_pipeline/chunker-semantic.ts](../src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
+- [src/lib/server/providers/parse_pipeline/chunk-postprocess.ts](../src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
 
 Embedding and DB storage:
-- [src/lib/server/rag/embedding-model.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding-model.ts)
-- [src/lib/server/rag/embedding.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding.ts)
-- [src/lib/server/database/schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
-- [src/lib/server/database/database.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/database.ts)
-
-Testing:
-- [src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts)
+- [src/lib/server/rag/embedding-model.ts](../src/lib/server/rag/embedding-model.ts)
+- [src/lib/server/rag/embedding.ts](../src/lib/server/rag/embedding.ts)
+- [src/lib/server/database/schema.ts](../src/lib/server/database/schema.ts)
+- [src/lib/server/database/database.ts](../src/lib/server/database/database.ts)
 
 ## Final Outputs To Know
 
 - `chunker-semantic-raw.json`
   - pre-postprocessing chunk output
-  - notebook label: `semantic_raw`
+  - commonly labeled `semantic_raw` in local validation notes
 
 - `chunker-semantic.json`
   - final postprocessed chunk output
-  - notebook label: `semantic_ts`
+  - commonly labeled `semantic_ts` in local validation notes
   - this is the version intended for embedding and DB storage
-  - json file created wherever `CHUNK_OUTPUT_PATH` points
+  - generated JSON files should stay in ignored local folders, not committed
 
 ## Required Tables
 
@@ -52,7 +49,7 @@ The chunk/embed path writes to:
 Run from:
 
 ```bash
-cd /Users/matthewplambeck/Desktop/Deployable-Knowledge
+cd /path/to/Deployable-Knowledge
 ```
 
 Install JS deps:
@@ -78,7 +75,7 @@ npm run db:push
 Quick DB check:
 
 ```bash
-/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
+python3 - <<'PY'
 import sqlite3
 conn = sqlite3.connect("app.db")
 for row in conn.execute("select name from sqlite_master where type='table' order by name"):
@@ -91,16 +88,6 @@ Expected chunk tables:
 - `documents`
 - `document_chunks`
 
-## Run Chunking Test
-
-Use this to regenerate both test JSON files.
-
-```bash
-SEMANTIC_EMBED_ALLOW_REMOTE=1 \
-CHUNK_OUTPUT_PATH=/tmp/chunker-semantic.json \
-node --import tsx/esm src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts /path/to/file.pdf
-```
-
 PowerShell uses different env var syntax:
 
 ```powershell
@@ -111,7 +98,7 @@ npm run dev
 The embedding model cache defaults to `tmp_model/transformersjs` under the repo checkout. Override with `SEMANTIC_EMBED_CACHE_DIR` only if you need a different cache location.
 
 
-## Run End-to-End Ingest Test
+## Run End-to-End Ingest Check
 
 This runs:
 
@@ -142,7 +129,7 @@ console.log(JSON.stringify(result, null, 2));
 "
 ```
 
-Expected result shape For TCCC PDF:
+Expected result shape:
 
 ```json
 {
@@ -155,7 +142,7 @@ Expected result shape For TCCC PDF:
 ## Verify DB Rows
 
 ```bash
-/opt/homebrew/Caskroom/miniforge/base/envs/Python-DS/bin/python - <<'PY'
+python3 - <<'PY'
 import sqlite3
 conn = sqlite3.connect("app.db")
 print("documents", conn.execute("select count(*) from documents").fetchone()[0])
@@ -169,7 +156,7 @@ Expected:
 - `document_chunks` should match the final chunk count for that document
 
 
-## Files To Need For Pass Off Comit
+## Files To Know For Pass Off
 
 - `package.json`
 - `package-lock.json`
@@ -178,7 +165,6 @@ Expected:
 - `src/lib/server/providers/parse_pipeline/text-extract.ts`
 - `src/lib/server/providers/parse_pipeline/chunker-semantic.ts`
 - `src/lib/server/providers/parse_pipeline/chunk-postprocess.ts`
-- `src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts`
 - `src/lib/server/rag/embedding-model.ts`
 - `src/lib/server/rag/embedding.ts`
 - `docs/Chunk.md`

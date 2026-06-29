@@ -25,6 +25,16 @@ app.db-*
 # --- Model cache or sentence-transformers ---
 models/
 tmp_model/
+tmp_model_incomplete_backup/
+
+# --- Local experiments / generated validation artifacts ---
+output/
+outputs-test/
+local-tests/
+scratch/
+Python-Parse-Pipeline/
+*.bak
+test-*.ts
 
 # --- Agents --- 
 .codex

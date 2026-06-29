@@ -1,84 +1,53 @@
 # Deployable-Knowledge
 
-**Version vA0.2.2**
+Local first SvelteKit app for document ingestion, chunking, retrieval, and chat.
 
-Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
+## Current Stack
 
-## Overview
+- SvelteKit frontend and server routes
+- SQLite via Drizzle for documents and chunks
+- TypeScript PDF extraction and semantic chunking
+- Local embedding generation for RAG retrieval
+- Provider adapter layer for local or hosted model backends
 
-Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally and queried through FastAPI endpoints which power the JavaScript front end.
+## Setup
 
-## Features
-
-- **Document ingestion** for PDF and plaintext sources
-- **ChromaDB** vector store with sentence‑transformer embeddings
-- **Chat and search** endpoints with optional streaming responses
-- **Configurable prompts** and persona editing
-- **Authentication middleware** with session and CSRF protection
-
-## Quick Start for Usage
-
-- For verbose start/run, simply run (double-click) `Launch-DeployableKnowledge.bat` or `Launch-DeployableKnowledge.ps1`
-- For user-friendly/silent start, simply run (double-click) `Launch-DeployableKnowledge.bat-User` or `Launch-DeployableKnowledge-User.ps1`
-
-## Quick Start for Development
-
-**Unix / macOS:**
+Install dependencies:
 
 ```bash
-make setup
-make run
+npm install
 ```
 
-**Windows (PowerShell):**
-
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Use `python -m pip` and `python -m pytest` so installs and tests use the same Python as your shell; this avoids "script location not on PATH" or "pytest not recognized" when the venv Scripts folder is not on PATH.
-
-**Run tests:**
+Initialize or update the local database:
 
 ```bash
-python -m pytest tests/ -q
+npm run db:push
 ```
 
-Visit <http://localhost:8000> once the server starts. Ollama is available by default with the seeded `llama3` model; use **Manage API Keys** in the prompt editor to connect hosted providers.
+Start the dev server:
 
-**If you see "script location not on PATH" or "pytest not recognized":** run `pip` and `pytest` as modules so the active Python is used: `python -m pip install -r requirements.txt` and `python -m pytest tests/ -q`.
-
-## Architecture overview
-
-The system is split into three layers:
-
-```text
-core/  – retrieval, prompt rendering and LLM adapters
-api/   – FastAPI routers translating HTTP ↔ core
-app/   – static assets and UI routes
+```bash
+npm run dev
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data‑flow breakdowns.
+## Useful Commands
+
+```bash
+npm run check
+npm run build
+npm run search:semantic
+```
+
+The embedding model cache defaults to `tmp_model/transformersjs`, which is ignored by Git. Set `SEMANTIC_EMBED_ALLOW_REMOTE=1` for the first run if the model is not already cached.
 
 ## Documentation
 
-Additional guides live in the [`docs/`](docs) folder:
-
-- [API reference](docs/API_REFERENCE.md)
+- [Docs index](docs/README.md)
 - [UI overview](docs/UI_OVERVIEW.md)
-- [Backend services](docs/BACKEND_SERVICES.md)
-- [Configuration guide](docs/CONFIGURATION.md)
-- [Prompt & LLM integration](docs/PROMPTS_LLM.md)
+- [Chunk handoff](docs/Chunk.md)
+- [Chunk logic](docs/Chunk-Logic.md)
+- [Semantic search](docs/Semantic-Search.md)
+- [RAG debug](docs/RAG-Debug.md)
 
-## Contributing
 
-1. Create a feature branch off `main`.
-2. Add tests and run `python -m pytest tests/` before submitting a pull request.
-3. Follow the existing coding style and keep docstrings concise.
-4. Open a PR describing the change and link to any relevant issues.
 
----
-Released under the MIT license.

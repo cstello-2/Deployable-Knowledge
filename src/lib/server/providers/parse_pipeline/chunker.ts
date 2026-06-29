@@ -882,8 +882,3 @@ export function chunkPages(
 //     with open(output_path, "w", encoding="utf-8") as f:
 //         f.write(full_text)
 //     print(f"Extracted text saved to {output_path}")
-
-
-
-// CHUNK_OUTPUT_PATH=/tmp/chunker.json npx tsx src/lib/server/providers/parse_pipeline/chunker-test.ts /path/to/file.pdf
-// CHUNK_OUTPUT_PATH=/tmp/chunker-semantic.json npx tsx src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts /path/to/file.pdf

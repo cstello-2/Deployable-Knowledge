@@ -19,7 +19,7 @@ PDF
 ## Stage 1: PDF Extraction
 
 File:
-- [text-extract.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/text-extract.ts)
+- [text-extract.ts](../src/lib/server/providers/parse_pipeline/text-extract.ts)
 
 
 `TextExtract()` opens the PDF with `scribe.js-ocr`, walks page by page, and returns page-level extracted text records.
@@ -83,7 +83,7 @@ Important:
 ## Stage 2: Semantic Chunking
 
 File:
-- [chunker-semantic.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
+- [chunker-semantic.ts](../src/lib/server/providers/parse_pipeline/chunker-semantic.ts)
 
 ### What goes in
 
@@ -95,9 +95,8 @@ It returns `ChunkRecord[]`, which is the pre-postprocessing chunk set.
 
 Important naming:
 
-- this output is what the test harness writes to `chunker-semantic-raw.json`
 - this is the **pre-postprocessing** chunk set
-- this is usually referred to as `semantic_raw`
+- this is usually referred to as `semantic_raw` in local validation notes
 
 ### Default chunker settings
 
@@ -245,7 +244,7 @@ Why:
 ## Stage 3: Postprocessing
 
 File:
-- [chunk-postprocess.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
+- [chunk-postprocess.ts](../src/lib/server/providers/parse_pipeline/chunk-postprocess.ts)
 
 ### What goes in
 
@@ -258,9 +257,8 @@ File:
 
 Important naming:
 
-- this output is what the test harness writes to `chunker-semantic.json`
 - this is the **post-postprocessing** chunk set
-- this is usually referred to as `semantic_ts`
+- this is usually referred to as `semantic_ts` in local validation notes
 
 ### What postprocessing actually does
 
@@ -345,7 +343,7 @@ What does **not** happen:
 ## Stage 4: Embedding Model
 
 File:
-- [embedding-model.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding-model.ts)
+- [embedding-model.ts](../src/lib/server/rag/embedding-model.ts)
 
 ### What it does
 
@@ -390,7 +388,7 @@ Important:
 ## Stage 5: Store Final Chunks in SQLite
 
 File:
-- [embedding.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/rag/embedding.ts)
+- [embedding.ts](../src/lib/server/rag/embedding.ts)
 
 ### What goes in
 
@@ -438,7 +436,7 @@ Why:
 ## SQLite Schema
 
 File:
-- [schema.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/database/schema.ts)
+- [schema.ts](../src/lib/server/database/schema.ts)
 
 ### `documents`
 
@@ -477,66 +475,14 @@ Important:
 - `chunkIndex` is page-local in the current logic, not global across the whole document
 - the chunk ID is what is truly unique
 
-## Test Harness and Output Files
+## Local Validation Artifacts
 
-File:
-- [chunker-semantic-test.ts](/Users/matthewplambeck/Desktop/Deployable-Knowledge/src/lib/server/providers/parse_pipeline/chunker-semantic-test.ts)
+Historical notebooks, generated JSON outputs, and legacy Python comparison scripts are not committed on the pass-off branch. Regenerate them in ignored folders such as `outputs-test/`, `output/`, `local-tests/`, or `scratch/` when deeper chunk validation is needed.
 
-### Output meaning
+The important output distinction remains:
 
-- `chunker-semantic-raw.json`
-  - output of `chunkPages()`
-  - pre-postprocessing
-  - usually called `semantic_raw`
-
-- `chunker-semantic.json`
-  - output of `postprocessChunks(...)`
-  - final chunk set intended for RAG storage
-  - usually called `semantic_ts`
-
-This is the most important distinction when reading the notebook.
-
-## Notebook Interpretation
-
-File:
-- Historical notebook comparisons were removed from the repo artifact tree; regenerate analysis outputs outside the repo when needed.
-
-### Current datasets in the notebook
-
-- `cleaned_source`
-  - cleaned extracted page text baseline
-- `semantic_raw`
-  - pre-postprocessing chunk output
-- `semantic_ts`
-  - final postprocessed chunk output
-- `python_legacy`
-  - legacy reference only
-
-### What the coverage table means
-
-The source coverage table is set-based, not count-of-occurrences based.
-
-- `source_unique_count`
-  - number of unique normalized items in `cleaned_source`
-- `chunk_unique_count`
-  - number of unique normalized items found in the chunk output
-- `missing_unique_from_chunks`
-  - source items absent from the chunk output
-- `extra_unique_in_chunks`
-  - chunk items not present in `cleaned_source`
-- `source_recall_pct`
-  - percent of source items recovered by the chunk output
-
-### Important notebook caveats
-
-1. Sentence-based comparison is noisy.
-
-Small formatting changes can create:
-
-- one “missing” sentence
-- one “extra” sentence
-
-without any real text loss.
+- `semantic_raw` means the direct output of `chunkPages()`
+- `semantic_ts` means the postprocessed output from `postprocessChunks(...)` and is the version intended for RAG storage
 
 2. Table chunks distort the notebook’s sentence-count approximation.
 
