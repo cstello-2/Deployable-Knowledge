@@ -3,9 +3,9 @@ import { performance } from "node:perf_hooks";
 import {
   TextExtract,
   type Source,
-} from "$lib/server/providers/parse_pipeline/text-extract";
-import { chunkPages } from "$lib/server/providers/parse_pipeline/chunker-semantic";
-import { postprocessChunks } from "$lib/server/providers/parse_pipeline/chunk-postprocess";
+} from "$lib/server/rag/parse/text-extract";
+import { chunkPages } from "$lib/server/rag/parse/chunker-semantic";
+import { postprocessChunks } from "$lib/server/rag/parse/chunk-postprocess";
 import { storeDocumentChunks } from "./embedding";
 
 export type IngestDocumentInput = {

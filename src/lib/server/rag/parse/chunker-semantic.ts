@@ -730,7 +730,7 @@ function chunkNonTextPage(page: ExtractedChunk): ChunkRecord[] {
 }
 
 
-// Main entry for parse_pipeline
+// Main entry for document parsing/chunking
 //Input: page level extractions from text-extract.ts
 //Output: retrieval ready chunk records with IDs and metadata attached
 export async function chunkPages(

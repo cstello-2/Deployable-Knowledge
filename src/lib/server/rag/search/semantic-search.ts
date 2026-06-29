@@ -1,8 +1,8 @@
 // Exact semantic search over the stored chunk embeddings in SQLite.
 
 import { performance } from "node:perf_hooks";
-import { databaseClient } from "../database/database";
-import { EMBEDDING_MODEL, embedTexts } from "./embedding-model";
+import { databaseClient } from "../../database/database";
+import { EMBEDDING_MODEL, embedTexts } from "../embedding-model";
 
 export type SemanticSearchChunkType = "TEXT" | "TABLE" | "IMAGE";
 

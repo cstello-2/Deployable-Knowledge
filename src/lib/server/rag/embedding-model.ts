@@ -1,10 +1,12 @@
-// Shared embedding model helper used to create the chunks and embed the final chunks
+// Shared embedding model helper file. Used when creating chunks, embeddeding completed chunks, & embedding queries for semantic search
 
 import { resolve } from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
 
 export const EMBEDDING_MODEL =
   process.env.SEMANTIC_EMBED_MODEL ?? "Xenova/all-MiniLM-L6-v2";
+// TODO: Research alternative embedding models
+
 const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";

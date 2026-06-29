@@ -17,7 +17,7 @@ import {
 
 const DEFAULT_RAG_TOP_K = 5;
 const MAX_CONTEXT_CHARS = 900;
-const MAX_PREVIEW_CHARS = 180;
+const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :
   process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid";

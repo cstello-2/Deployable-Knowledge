@@ -1,11 +1,11 @@
-// DB-backed BM25 search for retrieval debugging.
+// DB-backed BM25 search.
 
 // @ts-ignore wink-bm25-text-search does not ship useful TS types.
 import BM25Engine from "wink-bm25-text-search";
 import { performance } from "node:perf_hooks";
 import { stemmer } from "stemmer";
 import { eng } from "stopword";
-import { databaseClient } from "../database/database";
+import { databaseClient } from "../../database/database";
 import type { SemanticSearchChunkType } from "./semantic-search";
 
 export type Bm25SearchOptions = {

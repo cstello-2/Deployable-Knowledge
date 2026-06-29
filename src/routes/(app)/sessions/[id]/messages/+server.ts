@@ -15,7 +15,7 @@ import type {
 import {
   retrieveRagContext,
   type RagRetrievalMode,
-} from "$lib/server/rag/retrieve-rag-context";
+} from "$lib/server/rag/search/retrieve-rag-context";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
