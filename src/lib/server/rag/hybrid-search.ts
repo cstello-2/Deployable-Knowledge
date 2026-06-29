@@ -6,10 +6,10 @@ import {
 } from "./semantic-search";
 import { searchBm25, type Bm25SearchMatch } from "./bm25-search";
 import {
-  weightedReciprocalRankRerank,
+  reRankData,
   type Document,
   type RerankedDocument,
-} from "./mathRerank";
+} from "./crossRerank";
 
 export type HybridSearchOptions = {
   query: string;
@@ -72,7 +72,7 @@ function sourceMatch(doc: RerankedDocument): SemanticSearchMatch | Bm25SearchMat
 export async function searchHybrid(options: HybridSearchOptions): Promise<HybridSearchResult> {
   const totalStart = performance.now();
   const query = options.query.trim();
-  const topK = Math.max(0, Math.floor(options.topK ?? 5));
+  const topK = Math.max(0, Math.floor(options.topK ?? 10));
   const candidateTopK = Math.max(topK * 4, topK);
 
   if (!query || topK === 0) {
@@ -123,7 +123,8 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
   );
 
   const rerankStart = performance.now();
-  const reranked = weightedReciprocalRankRerank(
+  const reranked = await reRankData(
+    query,
     bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
     semantic.results.map((match) => toRerankDocument(match, "semanticScore")),
     { limit: topK },
@@ -147,8 +148,10 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
       bm25Rank: bm25RankByChunk.get(match.chunkId),
       semanticScore: semanticScoreByChunk.get(match.chunkId),
       bm25Score: bm25ScoreByChunk.get(match.chunkId),
-      rerankSemanticScore: doc.vectorScore,
-      rerankBm25Score: doc.bm25Score,
+      // Cross encoder gives single output instead of RRF's 2 output
+      // Is set to 0 to avoid breaking current output structure
+      rerankSemanticScore: 0,
+      rerankBm25Score: 0,
     };
   });
 

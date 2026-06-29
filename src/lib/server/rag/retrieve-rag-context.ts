@@ -15,7 +15,7 @@ import {
   type Bm25SearchResult,
 } from "./bm25-search";
 
-const DEFAULT_RAG_TOP_K = 5;
+const DEFAULT_RAG_TOP_K = 10;
 const MAX_CONTEXT_CHARS = 900;
 const MAX_PREVIEW_CHARS = 180;
 const DEFAULT_RETRIEVAL_MODE =

@@ -28,6 +28,7 @@ export class Ollama extends Provider {
     });
 
     const resp = await fetch(req);
+
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
