@@ -9,7 +9,7 @@ import {
   type NewDocument,
   type NewDocumentChunk,
 } from "../database/schema";
-import type { ChunkRecord } from "./parse/chunker-semantic";
+import type { ChunkRecord } from "./parse/parse-shared";
 import { EMBEDDING_MODEL, embedTexts } from "./embedding-model";
 
 const INSERT_BATCH_SIZE = 100;

@@ -2,27 +2,11 @@
 
 // Imports:
 import scribe from "scribe.js-ocr"; //Extraxtion Library
-import { normalizeWhitespace } from "./text-normalize";
-
-// Add media types as needed:
-export type MediaType = "PDF";
-
-export type ChunkType = "TEXT" | "IMAGE" | "TABLE";
-
-
-//Define definitions
-export type Chunk = {
-  chunkType: ChunkType;
-  source: Source;
-  pageIndex: number;
-  content: string;
-};
-
-export type Source = {
-  title: string;
-  type: MediaType;
-  path: string;
-};
+import {
+  normalizeWhitespace,
+  type ExtractedChunk as Chunk,
+  type Source,
+} from "./parse-shared";
 
 type PageItem = {
   bbox: Bbox;

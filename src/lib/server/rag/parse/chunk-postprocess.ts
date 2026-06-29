@@ -3,76 +3,25 @@
 // ----------------------------
 
 // Imports
-import { createHash } from "node:crypto";
-import type { Chunk as ExtractedChunk, ChunkType, Source } from "./text-extract";
-import type { ChunkRecord } from "./chunker-semantic";
+import {
+  buildChunkId,
+  countWords,
+  type ChunkRecord,
+  type ChunkType,
+  type ExtractedChunk,
+} from "./parse-shared";
 
 type PostprocessOptions = {
-  filterChunks?: boolean;
   minWords?: number;
 };
 
 const DEFAULT_OPTIONS: Required<PostprocessOptions> = {
-  filterChunks: true,
   minWords: 5,
 };
-
-// Helper for word counts used by final keep/drop rules.
-function wordCount(text: string): number {
-  const words = text.trim().match(/\S+/g);
-  return words ? words.length : 0;
-}
-
-// Deterministic ids for post-processed chunks.
-function buildChunkId(
-  source: Source,
-  pageIndex: number,
-  chunkIndex: number,
-  chunkType: ChunkType,
-  content: string,
-): string {
-  return createHash("sha256")
-    .update(source.path)
-    .update("\n")
-    .update(String(pageIndex))
-    .update("\n")
-    .update(String(chunkIndex))
-    .update("\n")
-    .update(chunkType)
-    .update("\n")
-    .update(content)
-    .digest("hex");
-}
 
 // Table markers are handled separately in the Python retriever flow too.
 function isTableChunk(text: string): boolean {
   return text.trimStart().startsWith("[Table:");
-}
-
-// Same shouty text filter used by the Python pipeline.
-function isAllCaps(text: string, threshold: number = 0.8): boolean {
-  const cleaned = text.replace(/[\W\d_]+/g, "");
-  if (!cleaned) return false;
-
-  let upperCount = 0;
-  for (const char of cleaned) {
-    if (char === char.toUpperCase()) {
-      upperCount += 1;
-    }
-  }
-
-  return upperCount / cleaned.length >= threshold;
-}
-
-// Final keep/drop rule from the Python retriever flow.
-function keepChunk(text: string, filterChunks: boolean, minWords: number): boolean {
-  if (isTableChunk(text)) return true;
-  // Potential future change: only drop when the chunk is short and mostly punctuation/separators.
-  if (filterChunks && isAllCaps(text)) {
-    return false;
-  }
-
-  return wordCount(text) >= minWords;
 }
 
 // Pull inline table markers out as standalone retrieval chunks.
@@ -99,7 +48,7 @@ function extractTableChunks(page: ExtractedChunk): ChunkRecord[] {
       metadata: {
         startChar,
         endChar,
-        wordCount: wordCount(content),
+        wordCount: countWords(content),
         sentenceCount: 1,
       },
     });
@@ -121,7 +70,7 @@ function reindexChunks(chunks: ChunkRecord[]): ChunkRecord[] {
       content,
       metadata: {
         ...chunk.metadata,
-        wordCount: wordCount(content),
+        wordCount: countWords(content),
       },
     };
   });
@@ -168,7 +117,7 @@ export function postprocessChunks(
     }
 
     const keptChunks = dedupedChunks.filter((chunk) =>
-      keepChunk(chunk.content, resolved.filterChunks, resolved.minWords),
+      isTableChunk(chunk.content) || countWords(chunk.content) >= resolved.minWords,
     );
 
     finalChunks.push(...reindexChunks(keptChunks));

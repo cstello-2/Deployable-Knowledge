@@ -26,20 +26,20 @@ extract text/pages/tables
 
 ### 1. Shared Parse Types And Helpers
 
-- [ ] Create one shared parse file, likely `src/lib/server/rag/parse/parse-shared.ts`.
-- [ ] Move `Source`, `ChunkType`, extracted page/table types, parsed chunk type, `normalizeWhitespace`, `countWords`, and `buildChunkId` there.
-- [ ] Remove duplicate `wordCount` and `buildChunkId` from chunker/postprocess files.
-- [ ] Avoid a one-function helper file like `text-normalize.ts`.
+- [x] Create one shared parse file, likely `src/lib/server/rag/parse/parse-shared.ts`.
+- [x] Move `Source`, `ChunkType`, extracted page/table types, parsed chunk type, `normalizeWhitespace`, `countWords`, and `buildChunkId` there.
+- [x] Remove duplicate `wordCount` and `buildChunkId` from chunker/postprocess files.
+- [x] Avoid a one-function helper file like `text-normalize.ts`.
 - [ ] Where practical, derive stored chunk fields from database schema types instead of redefining DB-shaped data.
 
 ### 2. Repeated-Line Cleanup Has One Owner
 
-- [ ] Keep repeated header/footer removal in `text-extract.ts`.
-- [ ] Remove `removeRepeatedLines` from `ChunkerOptions`.
-- [ ] Remove `repeatedLineThreshold` from `ChunkerOptions`.
-- [ ] Delete repeated-line cleanup from `chunker-semantic.ts`.
-- [ ] Make `chunkPages()` assume extraction already cleaned repeated page-level lines.
-- [ ] Validate with `npm run check` and `npm run build`.
+- [x] Keep repeated header/footer removal in `text-extract.ts`.
+- [x] Remove `removeRepeatedLines` from `ChunkerOptions`.
+- [x] Remove `repeatedLineThreshold` from `ChunkerOptions`.
+- [x] Delete repeated-line cleanup from `chunker-semantic.ts`.
+- [x] Make `chunkPages()` assume extraction already cleaned repeated page-level lines.
+- [x] Validate with `npm run check` and `npm run build`.
 
 ### 3. Structured Tables, No Text Marker Parsing
 
@@ -56,12 +56,12 @@ extract text/pages/tables
 
 ### 4. Simplify Postprocess Or Rename It
 
-- [ ] Inline the simple min-word check instead of using `keepChunk()`.
-- [ ] Consider removing the all-caps filter unless there is a concrete current failure it solves.
+- [x] Inline the simple min-word check instead of using `keepChunk()`.
+- [x] Consider removing the all-caps filter unless there is a concrete current failure it solves.
 - [ ] If postprocess only assembles text/table chunks and reindexes, rename it to something like `assembleChunks`.
 - [ ] Keep final cleanup to direct `.trim()` where possible.
 - [x] Decision: remove `isAllCaps()`. Header/footer removal belongs to extraction-level repeated-line cleanup, not broad all-caps dropping.
-- [ ] Remove the all-caps filter from postprocess.
+- [x] Remove the all-caps filter from postprocess.
 
 ### 5. Simplify Chunker Helper Sprawl
 
@@ -80,18 +80,18 @@ These helpers currently make `chunker-semantic.ts` feel over-engineered:
 
 Proposed direction:
 
-- [ ] Remove `splitWords`; use direct `text.trim().split(...)` where needed.
-- [ ] Remove `looksLikeLabelLine`.
-- [ ] Remove `stripTrailingShortNumber`.
-- [ ] Remove bullet and numbered-step special handling unless a validation run proves it is necessary.
+- [x] Remove `splitWords`; use direct `text.trim().split(...)` where needed.
+- [x] Remove `looksLikeLabelLine`.
+- [x] Remove `stripTrailingShortNumber`.
+- [x] Remove bullet and numbered-step special handling unless a validation run proves it is necessary.
 - [x] Decision: remove `isShortNumericText`. Do not bother dropping page numbers for now unless validation proves they are a real problem.
-- [ ] Remove page-number/small-number drop logic from the chunker.
-- [ ] Remove `endsWithRepeatedInitials` unless sentence splitting is demonstrably broken without it.
+- [x] Remove page-number/small-number drop logic from the chunker.
+- [x] Remove `endsWithRepeatedInitials` unless sentence splitting is demonstrably broken without it.
 - [x] Decision: aggressively reduce the chunker helper pile. Special-structure preservation is making the code hard to review and defend.
-- [ ] Remove `shouldKeepChunk`; inline `countWords(content) >= minWords`.
-- [ ] Keep sentence splitting as simple as possible. If abbreviation handling is needed, prefer one small regex/list-based rule over a pile of helper functions.
-- [ ] Avoid tiny one-line helper functions.
-- [ ] Remove comments that reference legacy Python/PageRank/testing unless they explain a current design decision.
+- [x] Remove `shouldKeepChunk`; inline `countWords(content) >= minWords`.
+- [x] Keep sentence splitting as simple as possible. If abbreviation handling is needed, prefer one small regex/list-based rule over a pile of helper functions.
+- [x] Avoid tiny one-line helper functions.
+- [x] Remove comments that reference legacy Python/PageRank/testing unless they explain a current design decision.
 - [ ] Prefer a short centralized list of cleanup regex rules over scattered custom helper functions.
 - [ ] Keep regex only where it is the clearest way to handle OCR/PDF noise.
 - [ ] Do not add document-specific cleanup rules.

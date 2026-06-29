@@ -1,11 +1,9 @@
 import { basename } from "node:path";
 import { performance } from "node:perf_hooks";
-import {
-  TextExtract,
-  type Source,
-} from "$lib/server/rag/parse/text-extract";
+import { TextExtract } from "$lib/server/rag/parse/text-extract";
 import { chunkPages } from "$lib/server/rag/parse/chunker-semantic";
 import { postprocessChunks } from "$lib/server/rag/parse/chunk-postprocess";
+import type { Source } from "$lib/server/rag/parse/parse-shared";
 import { storeDocumentChunks } from "./embedding";
 
 export type IngestDocumentInput = {
