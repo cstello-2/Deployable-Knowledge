@@ -1,53 +1,54 @@
 # Deployable-Knowledge
 
-Local first SvelteKit app for document ingestion, chunking, retrieval, and chat.
+**Version vA0.3.0**
 
-## Current Stack
+Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
 
-- SvelteKit frontend and server routes
-- SQLite via Drizzle for documents and chunks
-- TypeScript PDF extraction and semantic chunking
-- Local embedding generation for RAG retrieval
-- Provider adapter layer for local or hosted model backends
+## Overview
 
-## Setup
+Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally, the frontend is developed in [Sveltekit](https://svelte.dev), the backend is written in [Typescript](https://typescriptlang.org).
 
-Install dependencies:
+## Features
+
+- **Document ingestion** for PDF and plaintext sources
+- **ChromaDB** vector store with sentence‑transformer embeddings
+- **Chat and search** endpoints with optional streaming responses
+- **Configurable prompts** and persona editing
+- **Authentication middleware** with session and CSRF protection
+
+## Quick Start for Development
 
 ```bash
+# First time setup (don't do this everytime)
 npm install
-```
+npm run db:generate
 
-Initialize or update the local database:
+npm run db:migrate # to be run if there were upstream database changes
 
-```bash
-npm run db:push
-```
-
-Start the dev server:
-
-```bash
+# After and every other startup run 
 npm run dev
 ```
 
-## Useful Commands
+## Architecture overview
 
-```bash
-npm run check
-npm run build
-npm run search:semantic
-```
-
-The embedding model cache defaults to `tmp_model/transformersjs`, which is ignored by Git. Set `SEMANTIC_EMBED_ALLOW_REMOTE=1` for the first run if the model is not already cached.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data‑flow breakdowns.
 
 ## Documentation
 
-- [Docs index](docs/README.md)
+Additional guides live in the [`docs/`](docs) folder:
+
+- [API reference](docs/API_REFERENCE.md)
 - [UI overview](docs/UI_OVERVIEW.md)
-- [Chunk handoff](docs/Chunk.md)
-- [Chunk logic](docs/Chunk-Logic.md)
-- [Semantic search](docs/Semantic-Search.md)
-- [RAG debug](docs/RAG-Debug.md)
+- [Backend services](docs/BACKEND_SERVICES.md)
+- [Configuration guide](docs/CONFIGURATION.md)
+- [Prompt & LLM integration](docs/PROMPTS_LLM.md)
 
+## Contributing
 
+1. Create a fork off this repo
+2. Create a feature branch off `cancun` on your fork.
+3. Follow the existing coding style (run formatter, before committing `npm run format`). 
+4. Open a PR describing the change and link to any relevant issues.
 
+---
+Released under the MIT license.

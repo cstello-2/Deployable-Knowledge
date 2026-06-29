@@ -9,7 +9,7 @@
     selectedDocumentIds,
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
-  import type { WindowInstanceProps } from "./index.ts";
+  import type { WindowInstanceProps } from "./index";
 
   type DocumentRow = {
     id: string;

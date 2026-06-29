@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 // Also prevents duplicate ids if document is reuploaded
 import type { Chunk as ExtractedChunk, ChunkType, Source } from "./text-extract";
 import { embedTexts } from "../../rag/embedding-model";
+import { normalizeWhitespace } from "./text-normalize";
 
 
 //Chunk Metadata (Start & End charecters, word & sentence counts)
@@ -83,10 +84,6 @@ const LONG_CHUNK_BREAK_THRESHOLD = 0.25;
 const MIN_BREAK_RATIO = 0.55;
 const LONG_BREAK_RATIO = 0.8;
 const BULLET_CHARS = new Set(["*", "•", "○", "♦"]); //
-
-// Normalize all line endings & repeated spaces 
-function normalizeWhitespace(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();}
 
 // Small helper to keep line based cleanup generalized across PDFs
 function isShortNumericText(text: string): boolean {

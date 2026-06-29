@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
-  import type { WindowInstanceProps } from "./index.ts";
+  import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session } from "$lib/server/database/schema";
 

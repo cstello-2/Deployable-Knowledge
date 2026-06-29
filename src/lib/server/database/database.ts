@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import * as schema from "./schema.ts";
+import * as schema from "./schema";
 
 export const databaseClient = createClient({
   url: "file:app.db",

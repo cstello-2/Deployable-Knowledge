@@ -23,11 +23,6 @@ function wordCount(text: string): number {
   return words ? words.length : 0;
 }
 
-// Normalize whitespace in final chunk text.
-function normalizeWhitespace(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
-}
-
 // Deterministic ids for post-processed chunks.
 function buildChunkId(
   source: Source,
@@ -89,7 +84,7 @@ function extractTableChunks(page: ExtractedChunk): ChunkRecord[] {
   const chunkType: ChunkType = "TABLE";
 
   for (const match of matches) {
-    const content = normalizeWhitespace(match[0]);
+    const content = match[0].trim();
     if (!content) continue;
 
     const startChar = match.index ?? 0;
@@ -117,7 +112,7 @@ function extractTableChunks(page: ExtractedChunk): ChunkRecord[] {
 // Reindex chunks after dedupe/filtering so ordering stays deterministic.
 function reindexChunks(chunks: ChunkRecord[]): ChunkRecord[] {
   return chunks.map((chunk, index) => {
-    const content = normalizeWhitespace(chunk.content);
+    const content = chunk.content.trim();
 
     return {
       ...chunk,
@@ -163,7 +158,7 @@ export function postprocessChunks(
     const dedupedChunks: ChunkRecord[] = [];
 
     for (const chunk of combinedChunks) {
-      const content = normalizeWhitespace(chunk.content);
+      const content = chunk.content.trim();
       if (!content || seenPageChunks.has(content)) continue;
       seenPageChunks.add(content);
       dedupedChunks.push({

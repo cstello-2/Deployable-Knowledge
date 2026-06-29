@@ -2,17 +2,14 @@ import {
   searchSemantic,
   type SemanticSearchChunkType,
   type SemanticSearchMatch,
-  type SemanticSearchTimings,
 } from "./semantic-search";
 import {
   searchHybrid,
   type HybridSearchMatch,
-  type HybridSearchResult,
 } from "./hybrid-search";
 import {
   searchBm25,
   type Bm25SearchMatch,
-  type Bm25SearchResult,
 } from "./bm25-search";
 
 const DEFAULT_RAG_TOP_K = 5;
@@ -39,8 +36,6 @@ export type RagContextResult = {
   mode: RagRetrievalMode;
   contextBlock: string;
   sources: RagSource[];
-  matches: RagMatch[];
-  timings: SemanticSearchTimings | Bm25SearchResult["timings"] | HybridSearchResult["timings"];
 };
 
 function compactText(text: string, limit: number) {
@@ -109,8 +104,6 @@ export async function retrieveRagContext({
       mode,
       contextBlock: formatContext(search.results),
       sources: buildSources(search.results),
-      matches: search.results,
-      timings: search.timings,
     };
   }
 
@@ -126,8 +119,6 @@ export async function retrieveRagContext({
       mode,
       contextBlock: formatContext(search.results),
       sources: buildSources(search.results),
-      matches: search.results,
-      timings: search.timings,
     };
   }
 
@@ -142,7 +133,5 @@ export async function retrieveRagContext({
     mode,
     contextBlock: formatContext(search.results),
     sources: buildSources(search.results),
-    matches: search.results,
-    timings: search.timings,
   };
 }

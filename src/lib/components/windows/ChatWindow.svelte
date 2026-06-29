@@ -3,7 +3,7 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
-  import { type WindowInstanceProps } from "./index.ts";
+  import { type WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session, SessionMessage } from "$lib/server/database/schema";
 

@@ -1,7 +1,8 @@
 // Exact semantic search over the stored chunk embeddings in SQLite.
 
-import { performance } from "node:perf_hooks";
-import { databaseClient } from "../../database/database";
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "../../database/database";
+import { document_chunks, documents } from "../../database/schema";
 import { EMBEDDING_MODEL, embedTexts } from "../embedding-model";
 
 export type SemanticSearchChunkType = "TEXT" | "TABLE" | "IMAGE";
@@ -27,22 +28,9 @@ export type SemanticSearchMatch = {
   score: number;
 };
 
-export type SemanticSearchTimings = {
-  embedMs: number;
-  loadCandidatesMs: number;
-  decodeEmbeddingsMs: number;
-  scoreMs: number;
-  sortMs: number;
-  totalMs: number;
-  candidateCount: number;
-  returnedCount: number;
-};
-
 export type SemanticSearchResult = {
   query: string;
-  embeddingModel: string;
   results: SemanticSearchMatch[];
-  timings: SemanticSearchTimings;
 };
 
 type CandidateRow = {
@@ -60,7 +48,6 @@ type CandidateRow = {
 export async function searchSemantic(
   options: SemanticSearchOptions,
 ): Promise<SemanticSearchResult> {
-  const totalStart = performance.now();
   const query = options.query.trim();
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   const embeddingModel = options.embeddingModel?.trim() || EMBEDDING_MODEL;
@@ -68,79 +55,46 @@ export async function searchSemantic(
   const sourcePaths = [...new Set((options.sourcePaths ?? []).map((value) => value.trim()).filter(Boolean))];
   const chunkTypes = [...new Set((options.chunkTypes ?? []).map((value) => value.trim()).filter(Boolean))];
 
-  const timings: SemanticSearchTimings = {
-    embedMs: 0,
-    loadCandidatesMs: 0,
-    decodeEmbeddingsMs: 0,
-    scoreMs: 0,
-    sortMs: 0,
-    totalMs: 0,
-    candidateCount: 0,
-    returnedCount: 0,
-  };
-
   if (!query || topK === 0) {
-    timings.totalMs = Number((performance.now() - totalStart).toFixed(3));
     return {
       query,
-      embeddingModel,
       results: [],
-      timings,
     };
   }
 
   // Same embedding path as chunking/storage so query vectors stay in sync with the corpus.
-  const embedStart = performance.now();
   const queryEmbedding = (await embedTexts([query]))[0] ?? [];
-  timings.embedMs = Number((performance.now() - embedStart).toFixed(3));
-
-  // Keep the SQL simple for now. We only add filters that the caller actually sent.
-  const loadStart = performance.now();
-  const filters: string[] = ["dc.embedding_model = ?"];
-  const args: Array<string> = [embeddingModel];
+  const filters = [eq(document_chunks.embeddingModel, embeddingModel)];
 
   if (documentIds.length > 0) {
-    filters.push(`dc.document_id in (${documentIds.map(() => "?").join(", ")})`);
-    args.push(...documentIds);
+    filters.push(inArray(document_chunks.documentId, documentIds));
   }
 
   if (sourcePaths.length > 0) {
-    filters.push(`d.source_path in (${sourcePaths.map(() => "?").join(", ")})`);
-    args.push(...sourcePaths);
+    filters.push(inArray(documents.sourcePath, sourcePaths));
   }
 
   if (chunkTypes.length > 0) {
-    filters.push(`dc.chunk_type in (${chunkTypes.map(() => "?").join(", ")})`);
-    args.push(...chunkTypes);
+    filters.push(inArray(document_chunks.chunkType, chunkTypes));
   }
 
-  const querySql = `
-    select
-      dc.id as chunkId,
-      dc.document_id as documentId,
-      d.source_path as sourcePath,
-      d.title as sourceTitle,
-      dc.page_index as pageIndex,
-      dc.chunk_index as chunkIndex,
-      dc.chunk_type as chunkType,
-      dc.content as content,
-      dc.embedding as embedding
-    from document_chunks dc
-    join documents d on d.id = dc.document_id
-    where ${filters.join(" and ")}
-  `;
-
-  const rawRows = await databaseClient.execute({
-    sql: querySql,
-    args,
-  });
-  timings.loadCandidatesMs = Number((performance.now() - loadStart).toFixed(3));
-
-  const candidateRows = rawRows.rows as unknown as CandidateRow[];
-  timings.candidateCount = candidateRows.length;
+  const candidateRows = await db
+    .select({
+      chunkId: document_chunks.id,
+      documentId: document_chunks.documentId,
+      sourcePath: documents.sourcePath,
+      sourceTitle: documents.title,
+      pageIndex: document_chunks.pageIndex,
+      chunkIndex: document_chunks.chunkIndex,
+      chunkType: document_chunks.chunkType,
+      content: document_chunks.content,
+      embedding: document_chunks.embedding,
+    })
+    .from(document_chunks)
+    .innerJoin(documents, eq(documents.id, document_chunks.documentId))
+    .where(and(...filters)) as CandidateRow[];
 
   // Stored vectors are Float32 bytes. We decode them once, then score with plain dot product.
-  const decodeStart = performance.now();
   const decodedCandidates = candidateRows.map((row) => {
     const rawEmbedding = row.embedding;
 
@@ -168,9 +122,7 @@ export async function searchSemantic(
       vector,
     };
   });
-  timings.decodeEmbeddingsMs = Number((performance.now() - decodeStart).toFixed(3));
 
-  const scoreStart = performance.now();
   const scoredRows: SemanticSearchMatch[] = [];
 
   for (const candidate of decodedCandidates) {
@@ -194,19 +146,12 @@ export async function searchSemantic(
       score,
     });
   }
-  timings.scoreMs = Number((performance.now() - scoreStart).toFixed(3));
 
-  const sortStart = performance.now();
   scoredRows.sort((left, right) => right.score - left.score);
   const results = scoredRows.slice(0, topK);
-  timings.sortMs = Number((performance.now() - sortStart).toFixed(3));
-  timings.returnedCount = results.length;
-  timings.totalMs = Number((performance.now() - totalStart).toFixed(3));
 
   return {
     query,
-    embeddingModel,
     results,
-    timings,
   };
 }

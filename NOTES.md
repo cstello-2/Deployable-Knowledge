@@ -60,8 +60,9 @@ Proposed cleanup order:
 
 Likely first implementation pass:
 - Confirm old parse folder is fully removed/staged as a move.
-- Clean `auth/utils.ts` commented-out password code.
-- Review `rag/search/*` for duplicated result types after the file move settles.
+- Remove search timing/debug fields from live retrieval results.
+- Convert raw SQL in `rag/search/*` and `routes/(app)/documents/list/+server.ts` to Drizzle query builder usage.
+- Remove unnecessary `.ts` suffixes from local imports as a small consistency cleanup.
 - Run `npm run check` and `npm run build`.
 
 Search/debug cleanup already done:
@@ -71,3 +72,9 @@ Search/debug cleanup already done:
 - Removed `src/lib/server/rag/vectorSearch.ts`.
 - Removed old startup `src/lib/server/rag/bm25.ts` and its hook import.
 - Removed unused `voy-search` and `@xenova/transformers` package dependencies.
+
+Deferred for later:
+- Chat retrieval mode UI/plumbing can stay for now.
+- `DocumentFilePickerPopup.svelte` can stay for now even though it looks unused/half-disabled.
+- `auth/utils.ts` commented auth/password cleanup can wait.
+- README and `docs/` stay untouched for now.

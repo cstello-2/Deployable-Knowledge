@@ -1,6 +1,6 @@
-import { Github } from "./github.ts";
-import { Ollama } from "./ollama.ts";
-import type { Provider } from "./provider.ts";
+import { Github } from "./github";
+import { Ollama } from "./ollama";
+import type { Provider } from "./provider";
 
 const providers: Record<string, () => Provider> = {
   ollama: () => new Ollama(),

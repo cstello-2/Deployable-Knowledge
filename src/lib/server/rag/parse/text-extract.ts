@@ -2,6 +2,7 @@
 
 // Imports:
 import scribe from "scribe.js-ocr"; //Extraxtion Library
+import { normalizeWhitespace } from "./text-normalize";
 
 // Add media types as needed:
 export type MediaType = "PDF";
@@ -72,11 +73,6 @@ type TableLike = {
 type LayoutTablePageLike = {
   tables?: TableLike[];
 };
-
-// Normalize repeated spaces while keeping line structures for filtering
-function normalizeLineWhitespace(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
-}
 
 // Python style helper for table markers.
 function tableMarker(csvData: string): string {
@@ -156,7 +152,7 @@ function removeFrequentLines(
   for (const page of pages) {
     const lines = page.content
       .split("\n")
-      .map((line) => normalizeLineWhitespace(line))
+      .map((line) => normalizeWhitespace(line))
       .filter(Boolean);
 
     for (const line of new Set(lines)) {
@@ -177,14 +173,14 @@ function removeFrequentLines(
     ...page,
     content: page.content
       .split("\n")
-      .filter((line) => !commonLines.has(normalizeLineWhitespace(line)))
+      .filter((line) => !commonLines.has(normalizeWhitespace(line)))
       .join("\n"),
   }));
 }
 
 // Gather line text in the original reading order for one paragraph-like group.
 function paragraphText(lines: LineLike[]): string {
-  return normalizeLineWhitespace(
+  return normalizeWhitespace(
     lines
       .map((line) => line.words.map((word) => word.text).join(" "))
       .filter(Boolean)

@@ -1,4 +1,4 @@
-import { Provider, type ProviderChatOptions } from "./provider.ts";
+import { Provider, type ProviderChatOptions } from "./provider";
 
 const GITHUB_API_URL = "https://models.github.ai";
 
