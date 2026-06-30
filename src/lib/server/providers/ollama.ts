@@ -28,6 +28,7 @@ export class Ollama extends Provider {
     });
 
     const resp = await fetch(req);
+
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
@@ -51,13 +52,24 @@ export class Ollama extends Provider {
   }
 
   override async listModels(): Promise<string[]> {
-    let req = new Request(`${LLAMA_API_URL}/api/tags`, {
-      method: "GET",
-    });
+    try {
+      const response = await fetch(`${LLAMA_API_URL}/api/tags`);
+      
+      if (!response.ok) {
+        console.error(`Api error, failed to fetch models. Status: ${response.status}`);
+        return [];
+      }
 
-    const resp = await fetch(req);
-    const data = await resp.json();
+      const data = await response.json();
 
-    return data.models.map((x: any) => x.model) ?? [];
+      if (data && Array.isArray(data.models)) {
+        return data.models.map((model: { name: string }) => model.name);
+      }
+      
+      return [];
+    } catch (error) {
+      console.error("Local ollama not connected.", error);
+      return [];
+    }
   }
 }
