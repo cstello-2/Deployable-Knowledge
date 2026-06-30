@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
 import { EMBEDDING_MODEL, embedTexts } from "../embedding-model";
+import { cleanFilterValues } from "./search-shared";
 
 export type SemanticSearchChunkType = "TEXT" | "TABLE" | "IMAGE";
 
@@ -45,16 +46,18 @@ type CandidateRow = {
   embedding: Uint8Array | ArrayBuffer | null;
 };
 
+// Semantic search scores the query against stored chunk embeddings already in SQLite.
 export async function searchSemantic(
   options: SemanticSearchOptions,
 ): Promise<SemanticSearchResult> {
   const query = options.query.trim();
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   const embeddingModel = options.embeddingModel?.trim() || EMBEDDING_MODEL;
-  const documentIds = [...new Set((options.documentIds ?? []).map((value) => value.trim()).filter(Boolean))];
-  const sourcePaths = [...new Set((options.sourcePaths ?? []).map((value) => value.trim()).filter(Boolean))];
-  const chunkTypes = [...new Set((options.chunkTypes ?? []).map((value) => value.trim()).filter(Boolean))];
+  const documentIds = cleanFilterValues(options.documentIds);
+  const sourcePaths = cleanFilterValues(options.sourcePaths);
+  const chunkTypes = cleanFilterValues(options.chunkTypes);
 
+  // Empty queries should not run embedding/model work.
   if (!query || topK === 0) {
     return {
       query,
@@ -78,6 +81,7 @@ export async function searchSemantic(
     filters.push(inArray(document_chunks.chunkType, chunkTypes));
   }
 
+  // Use Drizzle for the row query, then do vector math in TypeScript.
   const candidateRows = await db
     .select({
       chunkId: document_chunks.id,
@@ -94,7 +98,7 @@ export async function searchSemantic(
     .innerJoin(documents, eq(documents.id, document_chunks.documentId))
     .where(and(...filters)) as CandidateRow[];
 
-  // Stored vectors are Float32 bytes. We decode them once, then score with plain dot product.
+  // Stored vectors are Float32 bytes. Decode them once before scoring.
   const decodedCandidates = candidateRows.map((row) => {
     const rawEmbedding = row.embedding;
 
@@ -130,6 +134,7 @@ export async function searchSemantic(
     let score = 0;
     const limit = Math.min(queryEmbedding.length, vector.length);
 
+    // Embeddings are normalized on creation, so dot product is the cosine score.
     for (let index = 0; index < limit; index += 1) {
       score += queryEmbedding[index] * vector[index];
     }

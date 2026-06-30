@@ -38,12 +38,14 @@ export type RagContextResult = {
   sources: RagSource[];
 };
 
+// The prompt gets compact text only. Full chunk content stays in storage/search results.
 function compactText(text: string, limit: number) {
   const compact = text.replace(/\s+/g, " ").trim();
   if (compact.length <= limit) return compact;
   return `${compact.slice(0, limit).trimEnd()}...`;
 }
 
+// Format retrieved chunks as numbered context blocks so answers can cite the matching source.
 function formatContext(matches: RagMatch[]) {
   if (matches.length === 0) return "";
 
@@ -66,6 +68,7 @@ function formatContext(matches: RagMatch[]) {
   ].join("\n").trim();
 }
 
+// Sources are the user-facing citation list, so keep them shorter than the model context.
 function buildSources(matches: RagMatch[]): RagSource[] {
   return matches.map((match) => ({
     title: match.sourceTitle,
@@ -78,7 +81,7 @@ function buildSources(matches: RagMatch[]): RagSource[] {
   }));
 }
 
-// Chat uses hybrid by default for the POC. Set RAG_RETRIEVAL_MODE=semantic or bm25 to force a specific path.
+// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic or bm25 to force one path.
 export async function retrieveRagContext({
   question,
   documentIds = [],
@@ -92,6 +95,7 @@ export async function retrieveRagContext({
   topK?: number;
   mode?: RagRetrievalMode;
 }): Promise<RagContextResult> {
+  // Keep each branch explicit so it is easy to see exactly which retriever is running.
   if (mode === "bm25") {
     const search = await searchBm25({
       query: question,

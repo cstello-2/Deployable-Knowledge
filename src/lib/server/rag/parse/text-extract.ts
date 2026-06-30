@@ -1,16 +1,19 @@
-// Typescript file for PDF/Document text extraction used in the parse pipeline
-
-// Imports:
-import scribe from "scribe.js-ocr"; //Extraxtion Library
+import scribe from "scribe.js-ocr";
 import {
   normalizeWhitespace,
   type ExtractedChunk as Chunk,
+  type ExtractedTable,
   type Source,
 } from "./parse-shared";
 
 type PageItem = {
   bbox: Bbox;
   text: string;
+};
+
+type TableItem = {
+  bbox: Bbox;
+  table: ExtractedTable;
 };
 
 type Bbox = {
@@ -20,13 +23,6 @@ type Bbox = {
   bottom: number;
 };
 
-type PageMetricsLike = {
-  dims?: {
-    width: number;
-    height: number;
-  };
-};
-
 type WordLike = {
   text: string;
 };
@@ -34,18 +30,10 @@ type WordLike = {
 type LineLike = {
   bbox: Bbox;
   words: WordLike[];
-  par?: {
-    id?: string;
-  } | null;
-};
-
-type ParLike = {
-  id?: string;
 };
 
 type OcrPageLike = {
   lines: LineLike[];
-  pars?: ParLike[];
 };
 
 type TableLike = {
@@ -58,60 +46,42 @@ type LayoutTablePageLike = {
   tables?: TableLike[];
 };
 
-// Python style helper for table markers.
-function tableMarker(csvData: string): string {
-  return `[Table: ${csvData}]`;
-}
+type ExtractTextFromTables = (
+  page: OcrPageLike,
+  layoutPage: LayoutTablePageLike,
+) => Array<{ rows: string[][] }>;
 
-// Simple CSV serializer kept local for table text output.
-function csvEscape(value: string): string {
-  if (!/[",\n]/.test(value)) return value;
-  return `"${value.replace(/"/g, "\"\"")}"`;
-}
+// scribe has weak table extraction types, so keep the cast in one place
+const extractTextFromTables = scribe.extractTextFromTables as unknown as ExtractTextFromTables;
 
-// Serialize extracted table rows into CSV text.
-function serializeTableRows(rows: string[][]): string {
+// Stored table chunks need readable text for embedding, while rows stay available in metadata
+function tableRowsToText(rows: string[][]): string {
   if (rows.length === 0) return "";
-  return rows.map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+  return rows
+    .map((row) =>
+      row
+        .map((cell) => normalizeWhitespace(cell))
+        .filter(Boolean)
+        .join(" | "),
+    )
+    .filter(Boolean)
+    .join("\n");
 }
 
-// Sort top-to-bottom, then left-to-right.
+// Sort OCR boxes top to bottom, left to righ. Keeps extraction predictable
 function rectSortKey(left: PageItem, right: PageItem): number {
   if (left.bbox.top !== right.bbox.top) {
-    return left.bbox.top - right.bbox.top;
-  }
+    return left.bbox.top - right.bbox.top;}
+  return left.bbox.left - right.bbox.left;}
 
-  return left.bbox.left - right.bbox.left;
-}
-
-// Overlap check used for removing text that sits inside table boxes.
+// Used to avoid putting table text into the normal page text
 function rectsOverlap(left: Bbox, right: Bbox): boolean {
   const xOverlap = Math.min(left.right, right.right) > Math.max(left.left, right.left);
   const yOverlap = Math.min(left.bottom, right.bottom) > Math.max(left.top, right.top);
   return xOverlap && yOverlap;
 }
 
-// Page margin filter matched to the Python path.
-function isRectWithinMargins(
-  rect: Bbox,
-  metrics: PageMetricsLike | undefined,
-  marginTop: number,
-  marginBottom: number,
-  marginLeft: number,
-  marginRight: number,
-): boolean {
-  const width = metrics?.dims?.width ?? 0;
-  const height = metrics?.dims?.height ?? 0;
-  const isLandscape = width > height;
-
-  if (isLandscape) {
-    return rect.left > marginLeft && rect.left < width - marginRight;
-  }
-
-  return rect.top > marginTop && rect.top < height - marginBottom;
-}
-
-// Union a list of boxes into one bounding box.
+// scribe package gives table boxes as multiple rectangles, but downstream only needs one table box
 function unionBboxes(boxes: Bbox[]): Bbox {
   return boxes.reduce(
     (merged, box) => ({
@@ -124,7 +94,8 @@ function unionBboxes(boxes: Bbox[]): Bbox {
   );
 }
 
-// Repeated line remover matched to the Python path.
+// Extraction owns repeated header/footer cleanup because it can compare all pages at once
+// Now done linearly as oppsoed to after chunks were made
 function removeFrequentLines(
   pages: Chunk[],
   threshold: number,
@@ -136,7 +107,7 @@ function removeFrequentLines(
   for (const page of pages) {
     const lines = page.content
       .split("\n")
-      .map((line) => normalizeWhitespace(line))
+      .map((line) => normalizeWhitespace(line)) // .trim() not used incase multiple spcaes exist between text
       .filter(Boolean);
 
     for (const line of new Set(lines)) {
@@ -162,106 +133,53 @@ function removeFrequentLines(
   }));
 }
 
-// Gather line text in the original reading order for one paragraph-like group.
-function paragraphText(lines: LineLike[]): string {
-  return normalizeWhitespace(
-    lines
-      .map((line) => line.words.map((word) => word.text).join(" "))
-      .filter(Boolean)
-      .join(" "),
-  );
-}
-
-// Turn OCR lines into paragraph-like page items after filtering.
 function buildTextItems(
   page: OcrPageLike | undefined,
-  metrics: PageMetricsLike | undefined,
   tableRects: Bbox[],
-  marginTop: number,
-  marginBottom: number,
-  marginLeft: number,
-  marginRight: number,
 ): PageItem[] {
   if (!page?.lines?.length) return [];
 
-  const lines = [...page.lines]
+  // Exclude table overlapping lines so tables are stored as TABLE chunks, not duplicated as TEXT
+  return [...page.lines]
     .filter((line) => line.words?.length)
     .sort((left, right) => rectSortKey({ bbox: left.bbox, text: "" }, { bbox: right.bbox, text: "" }))
-    .filter((line) => isRectWithinMargins(line.bbox, metrics, marginTop, marginBottom, marginLeft, marginRight))
-    .filter((line) => !tableRects.some((tableRect) => rectsOverlap(line.bbox, tableRect)));
-
-  const items: PageItem[] = [];
-  let activeParId: string | null = null;
-  let activeLines: LineLike[] = [];
-
-  const flushLines = () => {
-    if (activeLines.length === 0) return;
-
-    const text = paragraphText(activeLines);
-    if (!text) {
-      activeLines = [];
-      activeParId = null;
-      return;
-    }
-
-    items.push({
-      bbox: unionBboxes(activeLines.map((line) => line.bbox)),
-      text,
-    });
-
-    activeLines = [];
-    activeParId = null;
-  };
-
-  for (const line of lines) {
-    const parId = line.par?.id ?? null;
-
-    if (activeLines.length === 0) {
-      activeParId = parId;
-      activeLines.push(line);
-      continue;
-    }
-
-    if (parId !== null && parId === activeParId) {
-      activeLines.push(line);
-      continue;
-    }
-
-    flushLines();
-    activeParId = parId;
-    activeLines.push(line);
-  }
-
-  flushLines();
-  return items;
+    .filter((line) => !tableRects.some((tableRect) => rectsOverlap(line.bbox, tableRect)))
+    .map((line) => ({
+      bbox: line.bbox,
+      text: normalizeWhitespace(line.words.map((word) => word.text).join(" ")),
+    }))
+    .filter((item) => item.text);
 }
 
-// Extract tables from scribe layout data and convert them into inline text markers.
 function buildTableItems(
   page: OcrPageLike | undefined,
   layoutPage: LayoutTablePageLike | undefined,
-): PageItem[] {
+  pageIndex: number,
+): TableItem[] {
   if (!page || !layoutPage?.tables?.length) return [];
 
-  const tablePages = scribe.extractTextFromTables(page as never, layoutPage as never) as Array<{
-    rows: string[][];
-  }>;
+  // Keep the library's table rows intact and create display/embed text from those rows one time
+  const tablePages = extractTextFromTables(page, layoutPage);
 
   return layoutPage.tables
     .map((table, index) => {
       const rows = tablePages[index]?.rows ?? [];
-      const csvData = serializeTableRows(rows);
-      if (!csvData || table.boxes.length === 0) return null;
+      const content = tableRowsToText(rows);
+      if (!content || table.boxes.length === 0) return null;
 
       return {
         bbox: unionBboxes(table.boxes.map((box) => box.coords)),
-        text: tableMarker(csvData),
-      } satisfies PageItem;
+        table: {
+          tableIndex: index,
+          pageIndex,
+          content,
+          rows,
+        },
+      } satisfies TableItem;
     })
-    .filter((item): item is PageItem => item !== null);
+    .filter((item): item is TableItem => item !== null);
 }
 
-// Main entry for layout aware PDF extraction used by semantic chunking
 export async function TextExtract(
   file: Source,
   repeatedLineThreshold: number = 0.9,
@@ -272,25 +190,26 @@ export async function TextExtract(
     const pages: Chunk[] = [];
     const pageCount = doc.ocr?.active?.length ?? 0;
 
+    // Each extracted page carries plain text plus any structured tables found on that page
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
       const page = doc.ocr.active[pageIndex] as OcrPageLike | undefined;
-      const metrics = doc.pageMetrics?.[pageIndex] as PageMetricsLike | undefined;
       const layoutPage = doc.layoutDataTables?.pages?.[pageIndex] as LayoutTablePageLike | undefined;
-      const tableItems = buildTableItems(page, layoutPage);
-      const textItems = buildTextItems(page, metrics, tableItems.map((item) => item.bbox), 50, 50, 50, 50);
-      const items = [...textItems, ...tableItems].sort(rectSortKey);
-      const content = items.map((item) => item.text).filter(Boolean).join("\n");
+      const tableItems = buildTableItems(page, layoutPage, pageIndex);
+      const textItems = buildTextItems(page, tableItems.map((item) => item.bbox));
+      const content = textItems.sort(rectSortKey).map((item) => item.text).filter(Boolean).join("\n");
 
       pages.push({
         chunkType: "TEXT",
         source: file,
         pageIndex,
         content,
+        tables: tableItems.map((item) => item.table),
       });
     }
 
     return removeFrequentLines(pages, repeatedLineThreshold);
   } finally {
+    // scribe keeps worker resources alive unless both document and library are terminated
     await doc.terminate();
     await scribe.terminate();
   }

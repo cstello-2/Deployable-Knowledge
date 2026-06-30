@@ -8,6 +8,7 @@ import { eng } from "stopword";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
 import type { SemanticSearchChunkType } from "./semantic-search";
+import { cleanFilterValues } from "./search-shared";
 
 export type Bm25SearchOptions = {
   query: string;
@@ -35,10 +36,6 @@ export type Bm25SearchResult = {
 };
 
 type CandidateRow = Omit<Bm25SearchMatch, "score">;
-
-function uniqueClean(values: string[] | undefined) {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
-}
 
 function buildEngine() {
   const engine = BM25Engine();
@@ -107,9 +104,9 @@ async function loadCandidates({
 export async function searchBm25(options: Bm25SearchOptions): Promise<Bm25SearchResult> {
   const query = options.query.trim();
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
-  const documentIds = uniqueClean(options.documentIds);
-  const sourcePaths = uniqueClean(options.sourcePaths);
-  const chunkTypes = uniqueClean(options.chunkTypes);
+  const documentIds = cleanFilterValues(options.documentIds);
+  const sourcePaths = cleanFilterValues(options.sourcePaths);
+  const chunkTypes = cleanFilterValues(options.chunkTypes);
 
   if (!query || topK === 0) {
     return { query, results: [] };

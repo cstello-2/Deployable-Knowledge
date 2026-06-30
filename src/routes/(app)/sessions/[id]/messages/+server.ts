@@ -158,12 +158,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
     ragContext.contextBlock,
   );
 
-  // If you want to see the prompt getting sent this is it.
-  // console.log(prompt);
-
   const timestamp = new Date();
 
-  // Create a ReadableStream to stream chunks to the client
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -175,7 +171,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
           controller.enqueue(encoder.encode(chunk));
         }
 
-        // After streaming completes, save to DB
         await db.insert(session_messages).values([
           {
             sessionId: params.id,

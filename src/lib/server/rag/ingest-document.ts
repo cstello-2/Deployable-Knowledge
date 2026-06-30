@@ -1,8 +1,7 @@
 import { basename } from "node:path";
-import { performance } from "node:perf_hooks";
 import { TextExtract } from "$lib/server/rag/parse/text-extract";
 import { chunkPages } from "$lib/server/rag/parse/chunker-semantic";
-import { postprocessChunks } from "$lib/server/rag/parse/chunk-postprocess";
+import { assembleChunks } from "$lib/server/rag/parse/assemble-chunks";
 import type { Source } from "$lib/server/rag/parse/parse-shared";
 import { storeDocumentChunks } from "./embedding";
 
@@ -16,60 +15,32 @@ export type IngestDocumentResult = {
   title: string;
   sourcePath: string;
   pageCount: number;
-  rawChunkCount: number;
   chunkCount: number;
-  embeddingModel: string;
-  timings: {
-    extractMs: number;
-    chunkMs: number;
-    postprocessMs: number;
-    storeMs: number;
-    totalMs: number;
-  };
 };
 
-// Shared ingest path for both terminal harnesses and UI routes.
+// Shared ingest path for both terminal commands (testing) and UI routes
 export async function ingestDocument({
   filePath,
   title,
 }: IngestDocumentInput): Promise<IngestDocumentResult> {
-  const totalStart = performance.now();
+  // Keep source info together so every downstream chunk can carry the same document identity
   const source: Source = {
     title: title?.trim() || basename(filePath),
-    type: "PDF",
+    type: "PDF", // NOTE: PDF support for now, .docx later
     path: filePath,
   };
 
-  const extractStart = performance.now();
+  // Updated linear ingest path: extract pages/tables, chunk text, assemble final chunks, then store
   const pages = await TextExtract(source);
-  const extractMs = Number((performance.now() - extractStart).toFixed(3));
-
-  const chunkStart = performance.now();
   const rawChunks = await chunkPages(pages);
-  const chunkMs = Number((performance.now() - chunkStart).toFixed(3));
-
-  const postprocessStart = performance.now();
-  const chunks = postprocessChunks(pages, rawChunks);
-  const postprocessMs = Number((performance.now() - postprocessStart).toFixed(3));
-
-  const storeStart = performance.now();
+  const chunks = assembleChunks(pages, rawChunks);
   const stored = await storeDocumentChunks(chunks);
-  const storeMs = Number((performance.now() - storeStart).toFixed(3));
 
   return {
     documentId: stored.documentId,
     title: source.title,
     sourcePath: source.path,
     pageCount: pages.length,
-    rawChunkCount: rawChunks.length,
     chunkCount: stored.chunkCount,
-    embeddingModel: stored.embeddingModel,
-    timings: {
-      extractMs,
-      chunkMs,
-      postprocessMs,
-      storeMs,
-      totalMs: Number((performance.now() - totalStart).toFixed(3)),
-    },
   };
 }

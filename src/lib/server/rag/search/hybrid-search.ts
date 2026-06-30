@@ -40,6 +40,7 @@ export type HybridSearchResult = {
   results: HybridSearchMatch[];
 };
 
+// Convert each search result into the common shape expected by the rank fusion helper.
 function toRerankDocument(
   match: SemanticSearchMatch | Bm25SearchMatch,
   scoreField: "semanticScore" | "bm25Score",
@@ -55,6 +56,7 @@ function toRerankDocument(
   };
 }
 
+// The reranker keeps the original match on the document so we can return stored chunk fields.
 function sourceMatch(doc: RerankedDocument): SemanticSearchMatch | Bm25SearchMatch {
   return doc.match as SemanticSearchMatch | Bm25SearchMatch;
 }
@@ -71,6 +73,7 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     };
   }
 
+  // Pull a wider candidate set from each retriever, then let rank fusion choose the final topK.
   const semantic = await searchSemantic({
     query,
     topK: candidateTopK,
@@ -85,6 +88,7 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     chunkTypes: options.chunkTypes,
   });
 
+  // Keep original ranks/scores so reviewers can compare which retriever found each chunk.
   const semanticRankByChunk = new Map(
     semantic.results.map((match, index) => [match.chunkId, index + 1]),
   );
@@ -98,6 +102,7 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     bm25.results.map((match) => [match.chunkId, match.score]),
   );
 
+  // Weighted reciprocal rank is intentionally simple and works even when scores use different scales.
   const reranked = weightedReciprocalRankRerank(
     bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
     semantic.results.map((match) => toRerankDocument(match, "semanticScore")),

@@ -30,7 +30,7 @@ extract text/pages/tables
 - [x] Move `Source`, `ChunkType`, extracted page/table types, parsed chunk type, `normalizeWhitespace`, `countWords`, and `buildChunkId` there.
 - [x] Remove duplicate `wordCount` and `buildChunkId` from chunker/postprocess files.
 - [x] Avoid a one-function helper file like `text-normalize.ts`.
-- [ ] Where practical, derive stored chunk fields from database schema types instead of redefining DB-shaped data.
+- [x] Where practical, derive stored chunk fields from database schema types instead of redefining DB-shaped data.
 
 ### 2. Repeated-Line Cleanup Has One Owner
 
@@ -43,23 +43,23 @@ extract text/pages/tables
 
 ### 3. Structured Tables, No Text Marker Parsing
 
-- [ ] Stop identifying tables with `text.startsWith("[Table:")`.
-- [ ] Stop extracting tables with regex over chunk text.
-- [ ] Have extraction return structured table data on each page.
-- [ ] Create table chunks from table objects, not from string markers.
-- [ ] Set `chunkType: "TABLE"` from the table object.
-- [ ] Remove `isTableChunk()`.
-- [ ] Remove `tableMarker()` from the storage/chunking path.
-- [ ] Do not serialize tables into a fake `[Table: ...]` format just so later code can re-parse it.
-- [ ] Keep any table display formatting as a UI/display concern, not as the stored data contract.
-- [ ] Re-check what `scribe.extractTextFromTables(...)` returns before choosing the table object shape. If it already returns useful rows/text, preserve that directly.
+- [x] Stop identifying tables with `text.startsWith("[Table:")`.
+- [x] Stop extracting tables with regex over chunk text.
+- [x] Have extraction return structured table data on each page.
+- [x] Create table chunks from table objects, not from string markers.
+- [x] Set `chunkType: "TABLE"` from the table object.
+- [x] Remove `isTableChunk()`.
+- [x] Remove `tableMarker()` from the storage/chunking path.
+- [x] Do not serialize tables into a fake `[Table: ...]` format just so later code can re-parse it.
+- [x] Keep any table display formatting as a UI/display concern, not as the stored data contract.
+- [x] Re-check what `scribe.extractTextFromTables(...)` returns before choosing the table object shape. If it already returns useful rows/text, preserve that directly.
 
-### 4. Simplify Postprocess Or Rename It
+### 4. Simplify Assembly
 
 - [x] Inline the simple min-word check instead of using `keepChunk()`.
 - [x] Consider removing the all-caps filter unless there is a concrete current failure it solves.
-- [ ] If postprocess only assembles text/table chunks and reindexes, rename it to something like `assembleChunks`.
-- [ ] Keep final cleanup to direct `.trim()` where possible.
+- [x] If postprocess only assembles text/table chunks and reindexes, rename it to something like `assembleChunks`.
+- [x] Keep final cleanup to direct `.trim()` where possible.
 - [x] Decision: remove `isAllCaps()`. Header/footer removal belongs to extraction-level repeated-line cleanup, not broad all-caps dropping.
 - [x] Remove the all-caps filter from postprocess.
 
@@ -92,26 +92,9 @@ Proposed direction:
 - [x] Keep sentence splitting as simple as possible. If abbreviation handling is needed, prefer one small regex/list-based rule over a pile of helper functions.
 - [x] Avoid tiny one-line helper functions.
 - [x] Remove comments that reference legacy Python/PageRank/testing unless they explain a current design decision.
-- [ ] Prefer a short centralized list of cleanup regex rules over scattered custom helper functions.
-- [ ] Keep regex only where it is the clearest way to handle OCR/PDF noise.
-- [ ] Do not add document-specific cleanup rules.
-
-Agreed removals for next chunker/postprocess simplification pass:
-
-- `isAllCaps`
-- `isShortNumericText`
-- `splitWords`
-- `looksLikeLabelLine`
-- `stripTrailingShortNumber`
-- `startsWithBullet`
-- `startsWithNumberedStep`
-- `startsStructuralBlock`
-- `shouldKeepChunk`
-
-Likely removals unless validation shows a real need:
-
-- `endsWithRepeatedInitials`
-- extra abbreviation/sentence-split helper complexity beyond one simple rule/list
+- [x] Prefer a short centralized list of cleanup regex rules over scattered custom helper functions.
+- [x] Keep regex only where it is the clearest way to handle OCR/PDF noise.
+- [x] Do not add document-specific cleanup rules.
 
 Current reviewer-aligned simplification target:
 
@@ -126,23 +109,23 @@ Avoid preserving old Python/PageRank assumptions unless they are still necessary
 
 ### 6. Storage Mapping
 
-- [ ] Rename in-memory chunk type away from DB-row language if needed, likely `ParsedChunk`.
-- [ ] Let `storeDocumentChunks()` map parsed chunks to `NewDocumentChunk`.
-- [ ] Remove the `ChunkMetadata` wrapper if flat fields are clearer.
-- [ ] Avoid `chunkId` vs database `id` confusion.
+- [x] Rename in-memory chunk type away from DB-row language if needed, likely `ParsedChunk`.
+- [x] Let `storeDocumentChunks()` map parsed chunks to `NewDocumentChunk`.
+- [x] Remove the `ChunkMetadata` wrapper if flat fields are clearer.
+- [x] Avoid `chunkId` vs database `id` confusion.
 
 ### 7. Ingest Result Surface
 
-- [ ] Decide whether live UI still needs ingest timings.
-- [ ] Consider removing `rawChunkCount`, per-stage timings, and `embeddingModel` from the normal ingest result.
-- [ ] Keep only user-facing response fields unless debug output is explicitly needed.
+- [x] Decide whether live UI still needs ingest timings.
+- [x] Consider removing `rawChunkCount`, per-stage timings, and `embeddingModel` from the normal ingest result.
+- [x] Keep only user-facing response fields unless debug output is explicitly needed.
 
 ### 8. Extraction Simplification Questions
 
-- [ ] Re-evaluate `isRectWithinMargins(...)`. It was ported from the Python path and may not translate cleanly to the current `scribe.js-ocr` output.
-- [ ] Confirm whether margin filtering is actually needed with the current library output.
-- [ ] Re-evaluate `paragraphText(...)` / paragraph grouping. It may be a best-guess heuristic; remove or simplify if line order from the library is already usable.
-- [ ] Keep extraction focused on getting page text and structured tables, not reproducing the old Python extraction behavior.
+- [x] Re-evaluate `isRectWithinMargins(...)`. It was ported from the Python path and may not translate cleanly to the current `scribe.js-ocr` output.
+- [x] Confirm whether margin filtering is actually needed with the current library output.
+- [x] Re-evaluate `paragraphText(...)` / paragraph grouping. It may be a best-guess heuristic; remove or simplify if line order from the library is already usable.
+- [x] Keep extraction focused on getting page text and structured tables, not reproducing the old Python extraction behavior.
 
 ### 9. Search Query Cleanup
 
@@ -150,7 +133,7 @@ Avoid preserving old Python/PageRank assumptions unless they are still necessary
 - [x] Replace raw SQL in `semantic-search.ts` with Drizzle query builder usage.
 - [x] Replace raw SQL in `routes/(app)/documents/list/+server.ts` with Drizzle query builder usage.
 - [x] Remove confusing aliases like `type CandidateRow = Bm25SearchMatch` if they do not add meaning.
-- [ ] Revisit `uniqueClean(...)`; inline it or move to a shared search helper only if multiple search files truly need it.
+- [x] Revisit `uniqueClean(...)`; inline it or move to a shared search helper only if multiple search files truly need it.
 - [x] Remove search timing/debug result fields from the live retrieval path.
 - [x] Remove `matches` from `RagContextResult` unless a live caller actually uses it.
 - [x] Keep `retrieveRagContext()` focused on returning the prompt context and user-facing sources.
@@ -163,12 +146,12 @@ Avoid preserving old Python/PageRank assumptions unless they are still necessary
 
 ### Deferred Audit Items
 
-Track these, but do not change them in the next implementation pass:
+These are intentionally not part of this pass-off cleanup:
 
-- [ ] Retrieval mode UI/plumbing in chat. Likely simplify later by picking one live retrieval path, but defer for now.
-- [ ] `DocumentFilePickerPopup.svelte`. It appears unused/half-disabled, but defer deletion for now.
-- [ ] `auth/utils.ts` commented/dead auth code. Defer for now.
-- [ ] README/docs references. User reverted README and docs should stay untouched for now.
+- Retrieval mode UI/plumbing in chat. Likely simplify later by picking one live retrieval path.
+- `DocumentFilePickerPopup.svelte`. It appears unused/half-disabled.
+- `auth/utils.ts` commented/dead auth code.
+- README/docs references. User reverted README and docs should stay untouched for now.
 
 ## Already Done
 
@@ -179,7 +162,7 @@ Track these, but do not change them in the next implementation pass:
 - [x] Removed old Voy `vectorSearch.ts` prototype.
 - [x] Removed old startup/global `bm25.ts`.
 - [x] Removed `voy-search` and `@xenova/transformers` dependencies.
-- [x] Removed duplicate `normalizeWhitespace()` from `chunk-postprocess.ts`; use `.trim()` there.
+- [x] Removed duplicate `normalizeWhitespace()` from the old postprocess step; use `.trim()` there.
 
 ## Validation Rule
 
