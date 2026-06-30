@@ -107,7 +107,7 @@ function removeFrequentLines(
   for (const page of pages) {
     const lines = page.content
       .split("\n")
-      .map((line) => normalizeWhitespace(line)) // .trim() not used incase multiple spcaes exist between text
+      .map((line) => normalizeWhitespace(line))
       .filter(Boolean);
 
     for (const line of new Set(lines)) {
