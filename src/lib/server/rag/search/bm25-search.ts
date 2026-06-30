@@ -7,33 +7,18 @@ import { stemmer } from "stemmer";
 import { eng } from "stopword";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
-import type { SemanticSearchChunkType } from "./semantic-search";
-import { cleanFilterValues } from "./search-shared";
+import {
+  cleanFilterValues,
+  type SearchChunkType,
+  type SearchMatchBase,
+  type SearchOptionsBase,
+  type SearchResult,
+} from "./search-shared";
 
-export type Bm25SearchOptions = {
-  query: string;
-  topK?: number;
-  documentIds?: string[];
-  sourcePaths?: string[];
-  chunkTypes?: SemanticSearchChunkType[];
-};
+export type Bm25SearchOptions = SearchOptionsBase;
 
-export type Bm25SearchMatch = {
-  chunkId: string;
-  documentId: string;
-  sourcePath: string;
-  sourceTitle: string;
-  pageIndex: number;
-  chunkIndex: number;
-  chunkType: SemanticSearchChunkType;
-  content: string;
-  score: number;
-};
-
-export type Bm25SearchResult = {
-  query: string;
-  results: Bm25SearchMatch[];
-};
+export type Bm25SearchMatch = SearchMatchBase;
+export type Bm25SearchResult = SearchResult<Bm25SearchMatch>;
 
 type CandidateRow = Omit<Bm25SearchMatch, "score">;
 
@@ -64,7 +49,7 @@ async function loadCandidates({
 }: {
   documentIds: string[];
   sourcePaths: string[];
-  chunkTypes: string[];
+  chunkTypes: SearchChunkType[];
 }) {
   const filters: SQL[] = [];
 
@@ -103,6 +88,7 @@ async function loadCandidates({
 
 export async function searchBm25(options: Bm25SearchOptions): Promise<Bm25SearchResult> {
   const query = options.query.trim();
+  // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   const documentIds = cleanFilterValues(options.documentIds);
   const sourcePaths = cleanFilterValues(options.sourcePaths);

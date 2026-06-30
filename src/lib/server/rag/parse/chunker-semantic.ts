@@ -1,3 +1,17 @@
+// File to build chunks by splitting text when semantic similarity falls below a provided threshold
+
+// --- Specfic Chunk Work Flow ---
+
+//  -Cleans page text lightly
+//  -Splits cleaned text into sentence-ish spans with character offsets
+//  -Embeds all sentences in one batch
+//  -Builds chunks by walking sentences in order
+//  -Keeps adding sentences until: the chunk would exceed maxChars, or the chunk is already long enough and adjacent sentence similarity drops below the threshold
+//  -Adds small sentence overlap between chunks
+//  -Stores metadata like startChar, endChar, wordCount, sentenceCount
+
+// -------------------------------
+
 import { embedTexts } from "../embedding-model";
 import {
   buildChunkId,

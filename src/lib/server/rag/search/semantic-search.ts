@@ -1,38 +1,23 @@
-// Exact semantic search over the stored chunk embeddings in SQLite.
+// Exact semantic search over the stored chunk embeddings in SQLite
 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
 import { EMBEDDING_MODEL, embedTexts } from "../embedding-model";
-import { cleanFilterValues } from "./search-shared";
+import {
+  cleanFilterValues,
+  type SearchChunkType,
+  type SearchMatchBase,
+  type SearchOptionsBase,
+  type SearchResult,
+} from "./search-shared";
 
-export type SemanticSearchChunkType = "TEXT" | "TABLE" | "IMAGE";
-
-export type SemanticSearchOptions = {
-  query: string;
-  topK?: number;
-  documentIds?: string[];
-  sourcePaths?: string[];
-  chunkTypes?: SemanticSearchChunkType[];
+export type SemanticSearchOptions = SearchOptionsBase & {
   embeddingModel?: string;
 };
 
-export type SemanticSearchMatch = {
-  chunkId: string;
-  documentId: string;
-  sourcePath: string;
-  sourceTitle: string;
-  pageIndex: number;
-  chunkIndex: number;
-  chunkType: SemanticSearchChunkType;
-  content: string;
-  score: number;
-};
-
-export type SemanticSearchResult = {
-  query: string;
-  results: SemanticSearchMatch[];
-};
+export type SemanticSearchMatch = SearchMatchBase;
+export type SemanticSearchResult = SearchResult<SemanticSearchMatch>;
 
 type CandidateRow = {
   chunkId: string;
@@ -41,16 +26,17 @@ type CandidateRow = {
   sourceTitle: string;
   pageIndex: number;
   chunkIndex: number;
-  chunkType: SemanticSearchChunkType;
+  chunkType: SearchChunkType;
   content: string;
   embedding: Uint8Array | ArrayBuffer | null;
 };
 
-// Semantic search scores the query against stored chunk embeddings already in SQLite.
+// Semantic search scores the query against stored chunk embeddings already in SQLite
 export async function searchSemantic(
   options: SemanticSearchOptions,
 ): Promise<SemanticSearchResult> {
   const query = options.query.trim();
+  // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   const embeddingModel = options.embeddingModel?.trim() || EMBEDDING_MODEL;
   const documentIds = cleanFilterValues(options.documentIds);
@@ -65,7 +51,7 @@ export async function searchSemantic(
     };
   }
 
-  // Same embedding path as chunking/storage so query vectors stay in sync with the corpus.
+  // Same embedding path as chunking/storage so query vectors stay in sync with the corpus
   const queryEmbedding = (await embedTexts([query]))[0] ?? [];
   const filters = [eq(document_chunks.embeddingModel, embeddingModel)];
 
@@ -81,7 +67,7 @@ export async function searchSemantic(
     filters.push(inArray(document_chunks.chunkType, chunkTypes));
   }
 
-  // Use Drizzle for the row query, then do vector math in TypeScript.
+  // Use Drizzle for the row query, then do vector math in TS
   const candidateRows = await db
     .select({
       chunkId: document_chunks.id,
@@ -98,7 +84,7 @@ export async function searchSemantic(
     .innerJoin(documents, eq(documents.id, document_chunks.documentId))
     .where(and(...filters)) as CandidateRow[];
 
-  // Stored vectors are Float32 bytes. Decode them once before scoring.
+  // Stored vectors are Float32 bytes. Decode them once before scoring
   const decodedCandidates = candidateRows.map((row) => {
     const rawEmbedding = row.embedding;
 
@@ -134,11 +120,10 @@ export async function searchSemantic(
     let score = 0;
     const limit = Math.min(queryEmbedding.length, vector.length);
 
-    // Embeddings are normalized on creation, so dot product is the cosine score.
+    // Embeddings are normalized, so dot product is the cosine score
     for (let index = 0; index < limit; index += 1) {
-      score += queryEmbedding[index] * vector[index];
+      score += queryEmbedding[index] * vector[index]; // dot product
     }
-
     scoredRows.push({
       chunkId: row.chunkId,
       documentId: row.documentId,

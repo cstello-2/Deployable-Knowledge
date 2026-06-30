@@ -51,6 +51,7 @@ export type ParsedChunk = {
 export function normalizeWhitespace(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();} 
 
+// Used for metadata.wordCount and to ensure chunks satisfy minWords
 export function countWords(text: string): number {
   return text.trim().match(/\S+/g)?.length ?? 0;
 }

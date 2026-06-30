@@ -1,4 +1,5 @@
 // File to assemble chunks in order matching the documents they came from
+
 import {
   buildChunkId,
   countWords,
@@ -8,13 +9,7 @@ import {
   type Source,
 } from "./parse-shared";
 
-type AssembleOptions = {
-  minWords?: number;
-};
-
-const DEFAULT_OPTIONS: Required<AssembleOptions> = {
-  minWords: 5,
-};
+const MIN_TEXT_CHUNK_WORDS = 5;
 
 // Tables arrive from extraction as structured data
 // Code now builds TABLE chunks directly from those objects so chunk type does not depend on parsing strings
@@ -61,13 +56,7 @@ function reindexChunks(chunks: ParsedChunk[]): ParsedChunk[] {
 export function assembleChunks(
   pages: ExtractedChunk[],
   textChunks: ParsedChunk[],
-  options: AssembleOptions = {},
 ): ParsedChunk[] {
-  const resolved = {
-    ...DEFAULT_OPTIONS,
-    ...options,
-  };
-
   // Group text chunks by page so assembly can stay linear: page text first, then page tables
   const textChunksByPage = new Map<number, ParsedChunk[]>();
   for (const chunk of textChunks) {
@@ -83,7 +72,7 @@ export function assembleChunks(
 
     const pageIndex = Number(page.pageIndex);
     const pageTextChunks = textChunksByPage.get(pageIndex) ?? [];
-    // Table chunks are appended after text chunks for the page, but still deduped before storage.
+    // Table chunks are appended after text chunks for the page, but still deduped before storage
     const pageTableChunks = (page.tables ?? [])
       .map((table) => tableChunk(page.source, table))
       .filter((chunk): chunk is ParsedChunk => chunk !== null);
@@ -103,11 +92,10 @@ export function assembleChunks(
 
     // Keep small table chunks that may fall under the minimum word count
     const keptChunks = dedupedChunks.filter((chunk) =>
-      chunk.chunkType === "TABLE" || countWords(chunk.content) >= resolved.minWords,
+      chunk.chunkType === "TABLE" || countWords(chunk.content) >= MIN_TEXT_CHUNK_WORDS,
     );
 
     finalChunks.push(...reindexChunks(keptChunks));
   }
-
   return finalChunks;
 }
