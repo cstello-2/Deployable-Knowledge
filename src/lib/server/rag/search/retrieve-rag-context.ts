@@ -1,23 +1,20 @@
 import {
   searchSemantic,
-  type SemanticSearchChunkType,
   type SemanticSearchMatch,
-  type SemanticSearchTimings,
 } from "./semantic-search";
 import {
   searchHybrid,
   type HybridSearchMatch,
-  type HybridSearchResult,
 } from "./hybrid-search";
 import {
   searchBm25,
   type Bm25SearchMatch,
-  type Bm25SearchResult,
 } from "./bm25-search";
+import type { SearchChunkType } from "./search-shared";
 
-const DEFAULT_RAG_TOP_K = 10;
+const DEFAULT_RAG_TOP_K = 5; // Can be adjsuted, number of chunks the LLM recieves 
 const MAX_CONTEXT_CHARS = 900;
-const MAX_PREVIEW_CHARS = 180;
+const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :
   process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid";
@@ -39,16 +36,16 @@ export type RagContextResult = {
   mode: RagRetrievalMode;
   contextBlock: string;
   sources: RagSource[];
-  matches: RagMatch[];
-  timings: SemanticSearchTimings | Bm25SearchResult["timings"] | HybridSearchResult["timings"];
 };
 
+// The prompt gets compact text only. Full chunk content stays in storage/search results
 function compactText(text: string, limit: number) {
   const compact = text.replace(/\s+/g, " ").trim();
   if (compact.length <= limit) return compact;
   return `${compact.slice(0, limit).trimEnd()}...`;
 }
 
+// Format retrieved chunks as numbered context blocks so answers can cite the matching source
 function formatContext(matches: RagMatch[]) {
   if (matches.length === 0) return "";
 
@@ -71,6 +68,7 @@ function formatContext(matches: RagMatch[]) {
   ].join("\n").trim();
 }
 
+// Sources are the user-facing citation list, so keep them shorter than the model context
 function buildSources(matches: RagMatch[]): RagSource[] {
   return matches.map((match) => ({
     title: match.sourceTitle,
@@ -83,7 +81,8 @@ function buildSources(matches: RagMatch[]): RagSource[] {
   }));
 }
 
-// Chat uses hybrid by default for the POC. Set RAG_RETRIEVAL_MODE=semantic or bm25 to force a specific path.
+// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 to force one path
+// May want to switch to hybrid only in the future, kept for now to test/validate
 export async function retrieveRagContext({
   question,
   documentIds = [],
@@ -93,10 +92,11 @@ export async function retrieveRagContext({
 }: {
   question: string;
   documentIds?: string[];
-  chunkTypes?: SemanticSearchChunkType[];
+  chunkTypes?: SearchChunkType[];
   topK?: number;
   mode?: RagRetrievalMode;
 }): Promise<RagContextResult> {
+  // Keep each branch explicit so it is easy to see exactly which retriever is running
   if (mode === "bm25") {
     const search = await searchBm25({
       query: question,
@@ -109,8 +109,6 @@ export async function retrieveRagContext({
       mode,
       contextBlock: formatContext(search.results),
       sources: buildSources(search.results),
-      matches: search.results,
-      timings: search.timings,
     };
   }
 
@@ -126,8 +124,6 @@ export async function retrieveRagContext({
       mode,
       contextBlock: formatContext(search.results),
       sources: buildSources(search.results),
-      matches: search.results,
-      timings: search.timings,
     };
   }
 
@@ -142,7 +138,5 @@ export async function retrieveRagContext({
     mode,
     contextBlock: formatContext(search.results),
     sources: buildSources(search.results),
-    matches: search.results,
-    timings: search.timings,
   };
 }

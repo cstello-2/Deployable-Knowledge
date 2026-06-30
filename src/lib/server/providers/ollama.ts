@@ -1,4 +1,4 @@
-import { Provider, type ProviderChatOptions } from "./provider.ts";
+import { Provider, type ProviderChatOptions } from "./provider";
 
 const LLAMA_API_URL = "http://localhost:11434";
 

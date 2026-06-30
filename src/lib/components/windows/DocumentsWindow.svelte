@@ -9,7 +9,7 @@
     selectedDocumentIds,
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
-  import type { WindowInstanceProps } from "./index.ts";
+  import type { WindowInstanceProps } from "./index";
 
   type DocumentRow = {
     id: string;
@@ -22,9 +22,6 @@
     documentId: string;
     title: string;
     chunkCount: number;
-    timings?: {
-      totalMs?: number;
-    };
   };
 
   let {
@@ -70,9 +67,7 @@
   }
 
   function formatUploadStatus(result: UploadResult) {
-    const seconds = Number(result.timings?.totalMs ?? 0) / 1000;
-    const timing = seconds > 0 ? ` in ${seconds.toFixed(1)}s` : "";
-    return `Stored ${result.chunkCount} chunks from ${result.title}${timing}.`;
+    return `Stored ${result.chunkCount} chunks from ${result.title}.`;
   }
 
   async function refreshDocuments(message = "") {

@@ -1,5 +1,3 @@
-// Embeds chunks and stores said chunks in the SQL Database
-
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../database/database";
@@ -9,10 +7,10 @@ import {
   type NewDocument,
   type NewDocumentChunk,
 } from "../database/schema";
-import type { ChunkRecord } from "../providers/parse_pipeline/chunker-semantic";
+import type { ParsedChunk } from "./parse/parse-shared";
 import { EMBEDDING_MODEL, embedTexts } from "./embedding-model";
 
-const INSERT_BATCH_SIZE = 100;
+const INSERT_BATCH_SIZE = 100; //Can adjust later
 
 type StoreChunksResult = {
   documentId: string;
@@ -20,14 +18,14 @@ type StoreChunksResult = {
   embeddingModel: string;
 };
 
-// Use vecotr BLOBs, stored as Float32 bytes to hopefully help with cosine similarity search
+// SQLite DB stores embeddings as bytes, however semantic search reads them back as Float32 vectors
 function embeddingToBuffer(values: number[]): Buffer {
   const array = Float32Array.from(values);
   return Buffer.from(array.buffer, array.byteOffset, array.byteLength);
 }
 
-// Build the document row once so chunks can reference it by document_id
-function buildDocumentRow(chunks: ChunkRecord[], now: string): NewDocument {
+// The document id is path based so reingesting the same file replaces the same document. Prevents duplicate documents!
+function buildDocumentRow(chunks: ParsedChunk[], now: string): NewDocument {
   const source = chunks[0].source;
 
   return {
@@ -40,9 +38,9 @@ function buildDocumentRow(chunks: ChunkRecord[], now: string): NewDocument {
   };
 }
 
-// Build SQL rows from the final chunk records & the embeddings
+// Parsed chunks stay pipeline-shaped until this point; this is the DB row mapping boundary
 function buildChunkRows(
-  chunks: ChunkRecord[],
+  chunks: ParsedChunk[],
   documentId: string,
   embeddings: number[][],
   now: string,
@@ -59,6 +57,7 @@ function buildChunkRows(
     wordCount: chunk.metadata.wordCount,
     sentenceCount: chunk.metadata.sentenceCount,
     metadata: {
+      // Duplicate source fields in metadata so exported/debug views can read a chunk alone. Could remove?
       sourceTitle: chunk.source.title,
       sourcePath: chunk.source.path,
       sourceType: chunk.source.type,
@@ -70,17 +69,18 @@ function buildChunkRows(
   }));
 }
 
-// Replace chunks if document is reuploaded
-export async function storeDocumentChunks(chunks: ChunkRecord[]): Promise<StoreChunksResult> {
+export async function storeDocumentChunks(chunks: ParsedChunk[]): Promise<StoreChunksResult> {
   if (chunks.length === 0) {
     throw new Error("Cannot store embeddings for an empty chunk list.");
   }
 
+  // Embed the final assembled chunks only, so stored vectors match the exact stored content
   const now = new Date().toISOString();
   const documentRow = buildDocumentRow(chunks, now);
   const embeddings = await embedTexts(chunks.map((chunk) => chunk.content));
   const chunkRows = buildChunkRows(chunks, documentRow.id, embeddings, now);
 
+  // Upsert the document shell first, then replace its chunks in one clean ingest pass
   await db
     .insert(documents)
     .values(documentRow)
@@ -96,6 +96,7 @@ export async function storeDocumentChunks(chunks: ChunkRecord[]): Promise<StoreC
 
   await db.delete(document_chunks).where(eq(document_chunks.documentId, documentRow.id));
 
+  // Batch SQL inserts so large PDFs do not break the code
   for (let index = 0; index < chunkRows.length; index += INSERT_BATCH_SIZE) {
     const batch = chunkRows.slice(index, index + INSERT_BATCH_SIZE);
     await db.insert(document_chunks).values(batch);

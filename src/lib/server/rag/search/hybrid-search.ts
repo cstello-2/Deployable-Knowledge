@@ -1,7 +1,20 @@
-import { performance } from "node:perf_hooks";
+// Hybrid Search File to Combine Semantic & BM25 Search
+
+// --- Specfic Search Work Flow ---
+
+//  -Clean & Normalize user query
+//  -Run semantic search
+//  -Run BM25 search
+//  -Track original ranks and scores by chunkId
+//  -Convert results into reranker documents. Maps result into shape crossRerank expects
+//  -Run cross reranker
+//  -Map reranked docs back to search result. Restores chunk fields like documentId, sourceTitle, etc
+
+// -------------------------------
+
+
 import {
   searchSemantic,
-  type SemanticSearchChunkType,
   type SemanticSearchMatch,
 } from "./semantic-search";
 import { searchBm25, type Bm25SearchMatch } from "./bm25-search";
@@ -10,24 +23,20 @@ import {
   type Document,
   type RerankedDocument,
 } from "./crossRerank";
+import {
+  type SearchChunkType,
+  type SearchMatchBase,
+  type SearchResult,
+} from "./search-shared";
 
 export type HybridSearchOptions = {
   query: string;
   topK?: number;
   documentIds?: string[];
-  chunkTypes?: SemanticSearchChunkType[];
+  chunkTypes?: SearchChunkType[];
 };
 
-export type HybridSearchMatch = {
-  chunkId: string;
-  documentId: string;
-  sourcePath: string;
-  sourceTitle: string;
-  pageIndex: number;
-  chunkIndex: number;
-  chunkType: SemanticSearchChunkType;
-  content: string;
-  score: number;
+export type HybridSearchMatch = SearchMatchBase & {
   semanticRank?: number;
   bm25Rank?: number;
   semanticScore?: number;
@@ -36,19 +45,7 @@ export type HybridSearchMatch = {
   rerankBm25Score: number;
 };
 
-export type HybridSearchResult = {
-  query: string;
-  results: HybridSearchMatch[];
-  timings: {
-    semanticMs: number;
-    bm25Ms: number;
-    rerankMs: number;
-    totalMs: number;
-    semanticCandidateCount: number;
-    bm25CandidateCount: number;
-    returnedCount: number;
-  };
-};
+export type HybridSearchResult = SearchResult<HybridSearchMatch>;
 
 function toRerankDocument(
   match: SemanticSearchMatch | Bm25SearchMatch,
@@ -70,8 +67,8 @@ function sourceMatch(doc: RerankedDocument): SemanticSearchMatch | Bm25SearchMat
 }
 
 export async function searchHybrid(options: HybridSearchOptions): Promise<HybridSearchResult> {
-  const totalStart = performance.now();
   const query = options.query.trim();
+  // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 10));
   const candidateTopK = Math.max(topK * 4, topK);
 
@@ -79,35 +76,22 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     return {
       query,
       results: [],
-      timings: {
-        semanticMs: 0,
-        bm25Ms: 0,
-        rerankMs: 0,
-        totalMs: Number((performance.now() - totalStart).toFixed(3)),
-        semanticCandidateCount: 0,
-        bm25CandidateCount: 0,
-        returnedCount: 0,
-      },
     };
   }
 
-  const semanticStart = performance.now();
   const semantic = await searchSemantic({
     query,
     topK: candidateTopK,
     documentIds: options.documentIds,
     chunkTypes: options.chunkTypes,
   });
-  const semanticMs = Number((performance.now() - semanticStart).toFixed(3));
 
-  const bm25Start = performance.now();
   const bm25 = await searchBm25({
     query,
     topK: candidateTopK,
     documentIds: options.documentIds,
     chunkTypes: options.chunkTypes,
   });
-  const bm25Ms = Number((performance.now() - bm25Start).toFixed(3));
 
   const semanticRankByChunk = new Map(
     semantic.results.map((match, index) => [match.chunkId, index + 1]),
@@ -122,14 +106,12 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     bm25.results.map((match) => [match.chunkId, match.score]),
   );
 
-  const rerankStart = performance.now();
   const reranked = await reRankData(
     query,
     bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
     semantic.results.map((match) => toRerankDocument(match, "semanticScore")),
     { limit: topK },
   );
-  const rerankMs = Number((performance.now() - rerankStart).toFixed(3));
 
   const results = reranked.map((doc) => {
     const match = sourceMatch(doc);
@@ -158,14 +140,5 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
   return {
     query,
     results,
-    timings: {
-      semanticMs,
-      bm25Ms,
-      rerankMs,
-      totalMs: Number((performance.now() - totalStart).toFixed(3)),
-      semanticCandidateCount: semantic.timings.candidateCount,
-      bm25CandidateCount: bm25.timings.candidateCount,
-      returnedCount: results.length,
-    },
   };
 }
