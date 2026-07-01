@@ -29,6 +29,8 @@ export const PATCH: RequestHandler = async ({ request }) => {
       maxTokens: body.maxTokens,
       temperature: body.temperature,
       topK: body.topK,
+      retrievalMode: body.retrievalMode,
+      ragTopK: body.ragTopK,
       promptTemplateId,
       persona: body.persona,
       updatedAt: new Date(),

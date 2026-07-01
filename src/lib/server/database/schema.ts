@@ -151,6 +151,8 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
+    retrievalMode: text("retrieval_mode", {enum: ["semantic", "bm25", "hybrid"],}).notNull().default("hybrid"),
+    ragTopK: integer("rag_top_k").notNull().default(5),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },

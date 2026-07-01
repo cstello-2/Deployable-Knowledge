@@ -146,10 +146,8 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
     //console.log("Separated Chunks:", chunks);
     console.log("From: ", file.path ,"Images: ", img_count, " Text: ", text_count, " Tables: ", table_count);
 
-    console.log("Terminate did it");
     //await doc.terminate();
     // TODO: Somehow commenting this code made everything work, if memory becomes an issue in the future, make this statement work. Good luck
-    console.log("0");
     await scribe.terminate();
     console.log("0");
 

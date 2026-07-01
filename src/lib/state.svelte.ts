@@ -6,6 +6,8 @@ import type {
   UserSettings,
 } from "$lib/server/database/schema";
 
+export type RetrievalMode = "semantic" | "bm25" | "hybrid";
+
 export type Settings = {
   provider: string;
   model: string;
@@ -14,6 +16,8 @@ export type Settings = {
   topK: number;
   promptTemplateId: string | null;
   persona: string;
+  retrievalMode: string;
+  ragTopK: number;
 };
 
 class AppState {
@@ -30,6 +34,8 @@ class AppState {
   promptTemplateId = $state("");
   promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
+  retrievalMode = $state("hybrid");
+  ragTopK = $state(5);
 
   constructor(settings?: UserSettings | null) {
     this.applySettings(settings);
@@ -45,6 +51,8 @@ class AppState {
     this.topK = settings.topK ?? 8;
     this.promptTemplateId = settings.promptTemplateId || "";
     this.persona = settings.persona || "";
+    this.retrievalMode = settings.retrievalMode || "hybrid";
+    this.ragTopK = settings.ragTopK ?? 5;
   }
 
   get settings(): Settings {
@@ -56,6 +64,8 @@ class AppState {
       topK: this.topK,
       promptTemplateId: this.promptTemplateId || null,
       persona: this.persona,
+      retrievalMode: this.retrievalMode,
+      ragTopK: this.ragTopK,
     };
   }
 }

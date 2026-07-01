@@ -18,19 +18,12 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
-  type RetrievalMode = "semantic" | "bm25" | "hybrid";
-  const retrievalModes: { id: RetrievalMode; label: string }[] = [
-    { id: "semantic", label: "Semantic" },
-    { id: "bm25", label: "BM25" },
-    { id: "hybrid", label: "Hybrid" },
-  ];
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
   let status = $state("");
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
-  let retrievalMode = $state<RetrievalMode>("hybrid");
   let sendDisabled = $derived(busy ? true : draft.trim().length === 0);
   let loadedSessionId: string | undefined;
   let selectedAssistantText = $state("");
@@ -155,7 +148,8 @@
         prompt_template_id: appState.promptTemplateId || null,
         persona: appState.persona,
         document_ids: $selectedDocumentIds,
-        retrieval_mode: retrievalMode,
+        retrieval_mode: appState.retrievalMode,
+        rag_top_k: appState.ragTopK,
       }),
     });
 
@@ -282,23 +276,6 @@
       {:else if messageStream.length !== 0}
         <div class="msg assistant">{messageStream}</div>
       {/if}
-    </div>
-
-    <div class="retrieval-row" aria-label="Retrieval mode">
-      <span class="retrieval-label">Retrieval</span>
-      <div class="retrieval-toggle" role="group" aria-label="Retrieval mode">
-        {#each retrievalModes as mode}
-          <button
-            class:active={retrievalMode === mode.id}
-            type="button"
-            disabled={busy}
-            aria-pressed={retrievalMode === mode.id}
-            onclick={() => retrievalMode = mode.id}
-          >
-            {mode.label}
-          </button>
-        {/each}
-      </div>
     </div>
 
     <form class="chat-input" onsubmit={handleSubmit}>

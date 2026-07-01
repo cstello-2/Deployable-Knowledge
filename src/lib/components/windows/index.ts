@@ -57,7 +57,7 @@ export const windowDefinitions = [
   },
   {
     id: "search-window",
-    title: "Search",
+    title: "Search Settings",
     column: "right",
     component: SearchWindow,
   },

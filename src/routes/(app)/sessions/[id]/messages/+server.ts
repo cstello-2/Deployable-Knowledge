@@ -149,6 +149,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     question: message,
     documentIds,
     mode: retrievalMode,
+    topK: body.rag_top_k ?? userSettings.ragTopK,
   });
   const prompt = createPrompt(
     messages,

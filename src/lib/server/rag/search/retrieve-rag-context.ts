@@ -13,7 +13,7 @@ import {
 import type { SearchChunkType } from "./search-shared";
 
 const DEFAULT_RAG_TOP_K = 5; // Can be adjsuted, number of chunks the LLM recieves 
-const MAX_CONTEXT_CHARS = 900;
+const MAX_CONTEXT_CHARS = 1200; // Same as chunk size for now
 const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :

@@ -70,7 +70,7 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
   const query = options.query.trim();
   // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 10));
-  const candidateTopK = Math.max(topK * 4, topK);
+  const candidateTopK = Math.max(topK * 2, topK); // Number of chunks from search types: ragTopK = 5, 5 * 2 = 10 Semantic & BM25 chunks each
 
   if (!query || topK === 0) {
     return {
