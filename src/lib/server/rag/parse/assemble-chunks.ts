@@ -66,11 +66,13 @@ export function assembleChunks(
   }
 
   const finalChunks: ParsedChunk[] = [];
+  const processedPageIndexes = new Set<number>();
 
   for (const page of pages) {
-    if (page.chunkType !== "TEXT") continue;
-
     const pageIndex = Number(page.pageIndex);
+    if (processedPageIndexes.has(pageIndex)) continue;
+    processedPageIndexes.add(pageIndex);
+
     const pageTextChunks = textChunksByPage.get(pageIndex) ?? [];
     // Table chunks are appended after text chunks for the page, but still deduped before storage
     const pageTableChunks = (page.tables ?? [])
@@ -90,9 +92,9 @@ export function assembleChunks(
       });
     }
 
-    // Keep small table chunks that may fall under the minimum word count
+    // Keep small non-text chunks that may fall under the minimum word count
     const keptChunks = dedupedChunks.filter((chunk) =>
-      chunk.chunkType === "TABLE" || countWords(chunk.content) >= MIN_TEXT_CHUNK_WORDS,
+      chunk.chunkType !== "TEXT" || countWords(chunk.content) >= MIN_TEXT_CHUNK_WORDS,
     );
 
     finalChunks.push(...reindexChunks(keptChunks));

@@ -3,6 +3,7 @@ import ChatWindow from "./ChatWindow.svelte";
 import DocumentsWindow from "./DocumentsWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
 import NotebookWindow from "./NotebookWindow.svelte";
+import SearchWindow from "./SearchWindow.svelte";
 
 import type { Component } from "svelte";
 
@@ -53,5 +54,11 @@ export const windowDefinitions = [
     title: "Notebook",
     column: "right",
     component: NotebookWindow,
+  },
+  {
+    id: "search-window",
+    title: "Search",
+    column: "right",
+    component: SearchWindow,
   },
 ] satisfies WindowDefinition[];

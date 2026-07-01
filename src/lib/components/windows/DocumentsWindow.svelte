@@ -81,7 +81,7 @@
     keepExistingDocumentSelections(new Set(documents.map((document) => document.id)));
     if (message) status = message;
   }
-
+//TODO: Add configuration pane allowing the user to select local directories or mapped network drives (e.g., OneDrive sync folders) for automated ingestion.
   function handleFileChange(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     selectedFile = input.files?.[0] ?? null;
