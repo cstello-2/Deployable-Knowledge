@@ -6,17 +6,9 @@ import {
   type ParsedChunk,
 } from "./parse-shared";
 
-export type ChunkerOptions = {
-  maxChars?: number;
-  minWords?: number;
-  overlapSentences?: number;
-};
-
-const DEFAULT_OPTIONS: Required<ChunkerOptions> = {
-  maxChars: 1200,
-  minWords: 5,
-  overlapSentences: 1,
-};
+const MAX_CHARS = 1200;
+const MIN_WORDS = 5;
+const OVERLAP_SENTENCES = 1;
 
 // Offsets point into the cleaned page text, not the original PDF bytes
 type SentenceSpan = {
@@ -124,37 +116,6 @@ export function splitSentencesWithOffsets(text: string): SentenceSpan[] {
   return spans;
 }
 
-function makeChunk(
-  page: ExtractedChunk,
-  chunkIndex: number,
-  content: string,
-  startChar: number,
-  endChar: number,
-  sentenceCount: number,
-): ParsedChunk {
-  // One chunk shape is used for text, table, and image chunks before DB storage
-  return {
-    chunkId: buildChunkId(
-      page.source,
-      Number(page.pageIndex),
-      chunkIndex,
-      page.chunkType,
-      content,
-    ),
-    chunkType: page.chunkType,
-    source: page.source,
-    pageIndex: Number(page.pageIndex),
-    chunkIndex,
-    content,
-    metadata: {
-      startChar,
-      endChar,
-      wordCount: countWords(content),
-      sentenceCount,
-    },
-  };
-}
-
 function getChunkContent(content: string, startChar: number, endChar: number): string {
   return normalizeWhitespace(content.slice(startChar, endChar).replace(/\n/g, " "));
 }
@@ -163,7 +124,6 @@ function chunkSentenceSpans(
   page: ExtractedChunk,
   content: string,
   spans: SentenceSpan[],
-  options: Required<ChunkerOptions>,
 ): ParsedChunk[] {
   if (spans.length === 0) return [];
 
@@ -177,7 +137,7 @@ function chunkSentenceSpans(
     while (end < spans.length) {
       const candidateLength = spans[end].end - spans[cursor].start;
 
-      if (candidateLength > options.maxChars) {
+      if (candidateLength > MAX_CHARS) {
         break;
       }
 
@@ -189,8 +149,15 @@ function chunkSentenceSpans(
     const endChar = selected[selected.length - 1].end;
     const chunkContent = getChunkContent(content, startChar, endChar);
 
-    if (chunkContent && countWords(chunkContent) >= options.minWords) {
-      chunks.push(makeChunk(page, chunkIndex, chunkContent, startChar, endChar, selected.length));
+    if (chunkContent && countWords(chunkContent) >= MIN_WORDS) {
+      chunks.push({
+        chunkId: buildChunkId(page, chunkIndex, chunkContent),
+        chunkType: page.chunkType,
+        source: page.source,
+        pageIndex: Number(page.pageIndex),
+        chunkIndex,
+        content: chunkContent,
+      });
       chunkIndex += 1;
     }
 
@@ -199,42 +166,43 @@ function chunkSentenceSpans(
     }
 
     // Keep a small overlap so answers split across chunk boundaries retain context
-    cursor = Math.max(end - options.overlapSentences, cursor + 1);
+    cursor = Math.max(end - OVERLAP_SENTENCES, cursor + 1);
   }
 
   return chunks;
 }
 
 function preparePageContent(page: ExtractedChunk): string {
-  return page.chunkType === "TEXT"
-    ? cleanPageText(page.content)
-    : normalizeWhitespace(page.content);
+  switch (page.chunkType) {
+    case "TEXT":
+      return cleanPageText(page.content);
+    default:
+      return normalizeWhitespace(page.content);
+  }
 }
 
-function chunkPage(
-  page: ExtractedChunk,
-  options: Required<ChunkerOptions>,
-): ParsedChunk[] {
+function chunkPage(page: ExtractedChunk): ParsedChunk[] {
   const content = preparePageContent(page);
   if (!content) return [];
 
   if (page.chunkType !== "TEXT") {
     // Tables/images are already extracted as standalone units, so they skip sentence grouping
-    return [makeChunk(page, 0, content, 0, content.length, 1)];
+    return [
+      {
+        chunkId: buildChunkId(page, 0, content),
+        chunkType: page.chunkType,
+        source: page.source,
+        pageIndex: Number(page.pageIndex),
+        chunkIndex: 0,
+        content,
+      },
+    ];
   }
 
   const spans = splitSentencesWithOffsets(content);
-  return chunkSentenceSpans(page, content, spans, options);
+  return chunkSentenceSpans(page, content, spans);
 }
 
-export function chunkPages(
-  pages: ExtractedChunk[],
-  options: ChunkerOptions = {},
-): ParsedChunk[] {
-  const resolved: Required<ChunkerOptions> = {
-    ...DEFAULT_OPTIONS,
-    ...options,
-  };
-
-  return pages.flatMap((page) => chunkPage(page, resolved));
+export function chunkPages(pages: ExtractedChunk[]): ParsedChunk[] {
+  return pages.flatMap(chunkPage);
 }

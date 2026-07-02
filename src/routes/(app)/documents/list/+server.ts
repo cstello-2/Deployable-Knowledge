@@ -2,14 +2,10 @@ import { json } from "@sveltejs/kit";
 import { count, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { document_chunks, documents } from "$lib/server/database/schema";
+import type { Document } from "$lib/server/database/schema";
 import type { RequestHandler } from "./$types";
 
-type DocumentListRow = {
-  id: string;
-  title: string;
-  sourcePath: string;
-  sourceType: string;
-  updatedAt: string;
+type DocumentListRow = Pick<Document, "id" | "title" | "sourcePath" | "sourceType" | "updatedAt"> & {
   chunkCount: number;
 };
 
@@ -33,7 +29,7 @@ export const GET: RequestHandler = async () => {
       id: String(row.id),
       title: String(row.title),
       sourcePath: String(row.sourcePath),
-      sourceType: String(row.sourceType),
+      sourceType: row.sourceType,
       updatedAt: String(row.updatedAt),
       chunkCount: Number(row.chunkCount ?? 0),
     })) satisfies DocumentListRow[],

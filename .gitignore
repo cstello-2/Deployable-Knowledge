@@ -25,5 +25,8 @@ drizzle/
 
 # --- Model cache or sentence-transformers ---
 models/
-tmp_model/
-tmp_model_incomplete_backup/
+tmp_model/ 
+.cache/
+
+
+documents/

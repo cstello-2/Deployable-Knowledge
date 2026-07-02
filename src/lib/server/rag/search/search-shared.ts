@@ -1,7 +1,9 @@
 // Shared helpers for search modules
 
+import type { DocumentChunk } from "../../database/schema";
+
 // Same chunk type values used by stored chunks and every search mode
-export type SearchChunkType = "TEXT" | "TABLE" | "IMAGE";
+export type SearchChunkType = DocumentChunk["chunkType"];
 
 // Common search input shared by BM25, semantic, and hybrid search
 export type SearchOptionsBase = {

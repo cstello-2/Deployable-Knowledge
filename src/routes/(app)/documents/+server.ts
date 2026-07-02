@@ -1,23 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, parse } from "node:path";
+import { join } from "node:path";
 import { json, error } from "@sveltejs/kit";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
-
-function safePdfName(name: string) {
-  const parsed = parse(name || "document.pdf");
-  const base = parsed.name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-
-  return `${base || "document"}.pdf`;
-}
 
 export const POST: RequestHandler = async ({ request }) => {
   const form = await request.formData();
@@ -37,7 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const contentHash = createHash("sha256").update(buffer).digest("hex");
-  const savedName = `${contentHash.slice(0, 16)}-${safePdfName(originalName)}`;
+  const savedName = `${contentHash.slice(0, 16)}.pdf`;
   const savedPath = join(DOCUMENTS_DIR, savedName);
 
   await mkdir(DOCUMENTS_DIR, { recursive: true });

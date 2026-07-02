@@ -172,7 +172,7 @@ export const documents = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
-    sourceType: text("source_type").notNull(),
+    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -189,17 +189,11 @@ export const document_chunks = sqliteTable(
     documentId: text("document_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
-    chunkType: text("chunk_type").notNull(),
+    chunkType: text("chunk_type", { enum: ["TEXT", "IMAGE", "TABLE"] }).notNull(),
     pageIndex: integer("page_index").notNull(),
     chunkIndex: integer("chunk_index").notNull(),
     content: text("content").notNull(),
-    startChar: integer("start_char"),
-    endChar: integer("end_char"),
-    wordCount: integer("word_count").notNull(),
-    sentenceCount: integer("sentence_count").notNull(),
-    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown> | null>(),
     embedding: blob("embedding", { mode: "buffer" }).notNull(),
-    embeddingModel: text("embedding_model").notNull(),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

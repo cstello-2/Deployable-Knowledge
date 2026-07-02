@@ -1,9 +1,10 @@
 // Exact semantic search over the stored chunk embeddings in SQLite
 
 import { and, eq, inArray } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
-import { EMBEDDING_MODEL, embedTexts } from "../embedding-model";
+import { embedTexts } from "../embedding-model";
 import {
   cleanFilterValues,
   type SearchChunkType,
@@ -11,10 +12,6 @@ import {
   type SearchOptionsBase,
   type SearchResult,
 } from "./search-shared";
-
-export type SemanticSearchOptions = SearchOptionsBase & {
-  embeddingModel?: string;
-};
 
 export type SemanticSearchMatch = SearchMatchBase;
 export type SemanticSearchResult = SearchResult<SemanticSearchMatch>;
@@ -33,12 +30,11 @@ type CandidateRow = {
 
 // Semantic search scores the query against stored chunk embeddings already in SQLite
 export async function searchSemantic(
-  options: SemanticSearchOptions,
+  options: SearchOptionsBase,
 ): Promise<SemanticSearchResult> {
   const query = options.query.trim();
   // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
-  const embeddingModel = options.embeddingModel?.trim() || EMBEDDING_MODEL;
   const documentIds = cleanFilterValues(options.documentIds);
   const sourcePaths = cleanFilterValues(options.sourcePaths);
   const chunkTypes = cleanFilterValues(options.chunkTypes);
@@ -53,7 +49,7 @@ export async function searchSemantic(
 
   // Same embedding path as chunking/storage so query vectors stay in sync with the corpus
   const queryEmbedding = (await embedTexts([query]))[0] ?? [];
-  const filters = [eq(document_chunks.embeddingModel, embeddingModel)];
+  const filters: SQL[] = [];
 
   if (documentIds.length > 0) {
     filters.push(inArray(document_chunks.documentId, documentIds));
@@ -82,7 +78,7 @@ export async function searchSemantic(
     })
     .from(document_chunks)
     .innerJoin(documents, eq(documents.id, document_chunks.documentId))
-    .where(and(...filters)) as CandidateRow[];
+    .where(filters.length ? and(...filters) : undefined) as CandidateRow[];
 
   // Stored vectors are Float32 bytes. Decode them once before scoring
   const decodedCandidates = candidateRows.map((row) => {

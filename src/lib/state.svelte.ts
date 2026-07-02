@@ -6,8 +6,6 @@ import type {
   UserSettings,
 } from "$lib/server/database/schema";
 
-export type RetrievalMode = "semantic" | "bm25" | "hybrid";
-
 export type Settings = {
   provider: string;
   model: string;

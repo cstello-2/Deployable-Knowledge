@@ -1,4 +1,4 @@
-import { Provider, type ProviderChatOptions } from "./provider";
+import { Provider, type ProviderChatOptions } from "./provider.ts";
 
 const LLAMA_API_URL = "http://localhost:11434";
 
@@ -28,7 +28,6 @@ export class Ollama extends Provider {
     });
 
     const resp = await fetch(req);
-
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
@@ -52,16 +51,13 @@ export class Ollama extends Provider {
   }
 
   override async listModels(): Promise<string[]> {
-    try {
-      const response = await fetch(`${LLAMA_API_URL}/api/tags`);
-      if (!response.ok) return [];
+    let req = new Request(`${LLAMA_API_URL}/api/tags`, {
+      method: "GET",
+    });
 
-      const data = await response.json();
-      return Array.isArray(data.models)
-        ? data.models.map((model: { name: string }) => model.name)
-        : [];
-    } catch {
-      return [];
-    }
+    const resp = await fetch(req);
+    const data = await resp.json();
+
+    return data.models.map((x: any) => x.model) ?? [];
   }
 }

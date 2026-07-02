@@ -3,9 +3,11 @@
 
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
-  import type { AppState, RetrievalMode } from "$lib/state.svelte";
+  import type { AppState } from "$lib/state.svelte";
   import type { UserSettings } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
+
+  type RetrievalMode = UserSettings["retrievalMode"];
 
   let {
     id,

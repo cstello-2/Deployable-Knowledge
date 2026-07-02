@@ -7,48 +7,42 @@ import {
   type ParsedChunk,
 } from "./parse-shared";
 
-const MIN_TEXT_CHUNK_WORDS = 5; 
+const MIN_TEXT_CHUNK_WORDS = 5;
 
 export function assembleChunks(
   pages: ExtractedChunk[],
   chunks: ParsedChunk[],
 ): ParsedChunk[] {
-  // Group first so final output follows the original extracted page order
   const chunksByPage = new Map<number, ParsedChunk[]>();
+
   for (const chunk of chunks) {
-    const pageChunks = chunksByPage.get(chunk.pageIndex) ?? [];
+    const pageIndex = Number(chunk.pageIndex);
+    const pageChunks = chunksByPage.get(pageIndex) ?? [];
     pageChunks.push(chunk);
-    chunksByPage.set(chunk.pageIndex, pageChunks);
+    chunksByPage.set(pageIndex, pageChunks);
   }
 
   const finalChunks: ParsedChunk[] = [];
-  const processedPageIndexes = new Set<number>();
+  const pageIndexes = [...new Set(pages.map((page) => Number(page.pageIndex)))];
 
-  for (const page of pages) {
-    const pageIndex = Number(page.pageIndex);
-    if (processedPageIndexes.has(pageIndex)) continue;
-    processedPageIndexes.add(pageIndex);
-
-    const seenPageChunks = new Set<string>();
+  for (const pageIndex of pageIndexes) {
+    const seenContent = new Set<string>();
     let chunkIndex = 0;
 
     for (const chunk of chunksByPage.get(pageIndex) ?? []) {
       const content = chunk.content.trim();
       const wordCount = countWords(content);
-      if (!content || seenPageChunks.has(content)) continue;
-      if (chunk.chunkType === "TEXT" && wordCount < MIN_TEXT_CHUNK_WORDS) continue;
+      const tooShort = chunk.chunkType === "TEXT" && wordCount < MIN_TEXT_CHUNK_WORDS;
 
-      seenPageChunks.add(content);
+      if (!content || seenContent.has(content) || tooShort) continue;
+
+      seenContent.add(content);
       // Rebuild ids after filtering so chunkIndex and chunkId match final page order
       finalChunks.push({
         ...chunk,
-        chunkId: buildChunkId(chunk.source, pageIndex, chunkIndex, chunk.chunkType, content),
+        chunkId: buildChunkId(chunk, chunkIndex, content),
         chunkIndex,
         content,
-        metadata: {
-          ...chunk.metadata,
-          wordCount,
-        },
       });
       chunkIndex += 1;
     }

@@ -8,7 +8,7 @@ const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
 const EMBEDDING_CACHE_DIR =
-  process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), "tmp_model", "transformersjs");
+  process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), ".cache", "transformersjs");
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;

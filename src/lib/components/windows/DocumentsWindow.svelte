@@ -3,18 +3,17 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import DocumentProgressPopup from "$lib/components/popups/DocumentProgressPopup.svelte";
+  import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import {
     keepExistingDocumentSelections,
     selectDocument,
     selectedDocumentIds,
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
+  import type { Document } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
-  type DocumentRow = {
-    id: string;
-    title: string;
-    updatedAt: string;
+  type DocumentRow = Pick<Document, "id" | "title" | "updatedAt"> & {
     chunkCount: number;
   };
 
@@ -44,12 +43,8 @@
   let selectedCount = $derived($selectedDocumentIds.length);
 
   onMount(() => {
-    refreshDocuments().catch(showError);
+    refreshDocuments().catch(() => showToast("Documents failed to load"));
   });
-
-  function showError(error: unknown) {
-    status = error instanceof Error ? error.message : String(error);
-  }
 
   function shortId(id: string) {
     return id.length > 12 ? id.slice(0, 12) : id;
@@ -119,8 +114,8 @@
         selectDocument(result.documentId);
       }
       await refreshDocuments(formatUploadStatus(result));
-    } catch (error) {
-      showError(error);
+    } catch {
+      showToast("Document upload failed");
     } finally {
       busy = false;
       progressOpen = false;
@@ -173,7 +168,7 @@
         title="Refresh documents"
         aria-label="Refresh documents"
         disabled={busy}
-        onclick={() => refreshDocuments().catch(showError)}
+        onclick={() => refreshDocuments().catch(() => showToast("Documents failed to load"))}
       >
         <Icon name="refresh" size={16} />
       </button>
