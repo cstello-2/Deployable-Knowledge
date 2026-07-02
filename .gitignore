@@ -21,7 +21,6 @@ Thumbs.db
 chroma_db/
 app.db
 app.db-*
-drizzle/
 
 # --- Model cache or sentence-transformers ---
 models/
