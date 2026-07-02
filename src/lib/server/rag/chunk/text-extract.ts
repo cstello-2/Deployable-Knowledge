@@ -125,18 +125,12 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
                         continue;
                     }
                     table_count += 1;
-                    
-                    // You can use scribe's internal helpers, or manually parse the table cells
-                    // into your desired string format (e.g., CSV or Markdown)
-                    
+
                     chunks.push({
                         chunkType: "TABLE", 
                         source: file,
                         pageIndex: i,
-                        content: JSON.stringify({
-                          title: tableData.title ?? "",
-                          boxes: (tableData.boxes ?? []).map((box: any) => box.coords ?? box.bbox ?? null),
-                        })
+                        content,
                     });
                 }
             }
@@ -149,8 +143,6 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
     //await doc.terminate();
     // TODO: Somehow commenting this code made everything work, if memory becomes an issue in the future, make this statement work. Good luck
     await scribe.terminate();
-    console.log("0");
-
     return chunks;
 }
 

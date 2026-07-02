@@ -123,7 +123,7 @@
       </div>
     </div>
 
-    <div class="search-compact-field">
+    <div class="search-field">
       <label for="search_rag_top_k">Top k Chunks</label>
       <input
         id="search_rag_top_k"
@@ -193,7 +193,7 @@
     color: var(--text);
   }
 
-  .search-compact-field {
+  .search-field {
     display: inline-grid;
     width: fit-content;
     grid-template-columns: max-content 75px;
@@ -202,15 +202,15 @@
     justify-content: start;
   }
 
-  .search-compact-field label {
+  .search-field label {
     color: var(--muted);
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
   }
 
-  .search-compact-field input {
-    width: 100%;
+  .search-field input {
+    width: 80%;
     box-sizing: border-box;
   }
 

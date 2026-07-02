@@ -22,7 +22,7 @@ let tokenizer: any = null;
 let model: any = null;
 
 async function initializeModel(): Promise<void> {
-  if (!tokenizer || !model) {
+  if (!tokenizer || !model) { //Does not prevent null, null
     const modelId = 'Xenova/ms-marco-MiniLM-L-6-v2';
     tokenizer = await AutoTokenizer.from_pretrained(modelId);
     model = await AutoModelForSequenceClassification.from_pretrained(modelId);

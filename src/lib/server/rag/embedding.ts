@@ -7,7 +7,7 @@ import {
   type NewDocument,
   type NewDocumentChunk,
 } from "../database/schema";
-import type { ParsedChunk } from "./parse/parse-shared";
+import type { ParsedChunk } from "./chunk/parse-shared";
 import { EMBEDDING_MODEL, embedTexts } from "./embedding-model";
 
 const INSERT_BATCH_SIZE = 100; //Can adjust later

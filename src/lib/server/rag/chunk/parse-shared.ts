@@ -11,19 +11,11 @@ export type Source = {
   path: string;
 };
 
-export type ExtractedTable = {
-  tableIndex: number;
-  pageIndex: number;
-  content: string;
-  rows: string[][];
-};
-
 export type ExtractedChunk = {
   chunkType: ChunkType;
   source: Source;
   pageIndex: number;
   content: string;
-  tables?: ExtractedTable[];
 };
 
 export type ChunkMetadata = {
@@ -31,8 +23,6 @@ export type ChunkMetadata = {
   endChar: number;
   wordCount: number;
   sentenceCount: number;
-  tableIndex?: number;
-  tableRows?: string[][];
 };
 
 export type ParsedChunk = {
