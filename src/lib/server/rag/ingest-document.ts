@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { TextExtract } from "$lib/server/rag/chunk/text-extract";
-import { chunkPages } from "$lib/server/rag/chunk/chunker-semantic";
+import { chunkPages } from "$lib/server/rag/chunk/chunker";
 import { assembleChunks } from "$lib/server/rag/chunk/assemble-chunks";
 import type { Source } from "$lib/server/rag/chunk/parse-shared";
 import { storeDocumentChunks } from "./embedding";

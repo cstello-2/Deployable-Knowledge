@@ -12,12 +12,12 @@ import {
 } from "./bm25-search";
 import type { SearchChunkType } from "./search-shared";
 
-const DEFAULT_RAG_TOP_K = 5; // Can be adjsuted, number of chunks the LLM recieves 
-const MAX_CONTEXT_CHARS = 1200; // Same as chunk size for now
+const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Search Window Settings
+const MAX_CONTEXT_CHARS = 1200; // Same as max chunk size for now
 const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :
-  process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid";
+  process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid"; // Now adjustable in Search Window Settings
 
 export type RagRetrievalMode = "semantic" | "bm25" | "hybrid";
 type RagMatch = SemanticSearchMatch | Bm25SearchMatch | HybridSearchMatch;
