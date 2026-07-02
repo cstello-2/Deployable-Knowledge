@@ -56,13 +56,7 @@ function buildChunkRows(
     endChar: chunk.metadata.endChar,
     wordCount: chunk.metadata.wordCount,
     sentenceCount: chunk.metadata.sentenceCount,
-    metadata: {
-      // Duplicate source fields in metadata so exported/debug views can read a chunk alone. Could remove?
-      sourceTitle: chunk.source.title,
-      sourcePath: chunk.source.path,
-      sourceType: chunk.source.type,
-      ...chunk.metadata,
-    },
+    metadata: chunk.metadata,
     embedding: embeddingToBuffer(embeddings[index] ?? []),
     embeddingModel: EMBEDDING_MODEL,
     createdAt: now,
