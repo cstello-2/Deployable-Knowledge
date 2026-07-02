@@ -522,12 +522,6 @@
     gap: 10px;
   }
 
-  .field-label {
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 600;
-  }
-
   .prompt-template-menu {
     position: relative;
   }

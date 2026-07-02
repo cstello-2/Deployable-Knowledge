@@ -436,7 +436,6 @@
   .msg-md :global(p) { margin: 0 0 0.75em; }
   .msg-md :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
   .msg-md :global(code) { white-space: pre-wrap; }
-  .msg-error { color: var(--danger); }
   .msg-md :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
@@ -561,52 +560,6 @@
     white-space: nowrap;
   }
 
-  .retrieval-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 8px;
-    align-items: center;
-    margin-top: 8px;
-  }
-
-  .retrieval-label {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .retrieval-toggle {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
-  }
-
-  .retrieval-toggle button {
-    min-width: 0;
-    min-height: 28px;
-    padding: 4px 6px;
-    border: 0;
-    border-left: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 650;
-  }
-
-  .retrieval-toggle button:first-child {
-    border-left: 0;
-  }
-
-  .retrieval-toggle button.active {
-    background: color-mix(in oklab, var(--accent) 18%, transparent);
-    color: var(--text);
-  }
-
   .chat-input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -686,12 +639,7 @@
     border-radius: 0 13px 13px 0;
   }
 
-	  @media (max-width: 680px) {
-    .retrieval-row {
-      grid-template-columns: 1fr;
-      gap: 5px;
-    }
-
+  @media (max-width: 680px) {
     .chat-input {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
