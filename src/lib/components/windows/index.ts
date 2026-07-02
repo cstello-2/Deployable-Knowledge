@@ -27,7 +27,7 @@ export type WindowDefinition = WindowInstanceProps & {
 export const windowDefinitions = [
   {
     id: "documents-window",
-    title: "Documents",
+    title: "Document Library",
     column: "left",
     component: DocumentsWindow,
   },

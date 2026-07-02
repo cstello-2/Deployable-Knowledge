@@ -35,8 +35,7 @@ export type ParsedChunk = {
   metadata: ChunkMetadata;
 };
 
-// Function finds every instance of consecutive spaces and tabs and converts them single spaces
-// This preserves single space formatting while removing extra indentation. Used incase PDFs weirdly formatted
+// Used to find every instance of consecutive spaces and tabs and converts them single spaces
 export function normalizeWhitespace(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();} 
 

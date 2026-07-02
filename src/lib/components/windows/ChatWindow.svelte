@@ -261,6 +261,7 @@
           {:else}
             {message.content}
           {/if}
+          {message.content}
         </div>
       {/each}
 
@@ -436,6 +437,7 @@
   .msg-md :global(p) { margin: 0 0 0.75em; }
   .msg-md :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
   .msg-md :global(code) { white-space: pre-wrap; }
+  .msg-error { color: var(--danger); }
   .msg-md :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
