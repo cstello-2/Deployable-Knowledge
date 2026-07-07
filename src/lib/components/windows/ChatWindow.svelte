@@ -2,7 +2,8 @@
   import { getContext, tick, onMount } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
-  import { type WindowInstanceProps } from "./index.ts";
+  import { selectedDocumentIds } from "$lib/utils/documentSelection";
+  import { type WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session, SessionMessage } from "$lib/server/database/schema";
 
@@ -146,6 +147,9 @@
         top_k: appState.topK,
         prompt_template_id: appState.promptTemplateId || null,
         persona: appState.persona,
+        document_ids: $selectedDocumentIds,
+        retrieval_mode: appState.retrievalMode,
+        rag_top_k: appState.ragTopK,
       }),
     });
 
@@ -257,7 +261,6 @@
           {:else}
             {message.content}
           {/if}
-          {message.content}
         </div>
       {/each}
 

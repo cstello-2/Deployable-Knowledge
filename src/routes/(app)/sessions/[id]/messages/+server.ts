@@ -12,6 +12,10 @@ import type {
   Provider,
   ProviderChatOptions,
 } from "$lib/server/providers/provider";
+import {
+  retrieveRagContext,
+  type RagRetrievalMode,
+} from "$lib/server/rag/search/retrieve-rag-context";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -20,11 +24,18 @@ function createPrompt(
   userMessage: string,
   systemPrompt = "",
   persona = "",
+  ragContext = "",
 ) {
   const lines = [];
-  const systemParts = [systemPrompt, persona].map((part) => part.trim());
+  const ragInstruction = ragContext
+    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say you do not know."
+    : "";
+  const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : "";
+  const systemParts = [systemPrompt, ragInstruction, personaBlock, ragContext]
+    .map((part) => part.trim())
+    .filter(Boolean);
 
-  if (systemParts.length) lines.push(`system: ${systemParts.join("\n\n")}`);
+  if (systemParts.length) lines.push(systemParts.join("\n\n"));
 
   // Only take top 20 messages
   for (const message of messages.slice(-20)) {
@@ -71,6 +82,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const modelId = body.model_id || userSettings.model;
   const providerId = body.provider_id || userSettings.provider;
   const persona = body.persona || userSettings.persona || "";
+  const documentIds = Array.isArray(body.document_ids)
+    ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
+    : [];
+  const retrievalMode = (body.retrieval_mode || userSettings.retrievalMode) as RagRetrievalMode;
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -118,19 +133,22 @@ export const POST: RequestHandler = async ({ params, request }) => {
           )
           .get()
       : null;
+  const ragContext = await retrieveRagContext({
+    question: message,
+    documentIds,
+    mode: retrievalMode,
+    topK: body.rag_top_k ?? userSettings.ragTopK,
+  });
   const prompt = createPrompt(
     messages,
     message,
     promptTemplate?.systemPrompt || "",
     persona,
+    ragContext.contextBlock,
   );
-
-  // If you want to see the prompt getting sent this is it.
-  // console.log(prompt);
 
   const timestamp = new Date();
 
-  // Create a ReadableStream to stream chunks to the client
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -142,7 +160,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
           controller.enqueue(encoder.encode(chunk));
         }
 
-        // After streaming completes, save to DB
         await db.insert(session_messages).values([
           {
             sessionId: params.id,
@@ -155,7 +172,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: null,
+            metadata: ragContext.sources.length
+              ? {
+                  retrievalMode: ragContext.mode,
+                  sources: ragContext.sources,
+                }
+              : null,
             createdAt: timestamp,
           },
         ]);
@@ -184,3 +206,4 @@ export const POST: RequestHandler = async ({ params, request }) => {
     },
   });
 };
+

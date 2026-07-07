@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
-import { db } from "../database/database.ts";
-import { apiKeys } from "../database/schema.ts";
+import { db } from "../database/database";
+import { apiKeys } from "../database/schema";
 
 export type ProviderChatOptions = {
   temperature?: number;

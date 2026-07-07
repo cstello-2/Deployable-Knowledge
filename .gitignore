@@ -25,6 +25,8 @@ drizzle/
 
 # --- Model cache or sentence-transformers ---
 models/
+tmp_model/ 
+.cache/
 
-# --- Agents --- 
-.codex
+
+documents/

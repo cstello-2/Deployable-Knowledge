@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  blob,
   index,
   integer,
   real,
@@ -95,10 +96,8 @@ export const notebooks = sqliteTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().default("default"),
-
     title: text("title").notNull(),
     activePageId: text("active_page_id"),
-
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -115,10 +114,8 @@ export const notebook_pages = sqliteTable(
     notebookId: text("notebook_id")
       .notNull()
       .references(() => notebooks.id, { onDelete: "cascade" }),
-
     title: text("title").notNull(),
     content: text("content").notNull().default(""),
-
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -133,8 +130,6 @@ export const provider_records = sqliteTable("providers", {
   apiKey: text("api_key").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
-
-
 
 export const userSessions = sqliteTable("user_sessions", {
   id: text("id").primaryKey(),
@@ -156,6 +151,8 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
+    retrievalMode: text("retrieval_mode", {enum: ["semantic", "bm25", "hybrid"],}).notNull().default("hybrid"),
+    ragTopK: integer("rag_top_k").notNull().default(5),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },
@@ -169,24 +166,60 @@ export const settings = sqliteTable(
 
 export const profiles = settings;
 
+export const documents = sqliteTable(
+  "documents",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    sourcePath: text("source_path").notNull(),
+    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("documents_source_path_idx").on(table.sourcePath),
+    index("documents_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+export const document_chunks = sqliteTable(
+  "document_chunks",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    chunkType: text("chunk_type", { enum: ["TEXT", "IMAGE", "TABLE"] }).notNull(),
+    pageIndex: integer("page_index").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    content: text("content").notNull(),
+    embedding: blob("embedding", { mode: "buffer" }).notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("document_chunks_document_id_idx").on(table.documentId),
+    index("document_chunks_chunk_type_idx").on(table.chunkType),
+    index("document_chunks_page_idx").on(table.pageIndex),
+    index("document_chunks_document_chunk_idx").on(table.documentId, table.chunkIndex),
+  ],
+);
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
 export type SessionMessage = typeof session_messages.$inferSelect;
 export type NewSessionMessage = typeof session_messages.$inferInsert;
 
-export type NotebookState = typeof notebook_state.$inferSelect;
-export type NewNotebookState = typeof notebook_state.$inferInsert;
-
 export type Notebook = typeof notebooks.$inferSelect;
 export type NewNotebook = typeof notebooks.$inferInsert;
+
+export type NotebookState = typeof notebook_state.$inferSelect;
+export type NewNotebookState = typeof notebook_state.$inferInsert;
 
 export type NotebookPage = typeof notebook_pages.$inferSelect;
 export type NewNotebookPage = typeof notebook_pages.$inferInsert;
 
 export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
-
-
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -203,3 +236,9 @@ export type NewUserSession = typeof userSessions.$inferInsert;
 
 export type UserSettings = typeof settings.$inferSelect;
 export type NewUserSettings = typeof settings.$inferInsert;
+
+export type Document = typeof documents.$inferSelect;
+export type NewDocument = typeof documents.$inferInsert;
+
+export type DocumentChunk = typeof document_chunks.$inferSelect;
+export type NewDocumentChunk = typeof document_chunks.$inferInsert;

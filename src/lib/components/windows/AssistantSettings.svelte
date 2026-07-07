@@ -7,7 +7,7 @@
     AssistantApiKeyPopup,
     PromptTemplatePopup,
   } from "$lib/components/popups";
-  import type { WindowInstanceProps } from "./index.ts";
+  import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Provider } from "$lib/server/providers/provider";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
@@ -520,12 +520,6 @@
   .assistant-settings-form {
     display: grid;
     gap: 10px;
-  }
-
-  .field-label {
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 600;
   }
 
   .prompt-template-menu {
