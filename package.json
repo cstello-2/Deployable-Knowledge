@@ -34,6 +34,7 @@
 		"dotenv": "^17.4.2",
 		"drizzle-orm": "^0.45.2",
 		"material-symbols": "^0.44.12",
+		"pdfjs-dist": "^6.1.200",
 		"scribe.js-ocr": "^0.12.6",
 		"sharp": "^0.34.5",
 		"stemmer": "^2.0.1",

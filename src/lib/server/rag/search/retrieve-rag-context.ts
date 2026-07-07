@@ -45,27 +45,18 @@ function compactText(text: string, limit: number) {
   return `${compact.slice(0, limit).trimEnd()}...`;
 }
 
-// Format retrieved chunks as numbered context blocks so answers can cite the matching source
+// Format retrieved chunks in the old RAG prompt style
 function formatContext(matches: RagMatch[]) {
   if (matches.length === 0) return "";
 
-  const sections = matches.map((match, index) => {
+  const items = matches.map((match) => {
     const content = compactText(match.content, MAX_CONTEXT_CHARS);
+    const source = match.sourceTitle || match.sourcePath || "unknown";
 
-    return [
-      `[${index + 1}] Title: ${match.sourceTitle}`,
-      `Page: ${match.pageIndex + 1}`,
-      `Chunk: ${match.chunkIndex}`,
-      "Content:",
-      content,
-    ].join("\n");
+    return `- ${content} (source: ${source})`;
   });
 
-  return [
-    "Retrieved document context:",
-    "",
-    ...sections.flatMap((section) => [section, ""]),
-  ].join("\n").trim();
+  return ["Relevant context:", ...items].join("\n");
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
@@ -86,7 +77,7 @@ function buildSources(matches: RagMatch[]): RagSource[] {
 export async function retrieveRagContext({
   question,
   documentIds = [],
-  chunkTypes = ["TEXT", "TABLE"],
+  chunkTypes = ["TEXT", "TABLE", "IMAGE"],
   topK = DEFAULT_RAG_TOP_K,
   mode = DEFAULT_RETRIEVAL_MODE,
 }: {

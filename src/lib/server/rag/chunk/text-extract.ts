@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import scribe from 'scribe.js-ocr';
 import {
     normalizeWhitespace,
@@ -11,6 +12,54 @@ type ExtractTextFromTables = (
 ) => Array<{ rows?: string[][] }>;
 
 const extractTextFromTables = scribe.extractTextFromTables as unknown as ExtractTextFromTables;
+
+const IMAGE_OPERATOR_NAMES = [
+    "paintImageXObject",
+    "paintImageXObjectRepeat",
+    "paintJpegXObject",
+    "paintInlineImageXObject",
+    "paintInlineImageXObjectGroup",
+    "paintImageMaskXObject",
+    "paintImageMaskXObjectGroup",
+];
+
+function hasMeaningfulOcrText(text: string): boolean {
+    return (text.match(/[A-Za-z0-9]/g)?.length ?? 0) >= 10;
+}
+
+async function detectEmbeddedImagePages(filePath: string): Promise<Set<number>> {
+    const imagePages = new Set<number>();
+
+    try {
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs") as any;
+        const imageOps = new Set(
+            IMAGE_OPERATOR_NAMES
+                .map((name) => pdfjs.OPS[name])
+                .filter((value) => typeof value === "number"),
+        );
+        const data = new Uint8Array(await readFile(filePath));
+        const pdf = await pdfjs.getDocument({ data, disableWorker: true }).promise;
+
+        try {
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+                const page = await pdf.getPage(pageNumber);
+                const ops = await page.getOperatorList();
+
+                if (ops.fnArray.some((op: number) => imageOps.has(op))) {
+                    imagePages.add(pageNumber - 1);
+                }
+
+                page.cleanup?.();
+            }
+        } finally {
+            await pdf.destroy?.();
+        }
+    } catch (error) {
+        console.warn("[Embedded Image Scan] Failed; continuing without image-aware OCR.", error);
+    }
+
+    return imagePages;
+}
 
 function tableRowsToText(rows: string[][]): string {
     return rows
@@ -27,8 +76,10 @@ function tableRowsToText(rows: string[][]): string {
 //See bottom of file for example function usage and type declarations
 
 export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], mode: string = "quality") { //speed or quality
+    const embeddedImagePages = await detectEmbeddedImagePages(file.path);
     const doc = await scribe.openDocument([file.path]);
     let chunks: Chunk[] = [];
+    const nativeTextByPage = new Map<number, string>();
     let text_count = 0;
     let table_count = 0;
 
@@ -59,6 +110,7 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
             const finalPageText = extractTextFromPage(doc.ocr.active[i]);
             
             if (finalPageText.length > 0) {
+                nativeTextByPage.set(i, finalPageText);
                 chunks.push({
                     chunkType: "TEXT", // Tagged  as  text
                     source: file,
@@ -73,30 +125,30 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
     const totalPages = doc.ocr?.active?.length || 0;
     const img_count = totalPages - text_count;
     
-    console.log(`[Pre-OCR Scan] Total Pages: ${totalPages} | Native Text Pages: ${text_count} | Images Awaiting OCR: ${img_count}`);
-
-    // Keep track of which pages we already extracted native text from
-    const nativelyExtractedPages = chunks.map(c => c.pageIndex);
+    console.log(`[Pre-OCR Scan] Total Pages: ${totalPages} | Native Text Pages: ${text_count} | Page OCR Fallbacks: ${img_count} | Embedded Image Pages: ${embeddedImagePages.size}`);
 
     //Running ocr
     await doc.recognize({ ocr_langs, mode });
 
     if (doc.ocr && doc.ocr.active) {
         for (let i = 0; i < doc.ocr.active.length; i++) {
+            const hasEmbeddedImage = embeddedImagePages.has(i);
+            const hasNativeText = nativeTextByPage.has(i);
             
-            // Skip this page if we already got native text for it
-            if (nativelyExtractedPages.includes(i)) {
+            // Keep page OCR fallback, but also OCR native-text pages with embedded images
+            if (hasNativeText && !hasEmbeddedImage) {
                 continue; 
             }
 
-            const finalPageText = extractTextFromPage(doc.ocr.active[i]);
+            const ocrText = normalizeWhitespace(extractTextFromPage(doc.ocr.active[i]));
+            const nativeText = normalizeWhitespace(nativeTextByPage.get(i) ?? "");
             
-            if (finalPageText.length > 0) {
+            if (ocrText && (!hasEmbeddedImage || (hasMeaningfulOcrText(ocrText) && ocrText !== nativeText))) {
                 chunks.push({
                     chunkType: "IMAGE", // Tagged correctly as OCR'd text
                     source: file,
                     pageIndex: i,
-                    content: finalPageText,
+                    content: hasEmbeddedImage ? `[Image: ${ocrText}]` : ocrText,
                 });
             }
         }

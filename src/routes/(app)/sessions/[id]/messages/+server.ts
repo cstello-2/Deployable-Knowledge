@@ -27,19 +27,15 @@ function createPrompt(
   ragContext = "",
 ) {
   const lines = [];
-  const retrievalInstruction = ragContext
-    ? [
-        "Use the retrieved document context when it is relevant.",
-        "If the context does not contain the answer, say that clearly.",
-        "",
-        ragContext,
-      ].join("\n")
+  const ragInstruction = ragContext
+    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say you do not know."
     : "";
-  const systemParts = [systemPrompt, persona, retrievalInstruction]
+  const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : "";
+  const systemParts = [systemPrompt, ragInstruction, personaBlock, ragContext]
     .map((part) => part.trim())
     .filter(Boolean);
 
-  if (systemParts.length) lines.push(`system: ${systemParts.join("\n\n")}`);
+  if (systemParts.length) lines.push(systemParts.join("\n\n"));
 
   // Only take top 20 messages
   for (const message of messages.slice(-20)) {
@@ -210,3 +206,4 @@ export const POST: RequestHandler = async ({ params, request }) => {
     },
   });
 };
+
