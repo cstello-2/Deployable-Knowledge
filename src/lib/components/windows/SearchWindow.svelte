@@ -31,6 +31,21 @@
   );
   let ragTopK = $state<number | undefined>(appState.ragTopK);
   let busy = $state(false);
+  let popupOpen = $state(false);
+  let searchQuery = $state("");
+  let searchLoading = $state(false);
+
+  type SearchMatch = {
+    chunkId: string;
+    sourceTitle: string;
+    pageIndex: number;
+    content: string;
+    score: number;
+  };
+
+  let bm25Results = $state<SearchMatch[]>([]);
+  let semanticResults = $state<SearchMatch[]>([]);
+  let hybridResults = $state<SearchMatch[]>([]);
 
   onMount(() => {
     loadSettings();
@@ -95,6 +110,45 @@
 
     await saveRuntimeSettings();
   }
+
+  function myFunction() {
+    popupOpen = !popupOpen;
+    if (popupOpen) {
+      searchQuery = appState.lastQuery;
+    } else {
+      bm25Results = [];
+      semanticResults = [];
+      hybridResults = [];
+    }
+  }
+
+  async function runSearch() {
+    if (!searchQuery.trim()) return;
+    searchLoading = true;
+    bm25Results = [];
+    semanticResults = [];
+    hybridResults = [];
+
+    const params = new URLSearchParams({
+      query: searchQuery,
+      topK: String(appState.topK),
+    });
+
+    const resp = await fetch(`/search?${params}`);
+    const data = await resp.json();
+    bm25Results = data.bm25;
+    semanticResults = data.semantic;
+    hybridResults = data.hybrid;
+    searchLoading = false;
+  }
+
+  function sendResultToNotebook(result: SearchMatch) {
+    const text = `${result.sourceTitle} (page ${result.pageIndex + 1})\n${result.content}`;
+    window.dispatchEvent(
+      new CustomEvent("dk:send-to-notebook", { detail: { text } }),
+    );
+    showToast("Sent to notebook");
+  }
 </script>
 
 <BaseWindow
@@ -139,6 +193,62 @@
         onchange={handleRuntimeSettingsChange}
       />
     </div>
+
+    <button class="popup-trigger" type="button" onclick={myFunction}>Compare Search Results</button>
+
+    {#if popupOpen}
+      <div class="popup-overlay" role="presentation" onclick={myFunction}></div>
+      <div class="popup-window search-compare-popup" role="dialog" aria-label="Search comparison">
+        <div class="popup-header">
+          <span class="popup-title">Search Comparison</span>
+          <button class="btn btn-icon" type="button" onclick={myFunction}>✕</button>
+        </div>
+
+        <div class="popup-search-bar">
+          <input
+            class="input"
+            type="text"
+            placeholder="Enter query…"
+            bind:value={searchQuery}
+            onkeydown={(e) => e.key === "Enter" && runSearch()}
+          />
+          <button class="btn" type="button" onclick={runSearch} disabled={searchLoading}>
+            {searchLoading ? "Searching…" : "Search"}
+          </button>
+        </div>
+
+        <div class="search-panes">
+          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }] as pane}
+            <div class="search-pane">
+              <div class="pane-label">{pane.label}</div>
+              {#each pane.results as result, i (result.chunkId)}
+                <div class="result-card">
+                  <div class="result-meta">
+                    <span class="result-rank">#{i + 1}</span>
+                    <span class="result-title">{result.sourceTitle}</span>
+                    <span>Page {result.pageIndex + 1}</span>
+                    <span>Score: {result.score.toFixed(4)}</span>
+                  </div>
+                  <p class="result-content">{result.content}</p>
+                  <button
+                    class="btn send-to-notebook-btn"
+                    type="button"
+                    onclick={() => sendResultToNotebook(result)}
+                  >
+                    Send to Notebook
+                  </button>
+                </div>
+              {:else}
+                {#if !searchLoading}
+                  <p class="no-results">No results</p>
+                {/if}
+              {/each}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
   </div>
 </BaseWindow>
 
@@ -214,6 +324,160 @@
   .search-field input {
     width: 80%;
     box-sizing: border-box;
+  }
+
+  .popup-trigger {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+  }
+
+  .popup-window {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 201;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 20px;
+    min-width: 300px;
+    display: grid;
+    gap: 14px;
+  }
+
+  .search-compare-popup {
+    width: min(92vw, 960px);
+    height: 82vh;
+    grid-template-rows: auto auto 1fr;
+    overflow: hidden;
+  }
+
+  .popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .popup-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .popup-search-bar {
+    display: flex;
+    gap: 8px;
+  }
+
+  .popup-search-bar .input {
+    flex: 1;
+  }
+
+  .search-panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .search-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .pane-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    position: sticky;
+    top: 0;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    padding-bottom: 4px;
+  }
+
+  .result-card {
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .result-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .result-rank {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 10%));
+    border-radius: 4px;
+    padding: 1px 5px;
+    align-self: flex-start;
+  }
+
+  .result-title {
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-content {
+    font-size: 12px;
+    margin: 0;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .send-to-notebook-btn {
+    align-self: flex-start;
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .no-results {
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+    margin: 0;
   }
 
   @media (max-width: 420px) {
