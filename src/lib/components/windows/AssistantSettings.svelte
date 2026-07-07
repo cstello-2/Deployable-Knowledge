@@ -34,7 +34,7 @@
     onClose = () => {},
   }: WindowInstanceProps = $props();
 
-  const appState = getContext<AppState>("appState");
+  const appState = getContext<AppState>("appState"); 
   let providers = $state<ProviderOption[]>([]);
   let models = $state<string[]>([]);
   let temperature = $state<number | undefined>(appState.temperature);

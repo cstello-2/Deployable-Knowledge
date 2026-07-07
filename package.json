@@ -45,8 +45,11 @@
 		"esbuild@0.18.20": true,
 		"esbuild@0.25.12": true,
 		"esbuild@0.28.0": true,
+		"esbuild@0.28.1": true,
 		"onnxruntime-node@1.24.3": true,
+		"protobufjs@6.11.6": true,
 		"protobufjs@7.6.4": true,
+		"sharp@0.32.6": true,
 		"sharp@0.34.5": true
 	}
 }

@@ -106,12 +106,26 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     bm25.results.map((match) => [match.chunkId, match.score]),
   );
 
-  const reranked = await reRankData(
-    query,
-    bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
-    semantic.results.map((match) => toRerankDocument(match, "semanticScore")),
-    { limit: topK },
-  );
+  let reranked: RerankedDocument[];
+  try {
+    reranked = await reRankData(
+      query,
+      bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
+      semantic.results.map((match) => toRerankDocument(match, "semanticScore")),
+      { limit: topK },
+    );
+  } catch (err) {
+    console.error("crossRerank failed, falling back to score merge:", err);
+    // Merge unique results from both searches, deduplicated by chunkId, sorted by best score
+    const seen = new Map<string, SemanticSearchMatch | Bm25SearchMatch>();
+    for (const m of [...semantic.results, ...bm25.results]) {
+      if (!seen.has(m.chunkId)) seen.set(m.chunkId, m);
+    }
+    reranked = [...seen.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .map((m) => ({ ...toRerankDocument(m, semanticScoreByChunk.has(m.chunkId) ? "semanticScore" : "bm25Score"), score: m.score }));
+  }
 
   const results = reranked.map((doc) => {
     const match = sourceMatch(doc);

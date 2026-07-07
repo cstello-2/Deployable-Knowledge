@@ -37,8 +37,14 @@
   function sourceHref(s: Source) { return s.url ?? null; }
   function sourceName(s: Source) { return s.title ?? s.url ?? "Source"; }
   function sourceDescription(s: Source) { return s.description ?? s.title ?? ""; }
+  function getRetrievalMode(message: SessionMessage): string | undefined {
+    return (message.metadata as { retrievalMode?: string })?.retrievalMode;
+  }
+  // Semantic score is a cosine similarity in [-1, 1], so it doubles as an angular-similarity percentage
   function angularSimilarityPercent(s: Source): number | null { return s.score != null ? Math.round(s.score * 100) : null; }
   function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
+  // BM25 scores are unbounded, so show the raw score rather than treating it as a percentage
+  function bm25ScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
   let sendToNotebookVisible = $state(false);
   let sendToNotebookTop = $state(0);
   let sendToNotebookLeft = $state(0);
@@ -120,6 +126,7 @@
     draft = "";
     busy = true;
     status = "";
+    appState.lastQuery = text;
 
     const session = appState.currentSession ?? (await createSession());
     appState.currentSession = session;
@@ -134,34 +141,35 @@
     }];
 
     await scrollToBottom();
+    {
+      const res = await fetch(`/sessions/${session.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          model_id: appState.currentModelId,
+          provider_id: appState.currentProviderId,
+          max_tokens: appState.maxTokens,
+          temperature: appState.temperature,
+          top_k: appState.topK,
+          prompt_template_id: appState.promptTemplateId || null,
+          persona: appState.persona,
+          document_ids: $selectedDocumentIds,
+          retrieval_mode: appState.retrievalMode,
+          rag_top_k: appState.ragTopK,
+        }),
+      });
 
-    const res = await fetch(`/sessions/${session.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        model_id: appState.currentModelId,
-        provider_id: appState.currentProviderId,
-        max_tokens: appState.maxTokens,
-        temperature: appState.temperature,
-        top_k: appState.topK,
-        prompt_template_id: appState.promptTemplateId || null,
-        persona: appState.persona,
-        document_ids: $selectedDocumentIds,
-        retrieval_mode: appState.retrievalMode,
-        rag_top_k: appState.ragTopK,
-      }),
-    });
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
 
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
-        messageStream += token;
-        await scrollToBottom();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
+          messageStream += token;
+          await scrollToBottom();
+        }
       }
     }
 
@@ -200,6 +208,7 @@
   {onClose}
   contentLabel="Assistant chat"
 >
+
   <div class="chat-window">
     {#if status}
       <div class="chat-status li-subtle">
@@ -228,6 +237,9 @@
           {#if message.role === "user"}
             {message.content}
           {:else if message.role === "assistant"}
+            {#if (message.metadata as any)?.retrievalMode}
+              <div class="msg-mode-label">{(message.metadata as any).retrievalMode}</div>
+            {/if}
             {message.content}
             {#if getMessageSources(message).length}
               <div class="msg-citations">
@@ -248,9 +260,15 @@
                               </a>
                             {/if}
                           </div>
-                          <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
-                            Angular Similarity: {sourceScoreLabel(source)}
-                          </span>
+                          {#if getRetrievalMode(message) === "semantic"}
+                            <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
+                              Angular Similarity: {sourceScoreLabel(source)}
+                            </span>
+                          {:else if getRetrievalMode(message) === "bm25"}
+                            <span class="chat-source-score">
+                              BM25 Score: {bm25ScoreLabel(source)}
+                            </span>
+                          {/if}
                         </div>
                       </div>
                     </li>
@@ -263,7 +281,8 @@
           {/if}
         </div>
       {/each}
-
+      
+      
       {#if busy && messageStream.length === 0}
         <div class="msg assistant">
           <div class="msg-md msg-pending" role="status" aria-live="polite">
@@ -551,8 +570,8 @@
     border-radius: 999px;
     background: linear-gradient(
       90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct) 100%
+      rgb(37 99 235 / 85%) 0 var(--score-pct, 0%),
+      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct, 0%) 100%
     );
     color: var(--text);
     font-size: 11px;
@@ -664,6 +683,15 @@
 
     .chat-new-button {
       border-radius: 0 0 0 13px;
+    }
+
+    .msg-mode-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
     }
   }
 </style>

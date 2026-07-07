@@ -34,6 +34,7 @@ class AppState {
   persona = $state("");
   retrievalMode = $state("hybrid");
   ragTopK = $state(5);
+  lastQuery = $state("");
 
   constructor(settings?: UserSettings | null) {
     this.applySettings(settings);
