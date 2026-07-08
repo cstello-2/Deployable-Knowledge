@@ -3,6 +3,7 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
+  import { renderMarkdown } from "$lib/utils/markdown";
   import { type WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session, SessionMessage } from "$lib/server/database/schema";
@@ -228,7 +229,7 @@
           {#if message.role === "user"}
             {message.content}
           {:else if message.role === "assistant"}
-            {message.content}
+            <div class="msg-md">{@html renderMarkdown(message.content)}</div>
             {#if getMessageSources(message).length}
               <div class="msg-citations">
                 <div class="msg-citations-label">Sources</div>
@@ -274,7 +275,9 @@
           </div>
         </div>
       {:else if messageStream.length !== 0}
-        <div class="msg assistant">{messageStream}</div>
+        <div class="msg assistant">
+          <div class="msg-md">{@html renderMarkdown(messageStream)}</div>
+        </div>
       {/if}
     </div>
 
@@ -434,10 +437,28 @@
   }
 
   .msg-md :global(p) { margin: 0 0 0.75em; }
+  .msg-md :global(ul),
+  .msg-md :global(ol) { margin: 0 0 0.75em; padding-left: 1.5em; }
+  .msg-md :global(li) { margin: 0.15em 0; }
+  .msg-md :global(blockquote) {
+    margin: 0 0 0.75em;
+    padding: 0.1em 1em;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
+  .msg-md :global(h1),
+  .msg-md :global(h2),
+  .msg-md :global(h3),
+  .msg-md :global(h4),
+  .msg-md :global(h5),
+  .msg-md :global(h6) { margin: 0.75em 0 0.5em; line-height: 1.3; }
+  .msg-md :global(hr) { border: none; border-top: 1px solid var(--border); margin: 0.75em 0; }
   .msg-md :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
   .msg-md :global(code) { white-space: pre-wrap; }
   .msg-error { color: var(--danger); }
-  .msg-md :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+  .msg-md :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 0.75em; }
+  .msg-md :global(th),
+  .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
   .msg-pending {
