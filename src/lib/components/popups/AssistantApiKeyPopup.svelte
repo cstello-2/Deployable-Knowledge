@@ -6,7 +6,10 @@
     id: string;
     name: string;
     apiKeyRequired: boolean;
+    hasApiKey: boolean;
   };
+
+  const MASKED_API_KEY = "••••••••••••••••";
 
   type Props = {
     open: boolean;
@@ -46,10 +49,10 @@
   }
 
   async function saveProviderApiKey(provider: ApiKeyProvider) {
-    const apiKey = (apiKeyInputs[provider.id] || "").trim();
+    const apiKey = (apiKeyInputs[provider.id] ?? "").trim();
 
     if (!apiKey) {
-      showToast("Enter an API key to save");
+      showToast(provider.hasApiKey ? "API key already saved" : "Enter an API key to save");
       return;
     }
 
@@ -80,9 +83,14 @@
     <div class="api-key-provider-main">
       <div class="api-key-provider-name">{provider.name}</div>
 
-      <div class="api-key-provider-status" class:connected={!provider.apiKeyRequired}>
+      <div
+        class="api-key-provider-status"
+        class:connected={!provider.apiKeyRequired || provider.hasApiKey}
+      >
         {#if !provider.apiKeyRequired}
           No API key required
+        {:else if provider.hasApiKey}
+          API key saved
         {:else}
           API key required
         {/if}
@@ -96,7 +104,12 @@
           type="password"
           autocomplete="off"
           placeholder="API key"
-          value={apiKeyInputs[provider.id] || ""}
+          value={apiKeyInputs[provider.id] ?? (provider.hasApiKey ? MASKED_API_KEY : "")}
+          onfocus={() => {
+            if (provider.hasApiKey && apiKeyInputs[provider.id] == null) {
+              setApiKeyInput(provider.id, "");
+            }
+          }}
           oninput={(event) =>
             setApiKeyInput(provider.id, event.currentTarget.value)}
         />

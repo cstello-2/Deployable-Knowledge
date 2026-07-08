@@ -8,18 +8,26 @@ import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ url }) => {
   const available = url.searchParams.get("available") === "true";
+  const savedApiKeyProviderIds = new Set(
+    (await db.select({ providerId: apiKeys.providerId }).from(apiKeys)).map(
+      (x) => x.providerId,
+    ),
+  );
 
   let providers = getProviders();
 
   if (available) {
-    const availableProviders = (
-      await db.select({ providerId: apiKeys.providerId }).from(apiKeys)
-    ).map((x) => x.providerId);
-
     providers = providers.filter(
-      (x) => !x.apiKeyRequired || availableProviders.includes(x.id),
+      (x) => !x.apiKeyRequired || savedApiKeyProviderIds.has(x.id),
     );
   }
 
-  return json(providers);
+  return json(
+    providers.map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      apiKeyRequired: provider.apiKeyRequired,
+      hasApiKey: savedApiKeyProviderIds.has(provider.id),
+    })),
+  );
 };
