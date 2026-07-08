@@ -22,13 +22,12 @@ chroma_db/
 app.db
 app.db-*
 drizzle/
-.claude
+
 
 # --- Model cache or sentence-transformers ---
 models/
 tmp_model/ 
 .cache/
 
-
+# --- Documents Folder ---
 documents/
-drizzle/

@@ -239,9 +239,6 @@
           {#if message.role === "user"}
             {message.content}
           {:else if message.role === "assistant"}
-            {#if (message.metadata as any)?.retrievalMode}
-              <div class="msg-mode-label">{(message.metadata as any).retrievalMode}</div>
-            {/if}
             {message.content}
             {#if getMessageSources(message).length}
               <div class="msg-citations">
@@ -687,13 +684,5 @@
       border-radius: 0 0 0 13px;
     }
 
-    .msg-mode-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 4px;
-    letter-spacing: 0.05em;
-    }
   }
 </style>

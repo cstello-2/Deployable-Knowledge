@@ -17,11 +17,19 @@
   } from "$lib/server/database/schema";
 
   type ProviderOption = Pick<Provider, "id" | "name">;
+  type RetrievalMode = UserSettings["retrievalMode"];
   type PromptTemplateFormValue = {
     id?: string;
     name: string;
     description: string;
     systemPrompt: string;
+  };
+  type SearchMatch = {
+    chunkId: string;
+    sourceTitle: string;
+    pageIndex: number;
+    content: string;
+    score: number;
   };
 
   let {
@@ -34,13 +42,30 @@
     onClose = () => {},
   }: WindowInstanceProps = $props();
 
-  const appState = getContext<AppState>("appState"); 
+  const appState = getContext<AppState>("appState");
+  const retrievalModes: { id: RetrievalMode; label: string }[] = [
+    { id: "semantic", label: "Semantic" },
+    { id: "bm25", label: "BM25" },
+    { id: "hybrid", label: "Hybrid" },
+  ];
+
   let providers = $state<ProviderOption[]>([]);
   let models = $state<string[]>([]);
+  let retrievalMode = $state<RetrievalMode>(
+    readRetrievalMode(appState.retrievalMode),
+  );
+  let ragTopK = $state<number | undefined>(appState.ragTopK);
   let temperature = $state<number | undefined>(appState.temperature);
   let topK = $state<number | undefined>(appState.topK);
   let maxTokens = $state<number | undefined>(appState.maxTokens);
   let persona = $state(appState.persona);
+  let busy = $state(false);
+  let searchCompareOpen = $state(false);
+  let searchQuery = $state("");
+  let searchLoading = $state(false);
+  let bm25Results = $state<SearchMatch[]>([]);
+  let semanticResults = $state<SearchMatch[]>([]);
+  let hybridResults = $state<SearchMatch[]>([]);
   let apiKeyPopupOpen = $state(false);
   let templatePopupOpen = $state(false);
   let templateMenuOpen = $state(false);
@@ -81,7 +106,17 @@
     await loadModels();
   }
 
+  function readRetrievalMode(value: unknown): RetrievalMode {
+    if (value === "semantic" || value === "bm25" || value === "hybrid") {
+      return value;
+    }
+
+    return "hybrid";
+  }
+
   function syncSettingsFields() {
+    retrievalMode = readRetrievalMode(appState.retrievalMode);
+    ragTopK = appState.ragTopK;
     temperature = appState.temperature;
     topK = appState.topK;
     maxTokens = appState.maxTokens;
@@ -242,6 +277,9 @@
   }
 
   async function saveRuntimeSettings(message = "Assistant settings updated") {
+    busy = true;
+    appState.retrievalMode = retrievalMode;
+    appState.ragTopK = ragTopK ?? 5;
     appState.temperature = temperature ?? 0.2;
     appState.topK = topK ?? 8;
     appState.maxTokens = maxTokens ?? 512;
@@ -254,6 +292,7 @@
     });
 
     if (!resp.ok) {
+      busy = false;
       showToast("Assistant settings save failed");
       return;
     }
@@ -261,11 +300,21 @@
     const settings = (await resp.json()) as UserSettings;
     appState.applySettings(settings);
     syncSettingsFields();
+    busy = false;
     showToast(message);
   }
 
   async function handleRuntimeSettingsChange() {
+    if (busy) return;
+
     await saveRuntimeSettings();
+  }
+
+  async function handleRetrievalModeChange(mode: RetrievalMode) {
+    if (busy || retrievalMode === mode) return;
+
+    retrievalMode = mode;
+    await saveRuntimeSettings("Search settings updated");
   }
 
   async function handleProviderChange() {
@@ -280,6 +329,40 @@
   async function handleApiKeysChanged() {
     await loadProviders();
     await loadModels();
+  }
+
+  function toggleSearchComparison() {
+    searchCompareOpen = !searchCompareOpen;
+
+    if (searchCompareOpen) {
+      searchQuery = appState.lastQuery;
+      return;
+    }
+
+    bm25Results = [];
+    semanticResults = [];
+    hybridResults = [];
+  }
+
+  async function runSearchComparison() {
+    if (!searchQuery.trim()) return;
+
+    searchLoading = true;
+    bm25Results = [];
+    semanticResults = [];
+    hybridResults = [];
+
+    const params = new URLSearchParams({
+      query: searchQuery,
+      topK: String(ragTopK ?? appState.ragTopK),
+    });
+
+    const resp = await fetch(`/search?${params}`);
+    const data = await resp.json();
+    bm25Results = data.bm25;
+    semanticResults = data.semantic;
+    hybridResults = data.hybrid;
+    searchLoading = false;
   }
 </script>
 
@@ -455,6 +538,114 @@
       </div>
     </div>
 
+    <div class="search-settings-form">
+      <div class="retrieval-row" aria-label="Retrieval mode">
+        <span class="retrieval-label">Search Method</span>
+        <div class="retrieval-toggle" role="group" aria-label="Retrieval mode">
+          {#each retrievalModes as mode}
+            <button
+              class:active={retrievalMode === mode.id}
+              type="button"
+              disabled={busy}
+              aria-pressed={retrievalMode === mode.id}
+              onclick={() => handleRetrievalModeChange(mode.id)}
+            >
+              {mode.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <div class="search-field">
+        <label for="search_rag_top_k">Top k Chunks</label>
+        <input
+          id="search_rag_top_k"
+          class="input"
+          type="number"
+          min="0"
+          step="1"
+          placeholder="5"
+          bind:value={ragTopK}
+          disabled={busy}
+          onchange={handleRuntimeSettingsChange}
+        />
+      </div>
+
+      <button
+        class="popup-trigger"
+        type="button"
+        onclick={toggleSearchComparison}
+      >
+        Compare Search Results
+      </button>
+    </div>
+
+    {#if searchCompareOpen}
+      <div
+        class="popup-overlay"
+        role="presentation"
+        onclick={toggleSearchComparison}
+      ></div>
+      <div
+        class="popup-window search-compare-popup"
+        role="dialog"
+        aria-label="Search comparison"
+      >
+        <div class="popup-header">
+          <span class="popup-title">Search Comparison</span>
+          <button
+            class="btn btn-icon"
+            type="button"
+            onclick={toggleSearchComparison}
+          >
+            x
+          </button>
+        </div>
+
+        <div class="popup-search-bar">
+          <input
+            class="input"
+            type="text"
+            placeholder="Enter query..."
+            bind:value={searchQuery}
+            onkeydown={(event) =>
+              event.key === "Enter" && runSearchComparison()}
+          />
+          <button
+            class="btn"
+            type="button"
+            onclick={runSearchComparison}
+            disabled={searchLoading}
+          >
+            {searchLoading ? "Searching..." : "Search"}
+          </button>
+        </div>
+
+        <div class="search-panes">
+          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }] as pane}
+            <div class="search-pane">
+              <div class="pane-label">{pane.label}</div>
+              {#each pane.results as result, i (result.chunkId)}
+                <div class="result-card">
+                  <div class="result-meta">
+                    <span class="result-rank">#{i + 1}</span>
+                    <span class="result-title">{result.sourceTitle}</span>
+                    <span>Page {result.pageIndex + 1}</span>
+                    <span>Score: {result.score.toFixed(4)}</span>
+                  </div>
+                  <p class="result-content">{result.content}</p>
+                </div>
+              {:else}
+                {#if !searchLoading}
+                  <p class="no-results">No results</p>
+                {/if}
+              {/each}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <div class="row">
       <label for="assistant_persona">Persona</label>
       <textarea
@@ -611,6 +802,227 @@
     font-size: 12px;
   }
 
+  .search-settings-form {
+    display: grid;
+    width: fit-content;
+    max-width: 100%;
+    gap: 10px;
+  }
+
+  .retrieval-row {
+    display: grid;
+    grid-template-columns: auto 210px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .retrieval-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .retrieval-toggle {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .retrieval-toggle button {
+    min-width: 0;
+    min-height: 28px;
+    padding: 4px 6px;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .retrieval-toggle button:first-child {
+    border-left: 0;
+  }
+
+  .retrieval-toggle button.active {
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    color: var(--text);
+  }
+
+  .search-field {
+    display: inline-grid;
+    width: fit-content;
+    grid-template-columns: max-content 75px;
+    gap: 8px;
+    align-items: center;
+    justify-content: start;
+  }
+
+  .search-field label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .search-field input {
+    width: 80%;
+    box-sizing: border-box;
+  }
+
+  .popup-trigger {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .popup-window {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 201;
+    display: grid;
+    min-width: 300px;
+    padding: 20px;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    box-shadow: var(--shadow);
+    gap: 14px;
+  }
+
+  .search-compare-popup {
+    width: min(92vw, 960px);
+    height: 82vh;
+    grid-template-rows: auto auto 1fr;
+    overflow: hidden;
+  }
+
+  .popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .popup-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .popup-search-bar {
+    display: flex;
+    gap: 8px;
+  }
+
+  .popup-search-bar .input {
+    flex: 1;
+  }
+
+  .search-panes {
+    display: grid;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+
+  .search-pane {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 8px;
+  }
+
+  .pane-label {
+    position: sticky;
+    top: 0;
+    padding-bottom: 4px;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .result-card {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    gap: 6px;
+  }
+
+  .result-meta {
+    display: flex;
+    flex-direction: column;
+    color: var(--muted);
+    font-size: 11px;
+    gap: 2px;
+  }
+
+  .result-rank {
+    align-self: flex-start;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 10%));
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .result-title {
+    overflow: hidden;
+    color: var(--text);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-content {
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    overflow-wrap: break-word;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .no-results {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+
   @media (max-width: 720px) {
     .assistant-compact-row {
       flex-wrap: wrap !important;
@@ -627,6 +1039,16 @@
 
     .prompt-template-dropdown {
       width: 100%;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .retrieval-row {
+      grid-template-columns: 1fr;
+    }
+
+    .retrieval-toggle {
+      width: min(210px, 100%);
     }
   }
 </style>
