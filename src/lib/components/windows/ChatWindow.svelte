@@ -37,6 +37,8 @@
   function sourceHref(s: Source) { return s.url ?? null; }
   function sourceName(s: Source) { return s.title ?? s.url ?? "Source"; }
   function sourceDescription(s: Source) { return s.description ?? s.title ?? ""; }
+  //Slop code that gets the query from the assistant chat and auto-fills the "compare search results"
+  //Very sloppy; can remove for the final version 
   function getRetrievalMode(message: SessionMessage): string | undefined {
     return (message.metadata as { retrievalMode?: string })?.retrievalMode;
   }
