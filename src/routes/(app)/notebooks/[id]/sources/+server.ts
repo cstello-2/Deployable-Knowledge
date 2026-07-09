@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
-import { document_chunks, documents, notebook_sources } from "$lib/server/database/schema";
+import {
+  document_chunks,
+  documents,
+  notebook_sources,
+  type Document,
+  type DocumentChunk,
+  type NotebookSource,
+} from "$lib/server/database/schema";
 
 const PREVIEW_CHARS = 220;
 
@@ -10,6 +17,14 @@ function preview(text: string, limit = PREVIEW_CHARS): string {
   const compact = text.replace(/\s+/g, " ").trim();
   return compact.length <= limit ? compact : `${compact.slice(0, limit).trimEnd()}...`;
 }
+
+// Every real field is derived from the schema types (not hand-typed) — only
+// `preview` is computed and has no column of its own.
+export type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
+  Pick<DocumentChunk, "pageIndex"> & {
+    documentTitle: Document["title"];
+    preview: string;
+  };
 
 // Sources attached to a notebook (via "Send to Notebook") — hidden from the
 // notebook page text, but visible here and to notebook-mode chat server-side.
@@ -33,14 +48,16 @@ export const GET: RequestHandler = async ({ params }) => {
     .orderBy(asc(notebook_sources.createdAt));
 
   return json({
-    sources: rows.map((row) => ({
-      id: row.id,
-      chunkId: row.chunkId,
-      documentTitle: row.documentTitle,
-      pageIndex: row.pageIndex,
-      preview: preview(row.content),
-      createdAt: row.createdAt,
-    })),
+    sources: rows.map(
+      (row): NotebookSourceItem => ({
+        id: row.id,
+        chunkId: row.chunkId,
+        documentTitle: row.documentTitle,
+        pageIndex: row.pageIndex,
+        preview: preview(row.content),
+        createdAt: row.createdAt,
+      }),
+    ),
   });
 };
 

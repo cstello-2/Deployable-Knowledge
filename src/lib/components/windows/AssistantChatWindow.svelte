@@ -217,14 +217,6 @@
     appState.currentSession = await createSession();
   }
 
-  // Action buttons trigger one-off actions, not text entry — blur right after
-  // the action runs so the .chat-input focus ring doesn't linger until the
-  // user clicks elsewhere. Blurring in the click handler is reliable across
-  // browsers (unlike relying on mousedown preventDefault).
-  function clickAndBlur(event: MouseEvent, action: () => void) {
-    action();
-    (event.currentTarget as HTMLElement).blur();
-  }
 </script>
 
 <BaseWindow
@@ -336,7 +328,7 @@
         aria-label="Chat About Your Notebook"
         aria-pressed={notebookMode}
         title="Chat About Your Notebook"
-        onclick={(event) => clickAndBlur(event, toggleNotebookMode)}
+        onclick={toggleNotebookMode}
       >
         <Icon name="menu_book" size={16} />
       </button>
@@ -346,7 +338,7 @@
         disabled={busy}
         aria-label="Start a new chat"
         title="Start a new chat"
-        onclick={(event) => clickAndBlur(event, createNewChat)}
+        onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
       </button>
@@ -356,7 +348,6 @@
         aria-label="Send message"
         title="Send message"
         disabled={sendDisabled}
-        onclick={(event) => (event.currentTarget as HTMLElement).blur()}
       >
         <Icon name="send" size={16} />
       </button>
@@ -670,13 +661,6 @@
   .chat-action-button:hover {
     background: color-mix(in oklab, var(--accent) 9%, transparent);
     color: var(--text);
-  }
-
-  .chat-action-button:focus-visible {
-    position: relative;
-    z-index: 1;
-    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-    outline-offset: -3px;
   }
 
   .chat-action-button:active {

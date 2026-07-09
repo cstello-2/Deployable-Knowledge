@@ -5,7 +5,13 @@
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { renderMarkdown } from "$lib/utils/markdown";
   import type { AppState } from "$lib/state.svelte";
-  import type { NotebookPage, NotebookWithPages } from "$lib/server/database/schema";
+  import type {
+    Document,
+    DocumentChunk,
+    NotebookPage,
+    NotebookSource,
+    NotebookWithPages,
+  } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
   // dk:send-to-notebook carries fully-composed text — just appended as plain text.
@@ -23,14 +29,14 @@
 
   const appState = getContext<AppState>("appState");
 
-  type NotebookSourceItem = {
-    id: string;
-    chunkId: string;
-    documentTitle: string;
-    pageIndex: number;
-    preview: string;
-    createdAt: string;
-  };
+  // Mirrors the shape returned by GET /notebooks/:id/sources — every real
+  // field is derived from the schema types; only `preview` is computed
+  // server-side and has no column of its own.
+  type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
+    Pick<DocumentChunk, "pageIndex"> & {
+      documentTitle: Document["title"];
+      preview: string;
+    };
 
   let notes = $state("");
   let previewMode = $state(false);
