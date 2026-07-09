@@ -197,10 +197,8 @@
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
-        messageStream += token;
-        await scrollToBottom();
-      }
+      messageStream += decoder.decode(value, { stream: true });
+      await scrollToBottom();
     }
 
     messages = await loadMessages(session.id);
