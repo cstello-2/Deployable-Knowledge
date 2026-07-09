@@ -47,6 +47,7 @@
     { id: "semantic", label: "Semantic" },
     { id: "bm25", label: "BM25" },
     { id: "hybrid", label: "Hybrid" },
+    { id: "graph", label: "Knowledge Graph" },
   ];
 
   let providers = $state<ProviderOption[]>([]);
@@ -66,6 +67,7 @@
   let bm25Results = $state<SearchMatch[]>([]);
   let semanticResults = $state<SearchMatch[]>([]);
   let hybridResults = $state<SearchMatch[]>([]);
+  let graphResults = $state<SearchMatch[]>([]);
   let apiKeyPopupOpen = $state(false);
   let templatePopupOpen = $state(false);
   let templateMenuOpen = $state(false);
@@ -107,7 +109,7 @@
   }
 
   function readRetrievalMode(value: unknown): RetrievalMode {
-    if (value === "semantic" || value === "bm25" || value === "hybrid") {
+    if (value === "semantic" || value === "bm25" || value === "hybrid" || value === "graph") {
       return value;
     }
 
@@ -342,6 +344,7 @@
     bm25Results = [];
     semanticResults = [];
     hybridResults = [];
+    graphResults = [];
   }
 
   async function runSearchComparison() {
@@ -351,6 +354,7 @@
     bm25Results = [];
     semanticResults = [];
     hybridResults = [];
+    graphResults = [];
 
     const params = new URLSearchParams({
       query: searchQuery,
@@ -362,6 +366,7 @@
     bm25Results = data.bm25;
     semanticResults = data.semantic;
     hybridResults = data.hybrid;
+    graphResults = data.graph;
     searchLoading = false;
   }
 </script>
@@ -622,7 +627,7 @@
         </div>
 
         <div class="search-panes">
-          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }] as pane}
+          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }, { label: "Graph", results: graphResults }] as pane}
             <div class="search-pane">
               <div class="pane-label">{pane.label}</div>
               {#each pane.results as result, i (result.chunkId)}
@@ -811,7 +816,7 @@
 
   .retrieval-row {
     display: grid;
-    grid-template-columns: auto 210px;
+    grid-template-columns: auto 340px;
     gap: 8px;
     align-items: center;
   }
@@ -825,7 +830,7 @@
   .retrieval-toggle {
     display: grid;
     min-width: 0;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -908,7 +913,7 @@
   }
 
   .search-compare-popup {
-    width: min(92vw, 960px);
+    width: min(96vw, 1200px);
     height: 82vh;
     grid-template-rows: auto auto 1fr;
     overflow: hidden;
@@ -938,7 +943,7 @@
     display: grid;
     min-height: 0;
     overflow: hidden;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
 
@@ -1048,7 +1053,7 @@
     }
 
     .retrieval-toggle {
-      width: min(210px, 100%);
+      width: min(340px, 100%);
     }
   }
 </style>

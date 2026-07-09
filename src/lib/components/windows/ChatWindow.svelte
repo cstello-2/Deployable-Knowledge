@@ -42,6 +42,7 @@
   function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
   // BM25 scores are unbounded, so show the raw score rather than treating it as a percentage
   function bm25ScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
+  function rawScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
   let sendToNotebookVisible = $state(false);
   let sendToNotebookTop = $state(0);
   let sendToNotebookLeft = $state(0);
@@ -265,6 +266,10 @@
                           {:else if retrievalMode === "bm25"}
                             <span class="chat-source-score">
                               BM25 Score: {bm25ScoreLabel(source)}
+                            </span>
+                          {:else if retrievalMode === "hybrid" || retrievalMode === "graph"}
+                            <span class="chat-source-score">
+                              Score: {rawScoreLabel(source)}
                             </span>
                           {/if}
                         </div>

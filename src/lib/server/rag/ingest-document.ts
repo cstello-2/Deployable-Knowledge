@@ -3,6 +3,7 @@ import { TextExtract } from "$lib/server/rag/chunk/text-extract";
 import { chunkPages } from "$lib/server/rag/chunk/chunker";
 import { assembleChunks } from "$lib/server/rag/chunk/assemble-chunks";
 import type { Source } from "$lib/server/rag/chunk/parse-shared";
+import { invalidateKnowledgeGraphCache } from "$lib/server/knowledge-graph/graph-index";
 import { storeDocumentChunks } from "./embedding";
 
 export type IngestDocumentInput = {
@@ -35,6 +36,7 @@ export async function ingestDocument({
   const rawChunks = await chunkPages(pages);
   const chunks = assembleChunks(pages, rawChunks);
   const stored = await storeDocumentChunks(chunks);
+  invalidateKnowledgeGraphCache();
 
   return {
     documentId: stored.documentId,
