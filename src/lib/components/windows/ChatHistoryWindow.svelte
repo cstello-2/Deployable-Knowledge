@@ -51,11 +51,14 @@
     });
   }
 
+  function handleSessionClick(session: Session) {
+    appState.currentSession = session;
+  }
+
   async function handleSessionKeydown(event: KeyboardEvent, session: Session) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-
-    appState.currentSession = session;
+    handleSessionClick(session);
   }
 
   async function renameSession(session: Session) {
@@ -66,9 +69,7 @@
     await refreshSessions();
 
     if (appState.currentSession?.id === session.id) {
-      appState.currentSession = sessions.find(
-        (item) => item.id === session.id,
-      );
+      appState.currentSession = sessions.find((item) => item.id === session.id);
     }
   }
 
@@ -119,9 +120,7 @@
             class:selected={session.id === appState.currentSession?.id}
             role="button"
             tabindex="0"
-            onclick={() => {
-              appState.currentSession = session;
-            }}
+            onclick={() => handleSessionClick(session)}
             onkeydown={(event) => handleSessionKeydown(event, session)}
           >
             <div class="document-row">
