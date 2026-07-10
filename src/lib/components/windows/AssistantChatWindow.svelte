@@ -19,7 +19,6 @@
     title?: string;
     description?: string;
     chunkId?: string;
-    pageIndex?: number;
     relevanceScore?: number;
   };
 
@@ -29,18 +28,6 @@
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
     return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
-  }
-
-  function relevancePct(source: ChatSource): number {
-    return source.relevanceScore != null
-      ? Math.round(source.relevanceScore * 100)
-      : 0;
-  }
-
-  function relevanceLabel(source: ChatSource): string {
-    return source.relevanceScore != null
-      ? source.relevanceScore.toFixed(3)
-      : "N/A";
   }
 
   let {
@@ -280,9 +267,9 @@
                           </div>
                           <span
                             class="chat-source-score"
-                            style={`--score-pct: ${relevancePct(source)}%`}
+                            style={`--score-pct: ${Math.round((source.relevanceScore ?? 0) * 100)}%`}
                           >
-                            Relevance: {relevanceLabel(source)}
+                            Relevance: {source.relevanceScore?.toFixed(3) ?? "N/A"}
                           </span>
                         </div>
                       </div>

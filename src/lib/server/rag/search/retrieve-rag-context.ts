@@ -83,31 +83,21 @@ export async function retrieveRagContext({
   topK?: number;
   mode?: RagRetrievalMode;
 }): Promise<RagContextResult> {
+  const searchOptions = {
+    query: question,
+    topK,
+    documentIds,
+    chunkTypes,
+  };
   let matches: RelevanceSearchMatch[];
 
   if (mode === "bm25") {
-    const search = await searchBm25({
-      query: question,
-      topK,
-      documentIds,
-      chunkTypes,
-    });
+    const search = await searchBm25(searchOptions);
     matches = (await withRelevanceScores(question, [], search.results)).bm25;
   } else if (mode === "hybrid") {
-    const search = await searchHybrid({
-      query: question,
-      topK,
-      documentIds,
-      chunkTypes,
-    });
-    matches = search.results;
+    matches = (await searchHybrid(searchOptions)).results;
   } else {
-    const search = await searchSemantic({
-      query: question,
-      topK,
-      documentIds,
-      chunkTypes,
-    });
+    const search = await searchSemantic(searchOptions);
     matches = (await withRelevanceScores(question, search.results)).semantic;
   }
 

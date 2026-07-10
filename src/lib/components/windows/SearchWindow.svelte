@@ -55,11 +55,6 @@
     return "hybrid";
   }
 
-  function relevanceLabel(result: SearchMatch) {
-    if (!Number.isFinite(result.relevanceScore)) return "N/A";
-    return result.relevanceScore.toFixed(3);
-  }
-
   function pdfHref(result: SearchMatch) {
     return `/document-files/${encodeURIComponent(result.documentId)}#page=${result.pageIndex + 1}`;
   }
@@ -181,7 +176,7 @@
               <span class="result-rank">#{index + 1}</span>
               <span class="result-title">{result.sourceTitle}</span>
               <span>Page {result.pageIndex + 1}</span>
-              <span>Relevance: {relevanceLabel(result)}</span>
+              <span>Relevance: {result.relevanceScore.toFixed(3)}</span>
             </div>
             <p class="result-content">{result.content}</p>
             <div class="result-actions">
