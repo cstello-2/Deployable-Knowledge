@@ -1,5 +1,5 @@
+import AssistantChatWindow from "./AssistantChatWindow.svelte";
 import AssistantSettings from "./AssistantSettings.svelte";
-import ChatWindow from "./ChatWindow.svelte";
 import DocumentsWindow from "./DocumentsWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
 import NotebookWindow from "./NotebookWindow.svelte";
@@ -35,7 +35,7 @@ export const windowDefinitions = [
     id: "chat-window",
     title: "Assistant Chat",
     column: "right",
-    component: ChatWindow,
+    component: AssistantChatWindow,
   },
   {
     id: "assistant-settings",

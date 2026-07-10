@@ -23,11 +23,10 @@ app.db
 app.db-*
 drizzle/
 
-
 # --- Model cache or sentence-transformers ---
 models/
 tmp_model/ 
 .cache/
 
-# --- Documents Folder ---
-documents/
+
+/documents/

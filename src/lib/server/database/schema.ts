@@ -125,6 +125,27 @@ export const notebook_pages = sqliteTable(
   ],
 );
 
+// Chunks attached to a notebook via "Send to Notebook" — hidden from the
+// notebook page text itself, but available server-side so notebook-mode chat
+// can use them as context without exposing raw source excerpts to the user.
+export const notebook_sources = sqliteTable(
+  "notebook_sources",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id")
+      .notNull()
+      .references(() => document_chunks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("notebook_sources_notebook_idx").on(table.notebookId),
+    uniqueIndex("notebook_sources_unique_idx").on(table.notebookId, table.chunkId),
+  ],
+);
+
 export const provider_records = sqliteTable("providers", {
   id: text("id").primaryKey(),
   apiKey: text("api_key").notNull().default(""),
@@ -220,6 +241,9 @@ export type NotebookPage = typeof notebook_pages.$inferSelect;
 export type NewNotebookPage = typeof notebook_pages.$inferInsert;
 
 export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
+
+export type NotebookSource = typeof notebook_sources.$inferSelect;
+export type NewNotebookSource = typeof notebook_sources.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
