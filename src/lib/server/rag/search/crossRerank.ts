@@ -7,16 +7,11 @@ export interface Document {
   source: string;
   text?: string;
   segmentID?: string;
-  score?: number;
   [key: string]: unknown;
 }
 
-export interface RerankOptions {
-  limit?: number;
-}
-
 export interface RerankedDocument extends Document {
-  score: number;
+  relevanceScore: number;
 }
 
 // Global cache for model to avoid reloading on every query
@@ -56,11 +51,14 @@ function mergeDocuments(bm25Rank: Document[], vectorRank: Document[]): Map<strin
   return docs;
 }
 
+export function toRelevanceScore(logit: number): number {
+  return 1 / (1 + Math.exp(-logit));
+}
+
 export async function reRankData(
   query: string,
   bm25Rank: Document[],
   vectorRank: Document[],
-  options: RerankOptions = {},
 ): Promise<RerankedDocument[]> {
   
   const uniqueDocsMap = mergeDocuments(bm25Rank, vectorRank);
@@ -85,14 +83,9 @@ export async function reRankData(
 
   const reranked: RerankedDocument[] = candidates.map((doc, index) => ({
     ...doc,
-    score: rawScores[index],
+    relevanceScore: toRelevanceScore(Number(rawScores[index])),
   }));
 
-  reranked.sort((left, right) => right.score - left.score);
-
-  if (typeof options.limit === "number") {
-    return reranked.slice(0, Math.max(0, Math.floor(options.limit)));
-  }
-
+  reranked.sort((left, right) => right.relevanceScore - left.relevanceScore);
   return reranked;
 }

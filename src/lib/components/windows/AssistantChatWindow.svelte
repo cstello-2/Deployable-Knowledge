@@ -20,7 +20,7 @@
     description?: string;
     chunkId?: string;
     pageIndex?: number;
-    score?: number;
+    relevanceScore?: number;
   };
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
@@ -31,20 +31,16 @@
     return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
   }
 
-  function sourceScorePct(source: ChatSource): number {
-    return source.score != null ? Math.round(source.score * 100) : 0;
+  function relevancePct(source: ChatSource): number {
+    return source.relevanceScore != null
+      ? Math.round(source.relevanceScore * 100)
+      : 0;
   }
 
-  function sourceScoreLabel(source: ChatSource): string {
-    return source.score != null ? `${Math.round(source.score * 100)}%` : "N/A";
-  }
-
-  function messageRetrievalMode(message: SessionMessage): string | undefined {
-    return (message.metadata as { retrievalMode?: string } | null)?.retrievalMode;
-  }
-
-  function bm25ScoreLabel(source: ChatSource): string {
-    return source.score != null ? source.score.toFixed(4) : "N/A";
+  function relevanceLabel(source: ChatSource): string {
+    return source.relevanceScore != null
+      ? source.relevanceScore.toFixed(3)
+      : "N/A";
   }
 
   let {
@@ -253,7 +249,6 @@
           {#if message.role === "assistant"}
             <div class="msg-md">{@html renderMarkdown(message.content)}</div>
             {@const sources = getMessageSources(message)}
-            {@const retrievalMode = messageRetrievalMode(message)}
             <div class="msg-citations">
               <div class="msg-citations-header">
                 {#if sources.length}
@@ -283,18 +278,12 @@
                               </a>
                             {/if}
                           </div>
-                          {#if retrievalMode === "bm25"}
-                            <span class="chat-source-score">
-                              BM25 Score: {bm25ScoreLabel(source)}
-                            </span>
-                          {:else}
-                            <span
-                              class="chat-source-score"
-                              style={`--score-pct: ${sourceScorePct(source)}%`}
-                            >
-                              Angular Similarity: {sourceScoreLabel(source)}
-                            </span>
-                          {/if}
+                          <span
+                            class="chat-source-score"
+                            style={`--score-pct: ${relevancePct(source)}%`}
+                          >
+                            Relevance: {relevanceLabel(source)}
+                          </span>
                         </div>
                       </div>
                     </li>

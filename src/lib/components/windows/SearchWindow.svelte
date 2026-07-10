@@ -14,7 +14,7 @@
     sourceTitle: string;
     pageIndex: number;
     content: string;
-    score: number;
+    relevanceScore: number;
   };
   type SearchResults = Record<RetrievalMode, SearchMatch[]>;
 
@@ -55,9 +55,9 @@
     return "hybrid";
   }
 
-  function scoreLabel(result: SearchMatch) {
-    if (!Number.isFinite(result.score)) return "N/A";
-    return result.score.toFixed(4);
+  function relevanceLabel(result: SearchMatch) {
+    if (!Number.isFinite(result.relevanceScore)) return "N/A";
+    return result.relevanceScore.toFixed(3);
   }
 
   function pdfHref(result: SearchMatch) {
@@ -181,7 +181,7 @@
               <span class="result-rank">#{index + 1}</span>
               <span class="result-title">{result.sourceTitle}</span>
               <span>Page {result.pageIndex + 1}</span>
-              <span>Score: {scoreLabel(result)}</span>
+              <span>Relevance: {relevanceLabel(result)}</span>
             </div>
             <p class="result-content">{result.content}</p>
             <div class="result-actions">

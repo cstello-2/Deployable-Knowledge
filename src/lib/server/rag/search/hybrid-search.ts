@@ -1,158 +1,160 @@
-// Hybrid Search File to Combine Semantic & BM25 Search
-
-// --- Specfic Search Work Flow ---
-
-//  -Clean & Normalize user query
-//  -Run semantic search
-//  -Run BM25 search
-//  -Track original ranks and scores by chunkId
-//  -Convert results into reranker documents. Maps result into shape crossRerank expects
-//  -Run cross reranker
-//  -Map reranked docs back to search result. Restores chunk fields like documentId, sourceTitle, etc
-
-// -------------------------------
-
+// Hybrid search combines semantic and BM25 candidates with one shared relevance score.
 
 import {
   searchSemantic,
   type SemanticSearchMatch,
 } from "./semantic-search";
 import { searchBm25, type Bm25SearchMatch } from "./bm25-search";
+import { reRankData, type Document } from "./crossRerank";
 import {
-  reRankData,
-  type Document,
-  type RerankedDocument,
-} from "./crossRerank";
-import {
-  type SearchChunkType,
-  type SearchMatchBase,
+  type RelevanceSearchMatch,
+  type ScoredSearchMatch,
+  type SearchOptionsBase,
   type SearchResult,
 } from "./search-shared";
 
-export type HybridSearchOptions = {
-  query: string;
-  topK?: number;
-  documentIds?: string[];
-  chunkTypes?: SearchChunkType[];
-};
-
-export type HybridSearchMatch = SearchMatchBase & {
-  semanticRank?: number;
-  bm25Rank?: number;
-  semanticScore?: number;
-  bm25Score?: number;
-  rerankSemanticScore: number;
-  rerankBm25Score: number;
-};
-
+export type HybridSearchOptions = SearchOptionsBase;
+export type HybridSearchMatch = RelevanceSearchMatch;
 export type HybridSearchResult = SearchResult<HybridSearchMatch>;
 
-function toRerankDocument(
-  match: SemanticSearchMatch | Bm25SearchMatch,
-  scoreField: "semanticScore" | "bm25Score",
-): Document {
+export type SearchMethodResults = {
+  query: string;
+  semantic: RelevanceSearchMatch[];
+  bm25: RelevanceSearchMatch[];
+  hybrid: HybridSearchMatch[];
+};
+
+const RRF_K = 60;
+
+function toRerankDocument(match: ScoredSearchMatch): Document {
   return {
     segmentID: match.chunkId,
     source: match.sourcePath,
     page: match.pageIndex,
     text: match.content,
-    score: match.score,
-    [scoreField]: match.score,
-    match,
   };
 }
 
-function sourceMatch(doc: RerankedDocument): SemanticSearchMatch | Bm25SearchMatch {
-  return doc.match as SemanticSearchMatch | Bm25SearchMatch;
+function toRelevanceMatch(
+  match: ScoredSearchMatch,
+  relevanceScore: number,
+): RelevanceSearchMatch {
+  const { score: _score, ...chunk } = match;
+  return { ...chunk, relevanceScore };
 }
 
-export async function searchHybrid(options: HybridSearchOptions): Promise<HybridSearchResult> {
+function fallbackRelevanceScores(
+  semantic: SemanticSearchMatch[],
+  bm25: Bm25SearchMatch[],
+): Map<string, number> {
+  const semanticRanks = new Map(
+    semantic.map((match, index) => [match.chunkId, index + 1]),
+  );
+  const bm25Ranks = new Map(
+    bm25.map((match, index) => [match.chunkId, index + 1]),
+  );
+  const methodCount = Number(semantic.length > 0) + Number(bm25.length > 0);
+  const maxScore = methodCount / (RRF_K + 1);
+  const chunkIds = new Set([...semanticRanks.keys(), ...bm25Ranks.keys()]);
+  const scores = new Map<string, number>();
+
+  for (const chunkId of chunkIds) {
+    const semanticRank = semanticRanks.get(chunkId);
+    const bm25Rank = bm25Ranks.get(chunkId);
+    const score =
+      (semanticRank ? 1 / (RRF_K + semanticRank) : 0) +
+      (bm25Rank ? 1 / (RRF_K + bm25Rank) : 0);
+    scores.set(chunkId, maxScore ? score / maxScore : 0);
+  }
+
+  return scores;
+}
+
+export async function withRelevanceScores(
+  query: string,
+  semantic: SemanticSearchMatch[] = [],
+  bm25: Bm25SearchMatch[] = [],
+) {
+  let scores: Map<string, number>;
+
+  try {
+    const reranked = await reRankData(
+      query,
+      bm25.map(toRerankDocument),
+      semantic.map(toRerankDocument),
+    );
+    scores = new Map(
+      reranked.map((result) => [
+        String(result.segmentID),
+        result.relevanceScore,
+      ]),
+    );
+  } catch (error) {
+    console.error("Cross reranker failed; using rank-based relevance:", error);
+    scores = fallbackRelevanceScores(semantic, bm25);
+  }
+
+  return {
+    semantic: semantic.map((match) =>
+      toRelevanceMatch(match, scores.get(match.chunkId) ?? 0),
+    ),
+    bm25: bm25.map((match) =>
+      toRelevanceMatch(match, scores.get(match.chunkId) ?? 0),
+    ),
+  };
+}
+
+export async function searchAllMethods(
+  options: HybridSearchOptions,
+): Promise<SearchMethodResults> {
   const query = options.query.trim();
-  // Keeps topK as a non-negative integer before using it as a result limit
   const topK = Math.max(0, Math.floor(options.topK ?? 10));
-  const candidateTopK = Math.max(topK * 2, topK); // Number of chunks from search types: ragTopK = 5, 5 * 2 = 10 Semantic & BM25 chunks each
 
   if (!query || topK === 0) {
-    return {
-      query,
-      results: [],
-    };
+    return { query, semantic: [], bm25: [], hybrid: [] };
   }
 
-  const semantic = await searchSemantic({
+  const candidateTopK = topK * 2;
+  const sharedOptions = {
+    ...options,
     query,
     topK: candidateTopK,
-    documentIds: options.documentIds,
-    chunkTypes: options.chunkTypes,
-  });
-
-  const bm25 = await searchBm25({
+  };
+  const [semanticSearch, bm25Search] = await Promise.all([
+    searchSemantic(sharedOptions),
+    searchBm25(sharedOptions),
+  ]);
+  const scored = await withRelevanceScores(
     query,
-    topK: candidateTopK,
-    documentIds: options.documentIds,
-    chunkTypes: options.chunkTypes,
-  });
+    semanticSearch.results,
+    bm25Search.results,
+  );
+  const byChunkId = new Map<string, RelevanceSearchMatch>();
 
-  const semanticRankByChunk = new Map(
-    semantic.results.map((match, index) => [match.chunkId, index + 1]),
-  );
-  const bm25RankByChunk = new Map(
-    bm25.results.map((match, index) => [match.chunkId, index + 1]),
-  );
-  const semanticScoreByChunk = new Map(
-    semantic.results.map((match) => [match.chunkId, match.score]),
-  );
-  const bm25ScoreByChunk = new Map(
-    bm25.results.map((match) => [match.chunkId, match.score]),
-  );
-
-  let reranked: RerankedDocument[];
-  try {
-    reranked = await reRankData(
-      query,
-      bm25.results.map((match) => toRerankDocument(match, "bm25Score")),
-      semantic.results.map((match) => toRerankDocument(match, "semanticScore")),
-      { limit: topK },
-    );
-  } catch (err) {
-    console.error("crossRerank failed, falling back to score merge:", err);
-    // Merge unique results from both searches, deduplicated by chunkId, sorted by best score
-    const seen = new Map<string, SemanticSearchMatch | Bm25SearchMatch>();
-    for (const m of [...semantic.results, ...bm25.results]) {
-      if (!seen.has(m.chunkId)) seen.set(m.chunkId, m);
+  for (const match of [...scored.semantic, ...scored.bm25]) {
+    if (!byChunkId.has(match.chunkId)) {
+      byChunkId.set(match.chunkId, match);
     }
-    reranked = [...seen.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK)
-      .map((m) => ({ ...toRerankDocument(m, semanticScoreByChunk.has(m.chunkId) ? "semanticScore" : "bm25Score"), score: m.score }));
   }
 
-  const results = reranked.map((doc) => {
-    const match = sourceMatch(doc);
-
-    return {
-      chunkId: match.chunkId,
-      documentId: match.documentId,
-      sourcePath: match.sourcePath,
-      sourceTitle: match.sourceTitle,
-      pageIndex: match.pageIndex,
-      chunkIndex: match.chunkIndex,
-      chunkType: match.chunkType,
-      content: match.content,
-      score: doc.score,
-      semanticRank: semanticRankByChunk.get(match.chunkId),
-      bm25Rank: bm25RankByChunk.get(match.chunkId),
-      semanticScore: semanticScoreByChunk.get(match.chunkId),
-      bm25Score: bm25ScoreByChunk.get(match.chunkId),
-      // Cross encoder gives single output instead of RRF's 2 output
-      // Is set to 0 to avoid breaking current output structure
-      rerankSemanticScore: 0,
-      rerankBm25Score: 0,
-    };
-  });
+  const hybrid = [...byChunkId.values()]
+    .sort((left, right) => right.relevanceScore - left.relevanceScore)
+    .slice(0, topK);
 
   return {
     query,
-    results,
+    semantic: scored.semantic.slice(0, topK),
+    bm25: scored.bm25.slice(0, topK),
+    hybrid,
+  };
+}
+
+export async function searchHybrid(
+  options: HybridSearchOptions,
+): Promise<HybridSearchResult> {
+  const search = await searchAllMethods(options);
+  return {
+    query: search.query,
+    results: search.hybrid,
   };
 }

@@ -1,16 +1,13 @@
-import {
-  searchSemantic,
-  type SemanticSearchMatch,
-} from "./semantic-search";
+import { searchSemantic } from "./semantic-search";
 import {
   searchHybrid,
-  type HybridSearchMatch,
+  withRelevanceScores,
 } from "./hybrid-search";
-import {
-  searchBm25,
-  type Bm25SearchMatch,
-} from "./bm25-search";
-import type { SearchChunkType } from "./search-shared";
+import { searchBm25 } from "./bm25-search";
+import type {
+  RelevanceSearchMatch,
+  SearchChunkType,
+} from "./search-shared";
 
 const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Search Window Settings
 const MAX_CONTEXT_CHARS = 1200; // Same as max chunk size for now
@@ -20,7 +17,6 @@ const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid"; // Now adjustable in Search Window Settings
 
 export type RagRetrievalMode = "semantic" | "bm25" | "hybrid";
-type RagMatch = SemanticSearchMatch | Bm25SearchMatch | HybridSearchMatch;
 
 export type RagSource = {
   title: string;
@@ -29,7 +25,7 @@ export type RagSource = {
   chunkId: string;
   pageIndex: number;
   chunkIndex: number;
-  score: number;
+  relevanceScore: number;
 };
 
 export type RagContextResult = {
@@ -46,7 +42,7 @@ function compactText(text: string, limit: number) {
 }
 
 // Format retrieved chunks in the old RAG prompt style
-function formatContext(matches: RagMatch[]) {
+function formatContext(matches: RelevanceSearchMatch[]) {
   if (matches.length === 0) return "";
 
   const items = matches.map((match) => {
@@ -60,7 +56,7 @@ function formatContext(matches: RagMatch[]) {
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-function buildSources(matches: RagMatch[]): RagSource[] {
+function buildSources(matches: RelevanceSearchMatch[]): RagSource[] {
   return matches.map((match) => ({
     title: match.sourceTitle,
     description: `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
@@ -68,7 +64,7 @@ function buildSources(matches: RagMatch[]): RagSource[] {
     chunkId: match.chunkId,
     pageIndex: match.pageIndex,
     chunkIndex: match.chunkIndex,
-    score: match.score,
+    relevanceScore: match.relevanceScore,
   }));
 }
 
@@ -87,7 +83,8 @@ export async function retrieveRagContext({
   topK?: number;
   mode?: RagRetrievalMode;
 }): Promise<RagContextResult> {
-  // Keep each branch explicit so it is easy to see exactly which retriever is running
+  let matches: RelevanceSearchMatch[];
+
   if (mode === "bm25") {
     const search = await searchBm25({
       query: question,
@@ -95,39 +92,28 @@ export async function retrieveRagContext({
       documentIds,
       chunkTypes,
     });
-
-    return {
-      mode,
-      contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
-    };
-  }
-
-  if (mode === "hybrid") {
+    matches = (await withRelevanceScores(question, [], search.results)).bm25;
+  } else if (mode === "hybrid") {
     const search = await searchHybrid({
       query: question,
       topK,
       documentIds,
       chunkTypes,
     });
-
-    return {
-      mode,
-      contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
-    };
+    matches = search.results;
+  } else {
+    const search = await searchSemantic({
+      query: question,
+      topK,
+      documentIds,
+      chunkTypes,
+    });
+    matches = (await withRelevanceScores(question, search.results)).semantic;
   }
-
-  const search = await searchSemantic({
-    query: question,
-    topK,
-    documentIds,
-    chunkTypes,
-  });
 
   return {
     mode,
-    contextBlock: formatContext(search.results),
-    sources: buildSources(search.results),
+    contextBlock: formatContext(matches),
+    sources: buildSources(matches),
   };
 }

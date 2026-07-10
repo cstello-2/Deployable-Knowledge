@@ -12,6 +12,7 @@ const EMBEDDING_CACHE_DIR =
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
+env.localModelPath = EMBEDDING_CACHE_DIR;
 // Remote downloads are opt-in; normal runs should use the configured local cache
 env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 

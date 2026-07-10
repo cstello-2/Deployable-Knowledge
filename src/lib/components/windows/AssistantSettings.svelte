@@ -29,7 +29,7 @@
     sourceTitle: string;
     pageIndex: number;
     content: string;
-    score: number;
+    relevanceScore: number;
   };
 
   let {
@@ -631,7 +631,7 @@
                     <span class="result-rank">#{i + 1}</span>
                     <span class="result-title">{result.sourceTitle}</span>
                     <span>Page {result.pageIndex + 1}</span>
-                    <span>Score: {result.score.toFixed(4)}</span>
+                    <span>Relevance: {result.relevanceScore.toFixed(3)}</span>
                   </div>
                   <p class="result-content">{result.content}</p>
                 </div>
