@@ -1,14 +1,34 @@
 // This module builds the knowledge graph from chunks already stored by the upstream RAG
 // pipeline. It never reparses PDFs and never creates a second embedding/indexing system.
 
+import { createHash } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { document_chunks, documents } from "$lib/server/database/schema";
 import { extractEntities } from "./entity-extractor";
+import {
+  KnowledgeGraphBuildRegistry,
+  type KnowledgeGraphBuildScope,
+  type KnowledgeGraphStatus,
+} from "./graph-build-registry";
 import { GraphStore } from "./graph-store";
+import {
+  loadKnowledgeGraphSnapshot,
+  saveKnowledgeGraphSnapshot,
+} from "./graph-snapshot";
 import { extractRelations } from "./relation-extractor";
 import type { IndexedChunk } from "./types";
 import { graphId, unique } from "./utils";
+
+export type {
+  KnowledgeGraphBuildState,
+  KnowledgeGraphBuildStats,
+  KnowledgeGraphStatus,
+} from "./graph-build-registry";
+
+// Bump this when entity extraction, relation extraction, or graph construction changes.
+// Query-only settings such as topK and maxDepth do not require a rebuild.
+export const KNOWLEDGE_GRAPH_BUILD_VERSION = "1";
 
 export type KnowledgeGraphIndex = {
   graph: GraphStore;
@@ -16,26 +36,144 @@ export type KnowledgeGraphIndex = {
   signature: string;
 };
 
-type CacheEntry = {
-  index: KnowledgeGraphIndex;
+type DocumentMetadata = {
+  id: string;
+  title: string;
+  updatedAt: string;
 };
 
-// Cache the graph in the server process because thousands of pages are expensive to rebuild.
-const graphCache = new Map<string, CacheEntry>();
-const MAX_CACHE_ENTRIES = 8;
+type ResolvedGraphScope = {
+  documentRows: DocumentMetadata[];
+  buildScope: KnowledgeGraphBuildScope;
+};
 
-export function invalidateKnowledgeGraphCache(): void {
-  graphCache.clear();
+export type BuildKnowledgeGraphOptions = {
+  force?: boolean;
+};
+
+const graphRegistry = new KnowledgeGraphBuildRegistry<KnowledgeGraphIndex>(8);
+const snapshotRestorePromises = new Map<string, Promise<void>>();
+
+export class KnowledgeGraphNotBuiltError extends Error {
+  readonly code = "KNOWLEDGE_GRAPH_NOT_BUILT";
+
+  constructor(readonly graphStatus: KnowledgeGraphStatus) {
+    super(unavailableMessage(graphStatus));
+    this.name = "KnowledgeGraphNotBuiltError";
+  }
 }
 
-export async function loadKnowledgeGraph(
+export class KnowledgeGraphNoDocumentsError extends Error {
+  readonly code = "KNOWLEDGE_GRAPH_NO_DOCUMENTS";
+
+  constructor(readonly graphStatus: KnowledgeGraphStatus) {
+    super(
+      graphStatus.scopeKey === "*"
+        ? "Upload a document before building the Knowledge Graph."
+        : "None of the selected documents are available for Knowledge Graph construction.",
+    );
+    this.name = "KnowledgeGraphNoDocumentsError";
+  }
+}
+
+export function invalidateKnowledgeGraphCache(documentIds: string[] = []): void {
+  graphRegistry.invalidateDocuments(normalizeDocumentIds(documentIds));
+}
+
+export async function getKnowledgeGraphStatus(
+  requestedDocumentIds: string[] = [],
+): Promise<KnowledgeGraphStatus> {
+  const scope = await resolveGraphScope(requestedDocumentIds);
+  requireDocuments(scope);
+  await restoreKnowledgeGraphSnapshot(scope);
+  return graphRegistry.getStatus(scope.buildScope);
+}
+
+export async function buildKnowledgeGraph(
+  requestedDocumentIds: string[] = [],
+  options: BuildKnowledgeGraphOptions = {},
+): Promise<KnowledgeGraphStatus> {
+  const normalizedIds = normalizeDocumentIds(requestedDocumentIds);
+  const scope = await resolveGraphScope(normalizedIds);
+  requireDocuments(scope);
+
+  await graphRegistry.build(
+    scope.buildScope,
+    async () => {
+      const index = await constructKnowledgeGraph(scope);
+
+      // Do not publish a graph if its documents changed while construction was running.
+      const latestScope = await resolveGraphScope(normalizedIds);
+      if (latestScope.buildScope.signature !== scope.buildScope.signature) {
+        throw new Error("Documents changed while the Knowledge Graph was building. Build it again.");
+      }
+
+      const graphStats = index.graph.stats();
+      const stats = {
+        documents: scope.documentRows.length,
+        chunks: index.chunksById.size,
+        nodes: graphStats.nodes,
+        edges: graphStats.edges,
+      };
+      await saveKnowledgeGraphSnapshot(scope.buildScope, index, stats);
+      return {
+        index,
+        stats,
+      };
+    },
+    options.force === true,
+  );
+
+  return getKnowledgeGraphStatus(normalizedIds);
+}
+
+export async function getBuiltKnowledgeGraph(
   requestedDocumentIds: string[] = [],
 ): Promise<KnowledgeGraphIndex> {
-  const documentIds = unique(requestedDocumentIds.map((id) => id.trim()).filter(Boolean)).sort();
-  const cacheKey = documentIds.length ? documentIds.join("\u0000") : "*";
+  const scope = await resolveGraphScope(requestedDocumentIds);
+  requireDocuments(scope);
+  await restoreKnowledgeGraphSnapshot(scope);
+  const index = graphRegistry.getBuilt(scope.buildScope);
+  if (!index) throw new KnowledgeGraphNotBuiltError(graphRegistry.getStatus(scope.buildScope));
+  return index;
+}
 
-  // Read only document metadata first; it provides a cheap cache invalidation signature.
-  const documentRows = documentIds.length
+async function restoreKnowledgeGraphSnapshot(scope: ResolvedGraphScope): Promise<void> {
+  if (graphRegistry.getBuilt(scope.buildScope)) return;
+
+  const existing = snapshotRestorePromises.get(scope.buildScope.scopeKey);
+  if (existing) return existing;
+
+  const restore = (async () => {
+    const snapshot = await loadKnowledgeGraphSnapshot(scope.buildScope);
+    if (!snapshot) return;
+    if (snapshot.index) {
+      graphRegistry.restore(
+        scope.buildScope,
+        { index: snapshot.index, stats: snapshot.stats },
+        snapshot.completedAt,
+      );
+      return;
+    }
+
+    graphRegistry.rememberStaleSnapshot(
+      scope.buildScope,
+      snapshot.signature,
+      snapshot.stats,
+      snapshot.completedAt,
+    );
+  })().finally(() => {
+    snapshotRestorePromises.delete(scope.buildScope.scopeKey);
+  });
+  snapshotRestorePromises.set(scope.buildScope.scopeKey, restore);
+  return restore;
+}
+
+async function resolveGraphScope(
+  requestedDocumentIds: string[] = [],
+): Promise<ResolvedGraphScope> {
+  const documentIds = normalizeDocumentIds(requestedDocumentIds);
+  const rows = documentIds.length
     ? await db
         .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
         .from(documents)
@@ -43,13 +181,29 @@ export async function loadKnowledgeGraph(
     : await db
         .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
         .from(documents);
+  const documentRows = rows
+    .map((row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      updatedAt: String(row.updatedAt),
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const signature = graphSignature(documentRows);
 
-  const signature = documentRows
-    .map((row) => `${row.id}:${row.updatedAt}`)
-    .sort()
-    .join("|");
-  const cached = graphCache.get(cacheKey);
-  if (cached?.index.signature === signature) return cached.index;
+  return {
+    documentRows,
+    buildScope: {
+      scopeKey: graphScopeKey(documentIds),
+      documentIds: documentRows.map((row) => row.id),
+      documentCount: documentRows.length,
+      signature,
+      buildVersion: KNOWLEDGE_GRAPH_BUILD_VERSION,
+    },
+  };
+}
+
+async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<KnowledgeGraphIndex> {
+  const { documentRows } = scope;
 
   const graph = new GraphStore();
   const chunksById = new Map<string, IndexedChunk>();
@@ -98,10 +252,49 @@ export async function loadKnowledgeGraph(
     }
   }
 
-  const index = { graph, chunksById, signature };
-  if (graphCache.size >= MAX_CACHE_ENTRIES) graphCache.clear();
-  graphCache.set(cacheKey, { index });
-  return index;
+  return { graph, chunksById, signature: scope.buildScope.signature };
+}
+
+function normalizeDocumentIds(documentIds: readonly string[]): string[] {
+  return unique(documentIds.map((id) => id.trim()).filter(Boolean)).sort();
+}
+
+function graphScopeKey(documentIds: readonly string[]): string {
+  if (!documentIds.length) return "*";
+  const digest = createHash("sha256").update(documentIds.join("\u0000")).digest("hex");
+  return `documents:${digest}`;
+}
+
+function graphSignature(documentRows: readonly DocumentMetadata[]): string {
+  const hash = createHash("sha256");
+  hash.update(KNOWLEDGE_GRAPH_BUILD_VERSION);
+  for (const document of documentRows) {
+    hash.update("\u0000");
+    hash.update(document.id);
+    hash.update("\u0000");
+    hash.update(document.updatedAt);
+    hash.update("\u0000");
+    hash.update(document.title);
+  }
+  return hash.digest("hex");
+}
+
+function requireDocuments(scope: ResolvedGraphScope): void {
+  if (scope.documentRows.length) return;
+  throw new KnowledgeGraphNoDocumentsError(graphRegistry.getStatus(scope.buildScope));
+}
+
+function unavailableMessage(status: KnowledgeGraphStatus): string {
+  if (status.status === "building") return "The Knowledge Graph is still building.";
+  if (status.status === "failed") {
+    return status.error
+      ? `The Knowledge Graph build failed: ${status.error}`
+      : "The Knowledge Graph build failed. Build it again before asking a graph question.";
+  }
+  if (status.needsRebuild) {
+    return "The selected documents or graph configuration changed. Rebuild the Knowledge Graph before asking a graph question.";
+  }
+  return "Build the Knowledge Graph before asking a graph question.";
 }
 
 function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): void {

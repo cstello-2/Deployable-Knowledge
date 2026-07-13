@@ -1,11 +1,12 @@
-// Knowledge-graph search uses the app's existing hybrid retriever as grounded seeds,
+// Knowledge-graph search combines hybrid chunks with exact and fuzzy entity-label seeds,
 // then adds LightRAG neighborhoods and PathRAG relational traversal before reranking.
 
 import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
 import type { SearchChunkType } from "$lib/server/rag/search/search-shared";
-import { loadKnowledgeGraph } from "./graph-index";
+import { getBuiltKnowledgeGraph } from "./graph-index";
 import { lightRagSearch } from "./light-rag";
 import { pathRagSearch } from "./path-rag";
+import { selectGraphSeedCandidates } from "./seed-selection";
 import type {
   KnowledgeGraphMatch,
   KnowledgeGraphPath,
@@ -38,20 +39,27 @@ export async function searchKnowledgeGraph(
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   if (!query || topK === 0) return { query, results: [], paths: [] };
 
-  // The existing hybrid search supplies high-quality lexical/semantic starting chunks.
+  // Refuse graph-mode queries until the selected documents have an explicitly built,
+  // current graph. Do this before the relatively expensive hybrid retrieval.
+  const index = await getBuiltKnowledgeGraph(options.documentIds);
+
+  // Hybrid chunks remain strong grounded seeds; label matching adds graph-native recall.
   const hybrid = await searchHybrid({
     query,
     topK: Math.max(topK * 2, 10),
     documentIds: options.documentIds,
     chunkTypes: options.chunkTypes,
   });
-  const index = await loadKnowledgeGraph(options.documentIds);
-  const seedChunkIds = hybrid.results.map((match) => match.chunkId);
-  const lightEvidence = lightRagSearch(query, index.graph, seedChunkIds);
+  const seeds = selectGraphSeedCandidates({
+    query,
+    graph: index.graph,
+    hybridResults: hybrid.results,
+  });
+  const lightEvidence = lightRagSearch(index.graph, seeds);
   const paths = pathRagSearch(
     query,
     index.graph,
-    seedChunkIds,
+    seeds,
     Math.max(1, Math.min(4, options.maxDepth ?? 3)),
     Math.max(topK * 3, 12),
   );

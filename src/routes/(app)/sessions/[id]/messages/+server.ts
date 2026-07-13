@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { json } from "@sveltejs/kit";
 import { db } from "$lib/server/database/database";
 import {
   promptTemplates,
@@ -16,6 +17,10 @@ import {
   retrieveRagContext,
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
+import {
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+} from "$lib/server/knowledge-graph";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -97,6 +102,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
     readRetrievalMode(body.retrieval_mode) ??
     readRetrievalMode(userSettings.retrievalMode) ??
     "hybrid";
+
+  if (retrievalMode === "graph" && documentIds.length === 0) {
+    return json(
+      {
+        code: "DOCUMENT_SELECTION_REQUIRED",
+        message: "Select at least one document before asking a Knowledge Graph question.",
+      },
+      { status: 400 },
+    );
+  }
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -144,12 +159,54 @@ export const POST: RequestHandler = async ({ params, request }) => {
           )
           .get()
       : null;
-  const ragContext = await retrieveRagContext({
-    question: message,
-    documentIds,
-    mode: retrievalMode,
-    topK: body.rag_top_k ?? userSettings.ragTopK,
-  });
+  const ragTopK = body.rag_top_k ?? userSettings.ragTopK;
+  let ragContext;
+
+  try {
+    ragContext = await retrieveRagContext({
+      question: message,
+      documentIds,
+      mode: retrievalMode,
+      topK: ragTopK,
+    });
+  } catch (error) {
+    if (error instanceof KnowledgeGraphNotBuiltError) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+    if (error instanceof KnowledgeGraphNoDocumentsError) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Semantic, hybrid, and graph retrieval depend on the embedding model.
+    // Keep chat usable while a fresh installation downloads that model, or
+    // when an offline installation does not have it cached yet.
+    if (retrievalMode === "bm25") throw error;
+
+    console.warn(
+      `Retrieval mode "${retrievalMode}" failed; falling back to BM25.`,
+      error,
+    );
+    ragContext = await retrieveRagContext({
+      question: message,
+      documentIds,
+      mode: "bm25",
+      topK: ragTopK,
+    });
+  }
   const prompt = createPrompt(
     messages,
     message,
@@ -200,11 +257,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
             updatedAt: new Date(),
           })
           .where(eq(sessions.id, params.id));
+        controller.close();
       } catch (error) {
         console.error("Streaming error:", error);
         controller.error(error);
-      } finally {
-        controller.close();
       }
     },
   });

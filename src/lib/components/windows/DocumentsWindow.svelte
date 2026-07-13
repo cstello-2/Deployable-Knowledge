@@ -10,6 +10,14 @@
     selectedDocumentIds,
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
+  import {
+    buildKnowledgeGraph,
+    knowledgeGraphState,
+    knowledgeGraphStateMatches,
+    normalizeDocumentIds,
+    refreshKnowledgeGraphStatus,
+    type KnowledgeGraphClientState,
+  } from "$lib/utils/knowledgeGraphState";
   import type { Document } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
@@ -38,12 +46,44 @@
   let documents = $state<DocumentRow[]>([]);
   let status = $state("");
   let busy = $state(false);
+  let documentsLoaded = $state(false);
   let progressOpen = $state(false);
+  let progressTitle = $state("Working");
   let progress = $state<{ label: string; message: string } | null>(null);
   let selectedCount = $derived($selectedDocumentIds.length);
+  let currentGraphState = $derived(
+    knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds)
+      ? $knowledgeGraphState
+      : null,
+  );
+  let graphBuilding = $derived(currentGraphState?.status === "building");
+  let operationBusy = $derived(busy || graphBuilding);
+  let graphStatusText = $derived(formatGraphStatus(currentGraphState));
+  let graphButtonLabel = $derived(formatGraphButtonLabel(currentGraphState));
+  let graphButtonDisabled = $derived(
+    !documentsLoaded ||
+      documents.length === 0 ||
+      selectedCount === 0 ||
+      operationBusy ||
+      !currentGraphState ||
+      currentGraphState.status === "unknown" ||
+      currentGraphState.status === "checking" ||
+      currentGraphState.status === "built",
+  );
 
   onMount(() => {
     refreshDocuments().catch(() => showToast("Documents failed to load"));
+  });
+
+  $effect(() => {
+    const documentIds = $selectedDocumentIds;
+    const librarySignature = documents
+      .map((document) => `${document.id}:${document.updatedAt}:${document.chunkCount}`)
+      .join("|");
+
+    if (!documentsLoaded) return;
+    void librarySignature;
+    void refreshKnowledgeGraphStatus(documentIds);
   });
 
   function shortId(id: string) {
@@ -65,6 +105,50 @@
     return `Stored ${result.chunkCount} chunks from ${result.title}.`;
   }
 
+  function graphScopeLabel() {
+    if (selectedCount > 0) {
+      return `${selectedCount} selected ${selectedCount === 1 ? "document" : "documents"}`;
+    }
+
+    return "No documents selected";
+  }
+
+  function formatGraphStatus(state: KnowledgeGraphClientState | null) {
+    if (!documentsLoaded) return "Checking build status...";
+    if (!documents.length) return "Not built. Upload a document first.";
+    if (selectedCount === 0) return "Select at least one document to build the graph.";
+    if (!state || state.status === "unknown" || state.status === "checking") {
+      return "Checking build status...";
+    }
+
+    if (state.status === "building") return "Building...";
+    if (state.status === "unavailable") {
+      return state.message || "Build status is unavailable.";
+    }
+    if (state.status === "failed") {
+      return state.error ? `Build failed: ${state.error}` : "Build failed.";
+    }
+    if (state.status === "not_built") {
+      return state.needsRebuild ? "Needs rebuild." : "Not built.";
+    }
+
+    const stats = state.stats;
+    return stats
+      ? `Built successfully (${stats.nodes} nodes, ${stats.edges} edges).`
+      : "Built successfully.";
+  }
+
+  function formatGraphButtonLabel(state: KnowledgeGraphClientState | null) {
+    if (!state || state.status === "unknown" || state.status === "checking") {
+      return "Checking...";
+    }
+    if (state.status === "building") return "Building...";
+    if (state.status === "built") return "Knowledge Graph Built";
+    if (state.status === "failed") return "Retry Build";
+    if (state.status === "not_built" && state.needsRebuild) return "Rebuild Knowledge Graph";
+    return "Build Knowledge Graph";
+  }
+
   async function refreshDocuments(message = "") {
     const response = await fetch("/documents/list");
     if (!response.ok) {
@@ -74,6 +158,7 @@
     const body = await response.json();
     documents = (body.documents ?? []) as DocumentRow[];
     keepExistingDocumentSelections(new Set(documents.map((document) => document.id)));
+    documentsLoaded = true;
     if (message) status = message;
   }
 //TODO: Add configuration pane allowing the user to select local directories or mapped network drives (e.g., OneDrive sync folders) for automated ingestion.
@@ -85,10 +170,11 @@
 
   async function handleUpload(event: SubmitEvent) {
     event.preventDefault();
-    if (!selectedFile || busy) return;
+    if (!selectedFile || operationBusy) return;
 
     busy = true;
     progressOpen = true;
+    progressTitle = "Ingesting PDF";
     progress = {
       label: "Ingesting PDF",
       message: "Parsing, chunking, embedding, and storing.",
@@ -122,6 +208,35 @@
       progress = null;
     }
   }
+
+  async function handleBuildKnowledgeGraph() {
+    if (selectedCount === 0) {
+      status = "Select at least one document before building the Knowledge Graph.";
+      showToast("Select at least one document first");
+      return;
+    }
+    if (graphButtonDisabled) return;
+
+    const documentIds = normalizeDocumentIds($selectedDocumentIds);
+    progressOpen = true;
+    progressTitle = "Building Knowledge Graph";
+    progress = {
+      label: "Building Knowledge Graph",
+      message: `Extracting entities and relationships for ${graphScopeLabel()}.`,
+    };
+
+    try {
+      const result = await buildKnowledgeGraph(documentIds);
+      if (result.status === "built") {
+        showToast("Knowledge Graph built successfully");
+      }
+    } catch {
+      showToast("Knowledge Graph build failed");
+    } finally {
+      progressOpen = false;
+      progress = null;
+    }
+  }
 </script>
 
 <BaseWindow
@@ -145,7 +260,7 @@
       <button
         class="btn docs-file-button"
         type="button"
-        disabled={busy}
+        disabled={operationBusy}
         onclick={() => fileInput?.click()}
       >
         <Icon name="attach_file" size={16} />
@@ -157,7 +272,7 @@
       <button
         class="btn btn-primary docs-upload-button"
         type="submit"
-        disabled={!selectedFile || busy}
+        disabled={!selectedFile || operationBusy}
       >
         <Icon name="upload_file" size={16} />
         <span>Upload</span>
@@ -167,19 +282,45 @@
         type="button"
         title="Refresh documents"
         aria-label="Refresh documents"
-        disabled={busy}
+        disabled={operationBusy}
         onclick={() => refreshDocuments().catch(() => showToast("Documents failed to load"))}
       >
         <Icon name="refresh" size={16} />
       </button>
     </form>
 
-    {#if status}
-      <div class="docs-status li-subtle">{status}</div>
-    {/if}
+    <div class="docs-status li-subtle" aria-live="polite">{status}</div>
 
     <div class="docs-selection li-subtle">
-      {selectedCount} selected. If none are selected, chat searches all stored documents.
+      {#if selectedCount === 0}
+        No documents selected. Select at least one to build or query the Knowledge Graph.
+      {:else}
+        {selectedCount} selected for retrieval and Knowledge Graph operations.
+      {/if}
+    </div>
+
+    <div
+      class="docs-graph-controls"
+      data-status={currentGraphState?.status ?? "checking"}
+      aria-live="polite"
+      aria-busy={graphBuilding}
+    >
+      <div class="docs-graph-status">
+        <div class="docs-graph-heading">
+          <strong>Knowledge Graph</strong>
+          <span class="li-meta">{graphScopeLabel()}</span>
+        </div>
+        <div class="li-subtle">{graphStatusText}</div>
+      </div>
+      <button
+        class="btn btn-primary docs-graph-button"
+        type="button"
+        disabled={graphButtonDisabled}
+        onclick={handleBuildKnowledgeGraph}
+      >
+        <Icon name="account_tree" size={16} />
+        <span>{graphButtonLabel}</span>
+      </button>
     </div>
 
     <div class="docs-list" aria-live="polite">
@@ -190,6 +331,7 @@
             type="checkbox"
             aria-label={`Use ${document.title} in chat`}
             checked={$selectedDocumentIds.includes(document.id)}
+            disabled={operationBusy}
             onchange={() => toggleDocumentSelection(document.id)}
           />
           <div class="docs-icon" aria-hidden="true">
@@ -214,7 +356,7 @@
 
 <DocumentProgressPopup
   open={progressOpen}
-  title="Ingesting PDF"
+  title={progressTitle}
   {progress}
 />
 
@@ -228,7 +370,7 @@
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -263,11 +405,44 @@
   }
 
   .docs-status {
+    min-height: 16px;
     overflow-wrap: anywhere;
   }
 
   .docs-selection {
     min-height: 16px;
+  }
+
+  .docs-graph-controls {
+    display: flex;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .docs-graph-status {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  .docs-graph-heading {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .docs-graph-button {
+    flex: 0 0 auto;
+    gap: 6px;
+    white-space: nowrap;
   }
 
   .docs-list {
@@ -343,6 +518,15 @@
 
     .docs-row {
       grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .docs-graph-controls {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .docs-graph-button {
+      justify-content: center;
     }
 
     .docs-id {

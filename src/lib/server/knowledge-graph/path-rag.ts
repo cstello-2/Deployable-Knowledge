@@ -1,33 +1,27 @@
 // PathRAG explores short entity/chunk paths and returns the strongest relational chains.
 
 import { GraphStore } from "./graph-store";
+import type { GraphSeedCandidate } from "./seed-selection";
 import type { GraphEdge, GraphNode, KnowledgeGraphPath } from "./types";
-import { graphId, queryTerms, tokenize, unique } from "./utils";
+import { queryTerms, unique } from "./utils";
 
 const STRONG_RELATIONS = new Set([
   "TREATS", "USES", "HAS_STEP", "HAS_COMPONENT", "DETECTS", "OBSERVES",
 ]);
+const MAX_PATH_SEEDS = 10;
 
 export function pathRagSearch(
   query: string,
   graph: GraphStore,
-  seedChunkIds: string[],
+  seedCandidates: readonly GraphSeedCandidate[],
   maxDepth = 3,
   topK = 12,
 ): KnowledgeGraphPath[] {
   const terms = queryTerms(query);
-  const seeds = new Set(
-    seedChunkIds.slice(0, 6).map((chunkId) => graphId("chunk", chunkId)),
-  );
-
-  for (const node of graph.nodes.values()) {
-    if (node.kind !== "entity") continue;
-    if (tokenize(node.label).some((term) => terms.includes(term))) seeds.add(node.id);
-  }
 
   const paths: KnowledgeGraphPath[] = [];
-  for (const seed of seeds) {
-    walk(graph, seed, [], [], maxDepth, paths, terms);
+  for (const seed of seedCandidates.slice(0, MAX_PATH_SEEDS)) {
+    walk(graph, seed.nodeId, [], [], maxDepth, paths, terms, clamp01(seed.score));
   }
 
   const seen = new Set<string>();
@@ -50,6 +44,7 @@ function walk(
   depthLeft: number,
   output: KnowledgeGraphPath[],
   terms: string[],
+  seedScore: number,
 ): void {
   const current = graph.getNode(currentId);
   if (!current) return;
@@ -59,7 +54,7 @@ function walk(
     output.push({
       nodes: nextNodes,
       edges,
-      score: scorePath(nextNodes, edges, terms),
+      score: scorePath(nextNodes, edges, terms, seedScore),
       chunkIds: unique(edges.flatMap((edge) => edge.chunkId ? [edge.chunkId] : [])),
     });
   }
@@ -75,11 +70,25 @@ function walk(
 
   for (const { node, edge } of neighbors) {
     if (nextNodes.some((existing) => existing.id === node.id)) continue;
-    walk(graph, node.id, nextNodes, [...edges, edge], depthLeft - 1, output, terms);
+    walk(
+      graph,
+      node.id,
+      nextNodes,
+      [...edges, edge],
+      depthLeft - 1,
+      output,
+      terms,
+      seedScore,
+    );
   }
 }
 
-function scorePath(nodes: GraphNode[], edges: GraphEdge[], terms: string[]): number {
+function scorePath(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  terms: string[],
+  seedScore: number,
+): number {
   const text = nodes.map((node) => node.label.toLowerCase()).join(" ");
   let score = terms.reduce((sum, term) => sum + (text.includes(term) ? 2 : 0), 0);
 
@@ -88,5 +97,9 @@ function scorePath(nodes: GraphNode[], edges: GraphEdge[], terms: string[]): num
     if (STRONG_RELATIONS.has(edge.relation)) score += 3;
   }
 
-  return score + 1 / Math.max(1, nodes.length);
+  return score + seedScore * 2 + 1 / Math.max(1, nodes.length);
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }

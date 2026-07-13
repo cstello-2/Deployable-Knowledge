@@ -1,9 +1,9 @@
-// LightRAG starts from hybrid-search chunks and query-matched entities, then gathers
-// evidence from their immediate graph neighborhoods.
+// LightRAG gathers evidence from the immediate neighborhoods of pre-ranked graph seeds.
 
 import { GraphStore } from "./graph-store";
+import type { GraphSeedCandidate } from "./seed-selection";
 import type { GraphEvidence, RelationType } from "./types";
-import { graphId, queryTerms, tokenize, unique } from "./utils";
+import { unique } from "./utils";
 
 type EvidenceAccumulator = {
   score: number;
@@ -12,40 +12,35 @@ type EvidenceAccumulator = {
 };
 
 export function lightRagSearch(
-  query: string,
   graph: GraphStore,
-  seedChunkIds: string[],
+  seeds: readonly GraphSeedCandidate[],
 ): GraphEvidence[] {
-  const terms = queryTerms(query);
-  const seeds = new Set(seedChunkIds.map((chunkId) => graphId("chunk", chunkId)));
   const evidence = new Map<string, EvidenceAccumulator>();
 
-  // Direct entity-label matches allow graph retrieval to work even when lexical chunk
-  // retrieval misses the relationship wording used in the question.
-  for (const node of graph.nodes.values()) {
-    if (node.kind !== "entity") continue;
-    const labelTerms = tokenize(node.label);
-    if (labelTerms.some((term) => terms.includes(term))) seeds.add(node.id);
-  }
+  for (const candidate of seeds) {
+    const seed = graph.getNode(candidate.nodeId);
+    if (!seed) continue;
 
-  for (const seedId of seeds) {
-    const seed = graph.getNode(seedId);
-    if (seed?.chunkId) addEvidence(evidence, seed.chunkId, 2, [], []);
+    const confidence = clamp01(candidate.score);
+    const confidenceMultiplier = 0.5 + confidence * 0.5;
+    const seedEntities = seed.kind === "entity" ? [seed.label] : [];
+    if (seed.chunkId) {
+      addEvidence(evidence, seed.chunkId, 1 + confidence, seedEntities, []);
+    }
 
-    for (const { node, edge } of graph.neighbors(seedId)) {
+    for (const { node, edge } of graph.neighbors(candidate.nodeId)) {
       const chunkId = edge.chunkId ?? node.chunkId;
       if (!chunkId) continue;
 
-      const matchedEntities = [seed, node]
-        .filter((candidate) => candidate?.kind === "entity")
-        .map((candidate) => candidate!.label)
-        .filter((label) => tokenize(label).some((term) => terms.includes(term)));
-      const queryMatchBonus = matchedEntities.length * 1.5;
+      // Exact and fuzzy entity seeds carry their query relevance with them. This also
+      // records fuzzy matches that would be lost by rechecking exact query tokens here.
+      const matchedEntities = seedEntities;
+      const queryMatchBonus = seed.kind === "entity" ? confidence * 1.5 : 0;
 
       addEvidence(
         evidence,
         chunkId,
-        edge.weight + queryMatchBonus,
+        edge.weight * confidenceMultiplier + queryMatchBonus,
         matchedEntities,
         [edge.relation],
       );
@@ -78,4 +73,8 @@ function addEvidence(
   for (const entity of entities) current.entities.add(entity);
   for (const relation of relations) current.relations.add(relation);
   output.set(chunkId, current);
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
