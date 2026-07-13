@@ -48,7 +48,13 @@
   );
   let sendDisabled = $derived(busy || !draft.trim() || !graphReady);
 
-  type Source = { url?: string; title?: string; description?: string; score?: number };
+  type Source = {
+    url?: string;
+    title?: string;
+    description?: string;
+    score?: number;
+    rawScore?: number;
+  };
 
   function getMessageSources(message: SessionMessage): Source[] {
     return (message.metadata as { sources?: Source[] })?.sources ?? [];
@@ -57,12 +63,14 @@
   function messageRetrievalMode(message: SessionMessage): string | undefined {
     return (message.metadata as { retrievalMode?: string })?.retrievalMode;
   }
-  // Semantic score is a cosine similarity in [-1, 1], so it doubles as an angular-similarity percentage
-  function angularSimilarityPercent(s: Source): number | null { return s.score != null ? Math.round(s.score * 100) : null; }
-  function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
-  // BM25 scores are unbounded, so show the raw score rather than treating it as a percentage
-  function bm25ScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
-  function rawScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
+  function sourceScorePercent(source: Source): number {
+    if (source.score == null || !Number.isFinite(source.score)) return 0;
+    return Math.round(Math.max(0, Math.min(1, source.score)) * 100);
+  }
+
+  function sourceScoreLabel(source: Source) {
+    return source.score == null ? "N/A" : `${sourceScorePercent(source)}%`;
+  }
   async function assistantErrorMessage(response: Response) {
     try {
       const body = await response.json() as { message?: unknown };
@@ -360,16 +368,20 @@
                             {/if}
                           </div>
                           {#if retrievalMode === "semantic"}
-                            <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
-                              Angular Similarity: {sourceScoreLabel(source)}
+                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
+                              Similarity: {sourceScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "bm25"}
-                            <span class="chat-source-score">
-                              BM25 Score: {bm25ScoreLabel(source)}
+                            <span
+                              class="chat-source-score"
+                              style={`--score-pct: ${sourceScorePercent(source)}%`}
+                              title={source.rawScore == null ? "Relative BM25 relevance" : `Raw BM25 score: ${source.rawScore.toFixed(4)}`}
+                            >
+                              Relative relevance: {sourceScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "hybrid" || retrievalMode === "graph"}
-                            <span class="chat-source-score">
-                              Score: {rawScoreLabel(source)}
+                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
+                              Relevance: {sourceScoreLabel(source)}
                             </span>
                           {/if}
                         </div>

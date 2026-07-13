@@ -124,7 +124,14 @@ export async function searchHybrid(options: HybridSearchOptions): Promise<Hybrid
     reranked = [...seen.values()]
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
-      .map((m) => ({ ...toRerankDocument(m, semanticScoreByChunk.has(m.chunkId) ? "semanticScore" : "bm25Score"), score: m.score }));
+      .map((m, index, ranked) => ({
+        ...toRerankDocument(
+          m,
+          semanticScoreByChunk.has(m.chunkId) ? "semanticScore" : "bm25Score",
+        ),
+        // Preserve the fallback ordering while returning a bounded confidence.
+        score: ranked.length === 1 ? 1 : 1 - index / (ranked.length - 1),
+      }));
   }
 
   const results = reranked.map((doc) => {

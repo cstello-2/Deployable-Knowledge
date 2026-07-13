@@ -85,7 +85,9 @@ export async function reRankData(
 
   const reranked: RerankedDocument[] = candidates.map((doc, index) => ({
     ...doc,
-    score: rawScores[index],
+    // Convert the unbounded relevance logit to a [0, 1] confidence. Sigmoid
+    // is monotonic, so this does not change the reranking order.
+    score: sigmoid(rawScores[index]),
   }));
 
   reranked.sort((left, right) => right.score - left.score);
@@ -95,4 +97,11 @@ export async function reRankData(
   }
 
   return reranked;
+}
+
+function sigmoid(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value >= 0) return 1 / (1 + Math.exp(-value));
+  const exponential = Math.exp(value);
+  return exponential / (1 + exponential);
 }

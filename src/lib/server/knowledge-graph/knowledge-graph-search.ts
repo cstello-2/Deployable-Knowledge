@@ -85,12 +85,13 @@ export async function searchKnowledgeGraph(
 
     results.push({
       ...chunk,
-      score:
+      score: clamp01(
         hybridPart * 0.9 +
         lightPart * 0.07 +
         pathPart * 0.03 +
         acronymDefinitionBoost(query, chunk.content),
-      graphScore,
+      ),
+      graphScore: clamp01(graphScore),
       hybridScore: score.hybridScore || undefined,
       matchedEntities: unique(score.matchedEntities),
       relations: unique(score.relations),
@@ -174,4 +175,8 @@ function getScore(
 
 function maxScore(values: number[]): number {
   return Math.max(1, ...values.filter(Number.isFinite));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }
