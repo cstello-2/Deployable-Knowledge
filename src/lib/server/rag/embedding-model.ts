@@ -1,19 +1,16 @@
 import { resolve } from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
 
-export const EMBEDDING_MODEL =
-  process.env.SEMANTIC_EMBED_MODEL ?? "Xenova/all-MiniLM-L6-v2";
-// TODO: Explore alternative embedding models at some point
-const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
-const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
-const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
-const EMBEDDING_CACHE_DIR =
-  process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), ".cache", "transformersjs");
+export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
+
+const EMBEDDING_DTYPE = "q8";
+const EMBEDDING_BATCH_SIZE = 32;
+const EMBEDDING_CACHE_DIR = resolve(process.cwd(), ".cache", "transformersjs");
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
 // Remote downloads are opt-in; normal runs should use the configured local cache
-env.allowRemoteModels = ALLOW_REMOTE_MODELS;
+env.allowRemoteModels = true;
 
 let embeddingPipelinePromise: Promise<any> | null = null;
 

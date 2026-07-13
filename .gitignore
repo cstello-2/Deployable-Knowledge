@@ -29,5 +29,5 @@ models/
 tmp_model/ 
 .cache/
 
-# --- Documents Folder ---
-documents/
+
+/documents/

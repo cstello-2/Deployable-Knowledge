@@ -13,6 +13,8 @@
     collapsed?: boolean;
     onToggleCollapse?: () => void;
     onClose?: () => void;
+    headerActions?: Snippet;
+    subtitle?: Snippet;
     children?: Snippet;
   };
 
@@ -27,6 +29,8 @@
     collapsed = false,
     onToggleCollapse = () => {},
     onClose = () => {},
+    headerActions,
+    subtitle,
     children,
   }: Props = $props();
 
@@ -45,13 +49,21 @@
   tabindex="-1"
   aria-label={title}
 >
-  <header class="titlebar" data-window-handle>
-    <div class="title-row">
-      <Icon name="drag_indicator" size={16} />
-      <div class="title">{title}</div>
+  <header class="titlebar" class:has-subtitle={!!subtitle} data-window-handle>
+    <div class="title-block">
+      <div class="title-row">
+        <Icon name="drag_indicator" size={16} />
+        <div class="title">{title}</div>
+      </div>
+      {#if subtitle}
+        <div class="subtitle">{@render subtitle()}</div>
+      {/if}
     </div>
-    {#if closable || collapsible}
+    {#if headerActions || closable || collapsible}
       <div class="actions">
+        {#if headerActions}
+          {@render headerActions()}
+        {/if}
         {#if collapsible}
           <button
             class="icon-btn"
@@ -130,6 +142,21 @@
     user-select: none;
   }
 
+  .titlebar.has-subtitle {
+    height: auto;
+    min-height: var(--titlebar-height);
+    padding: 6px 12px;
+    flex: 0 0 auto;
+  }
+
+  .title-block {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+  }
+
   .title {
     display: flex;
     min-width: 0;
@@ -153,6 +180,18 @@
 
   .title-row :global(.dk-icon) {
     color: var(--muted);
+  }
+
+  .subtitle {
+    overflow: hidden;
+    padding-left: 22px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .actions {

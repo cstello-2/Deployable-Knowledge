@@ -3,9 +3,19 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
+  import { renderMarkdown } from "$lib/utils/markdown";
   import type { AppState } from "$lib/state.svelte";
-  import type { NotebookPage, NotebookWithPages } from "$lib/server/database/schema";
+  import type {
+    Document,
+    DocumentChunk,
+    NotebookPage,
+    NotebookSource,
+    NotebookWithPages,
+  } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
+
+  // dk:send-to-notebook carries fully-composed text — just appended as plain text.
+  type SendToNotebookDetail = { text: string };
 
   let {
     id,
@@ -19,15 +29,33 @@
 
   const appState = getContext<AppState>("appState");
 
+  // Mirrors the shape returned by GET /notebooks/:id/sources — every real
+  // field is derived from the schema types; only `preview` is computed
+  // server-side and has no column of its own.
+  type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
+    Pick<DocumentChunk, "pageIndex"> & {
+      documentTitle: Document["title"];
+      preview: string;
+    };
+
   let notes = $state("");
+  let previewMode = $state(false);
   let selectorOpen = $state(false);
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let selectedNotebookText = $state("");
-  let notebookSelectionButtonVisible = $state(false);
   let editingId = $state<string | null>(null);
   let editingTitle = $state("");
+  let selectorEl = $state<HTMLElement | null>(null);
+  let selectorToggleEl = $state<HTMLElement | null>(null);
+
+  // Sources attached to the active notebook (via "Send to Notebook") — hidden
+  // from the notebook page text, viewable here.
+  let sourcesOpen = $state(false);
+  let sources = $state<NotebookSourceItem[]>([]);
+  let sourcesLoading = $state(false);
+  let sourcesEl = $state<HTMLElement | null>(null);
+  let sourcesToggleEl = $state<HTMLElement | null>(null);
 
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
@@ -42,6 +70,24 @@
   function cancelEdit() {
     editingId = null;
     editingTitle = "";
+  }
+
+  function handleClickOutside(e: MouseEvent) {
+    const target = e.target as Node;
+    if (
+      selectorOpen &&
+      selectorEl && !selectorEl.contains(target) &&
+      selectorToggleEl && !selectorToggleEl.contains(target)
+    ) {
+      selectorOpen = false;
+    }
+    if (
+      sourcesOpen &&
+      sourcesEl && !sourcesEl.contains(target) &&
+      sourcesToggleEl && !sourcesToggleEl.contains(target)
+    ) {
+      sourcesOpen = false;
+    }
   }
 
   async function commitEdit(type: "notebook" | "page", id: string) {
@@ -85,6 +131,36 @@
     appState.activeNotebook = appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
     appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
     notes = appState.activePage?.content ?? "";
+    loadSources();
+  }
+
+  async function loadSources() {
+    const notebookId = appState.activeNotebookId;
+    if (!notebookId) { sources = []; return; }
+    sourcesLoading = true;
+    try {
+      const res = await fetch(`/notebooks/${notebookId}/sources`);
+      if (!res.ok) { sources = []; return; }
+      const data = (await res.json()) as { sources: NotebookSourceItem[] };
+      sources = data.sources ?? [];
+    } finally {
+      sourcesLoading = false;
+    }
+  }
+
+  async function removeSource(sourceId: string) {
+    const notebookId = appState.activeNotebookId;
+    if (!notebookId) return;
+    await fetch(`/notebooks/${notebookId}/sources/${sourceId}`, { method: "DELETE" });
+    await loadSources();
+  }
+
+  async function clearAllSources() {
+    const notebookId = appState.activeNotebookId;
+    if (!notebookId || !sources.length) return;
+    if (!window.confirm("Remove all sources attached to this notebook?")) return;
+    await fetch(`/notebooks/${notebookId}/sources`, { method: "DELETE" });
+    await loadSources();
   }
 
   async function loadNotebooks() {
@@ -134,7 +210,6 @@
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
     if (!res.ok) { showToast("Failed to select page"); return; }
     applyState(await res.json());
-    selectorOpen = false;
   }
 
   async function createNotebook() {
@@ -188,24 +263,10 @@
     await saveCurrentPage();
   }
 
-  function handleNotebookSelection() {
-    const textarea = document.querySelector<HTMLTextAreaElement>(".notebook-textarea");
-    if (!textarea) return;
-    const selected = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd).trim();
-    selectedNotebookText = selected;
-    notebookSelectionButtonVisible = selected.length > 0;
-  }
-
-  function sendSelectionToChat() {
-    if (!selectedNotebookText.trim()) return;
-    window.dispatchEvent(new CustomEvent("dk:send-to-chat", { detail: { text: selectedNotebookText.trim() } }));
-    notebookSelectionButtonVisible = false;
-    selectedNotebookText = "";
-    saveStatus = "Sent to chat";
-  }
-
+  // Fired by the Send to Notebook button on an assistant reply the text is
+  // already fully composed (reply + hydrated source excerpts), so just append it.
   async function appendTextFromChat(event: Event) {
-    const { text } = (event as CustomEvent<{ text: string }>).detail;
+    const { text } = (event as CustomEvent<SendToNotebookDetail>).detail;
     if (!text?.trim() || !appState.activePage) return;
     notes = notes.trim() ? `${notes.trimEnd()}\n\n${text.trim()}` : text.trim();
     await saveCurrentPage();
@@ -215,8 +276,12 @@
   onMount(() => {
     loadNotebooks();
     window.addEventListener("dk:send-to-notebook", appendTextFromChat);
+    window.addEventListener("notebook-sources:refresh", loadSources);
+    document.addEventListener("click", handleClickOutside);
     return () => {
       window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
+      window.removeEventListener("notebook-sources:refresh", loadSources);
+      document.removeEventListener("click", handleClickOutside);
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -251,25 +316,97 @@
       <div class="notebook-actions">
         <button
           class="icon-action"
+          class:active={sourcesOpen}
+          type="button"
+          title="View loaded sources"
+          aria-label="View loaded sources"
+          aria-expanded={sourcesOpen}
+          data-window-action
+          bind:this={sourcesToggleEl}
+          onclick={() => (sourcesOpen = !sourcesOpen)}
+        >
+          <Icon name="description" size={17} />
+          {#if sources.length}
+            <span class="source-count-badge">{sources.length}</span>
+          {/if}
+        </button>
+
+        <button
+          class="icon-action"
+          class:active={previewMode}
+          type="button"
+          title={previewMode ? "Edit notes" : "Preview markdown"}
+          aria-label={previewMode ? "Edit notes" : "Preview markdown"}
+          aria-pressed={previewMode}
+          data-window-action
+          onclick={() => (previewMode = !previewMode)}
+        >
+          <Icon name={previewMode ? "edit" : "visibility"} size={17} />
+        </button>
+
+        <button
+          class="icon-action"
           class:active={selectorOpen}
           type="button"
           title="Open notebook selector"
           aria-label="Open notebook selector"
           aria-expanded={selectorOpen}
           data-window-action
+          bind:this={selectorToggleEl}
           onclick={() => (selectorOpen = !selectorOpen)}
         >
           <Icon name="menu_book" size={17} />
         </button>
 
-        <button class="btn btn-sm" type="button" onclick={clearNotes}>
-          Clear
-        </button>
       </div>
     </header>
 
+    {#if sourcesOpen && !collapsed}
+      <div class="sources-panel" data-window-action bind:this={sourcesEl}>
+        <header class="sources-panel-header">
+          <span>Loaded Sources ({sources.length})</span>
+          <button
+            class="btn btn-sm btn-danger"
+            type="button"
+            disabled={!sources.length}
+            onclick={clearAllSources}
+          >
+            Clear All
+          </button>
+        </header>
+        <div class="sources-list">
+          {#if sourcesLoading}
+            <div class="sources-empty">Loading…</div>
+          {:else if !sources.length}
+            <div class="sources-empty">
+              No sources loaded yet. Use "Send to Notebook" on an assistant reply to attach its sources.
+            </div>
+          {:else}
+            {#each sources as source (source.id)}
+              <div class="source-row">
+                <button
+                  class="source-remove"
+                  type="button"
+                  title="Remove source"
+                  aria-label="Remove source"
+                  onclick={() => removeSource(source.id)}
+                >
+                  <Icon name="close" size={14} />
+                </button>
+                <div class="source-row-main">
+                  <span class="source-doc-title">{source.documentTitle}</span>
+                  <span class="source-page">Page {source.pageIndex + 1}</span>
+                </div>
+                <p class="source-preview">{source.preview}</p>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     {#if selectorOpen && !collapsed}
-      <div class="notebook-selector" data-window-action>
+      <div class="notebook-selector" data-window-action bind:this={selectorEl}>
         <section class="selector-column">
           <header class="selector-header">
             <span>Notebooks</span>
@@ -367,30 +504,23 @@
     {/if}
 
     <div class="notebook-editor-wrap">
-      {#if notebookSelectionButtonVisible}
-        <button
-          class="selection-action notebook-selection-action"
-          type="button"
-          onclick={sendSelectionToChat}
-        >
-          Send to Chat
-        </button>
+      {#if previewMode}
+        <div class="notebook-preview" aria-label="Notebook preview">
+          {#if notes.trim()}
+            <div class="msg-md">{@html renderMarkdown(notes)}</div>
+          {:else}
+            <p class="notebook-preview-empty">Nothing to preview yet.</p>
+          {/if}
+        </div>
+      {:else}
+        <textarea
+          class="notebook-textarea"
+          bind:value={notes}
+          oninput={queueSaveCurrentPage}
+          placeholder="Write notes here..."
+          aria-label="Notebook notes"
+        ></textarea>
       {/if}
-
-      <textarea
-        class="notebook-textarea"
-        bind:value={notes}
-        oninput={queueSaveCurrentPage}
-        onmouseup={handleNotebookSelection}
-        onkeyup={handleNotebookSelection}
-       onblur={() => {
-          window.setTimeout(() => {
-            notebookSelectionButtonVisible = false;
-          }, 180);
-        }}
-        placeholder="Write notes here..."
-        aria-label="Notebook notes"
-      ></textarea>
     </div>
   </section>
 
@@ -453,6 +583,7 @@
   }
 
   .icon-action {
+    position: relative;
     display: inline-grid;
     width: 30px;
     height: 30px;
@@ -471,6 +602,132 @@
   .icon-action.active {
     border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
     color: var(--text);
+  }
+
+  .source-count-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: inline-grid;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: hsl(var(--h) var(--sat) 8%);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    place-items: center;
+  }
+
+  .sources-panel {
+    position: absolute;
+    top: 56px;
+    right: 10px;
+    z-index: 100;
+    display: flex;
+    width: min(340px, 80vw);
+    max-height: min(430px, 62vh);
+    overflow: hidden;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
+    box-shadow: var(--shadow);
+  }
+
+  .sources-panel-header {
+    display: flex;
+    min-height: 36px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .sources-list {
+    display: flex;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sources-empty {
+    padding: 12px 8px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .source-row {
+    position: relative;
+    padding: 8px 28px 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+  }
+
+  .source-row-main {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .source-doc-title {
+    overflow: hidden;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .source-page {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .source-preview {
+    margin: 4px 0 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  .source-remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: inline-grid;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    place-items: center;
+  }
+
+  .source-remove:hover {
+    background: color-mix(in oklab, #ff6b6b 14%, transparent);
+    color: color-mix(in oklab, #ff6b6b 78%, var(--text));
   }
 
   .notebook-selector {
@@ -651,34 +908,63 @@
     flex: 1 1 auto;
   }
 
-  .selection-action {
-    position: absolute;
-    z-index: 30;
-    top: 10px;
-    right: 14px;
-    padding: 6px 9px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12px;
-    box-shadow: var(--shadow);
-  }
-
-  .selection-action:hover {
-    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
-  }
-
-  .notebook-selection-action {
-    top: 10px;
-    right: 14px;
-  }
-
   .notebook-textarea:focus {
     border: 0;
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
     outline: none;
   }
+
+  .notebook-preview {
+    width: 100%;
+    min-height: 0;
+    padding: 14px;
+    overflow: auto;
+    flex: 1 1 auto;
+  }
+
+  .notebook-preview-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .msg-md {
+    min-width: 0;
+    min-height: 1em;
+    overflow-wrap: anywhere;
+  }
+
+  .msg-md > :global(:first-child) { margin-top: 0; }
+  .msg-md > :global(:last-child) { margin-bottom: 0; }
+  .msg-md :global(p) { margin: 0 0 0.75em; }
+  .msg-md :global(ul),
+  .msg-md :global(ol) { margin: 0 0 0.75em; padding-left: 1.5em; }
+  .msg-md :global(li) { margin: 0.15em 0; }
+  .msg-md :global(blockquote) {
+    margin: 0 0 0.75em;
+    padding: 0.1em 1em;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
+  .msg-md :global(h1),
+  .msg-md :global(h2),
+  .msg-md :global(h3),
+  .msg-md :global(h4),
+  .msg-md :global(h5),
+  .msg-md :global(h6) { margin: 0.75em 0 0.5em; line-height: 1.3; }
+  .msg-md :global(hr) { border: none; border-top: 1px solid var(--border); margin: 0.75em 0; }
+  .msg-md :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
+  .msg-md :global(code) { white-space: pre-wrap; }
+  .msg-md :global(a) { overflow-wrap: anywhere; }
+  .msg-md :global(table) {
+    display: block;
+    max-width: 100%;
+    margin: 0 0 0.75em;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+  .msg-md :global(th),
+  .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
+  .msg-md :global(img) { max-width: 100%; height: auto; }
 
 </style>
