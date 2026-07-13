@@ -54,6 +54,10 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
+  const MIN_ZOOM = 0.18;
+  const DEFAULT_ZOOM = 0.82;
+  const WIDE_ZOOM = 0.42;
+  const MAX_ZOOM = 3;
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let graph = $state<GraphResponse | null>(null);
@@ -64,7 +68,7 @@
   let selectedNode = $state<GalaxyNode | null>(null);
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
-  let zoom = $state(1);
+  let zoom = $state(DEFAULT_ZOOM);
   let dragging = false;
   let lastPointer = { x: 0, y: 0 };
   let frame = 0;
@@ -124,7 +128,12 @@
   function resetCamera() {
     yaw = 0.42;
     pitch = -0.18;
-    zoom = 1;
+    zoom = DEFAULT_ZOOM;
+  }
+
+  function setWideView() {
+    zoom = WIDE_ZOOM;
+    pitch = -0.12;
   }
 
   function layoutNodes(input: VisualNode[]): GalaxyNode[] {
@@ -291,7 +300,7 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
-    zoom = Math.max(0.35, Math.min(3, zoom * (event.deltaY > 0 ? 0.9 : 1.1)));
+    zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.88 : 1.1)));
   }
 
   function handleClick(event: MouseEvent) {
@@ -368,17 +377,23 @@
       <button class="btn btn-sm" type="button" onclick={() => loadGraph(query)} disabled={loading}>
         {loading ? "Loading..." : "Visualize"}
       </button>
+      <button class="btn btn-sm" type="button" onclick={setWideView}>Wide view</button>
       <button class="btn btn-sm" type="button" onclick={resetCamera}>Reset</button>
     </div>
 
     <div class="meta-row">
       <span>{status || "Drag to orbit. Scroll to zoom. Click a node to inspect."}</span>
       {#if graph}
-        <span>{graph.nodes.length} visible nodes · {graph.edges.length} visible edges · {graph.stats.nodes} total graph nodes</span>
+        <span>{graph.nodes.length} visible nodes · {graph.edges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
       {/if}
     </div>
 
     <div class="stage">
+      <div class="usaf-mark" aria-label="USAF visual marker">
+        <span class="usaf-star">✦</span>
+        <span class="usaf-text">USAF</span>
+      </div>
+
       <canvas
         bind:this={canvas}
         aria-label="Interactive knowledge graph galaxy"
@@ -438,7 +453,7 @@
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
     gap: 6px;
     align-items: center;
   }
@@ -479,8 +494,47 @@
     cursor: grabbing;
   }
 
+  .usaf-mark {
+    position: absolute;
+    z-index: 4;
+    top: 10px;
+    left: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border: 1px solid rgb(125 211 252 / 32%);
+    border-radius: 999px;
+    background:
+      linear-gradient(135deg, rgb(12 22 48 / 72%), rgb(3 7 18 / 48%)),
+      radial-gradient(circle at 50% 0%, rgb(125 211 252 / 20%), transparent 62%);
+    color: rgb(224 242 254 / 94%);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    pointer-events: none;
+    text-transform: uppercase;
+    transform: translateX(-50%);
+    box-shadow:
+      0 0 18px rgb(56 189 248 / 20%),
+      inset 0 1px 0 rgb(255 255 255 / 16%);
+    backdrop-filter: blur(8px);
+  }
+
+  .usaf-star {
+    color: rgb(191 219 254);
+    font-size: 15px;
+    line-height: 1;
+    text-shadow: 0 0 12px rgb(96 165 250 / 82%);
+  }
+
+  .usaf-text {
+    line-height: 1;
+  }
+
   .legend {
     position: absolute;
+    z-index: 3;
     top: 10px;
     left: 10px;
     display: flex;
