@@ -3,12 +3,14 @@ import { db } from "$lib/server/database/database";
 import {
   document_chunks,
   notebook_sources,
+  profiles,
   promptTemplates,
+  settings,
   type SessionMessage,
   sessions,
   session_messages,
-  settings,
 } from "$lib/server/database/schema";
+import { localUsername, seedLocalUser } from "$lib/server/database/seed";
 import { getProvider } from "$lib/server/providers/registry";
 import type {
   Provider,
@@ -137,31 +139,99 @@ async function createTitle(
   return title.trim().split("\n")[0] || "New conversation";
 }
 
+function readRetrievalMode(value: unknown): RagRetrievalMode {
+  if (value === "semantic" || value === "bm25" || value === "hybrid") {
+    return value;
+  }
+
+  return "hybrid";
+}
+
+function readDocumentIds(body: Record<string, unknown>) {
+  const values = Array.isArray(body.documentIds)
+    ? body.documentIds
+    : Array.isArray(body.document_ids)
+      ? body.document_ids
+      : [];
+
+  return values.map((value: unknown) => String(value).trim()).filter(Boolean);
+}
+
+function readOptionalString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  return undefined;
+}
+
 export const POST: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const userSettings = (await db
+  const body = (await request.json()) as Record<string, unknown>;
+  const user = await seedLocalUser();
+  const profile = user.activeProfileId
+    ? await db
+        .select()
+        .from(profiles)
+        .where(
+          and(
+            eq(profiles.id, user.activeProfileId),
+            eq(profiles.userId, user.id),
+          ),
+        )
+        .get()
+    : null;
+  const userSettings = await db
     .select()
     .from(settings)
-    .where(eq(settings.id, "local_user"))
-    .get())!;
+    .where(eq(settings.id, localUsername))
+    .get();
 
   const message = String(body.message).trim();
-  const modelId = body.model_id || userSettings.model;
-  const providerId = body.provider_id || userSettings.provider;
-  const persona = body.persona || userSettings.persona || "";
-  const documentIds = Array.isArray(body.document_ids)
-    ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
-    : [];
-  const retrievalMode = (body.retrieval_mode || userSettings.retrievalMode) as RagRetrievalMode;
+  const modelId =
+    readOptionalString(
+      body.modelId,
+      body.model_id,
+      profile?.model,
+      userSettings?.model,
+    ) || "granite4:350m";
+  const providerId =
+    readOptionalString(
+      body.providerId,
+      body.provider_id,
+      profile?.provider,
+      userSettings?.provider,
+    ) || "ollama";
+  const persona =
+    readOptionalString(body.persona, profile?.persona, userSettings?.persona) ||
+    "";
+  const documentIds = readDocumentIds(body);
+  const retrievalMode = readRetrievalMode(
+    profile?.retrievalMode || userSettings?.retrievalMode,
+  );
   const promptTemplateId =
-    body.prompt_template_id ||
-    body.promptTemplateId ||
-    userSettings.promptTemplateId;
+    readOptionalString(
+      body.promptTemplateId,
+      body.prompt_template_id,
+      profile?.promptTemplateId,
+      userSettings?.promptTemplateId,
+    );
   const options = {
-    temperature: body.temperature ?? userSettings.temperature,
-    topK: body.top_k ?? userSettings.topK,
-    maxTokens: body.max_tokens ?? userSettings.maxTokens,
+    temperature: Number(
+      body.temperature ?? profile?.temperature ?? userSettings?.temperature ??
+        0.2,
+    ),
+    topK: Number(
+      body.topK ?? body.top_k ?? profile?.topK ?? userSettings?.topK ?? 8,
+    ),
+    maxTokens: Number(
+      body.maxTokens ?? body.max_tokens ?? profile?.maxTokens ??
+        userSettings?.maxTokens ?? 512,
+    ),
   };
+  const ragTopK = Number(
+    body.ragTopK ?? body.rag_top_k ?? profile?.ragTopK ??
+      userSettings?.ragTopK ?? 5,
+  );
 
   const [existing] = await db
     .select()
@@ -195,14 +265,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
           .where(
             and(
               eq(promptTemplates.id, promptTemplateId.trim()),
-              eq(promptTemplates.userId, userSettings.userId),
+              eq(promptTemplates.userId, user.id),
             ),
           )
           .get()
       : null;
   const conversational = body.conversational === true;
   const pageContext = typeof body.context === "string" ? body.context.trim() : "";
-  const notebookId = typeof body.notebook_id === "string" ? body.notebook_id.trim() : "";
+  const notebookId = readOptionalString(body.notebookId, body.notebook_id) ?? "";
 
   const ragContext: RagContextResult = conversational
     ? { mode: retrievalMode, contextBlock: "", sources: [] }
@@ -210,7 +280,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
         question: message,
         documentIds,
         mode: retrievalMode,
-        topK: body.rag_top_k ?? userSettings.ragTopK,
+        topK: ragTopK,
       });
 
   // Notebook-mode context = the visible page text + the notebook's attached
@@ -290,4 +360,3 @@ export const POST: RequestHandler = async ({ params, request }) => {
     },
   });
 };
-

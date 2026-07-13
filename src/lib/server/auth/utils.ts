@@ -61,6 +61,7 @@ export async function getUserById(id: number): Promise<SafeUser | undefined> {
     .select({
       id: users.id,
       username: users.username,
+      activeProfileId: users.activeProfileId,
     })
     .from(users)
     .where(eq(users.id, id))
@@ -74,6 +75,7 @@ export async function getUserByName(
     .select({
       id: users.id,
       username: users.username,
+      activeProfileId: users.activeProfileId,
     })
     .from(users)
     .where(eq(users.username, username))

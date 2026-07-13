@@ -14,6 +14,7 @@ export const users = sqliteTable("users", {
   username: text({ length: 255 }).notNull(),
   password: text({ length: 128 }),
   salt: text({ length: 128 }),
+  activeProfileId: text("active_profile_id"),
   lastLogin: integer("last_login", { mode: "timestamp" }),
 });
 
@@ -172,7 +173,11 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
-    retrievalMode: text("retrieval_mode", {enum: ["semantic", "bm25", "hybrid"],}).notNull().default("hybrid"),
+    retrievalMode: text("retrieval_mode", {
+      enum: ["semantic", "bm25", "hybrid"],
+    })
+      .notNull()
+      .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
@@ -185,7 +190,38 @@ export const settings = sqliteTable(
   (table) => [index("settings_user_idx").on(table.userId)],
 );
 
-export const profiles = settings;
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name", { length: 255 }).notNull(),
+    provider: text({ length: 128 }).notNull().default("ollama"),
+    model: text({ length: 128 }).notNull().default("granite4:350m"),
+    maxTokens: integer("max_tokens").notNull().default(512),
+    temperature: real().notNull().default(0.2),
+    topK: integer("top_k").notNull().default(8),
+    retrievalMode: text("retrieval_mode", {
+      enum: ["semantic", "bm25", "hybrid"],
+    })
+      .notNull()
+      .default("hybrid"),
+    ragTopK: integer("rag_top_k").notNull().default(5),
+    promptTemplateId: text("prompt_template_id").references(
+      () => promptTemplates.id,
+      { onDelete: "set null" },
+    ),
+    persona: text({ length: 1024 }),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("profiles_user_idx").on(table.userId),
+    index("profiles_updated_idx").on(table.updatedAt),
+  ],
+);
 
 export const documents = sqliteTable(
   "documents",
@@ -266,3 +302,36 @@ export type NewDocument = typeof documents.$inferInsert;
 
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
+
+export type AssistantProfile = typeof profiles.$inferSelect;
+export type NewAssistantProfile = typeof profiles.$inferInsert;
+export type AssistantProfileValues = Pick<
+  AssistantProfile,
+  | "provider"
+  | "model"
+  | "maxTokens"
+  | "temperature"
+  | "topK"
+  | "retrievalMode"
+  | "ragTopK"
+  | "promptTemplateId"
+  | "persona"
+>;
+export type ActiveAssistantProfile = AssistantProfile | null;
+export type AssistantProfileCreateValues = AssistantProfileValues &
+  Pick<AssistantProfile, "name">;
+export type AssistantProfileUpdateValues = AssistantProfileValues &
+  Partial<Pick<AssistantProfile, "name">>;
+export type AssistantProfileListResponse = {
+  profiles: AssistantProfile[];
+  activeProfileId: User["activeProfileId"];
+};
+export type AssistantProfileActivationResponse = {
+  profile: AssistantProfile;
+  activeProfileId: AssistantProfile["id"];
+};
+export type PromptTemplateFormValue = Pick<
+  PromptTemplate,
+  "name" | "description" | "systemPrompt"
+> &
+  Partial<Pick<PromptTemplate, "id">>;

@@ -6,15 +6,11 @@
   import ToastHost from "$lib/components/utils/ToastHost.svelte";
   import favicon from "$lib/assets/icon.svg";
   import { initWorkspaceStateStorage } from "$lib/utils/workspaceState";
-  import { createAppState } from "$lib/state.svelte";
+  import { AppState } from "$lib/state.svelte";
 
-  let { children, data } = $props();
-  const appState = createAppState();
+  let { children } = $props();
+  const appState = new AppState();
   setContext("appState", appState);
-
-  $effect(() => {
-    appState.applySettings(data.settings);
-  });
 
   initWorkspaceStateStorage();
 </script>

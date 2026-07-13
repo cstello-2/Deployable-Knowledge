@@ -2,19 +2,24 @@ import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { settings } from "$lib/server/database/schema";
+import { localUsername, seedLocalUser } from "$lib/server/database/seed";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {
+  await seedLocalUser();
+
   const row = await db
     .select()
     .from(settings)
-    .where(eq(settings.id, "local_user"))
+    .where(eq(settings.id, localUsername))
     .get();
 
   return json(row);
 };
 
 export const PATCH: RequestHandler = async ({ request }) => {
+  await seedLocalUser();
+
   const body = await request.json();
   const promptTemplateId =
     typeof body.promptTemplateId === "string" && body.promptTemplateId.trim()
@@ -35,7 +40,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
       persona: body.persona,
       updatedAt: new Date(),
     })
-    .where(eq(settings.id, "local_user"))
+    .where(eq(settings.id, localUsername))
     .returning();
 
   return json(row);

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import scribe from 'scribe.js-ocr';
+import scribe from "scribe.js-ocr";
 import {
     normalizeWhitespace,
     type ExtractedChunk as Chunk,
@@ -12,6 +12,11 @@ type ExtractTextFromTables = (
 ) => Array<{ rows?: string[][] }>;
 
 const extractTextFromTables = scribe.extractTextFromTables as unknown as ExtractTextFromTables;
+
+export type TextExtractionResult = {
+    chunks: Chunk[];
+    pageCount: number;
+};
 
 const IMAGE_OPERATOR_NAMES = [
     "paintImageXObject",
@@ -73,11 +78,13 @@ function tableRowsToText(rows: string[][]): string {
         .join("\n");
 }
 
-//See bottom of file for example function usage and type declarations
-
-export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], mode: string = "quality") { //speed or quality
-    const embeddedImagePages = await detectEmbeddedImagePages(file.path);
-    const doc = await scribe.openDocument([file.path]);
+async function extractDocument(
+    file: Source,
+    doc: any,
+    embeddedImagePages: Set<number>,
+    ocr_langs: string[],
+    mode: string,
+): Promise<TextExtractionResult> {
     let chunks: Chunk[] = [];
     const nativeTextByPage = new Map<number, string>();
     let text_count = 0;
@@ -190,20 +197,23 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
     }
     
     console.log("From: ", file.path ,"Images: ", img_count, " Text: ", text_count, " Tables: ", table_count);
-    await scribe.terminate();
-    return chunks;
+    return {
+        chunks,
+        pageCount: totalPages,
+    };
 }
 
+export async function TextExtract(
+    file: Source,
+    ocr_langs: string[] = ["eng"],
+    mode: string = "quality",
+): Promise<TextExtractionResult> {
+    const embeddedImagePages = await detectEmbeddedImagePages(file.path);
+    const doc = await scribe.openDocument([file.path]);
 
-// let new_file: Source = {
-
-//         title: "tcc.pdf",
-
-//         type: "PDF",
-
-//         path: "tcc.pdf",
-
-//     };
-
-
-// TextExtract(new_file); 
+    try {
+        return await extractDocument(file, doc, embeddedImagePages, ocr_langs, mode);
+    } finally {
+        await scribe.terminate();
+    }
+}

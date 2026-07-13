@@ -1,13 +1,9 @@
 <script lang="ts">
   import Popup from "$lib/components/popups/Popup.svelte";
-  import type { PromptTemplate } from "$lib/server/database/schema";
-
-  type PromptTemplateFormValue = {
-    id?: string;
-    name: string;
-    description: string;
-    systemPrompt: string;
-  };
+  import type {
+    PromptTemplate,
+    PromptTemplateFormValue,
+  } from "$lib/server/database/schema";
 
   type Props = {
     open: boolean;

@@ -26,9 +26,7 @@
     { id: "hybrid", label: "Hybrid" },
   ];
 
-  let retrievalMode = $state<RetrievalMode>(
-    readRetrievalMode(appState.retrievalMode),
-  );
+  let retrievalMode = $state<RetrievalMode>("hybrid");
   let ragTopK = $state<number | undefined>(appState.ragTopK);
   let busy = $state(false);
 
@@ -44,9 +42,34 @@
     return "hybrid";
   }
 
-  function syncSettingsFields() {
-    retrievalMode = readRetrievalMode(appState.retrievalMode);
-    ragTopK = appState.ragTopK;
+  function syncSettingsFields(settings: UserSettings) {
+    retrievalMode = readRetrievalMode(settings.retrievalMode);
+    ragTopK = settings.ragTopK ?? 5;
+  }
+
+  function setAppState(settings: UserSettings) {
+    appState.currentProviderId = settings.provider || "ollama";
+    appState.currentModelId = settings.model || "granite4:350m";
+    appState.maxTokens = settings.maxTokens ?? 512;
+    appState.temperature = settings.temperature ?? 0.2;
+    appState.topK = settings.topK ?? 8;
+    appState.promptTemplateId = settings.promptTemplateId || "";
+    appState.persona = settings.persona || "";
+    appState.ragTopK = settings.ragTopK ?? 5;
+  }
+
+  function getSettingsPayload() {
+    return {
+      provider: appState.currentProviderId,
+      model: appState.currentModelId,
+      maxTokens: appState.maxTokens,
+      temperature: appState.temperature,
+      topK: appState.topK,
+      promptTemplateId: appState.promptTemplateId || null,
+      persona: appState.persona,
+      retrievalMode,
+      ragTopK: appState.ragTopK,
+    };
   }
 
   async function loadSettings() {
@@ -55,19 +78,18 @@
     });
 
     const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
+    setAppState(settings);
+    syncSettingsFields(settings);
   }
 
   async function saveRuntimeSettings(message = "Search settings updated") {
     busy = true;
-    appState.retrievalMode = retrievalMode;
     appState.ragTopK = ragTopK ?? 5;
 
     const resp = await fetch("/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(appState.settings),
+      body: JSON.stringify(getSettingsPayload()),
     });
 
     if (!resp.ok) {
@@ -77,8 +99,8 @@
     }
 
     const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
+    setAppState(settings);
+    syncSettingsFields(settings);
     busy = false;
     showToast(message);
   }
