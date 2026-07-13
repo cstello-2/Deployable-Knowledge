@@ -390,8 +390,8 @@
 
     <div class="stage">
       <div class="usaf-mark" aria-label="USAF visual marker">
-        <span class="usaf-star">✦</span>
-        <span class="usaf-text">USAF</span>
+        <img src="/usaf-symbol.png" alt="" aria-hidden="true" />
+        <span class="usaf-side-text">USAF</span>
       </div>
 
       <canvas
@@ -497,39 +497,35 @@
   .usaf-mark {
     position: absolute;
     z-index: 4;
-    top: 10px;
+    bottom: 6px;
     left: 50%;
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
-    gap: 7px;
-    padding: 6px 12px;
-    border: 1px solid rgb(125 211 252 / 32%);
-    border-radius: 999px;
-    background:
-      linear-gradient(135deg, rgb(12 22 48 / 72%), rgb(3 7 18 / 48%)),
-      radial-gradient(circle at 50% 0%, rgb(125 211 252 / 20%), transparent 62%);
-    color: rgb(224 242 254 / 94%);
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.18em;
+    gap: 2px;
     pointer-events: none;
-    text-transform: uppercase;
     transform: translateX(-50%);
-    box-shadow:
-      0 0 18px rgb(56 189 248 / 20%),
-      inset 0 1px 0 rgb(255 255 255 / 16%);
-    backdrop-filter: blur(8px);
   }
 
-  .usaf-star {
-    color: rgb(191 219 254);
-    font-size: 15px;
-    line-height: 1;
-    text-shadow: 0 0 12px rgb(96 165 250 / 82%);
+  .usaf-mark img {
+    display: block;
+    width: clamp(42px, 5vw, 68px);
+    height: auto;
+    opacity: 0.5;
+    filter:
+      drop-shadow(0 0 7px rgb(125 211 252 / 24%))
+      drop-shadow(0 0 16px rgb(37 99 235 / 16%));
   }
 
-  .usaf-text {
-    line-height: 1;
+  .usaf-side-text {
+    color: rgb(224 242 254 / 62%);
+    font-size: clamp(12px, 1.25vw, 17px);
+    font-weight: 900;
+    letter-spacing: 0.32em;
+    padding-left: 0.32em;
+    text-shadow: 0 0 10px rgb(96 165 250 / 32%);
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .legend {
