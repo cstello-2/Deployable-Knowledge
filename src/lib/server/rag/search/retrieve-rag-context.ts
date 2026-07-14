@@ -8,9 +8,9 @@ import type {
   RelevanceSearchMatch,
   SearchChunkType,
 } from "./search-shared";
+import { RAG_CHUNK_CHARACTER_LIMIT } from "$lib/utils/contextLimits";
 
 const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Search Window Settings
-const MAX_CONTEXT_CHARS = 1200; // Same as max chunk size for now
 const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :
@@ -46,7 +46,7 @@ function formatContext(matches: RelevanceSearchMatch[]) {
   if (matches.length === 0) return "";
 
   const items = matches.map((match) => {
-    const content = compactText(match.content, MAX_CONTEXT_CHARS);
+    const content = compactText(match.content, RAG_CHUNK_CHARACTER_LIMIT);
     const source = match.sourceTitle || match.sourcePath || "unknown";
 
     return `- ${content} (source: ${source})`;

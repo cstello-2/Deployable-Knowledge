@@ -3,6 +3,7 @@
   import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
+  import favicon from "$lib/assets/icon.svg";
 
   import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
   import { showWindow, windowPlacements } from "$lib/utils/workspaceState";
@@ -124,6 +125,7 @@
   </div>
 
   <div class="brand">
+    <img src={favicon} alt="" aria-hidden="true" />
     <strong>Deployable Knowledge vA0.3.0</strong>
   </div>
 
@@ -188,14 +190,29 @@
   .brand {
     position: absolute;
     left: 50%;
+    display: flex;
     max-width: min(44vw, 420px);
+    min-width: 0;
     overflow: hidden;
     color: var(--muted);
     font-size: 14px;
     letter-spacing: 0.3px;
+    align-items: center;
+    gap: 8px;
+    transform: translateX(-50%);
+  }
+
+  .brand img {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+  }
+
+  .brand strong {
+    min-width: 0;
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    transform: translateX(-50%);
   }
 
   .menu-trigger {
@@ -207,9 +224,6 @@
     background: hsl(var(--h) var(--sat) var(--l-panel));
     color: var(--text);
     font-size: 12px;
-  }
-
-  .menu-trigger {
     padding: 6px 10px;
     cursor: pointer;
   }
@@ -219,7 +233,7 @@
   }
 
   .menu-item {
-    display: block;
+    display: grid;
     width: 100%;
     padding: 8px 10px;
     border: 0;
@@ -229,10 +243,6 @@
     cursor: pointer;
     font-size: 12px;
     text-align: left;
-  }
-
-  .menu-item {
-    display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
@@ -258,7 +268,7 @@
       order: -1;
       width: 100%;
       max-width: none;
-      text-align: center;
+      justify-content: center;
       transform: none;
     }
 

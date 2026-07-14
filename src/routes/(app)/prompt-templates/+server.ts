@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { error, json } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
 
+import type { PromptTemplateRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { promptTemplates } from "$lib/server/database/schema";
 import { seedLocalUser } from "$lib/server/database/seed";
@@ -25,8 +26,8 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  const body = await request.json();
-  const name = String(body.name ?? "").trim();
+  const body = (await request.json()) as PromptTemplateRequest;
+  const name = body.name.trim();
 
   if (!name) {
     throw error(400, "Prompt template name is required");
@@ -39,8 +40,8 @@ export const POST: RequestHandler = async ({ request }) => {
       id: randomUUID(),
       userId: await getLocalUserId(),
       name,
-      description: String(body.description ?? ""),
-      systemPrompt: String(body.systemPrompt ?? ""),
+      description: body.description,
+      systemPrompt: body.systemPrompt,
       createdAt: timestamp,
       updatedAt: timestamp,
     })

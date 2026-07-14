@@ -1,6 +1,7 @@
 import { error, json } from "@sveltejs/kit";
 import { and, eq } from "drizzle-orm";
 
+import type { PromptTemplateRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
   profiles,
@@ -15,8 +16,8 @@ async function getLocalUserId() {
 }
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const name = String(body.name ?? "").trim();
+  const body = (await request.json()) as PromptTemplateRequest;
+  const name = body.name.trim();
 
   if (!name) {
     throw error(400, "Prompt template name is required");
@@ -27,8 +28,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     .update(promptTemplates)
     .set({
       name,
-      description: String(body.description ?? ""),
-      systemPrompt: String(body.systemPrompt ?? ""),
+      description: body.description,
+      systemPrompt: body.systemPrompt,
       updatedAt: new Date(),
     })
     .where(

@@ -18,7 +18,7 @@
   let { open, title = "Working", progress = null }: Props = $props();
 
   function formatBytes(bytes: number | undefined) {
-    const value = Number(bytes || 0);
+    const value = bytes ?? 0;
 
     if (!Number.isFinite(value) || value <= 0) return "0 B";
 
@@ -35,9 +35,9 @@
     return `${size.toFixed(decimals)} ${units[index]}`;
   }
 
-  let percent = $derived(Math.max(0, Math.min(100, Number(progress?.percent || 0))));
-  let total = $derived(Number(progress?.total || 0));
-  let current = $derived(Number(progress?.current || 0));
+  let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
+  let total = $derived(progress?.total ?? 0);
+  let current = $derived(progress?.current ?? 0);
   let hasTotal = $derived(total > 0);
   let label = $derived(progress?.label || title);
   let message = $derived(progress?.message || "Please wait.");

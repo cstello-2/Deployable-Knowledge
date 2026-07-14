@@ -46,9 +46,7 @@ export const apiKeys = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
   },
-  (table) => [
-    uniqueIndex("api_keys_provider_idx").on(table.providerId),
-  ],
+  (table) => [uniqueIndex("api_keys_provider_idx").on(table.providerId)],
 );
 
 export const sessions = sqliteTable(
@@ -143,7 +141,10 @@ export const notebook_sources = sqliteTable(
   },
   (table) => [
     index("notebook_sources_notebook_idx").on(table.notebookId),
-    uniqueIndex("notebook_sources_unique_idx").on(table.notebookId, table.chunkId),
+    uniqueIndex("notebook_sources_unique_idx").on(
+      table.notebookId,
+      table.chunkId,
+    ),
   ],
 );
 
@@ -239,6 +240,28 @@ export const documents = sqliteTable(
   ],
 );
 
+export const tags = sqliteTable("tags", {
+  name: text("name", { length: 40 }).primaryKey(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const document_tags = sqliteTable(
+  "document_tags",
+  {
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    tag: text("tag", { length: 40 })
+      .notNull()
+      .references(() => tags.name, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("document_tags_unique_idx").on(table.documentId, table.tag),
+    index("document_tags_document_idx").on(table.documentId),
+    index("document_tags_tag_idx").on(table.tag),
+  ],
+);
+
 export const document_chunks = sqliteTable(
   "document_chunks",
   {
@@ -246,7 +269,9 @@ export const document_chunks = sqliteTable(
     documentId: text("document_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
-    chunkType: text("chunk_type", { enum: ["TEXT", "IMAGE", "TABLE"] }).notNull(),
+    chunkType: text("chunk_type", {
+      enum: ["TEXT", "IMAGE", "TABLE"],
+    }).notNull(),
     pageIndex: integer("page_index").notNull(),
     chunkIndex: integer("chunk_index").notNull(),
     content: text("content").notNull(),
@@ -257,7 +282,10 @@ export const document_chunks = sqliteTable(
     index("document_chunks_document_id_idx").on(table.documentId),
     index("document_chunks_chunk_type_idx").on(table.chunkType),
     index("document_chunks_page_idx").on(table.pageIndex),
-    index("document_chunks_document_chunk_idx").on(table.documentId, table.chunkIndex),
+    index("document_chunks_document_chunk_idx").on(
+      table.documentId,
+      table.chunkIndex,
+    ),
   ],
 );
 
@@ -300,11 +328,19 @@ export type NewUserSettings = typeof settings.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 
+export type Tag = typeof tags.$inferSelect;
+export type NewTag = typeof tags.$inferInsert;
+
+export type DocumentTag = typeof document_tags.$inferSelect;
+export type NewDocumentTag = typeof document_tags.$inferInsert;
+
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;
+
+// Helper types
 export type AssistantProfileValues = Pick<
   AssistantProfile,
   | "provider"
@@ -317,19 +353,24 @@ export type AssistantProfileValues = Pick<
   | "promptTemplateId"
   | "persona"
 >;
+
 export type ActiveAssistantProfile = AssistantProfile | null;
 export type AssistantProfileCreateValues = AssistantProfileValues &
   Pick<AssistantProfile, "name">;
+
 export type AssistantProfileUpdateValues = AssistantProfileValues &
   Partial<Pick<AssistantProfile, "name">>;
+
 export type AssistantProfileListResponse = {
   profiles: AssistantProfile[];
   activeProfileId: User["activeProfileId"];
 };
+
 export type AssistantProfileActivationResponse = {
   profile: AssistantProfile;
   activeProfileId: AssistantProfile["id"];
 };
+
 export type PromptTemplateFormValue = Pick<
   PromptTemplate,
   "name" | "description" | "systemPrompt"

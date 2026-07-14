@@ -1,4 +1,8 @@
 <script lang="ts">
+  import type {
+    ChatMessageRequest,
+    NotebookSourcesRequest,
+  } from "$lib/requestTypes";
   import { getContext, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
@@ -86,7 +90,9 @@
       await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chunk_ids: chunkIds }),
+        body: JSON.stringify({
+          chunk_ids: chunkIds,
+        } satisfies NotebookSourcesRequest),
       });
       window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
     }
@@ -157,7 +163,7 @@
     }];
     await scrollToBottom();
 
-    const requestBody: Record<string, unknown> = {
+    const requestBase = {
       message: text,
       model_id: appState.currentModelId,
       provider_id: appState.currentProviderId,
@@ -166,16 +172,21 @@
       top_k: appState.topK,
     };
 
-    if (notebookMode) {
-      requestBody.conversational = true;
-      requestBody.context = await fetchNotebookContext();
-      requestBody.notebook_id = appState.activeNotebookId;
-    } else {
-      requestBody.prompt_template_id = appState.promptTemplateId || null;
-      requestBody.persona = appState.persona;
-      requestBody.document_ids = getSelectedDocumentIds();
-      requestBody.rag_top_k = appState.ragTopK;
-    }
+    const requestBody: ChatMessageRequest = notebookMode
+      ? {
+          ...requestBase,
+          conversational: true,
+          context: await fetchNotebookContext(),
+          notebook_id: appState.activeNotebookId,
+        }
+      : {
+          ...requestBase,
+          conversational: false,
+          prompt_template_id: appState.promptTemplateId || null,
+          persona: appState.persona,
+          document_ids: getSelectedDocumentIds(),
+          rag_top_k: appState.ragTopK,
+        };
 
     const res = await fetch(
       `/sessions/${encodeURIComponent(session.id)}/messages`,

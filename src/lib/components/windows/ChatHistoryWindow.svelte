@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
+  import type { SessionTitleRequest } from "$lib/requestTypes";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import type { WindowInstanceProps } from "./index";
@@ -42,7 +43,7 @@
     await fetch(`/sessions/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title } satisfies SessionTitleRequest),
     });
   }
 
@@ -173,7 +174,8 @@
 
   .session-row:focus-within {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklab, var(--accent) 45%, transparent);
   }
 
   .session-main {
@@ -191,9 +193,8 @@
     align-self: stretch;
   }
 
-  .session-row:focus-visible {
-    outline: 2px solid hsl(var(--h) var(--sat) calc(var(--l-border) + 18%));
-    outline-offset: 2px;
+  .session-row > .session-action-button:last-child {
+    border-radius: 0 11px 11px 0;
   }
 
   @media (max-width: 680px) {

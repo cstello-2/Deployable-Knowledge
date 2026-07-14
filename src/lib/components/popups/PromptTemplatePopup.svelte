@@ -1,5 +1,6 @@
 <script lang="ts">
   import Popup from "$lib/components/popups/Popup.svelte";
+  import { PROMPT_TEMPLATE_PRESETS } from "$lib/components/popups/promptTemplatePresets";
   import type {
     PromptTemplate,
     PromptTemplateFormValue,
@@ -16,6 +17,7 @@
   let name = $state("");
   let description = $state("");
   let systemPrompt = $state("");
+  let selectedPresetId = $state("");
   let errorMessage = $state("");
 
   $effect(() => {
@@ -24,8 +26,28 @@
     name = template?.name ?? "";
     description = template?.description ?? "";
     systemPrompt = template?.systemPrompt ?? "";
+    selectedPresetId = "";
     errorMessage = "";
   });
+
+  function applyPreset() {
+    const preset = PROMPT_TEMPLATE_PRESETS.find(
+      (item) => item.id === selectedPresetId,
+    );
+
+    if (!preset) {
+      name = "";
+      description = "";
+      systemPrompt = "";
+      errorMessage = "";
+      return;
+    }
+
+    name = preset.name;
+    description = preset.description;
+    systemPrompt = preset.systemPrompt;
+    errorMessage = "";
+  }
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
@@ -54,6 +76,26 @@
   {onClose}
 >
   <form class="prompt-template-form" onsubmit={handleSubmit}>
+    {#if !template}
+      <div class="row">
+        <label for="prompt_template_preset">Start from preset</label>
+        <select
+          id="prompt_template_preset"
+          class="input"
+          bind:value={selectedPresetId}
+          onchange={applyPreset}
+        >
+          <option value="">Blank template</option>
+          {#each PROMPT_TEMPLATE_PRESETS as preset (preset.id)}
+            <option value={preset.id}>{preset.name}</option>
+          {/each}
+        </select>
+        <div class="preset-help">
+          Presets fill the fields below and can be edited before saving.
+        </div>
+      </div>
+    {/if}
+
     <div class="row">
       <label for="prompt_template_name">Name</label>
       <input
@@ -110,6 +152,11 @@
   label {
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .preset-help {
+    color: var(--muted);
+    font-size: 11px;
   }
 
   .system-prompt-input {

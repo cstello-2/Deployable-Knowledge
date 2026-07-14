@@ -29,7 +29,7 @@ export const GET: RequestHandler = async () => {
 
 export const POST: RequestHandler = async ({ request }) => {
   const body = (await request.json()) as AssistantProfileCreateValues;
-  const name = String(body.name ?? "").trim();
+  const name = body.name.trim();
 
   if (!name) {
     throw error(400, "Profile name is required");
@@ -48,8 +48,8 @@ export const POST: RequestHandler = async ({ request }) => {
       maxTokens: body.maxTokens,
       temperature: body.temperature,
       topK: body.topK,
-      retrievalMode: body.retrievalMode ?? "hybrid",
-      ragTopK: body.ragTopK ?? 5,
+      retrievalMode: body.retrievalMode,
+      ragTopK: body.ragTopK,
       promptTemplateId: body.promptTemplateId,
       persona: body.persona,
       createdAt: timestamp,

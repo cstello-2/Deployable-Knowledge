@@ -1,8 +1,10 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
 
+  import type { PromptTemplateRequest } from "$lib/requestTypes";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Dropdown from "$lib/components/menus/Dropdown.svelte";
+  import DropdownItem from "$lib/components/menus/DropdownItem.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import {
     AssistantApiKeyPopup,
@@ -16,6 +18,7 @@
     ActiveAssistantProfile,
     AssistantProfile,
     AssistantProfileActivationResponse,
+    AssistantProfileCreateValues,
     AssistantProfileListResponse,
     AssistantProfileValues,
     PromptTemplate,
@@ -117,13 +120,13 @@
 
     if (!profile) return;
 
-    appState.currentProviderId = profile.provider || "ollama";
-    appState.currentModelId = profile.model || "granite4:350m";
-    appState.maxTokens = profile.maxTokens ?? 512;
-    appState.temperature = profile.temperature ?? 0.2;
-    appState.topK = profile.topK ?? 8;
-    retrievalMode = profile.retrievalMode || "hybrid";
-    appState.ragTopK = profile.ragTopK ?? 5;
+    appState.currentProviderId = profile.provider;
+    appState.currentModelId = profile.model;
+    appState.maxTokens = profile.maxTokens;
+    appState.temperature = profile.temperature;
+    appState.topK = profile.topK;
+    retrievalMode = profile.retrievalMode;
+    appState.ragTopK = profile.ragTopK;
     appState.promptTemplateId = profile.promptTemplateId || "";
     appState.persona = profile.persona || "";
   }
@@ -195,7 +198,7 @@
       body: JSON.stringify({
         name,
         ...getProfileValues(),
-      }),
+      } satisfies AssistantProfileCreateValues),
     });
     const profile = (await resp.json()) as AssistantProfile;
 
@@ -359,7 +362,7 @@
         name: value.name,
         description: value.description,
         systemPrompt: value.systemPrompt,
-      }),
+      } satisfies PromptTemplateRequest),
     });
 
     const template = (await resp.json()) as PromptTemplate;
@@ -583,15 +586,10 @@
             </div>
           {/each}
 
-          <button
-            type="button"
-            class="dropdown-create-button"
-            role="menuitem"
-            onclick={createProfileFromMenu}
-          >
+          <DropdownItem create onclick={createProfileFromMenu}>
             <Icon name="add" size={16} />
             <span>New profile</span>
-          </button>
+          </DropdownItem>
         </Dropdown>
 
         <button
@@ -680,15 +678,10 @@
           </div>
         {/each}
 
-        <button
-          type="button"
-          class="dropdown-create-button"
-          role="menuitem"
-          onclick={openNewPromptTemplate}
-        >
+        <DropdownItem create onclick={openNewPromptTemplate}>
           <Icon name="add" size={16} />
           <span>New prompt template</span>
-        </button>
+        </DropdownItem>
       </Dropdown>
     </div>
 
@@ -1000,7 +993,7 @@
     border-color: var(--accent);
     box-shadow:
       inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
-      0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+      inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
   }
 
   .profile-trigger {
@@ -1054,8 +1047,9 @@
   .profile-save-button:focus-visible {
     position: relative;
     z-index: 1;
-    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-    outline-offset: -3px;
+    outline: none;
+    box-shadow: inset 0 0 0 2px
+      color-mix(in oklab, var(--accent) 70%, transparent);
   }
 
   .profile-save-button:active {
@@ -1111,8 +1105,7 @@
   }
 
   .model-option,
-  .prompt-template-option,
-  .dropdown-create-button {
+  .prompt-template-option {
     width: 100%;
     min-width: 0;
     min-height: 32px;
@@ -1142,8 +1135,7 @@
   .model-option:hover,
   .profile-item:hover,
   .prompt-template-item:hover,
-  .prompt-template-option:hover,
-  .dropdown-create-button:hover {
+  .prompt-template-option:hover {
     background: var(--assistant-option-hover-bg);
   }
 
@@ -1199,16 +1191,6 @@
     font-size: 12px;
   }
 
-  .dropdown-create-button {
-    display: inline-flex;
-    gap: 8px;
-    color: var(--muted);
-  }
-
-  .dropdown-create-button:hover {
-    color: var(--text);
-  }
-
   .dropdown-action-button {
     display: inline-grid;
     width: 34px;
@@ -1239,8 +1221,14 @@
   .dropdown-action-button:focus-visible {
     position: relative;
     z-index: 1;
-    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-    outline-offset: -3px;
+    outline: none;
+    box-shadow: inset 0 0 0 2px
+      color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+
+  .profile-item-actions .dropdown-action-button:last-child,
+  .prompt-template-item-actions .dropdown-action-button:last-child {
+    border-radius: 0 8px 8px 0;
   }
 
   .dropdown-action-button:active {

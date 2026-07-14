@@ -5,8 +5,8 @@ import {
   type ExtractedChunk,
   type ParsedChunk,
 } from "./parse-shared";
+import { RAG_CHUNK_CHARACTER_LIMIT } from "$lib/utils/contextLimits";
 
-const MAX_CHARS = 1200;
 const MIN_WORDS = 5;
 const OVERLAP_SENTENCES = 1;
 
@@ -28,7 +28,7 @@ function splitRangeByLength(text: string, start: number, end: number): SentenceS
 
     if (cursor >= end) break;
 
-    let splitAt = Math.min(cursor + MAX_CHARS, end);
+    let splitAt = Math.min(cursor + RAG_CHUNK_CHARACTER_LIMIT, end);
 
     if (splitAt < end) {
       const window = text.slice(cursor, splitAt + 1);
@@ -58,7 +58,7 @@ function splitRangeByLength(text: string, start: number, end: number): SentenceS
 
 function splitOversizedSpans(text: string, spans: SentenceSpan[]): SentenceSpan[] {
   return spans.flatMap((span) => {
-    if (span.end - span.start <= MAX_CHARS) {
+    if (span.end - span.start <= RAG_CHUNK_CHARACTER_LIMIT) {
       return span;
     }
 
@@ -187,7 +187,7 @@ function chunkSentenceSpans(
     while (end < boundedSpans.length) {
       const candidateLength = boundedSpans[end].end - boundedSpans[cursor].start;
 
-      if (candidateLength > MAX_CHARS) {
+      if (candidateLength > RAG_CHUNK_CHARACTER_LIMIT) {
         break;
       }
 
@@ -204,7 +204,7 @@ function chunkSentenceSpans(
         chunkId: buildChunkId(page, chunkIndex, chunkContent),
         chunkType: page.chunkType,
         source: page.source,
-        pageIndex: Number(page.pageIndex),
+        pageIndex: page.pageIndex,
         chunkIndex,
         content: chunkContent,
       });
@@ -244,7 +244,7 @@ function chunkPage(page: ExtractedChunk): ParsedChunk[] {
         chunkId: buildChunkId(page, chunkIndex, chunkContent),
         chunkType: page.chunkType,
         source: page.source,
-        pageIndex: Number(page.pageIndex),
+        pageIndex: page.pageIndex,
         chunkIndex,
         content: chunkContent,
       };

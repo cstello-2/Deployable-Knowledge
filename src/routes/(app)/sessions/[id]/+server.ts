@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
+import type { SessionTitleRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { session_messages, sessions } from "$lib/server/database/schema";
 import type { RequestHandler } from "./$types";
@@ -23,8 +24,11 @@ export const GET: RequestHandler = async ({ params }) => {
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const title = String(body.title ?? "").trim();
+  const body = (await request.json()) as SessionTitleRequest;
+  const title = body.title.trim();
+  if (!title) {
+    return json({ error: "Session title is required" }, { status: 400 });
+  }
   await db
     .update(sessions)
     .set({ title, updatedAt: new Date() })

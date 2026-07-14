@@ -1,19 +1,50 @@
 import { resolve } from "node:path";
-import { env, pipeline } from "@huggingface/transformers";
+import {
+  env,
+  ModelRegistry,
+  pipeline,
+  type ProgressCallback,
+} from "@huggingface/transformers";
 
 export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
+export const EMBEDDING_DTYPE = "q8";
 
-const EMBEDDING_DTYPE = "q8";
 const EMBEDDING_BATCH_SIZE = 32;
 const EMBEDDING_CACHE_DIR = resolve(process.cwd(), ".cache", "transformersjs");
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
 env.localModelPath = EMBEDDING_CACHE_DIR;
-// Remote downloads are opt-in; normal runs should use the configured local cache
+// Missing model files can be repaired from the Hub; cached launches stay local.
 env.allowRemoteModels = true;
 
 let embeddingPipelinePromise: Promise<any> | null = null;
+const progressListeners = new Set<ProgressCallback>();
+
+const reportProgress: ProgressCallback = (progress) => {
+  for (const listener of progressListeners) listener(progress);
+};
+
+export async function isEmbeddingModelInstalled() {
+  return ModelRegistry.is_pipeline_cached(
+    "feature-extraction",
+    EMBEDDING_MODEL,
+    {
+      cache_dir: EMBEDDING_CACHE_DIR,
+      dtype: EMBEDDING_DTYPE,
+    },
+  );
+}
+
+export async function installEmbeddingModel(onProgress: ProgressCallback) {
+  progressListeners.add(onProgress);
+
+  try {
+    await getEmbeddingPipeline();
+  } finally {
+    progressListeners.delete(onProgress);
+  }
+}
 
 // Load the transformer once and reuse it across ingest/search calls
 async function getEmbeddingPipeline() {
@@ -21,10 +52,12 @@ async function getEmbeddingPipeline() {
     // Clear the cached promise on failure so a transient/missing-cache error doesn't
     // permanently wedge the pipeline for the rest of the process's lifetime.
     embeddingPipelinePromise = pipeline("feature-extraction", EMBEDDING_MODEL, {
-      dtype: EMBEDDING_DTYPE as "q8" | "q4" | "fp32" | "fp16",
-    }).catch((err) => {
+      dtype: EMBEDDING_DTYPE,
+      cache_dir: EMBEDDING_CACHE_DIR,
+      progress_callback: reportProgress,
+    }).catch((error) => {
       embeddingPipelinePromise = null;
-      throw err;
+      throw error;
     });
   }
 

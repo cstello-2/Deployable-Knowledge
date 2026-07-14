@@ -121,8 +121,6 @@ export async function searchBm25(options: Bm25SearchOptions): Promise<Bm25Search
 
     return [{
       ...row,
-      pageIndex: Number(row.pageIndex),
-      chunkIndex: Number(row.chunkIndex),
       score,
     }];
   });

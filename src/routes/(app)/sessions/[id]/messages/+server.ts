@@ -1,16 +1,17 @@
+import { json } from "@sveltejs/kit";
 import { and, asc, eq } from "drizzle-orm";
+import type { ChatMessageRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
   document_chunks,
   notebook_sources,
   profiles,
   promptTemplates,
-  settings,
   type SessionMessage,
   sessions,
   session_messages,
 } from "$lib/server/database/schema";
-import { localUsername, seedLocalUser } from "$lib/server/database/seed";
+import { seedLocalUser } from "$lib/server/database/seed";
 import { getProvider } from "$lib/server/providers/registry";
 import type {
   Provider,
@@ -21,6 +22,10 @@ import {
   type RagContextResult,
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
+import {
+  NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
+  RAG_CHUNK_CHARACTER_LIMIT,
+} from "$lib/utils/contextLimits";
 import type { RequestHandler } from "./$types";
 
 // Notebook mode (RAG off) uses this conversational prompt instead of the strict
@@ -41,6 +46,9 @@ function createConversationalPrompt(
   context = "",
 ): string {
   const lines = [`system: ${CONVERSATIONAL_SYSTEM_PROMPT}`];
+
+  // We take the last 20 messages to feed into context, we may need to
+  // expand upon this to avoid hitting the token limit ceiling
   for (const message of messages.slice(-20)) {
     lines.push(`${message.role}: ${message.content}`);
   }
@@ -51,7 +59,9 @@ function createConversationalPrompt(
     // text right at the point of generation. The instruction is deliberately
     // balanced: use the material as source data, but still perform the task
     // rather than copying the material back.
-    lines.push(`Reference material (background knowledge — do not reprint it):\n\n${context}`);
+    lines.push(
+      `Reference material (background knowledge — do not reprint it):\n\n${context}`,
+    );
     lines.push(
       `user: Use the reference material above as background knowledge. Then respond to the request below in your own words:\n` +
         `- Answer or complete the request, adding explanation, detail, and reasoning that go beyond what the material literally says.\n` +
@@ -76,7 +86,7 @@ function createPrompt(
 ) {
   const lines = [];
   const ragInstruction = ragContext
-    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say you do not know."
+    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say 'I do not know the answer to that based off the context provided'."
     : "";
   const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : "";
   const systemParts = [systemPrompt, ragInstruction, personaBlock, ragContext]
@@ -95,25 +105,42 @@ function createPrompt(
   return lines.join("\n\n");
 }
 
-const MAX_SOURCE_EXCERPT_CHARS = 1200;
-
 // Chunks attached to a notebook via "Send to Notebook" — never shown in the
 // notebook page text, but pulled in here so notebook-mode chat can use them.
 async function getNotebookSourceExcerpts(notebookId: string): Promise<string> {
   const rows = await db
     .select({ content: document_chunks.content })
     .from(notebook_sources)
-    .innerJoin(document_chunks, eq(document_chunks.id, notebook_sources.chunkId))
+    .innerJoin(
+      document_chunks,
+      eq(document_chunks.id, notebook_sources.chunkId),
+    )
     .where(eq(notebook_sources.notebookId, notebookId));
 
   if (!rows.length) return "";
 
-  return rows
-    .map((row, index) => {
-      const text = row.content.replace(/\s+/g, " ").trim().slice(0, MAX_SOURCE_EXCERPT_CHARS);
-      return `[${index + 1}] ${text}`;
-    })
-    .join("\n\n");
+  const excerpts: string[] = [];
+  let remaining = NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT;
+
+  for (const [index, row] of rows.entries()) {
+    const prefix = `[${index + 1}] `;
+    const separatorLength = excerpts.length ? 2 : 0;
+    const available = remaining - prefix.length - separatorLength;
+    if (available <= 0) break;
+
+    const text = row.content
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, Math.min(RAG_CHUNK_CHARACTER_LIMIT, available));
+
+    if (!text) continue;
+
+    const excerpt = `${prefix}${text}`;
+    excerpts.push(excerpt);
+    remaining -= excerpt.length + separatorLength;
+  }
+
+  return excerpts.join("\n\n");
 }
 
 async function createTitle(
@@ -139,35 +166,19 @@ async function createTitle(
   return title.trim().split("\n")[0] || "New conversation";
 }
 
-function readRetrievalMode(value: unknown): RagRetrievalMode {
-  if (value === "semantic" || value === "bm25" || value === "hybrid") {
-    return value;
-  }
-
-  return "hybrid";
-}
-
-function readDocumentIds(body: Record<string, unknown>) {
-  const values = Array.isArray(body.documentIds)
-    ? body.documentIds
-    : Array.isArray(body.document_ids)
-      ? body.document_ids
-      : [];
-
-  return values.map((value: unknown) => String(value).trim()).filter(Boolean);
-}
-
-function readOptionalString(...values: unknown[]) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-
-  return undefined;
-}
-
 export const POST: RequestHandler = async ({ params, request }) => {
-  const body = (await request.json()) as Record<string, unknown>;
+  const body = (await request.json()) as ChatMessageRequest;
+
+  if (
+    !body.message.trim() ||
+    !body.model_id.trim() ||
+    !body.provider_id.trim()
+  ) {
+    return json({ error: "Invalid request body" }, { status: 400 });
+  }
+
   const user = await seedLocalUser();
+
   const profile = user.activeProfileId
     ? await db
         .select()
@@ -180,58 +191,23 @@ export const POST: RequestHandler = async ({ params, request }) => {
         )
         .get()
     : null;
-  const userSettings = await db
-    .select()
-    .from(settings)
-    .where(eq(settings.id, localUsername))
-    .get();
 
-  const message = String(body.message).trim();
-  const modelId =
-    readOptionalString(
-      body.modelId,
-      body.model_id,
-      profile?.model,
-      userSettings?.model,
-    ) || "granite4:350m";
-  const providerId =
-    readOptionalString(
-      body.providerId,
-      body.provider_id,
-      profile?.provider,
-      userSettings?.provider,
-    ) || "ollama";
-  const persona =
-    readOptionalString(body.persona, profile?.persona, userSettings?.persona) ||
-    "";
-  const documentIds = readDocumentIds(body);
-  const retrievalMode = readRetrievalMode(
-    profile?.retrievalMode || userSettings?.retrievalMode,
-  );
-  const promptTemplateId =
-    readOptionalString(
-      body.promptTemplateId,
-      body.prompt_template_id,
-      profile?.promptTemplateId,
-      userSettings?.promptTemplateId,
-    );
-  const options = {
-    temperature: Number(
-      body.temperature ?? profile?.temperature ?? userSettings?.temperature ??
-        0.2,
-    ),
-    topK: Number(
-      body.topK ?? body.top_k ?? profile?.topK ?? userSettings?.topK ?? 8,
-    ),
-    maxTokens: Number(
-      body.maxTokens ?? body.max_tokens ?? profile?.maxTokens ??
-        userSettings?.maxTokens ?? 512,
-    ),
+  const message = body.message.trim();
+  const modelId = body.model_id.trim();
+  const providerId = body.provider_id.trim();
+  const storedRetrievalMode = profile?.retrievalMode;
+  const retrievalMode: RagRetrievalMode =
+    storedRetrievalMode === "semantic" ||
+    storedRetrievalMode === "bm25" ||
+    storedRetrievalMode === "hybrid"
+      ? storedRetrievalMode
+      : "hybrid";
+
+  const options: ProviderChatOptions = {
+    temperature: body.temperature,
+    topK: body.top_k,
+    maxTokens: body.max_tokens,
   };
-  const ragTopK = Number(
-    body.ragTopK ?? body.rag_top_k ?? profile?.ragTopK ??
-      userSettings?.ragTopK ?? 5,
-  );
 
   const [existing] = await db
     .select()
@@ -257,41 +233,46 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .orderBy(asc(session_messages.id));
 
   const provider = getProvider(providerId);
+  const promptTemplateId = body.conversational
+    ? null
+    : body.prompt_template_id;
   const promptTemplate =
-    typeof promptTemplateId === "string" && promptTemplateId.trim()
+    promptTemplateId
       ? await db
           .select()
           .from(promptTemplates)
           .where(
             and(
-              eq(promptTemplates.id, promptTemplateId.trim()),
+              eq(promptTemplates.id, promptTemplateId),
               eq(promptTemplates.userId, user.id),
             ),
           )
           .get()
       : null;
-  const conversational = body.conversational === true;
-  const pageContext = typeof body.context === "string" ? body.context.trim() : "";
-  const notebookId = readOptionalString(body.notebookId, body.notebook_id) ?? "";
+  const persona = body.conversational ? "" : body.persona;
+  const pageContext = body.conversational ? body.context : "";
+  const notebookId = body.conversational ? body.notebook_id : null;
 
-  const ragContext: RagContextResult = conversational
+  const ragContext: RagContextResult = body.conversational
     ? { mode: retrievalMode, contextBlock: "", sources: [] }
     : await retrieveRagContext({
         question: message,
-        documentIds,
+        documentIds: body.document_ids,
         mode: retrievalMode,
-        topK: ragTopK,
+        topK: body.rag_top_k,
       });
 
   // Notebook-mode context = the visible page text + the notebook's attached
   // sources (hidden from the notebook page, invisible to the user, but the
   // model sees the full excerpts).
-  const sourceExcerpts = conversational && notebookId
-    ? await getNotebookSourceExcerpts(notebookId)
-    : "";
+  const sourceExcerpts =
+    body.conversational && notebookId
+      ? await getNotebookSourceExcerpts(notebookId)
+      : "";
+
   const context = [pageContext, sourceExcerpts].filter(Boolean).join("\n\n");
 
-  const prompt = conversational
+  const prompt = body.conversational
     ? createConversationalPrompt(messages, message, context)
     : createPrompt(
         messages,

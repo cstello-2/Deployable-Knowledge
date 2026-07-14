@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+import type { SettingsUpdateRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { settings } from "$lib/server/database/schema";
 import { localUsername, seedLocalUser } from "$lib/server/database/seed";
@@ -20,11 +21,7 @@ export const GET: RequestHandler = async () => {
 export const PATCH: RequestHandler = async ({ request }) => {
   await seedLocalUser();
 
-  const body = await request.json();
-  const promptTemplateId =
-    typeof body.promptTemplateId === "string" && body.promptTemplateId.trim()
-      ? body.promptTemplateId.trim()
-      : null;
+  const body = (await request.json()) as SettingsUpdateRequest;
 
   const [row] = await db
     .update(settings)
@@ -36,7 +33,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
       topK: body.topK,
       retrievalMode: body.retrievalMode,
       ragTopK: body.ragTopK,
-      promptTemplateId,
+      promptTemplateId: body.promptTemplateId,
       persona: body.persona,
       updatedAt: new Date(),
     })

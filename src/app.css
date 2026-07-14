@@ -176,7 +176,7 @@ input[type="url"]:focus,
 select:focus,
 textarea:focus {
 	border-color: var(--accent);
-	box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 .textarea,
@@ -295,7 +295,7 @@ textarea:disabled {
 	border-color: var(--accent);
 	box-shadow:
 		inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
-		0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+		inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 .inline-action-control .input {
@@ -332,6 +332,16 @@ textarea:disabled {
 
 .inline-button-group .inline-action-button:first-child {
 	border-left: 0;
+	border-radius: 13px 0 0 13px;
+}
+
+.inline-action-control > .inline-action-button:last-child,
+.inline-button-group > .inline-action-button:last-child {
+	border-radius: 0 13px 13px 0;
+}
+
+.inline-button-group > .inline-action-button:only-child {
+	border-radius: 13px;
 }
 
 .inline-action-button:hover {
@@ -347,8 +357,8 @@ textarea:disabled {
 .inline-action-button:focus-visible {
 	position: relative;
 	z-index: 1;
-	outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-	outline-offset: -3px;
+	outline: none;
+	box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 70%, transparent);
 }
 
 .inline-action-button:active {
@@ -394,6 +404,16 @@ textarea:disabled {
 .list-item.selected {
 	border-color: var(--accent);
 	background: color-mix(in oklab, var(--accent) 8%, hsl(var(--h) var(--sat) var(--l-panel)));
+}
+
+.entity-navigation-icon {
+	display: inline-grid;
+	width: 36px;
+	height: 36px;
+	border-radius: 10px;
+	background: color-mix(in oklab, var(--accent) 12%, transparent);
+	color: color-mix(in oklab, var(--accent) 80%, var(--text));
+	place-items: center;
 }
 
 .li-title {
@@ -487,34 +507,9 @@ textarea:disabled {
 	transform: scale(1);
 }
 
-.tag-menu {
-	position: absolute;
-	z-index: 50;
-	display: grid;
-	width: 180px;
-	gap: 6px;
-	padding: 6px;
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	background: var(--panel);
-	box-shadow: var(--shadow);
-}
-
-.tag-menu-title {
+.docs-tag-dialog-title {
 	font-size: 12px;
 	font-weight: 600;
-}
-
-.tag-menu-list {
-	display: flex;
-	max-height: 150px;
-	flex-wrap: wrap;
-	gap: 4px;
-	overflow: auto;
-}
-
-.menu-empty {
-	padding: 6px 2px;
 }
 
 .bulk-bar {
@@ -651,16 +646,6 @@ textarea:disabled {
 	display: grid;
 	min-width: 0;
 	gap: 4px;
-}
-
-.document-tag-wrap {
-	position: relative;
-	display: inline-flex;
-}
-
-.document-tag-wrap > .tag-menu {
-	top: calc(100% + 6px);
-	left: 0;
 }
 
 .document-add {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ProviderApiKeyRequest } from "$lib/requestTypes";
   import Popup from "$lib/components/popups/Popup.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
@@ -60,7 +61,7 @@
     await fetch(`/providers/${encodeURIComponent(provider.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ apiKey } satisfies ProviderApiKeyRequest),
     });
 
     await onChanged();
