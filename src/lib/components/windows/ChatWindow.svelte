@@ -3,13 +3,7 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
-  import {
-    isKnowledgeGraphReady,
-    knowledgeGraphState,
-    knowledgeGraphStateMatches,
-    refreshKnowledgeGraphStatus,
-    type KnowledgeGraphClientState,
-  } from "$lib/utils/knowledgeGraphState";
+  import { showWindow } from "$lib/utils/workspaceState";
   import { type WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session, SessionMessage } from "$lib/server/database/schema";
@@ -31,30 +25,11 @@
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
+  let sendDisabled = $derived(busy || !draft.trim());
   let loadedSessionId: string | undefined;
   let selectedAssistantText = $state("");
-  let currentGraphState = $derived(
-    knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds)
-      ? $knowledgeGraphState
-      : null,
-  );
-  let graphReady = $derived(
-    appState.retrievalMode !== "graph" ||
-      ($selectedDocumentIds.length > 0 &&
-        isKnowledgeGraphReady($knowledgeGraphState, $selectedDocumentIds)),
-  );
-  let graphReadinessMessage = $derived(
-    formatGraphReadinessMessage(appState.retrievalMode, currentGraphState),
-  );
-  let sendDisabled = $derived(busy || !draft.trim() || !graphReady);
 
-  type Source = {
-    url?: string;
-    title?: string;
-    description?: string;
-    score?: number;
-    rawScore?: number;
-  };
+  type Source = { url?: string; title?: string; description?: string; score?: number };
 
   function getMessageSources(message: SessionMessage): Source[] {
     return (message.metadata as { sources?: Source[] })?.sources ?? [];
@@ -63,26 +38,12 @@
   function messageRetrievalMode(message: SessionMessage): string | undefined {
     return (message.metadata as { retrievalMode?: string })?.retrievalMode;
   }
-  function sourceScorePercent(source: Source): number {
-    if (source.score == null || !Number.isFinite(source.score)) return 0;
-    return Math.round(Math.max(0, Math.min(1, source.score)) * 100);
-  }
-
-  function sourceScoreLabel(source: Source) {
-    return source.score == null ? "N/A" : `${sourceScorePercent(source)}%`;
-  }
-  async function assistantErrorMessage(response: Response) {
-    try {
-      const body = await response.json() as { message?: unknown };
-      if (typeof body.message === "string" && body.message.trim()) {
-        return body.message;
-      }
-    } catch {
-      // Fall back to a concise HTTP error when the response is not JSON.
-    }
-
-    return `Assistant request failed (${response.status})`;
-  }
+  // Semantic score is a cosine similarity in [-1, 1], so it doubles as an angular-similarity percentage
+  function angularSimilarityPercent(s: Source): number | null { return s.score != null ? Math.round(s.score * 100) : null; }
+  function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
+  // BM25 scores are unbounded, so show the raw score rather than treating it as a percentage
+  function bm25ScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
+  function rawScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
   let sendToNotebookVisible = $state(false);
   let sendToNotebookTop = $state(0);
   let sendToNotebookLeft = $state(0);
@@ -94,45 +55,6 @@
     loadedSessionId = sessionId;
     refresh(sessionId).catch(() => {});
   });
-
-  $effect(() => {
-    const retrievalMode = appState.retrievalMode;
-    const documentIds = $selectedDocumentIds;
-    if (retrievalMode !== "graph") return;
-
-    void refreshKnowledgeGraphStatus(documentIds);
-  });
-
-  function formatGraphReadinessMessage(
-    retrievalMode: string,
-    state: KnowledgeGraphClientState | null,
-  ) {
-    if (retrievalMode !== "graph") return "";
-    if ($selectedDocumentIds.length === 0) {
-      return "Select at least one document before asking a Knowledge Graph question.";
-    }
-    if (!state || state.status === "unknown" || state.status === "checking") {
-      return "Checking Knowledge Graph status...";
-    }
-    if (state.status === "building") {
-      return "The Knowledge Graph is building. Questions will be enabled when it finishes.";
-    }
-    if (state.status === "unavailable") {
-      return state.message || "Knowledge Graph status is unavailable.";
-    }
-    if (state.status === "failed") {
-      return "The Knowledge Graph build failed. Retry it from the Document Library.";
-    }
-    if (state.status === "not_built") {
-      return state.needsRebuild
-        ? "The Knowledge Graph needs to be rebuilt for the current documents. Use the Document Library to rebuild it."
-        : "Build the Knowledge Graph for the current documents in the Document Library before asking a graph question.";
-    }
-
-    return state.needsRebuild
-      ? "The Knowledge Graph needs to be rebuilt for the current documents."
-      : "";
-  }
 
   async function refresh(sessionId = appState.currentSession?.id) {
     const nextMessages = await loadMessages(sessionId);
@@ -193,13 +115,15 @@
     window.getSelection()?.removeAllRanges();
   }
 
+  function openGraphGalaxy() {
+    const visualQuery = draft.trim() || appState.lastQuery;
+    showWindow("graph-galaxy-window");
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }));
+  }
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
-    if (!graphReady) {
-      void refreshKnowledgeGraphStatus($selectedDocumentIds);
-      return;
-    }
 
     const text = draft.trim();
     if (!text) return;
@@ -209,74 +133,55 @@
     status = "";
     appState.lastQuery = text;
 
-    try {
-      const session = appState.currentSession ?? (await createSession());
-      appState.currentSession = session;
+    const session = appState.currentSession ?? (await createSession());
+    appState.currentSession = session;
 
-      messages = [...messages, {
-        id: (messages.at(-1)?.id ?? 0) + 1,
-        role: "user",
-        content: text,
-        createdAt: new Date(),
-        sessionId: session.id,
-        metadata: null,
-      }];
+    messages = [...messages, {
+      id: (messages.at(-1)?.id ?? 0) + 1,
+      role: "user",
+      content: text,
+      createdAt: new Date(),
+      sessionId: session.id,
+      metadata: null,
+    }];
 
-      await scrollToBottom();
+    await scrollToBottom();
 
-      const res = await fetch(`/sessions/${session.id}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          model_id: appState.currentModelId,
-          provider_id: appState.currentProviderId,
-          max_tokens: appState.maxTokens,
-          temperature: appState.temperature,
-          top_k: appState.topK,
-          prompt_template_id: appState.promptTemplateId || null,
-          persona: appState.persona,
-          document_ids: $selectedDocumentIds,
-          retrieval_mode: appState.retrievalMode,
-          rag_top_k: appState.ragTopK,
-        }),
-      });
+    const res = await fetch(`/sessions/${session.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        model_id: appState.currentModelId,
+        provider_id: appState.currentProviderId,
+        max_tokens: appState.maxTokens,
+        temperature: appState.temperature,
+        top_k: appState.topK,
+        prompt_template_id: appState.promptTemplateId || null,
+        persona: appState.persona,
+        document_ids: $selectedDocumentIds,
+        retrieval_mode: appState.retrievalMode,
+        rag_top_k: appState.ragTopK,
+      }),
+    });
 
-      if (!res.ok) {
-        const message = await assistantErrorMessage(res);
-        if (res.status === 409 && appState.retrievalMode === "graph") {
-          void refreshKnowledgeGraphStatus($selectedDocumentIds);
-        }
-        throw new Error(message);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
+        messageStream += token;
+        await scrollToBottom();
       }
-      if (!res.body) {
-        throw new Error("Assistant returned an empty response stream");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
-          messageStream += token;
-          await scrollToBottom();
-        }
-      }
-
-      messages = await loadMessages(session.id);
-      loadedSessionId = session.id;
-      await scrollToBottom();
-    } catch (error) {
-      console.error("Assistant chat error:", error);
-      status = error instanceof Error
-        ? error.message
-        : "Assistant request failed. Check the server log and try again.";
-    } finally {
-      busy = false;
-      messageStream = "";
     }
+
+    messages = await loadMessages(session.id);
+    loadedSessionId = session.id;
+    busy = false;
+    messageStream = "";
+    await scrollToBottom();
   }
 
   async function createNewChat() {
@@ -312,12 +217,6 @@
     {#if status}
       <div class="chat-status li-subtle">
         {status}
-      </div>
-    {/if}
-
-    {#if graphReadinessMessage}
-      <div class="chat-status chat-graph-status li-subtle" role="status" aria-live="polite">
-        {graphReadinessMessage}
       </div>
     {/if}
 
@@ -368,20 +267,16 @@
                             {/if}
                           </div>
                           {#if retrievalMode === "semantic"}
-                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
-                              Similarity: {sourceScoreLabel(source)}
+                            <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
+                              Angular Similarity: {sourceScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "bm25"}
-                            <span
-                              class="chat-source-score"
-                              style={`--score-pct: ${sourceScorePercent(source)}%`}
-                              title={source.rawScore == null ? "Relative BM25 relevance" : `Raw BM25 score: ${source.rawScore.toFixed(4)}`}
-                            >
-                              Relative relevance: {sourceScoreLabel(source)}
+                            <span class="chat-source-score">
+                              BM25 Score: {bm25ScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "hybrid" || retrievalMode === "graph"}
-                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
-                              Relevance: {sourceScoreLabel(source)}
+                            <span class="chat-source-score">
+                              Score: {rawScoreLabel(source)}
                             </span>
                           {/if}
                         </div>
@@ -416,9 +311,7 @@
       <input
         class="input"
         type="text"
-        placeholder={appState.retrievalMode === "graph" && !graphReady
-          ? "Build Knowledge Graph to ask questions"
-          : "Type a message..."}
+        placeholder="Type a message..."
         bind:value={draft}
         aria-label="Message"
         disabled={busy}
@@ -432,6 +325,15 @@
         onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
+      </button>
+      <button
+        class="chat-action-button chat-graph-button"
+        type="button"
+        aria-label="Visualize knowledge graph"
+        title="Visualize knowledge graph"
+        onclick={openGraphGalaxy}
+      >
+        <Icon name="hub" size={16} />
       </button>
       <button
         class="chat-action-button chat-send-button"
@@ -486,13 +388,6 @@
   .chat-status {
     margin-bottom: 8px;
     overflow-wrap: anywhere;
-  }
-
-  .chat-graph-status {
-    padding: 7px 9px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
   }
 
   .chat-log {
@@ -705,7 +600,7 @@
 
   .chat-input {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
@@ -784,7 +679,7 @@
 
   @media (max-width: 680px) {
     .chat-input {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .chat-input .input {
@@ -797,6 +692,10 @@
       width: 100%;
       min-width: 0;
       border-left: 0;
+    }
+
+    .chat-graph-button {
+      border-left: 1px solid var(--border);
     }
 
     .chat-send-button {
