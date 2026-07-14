@@ -184,8 +184,6 @@
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
 
-    if (!dragging) yaw += 0.0008;
-
     const projected = projectNodes(width, height);
     drawBackdrop(context, width, height);
     drawEdges(context, projected);
