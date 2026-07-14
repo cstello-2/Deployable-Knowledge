@@ -5,6 +5,7 @@
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import { showWindow } from "$lib/utils/workspaceState";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type {
@@ -144,12 +145,20 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
+  async function openGraphGalaxy() {
+    const visualQuery = draft.trim() || appState.lastQuery;
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }));
+  }
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
     const text = draft.trim();
     if (!text) return;
 
+    appState.lastQuery = text;
     draft = "";
     busy = true;
 
@@ -340,6 +349,15 @@
         onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
+      </button>
+      <button
+        class="chat-action-button chat-graph-button"
+        type="button"
+        aria-label="Visualize knowledge graph"
+        title="Visualize knowledge graph"
+        onclick={openGraphGalaxy}
+      >
+        <Icon name="hub" size={16} />
       </button>
       <button
         class="chat-action-button chat-send-button"
@@ -615,7 +633,7 @@
 
   .chat-input {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
@@ -687,7 +705,7 @@
 
   @media (max-width: 680px) {
     .chat-input {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
     .chat-input .input {
