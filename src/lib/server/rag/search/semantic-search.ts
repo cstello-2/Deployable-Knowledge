@@ -7,13 +7,13 @@ import { document_chunks, documents } from "../../database/schema";
 import { embedTexts } from "../embedding-model";
 import {
   cleanFilterValues,
+  type ScoredSearchMatch,
   type SearchChunkType,
-  type SearchMatchBase,
   type SearchOptionsBase,
   type SearchResult,
 } from "./search-shared";
 
-export type SemanticSearchMatch = SearchMatchBase;
+export type SemanticSearchMatch = ScoredSearchMatch;
 export type SemanticSearchResult = SearchResult<SemanticSearchMatch>;
 
 type CandidateRow = {

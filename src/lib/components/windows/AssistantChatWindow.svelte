@@ -19,8 +19,7 @@
     title?: string;
     description?: string;
     chunkId?: string;
-    pageIndex?: number;
-    score?: number;
+    relevanceScore?: number;
   };
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
@@ -29,14 +28,6 @@
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
     return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
-  }
-
-  function sourceScorePct(source: ChatSource): number {
-    return source.score != null ? Math.round(source.score * 100) : 0;
-  }
-
-  function sourceScoreLabel(source: ChatSource): string {
-    return source.score != null ? `${Math.round(source.score * 100)}%` : "N/A";
   }
 
   let {
@@ -152,6 +143,7 @@
 
     draft = "";
     busy = true;
+    appState.lastQuery = text;
 
     const session = appState.currentSession ?? (await createSession());
 
@@ -277,9 +269,9 @@
                           </div>
                           <span
                             class="chat-source-score"
-                            style={`--score-pct: ${sourceScorePct(source)}%`}
+                            style={`--score-pct: ${Math.round((source.relevanceScore ?? 0) * 100)}%`}
                           >
-                            Angular Similarity: {sourceScoreLabel(source)}
+                            Relevance: {source.relevanceScore?.toFixed(3) ?? "N/A"}
                           </span>
                         </div>
                       </div>

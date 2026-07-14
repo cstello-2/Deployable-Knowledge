@@ -9,15 +9,15 @@ import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
 import {
   cleanFilterValues,
+  type ScoredSearchMatch,
   type SearchChunkType,
-  type SearchMatchBase,
   type SearchOptionsBase,
   type SearchResult,
 } from "./search-shared";
 
 export type Bm25SearchOptions = SearchOptionsBase;
 
-export type Bm25SearchMatch = SearchMatchBase;
+export type Bm25SearchMatch = ScoredSearchMatch;
 export type Bm25SearchResult = SearchResult<Bm25SearchMatch>;
 
 type CandidateRow = Omit<Bm25SearchMatch, "score">;

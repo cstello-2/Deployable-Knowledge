@@ -21,4 +21,5 @@ export class AppState {
   promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
   ragTopK = $state(5);
+  lastQuery = $state("");
 }

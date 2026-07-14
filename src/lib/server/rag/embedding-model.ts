@@ -9,6 +9,7 @@ const EMBEDDING_CACHE_DIR = resolve(process.cwd(), ".cache", "transformersjs");
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
+env.localModelPath = EMBEDDING_CACHE_DIR;
 // Remote downloads are opt-in; normal runs should use the configured local cache
 env.allowRemoteModels = true;
 
@@ -17,8 +18,13 @@ let embeddingPipelinePromise: Promise<any> | null = null;
 // Load the transformer once and reuse it across ingest/search calls
 async function getEmbeddingPipeline() {
   if (!embeddingPipelinePromise) {
+    // Clear the cached promise on failure so a transient/missing-cache error doesn't
+    // permanently wedge the pipeline for the rest of the process's lifetime.
     embeddingPipelinePromise = pipeline("feature-extraction", EMBEDDING_MODEL, {
       dtype: EMBEDDING_DTYPE as "q8" | "q4" | "fp32" | "fp16",
+    }).catch((err) => {
+      embeddingPipelinePromise = null;
+      throw err;
     });
   }
 

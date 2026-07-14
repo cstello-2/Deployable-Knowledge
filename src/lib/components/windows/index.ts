@@ -39,9 +39,15 @@ export const windowDefinitions = [
   },
   {
     id: "assistant-settings",
-    title: "Assistant Settings",
+    title: "Settings",
     column: "right",
     component: AssistantSettings,
+  },
+  {
+    id: "search-context-window",
+    title: "Search Context",
+    column: "right",
+    component: SearchWindow,
   },
   {
     id: "chat-history-window",
@@ -54,11 +60,5 @@ export const windowDefinitions = [
     title: "Notebook",
     column: "right",
     component: NotebookWindow,
-  },
-  {
-    id: "search-window",
-    title: "Search Settings",
-    column: "right",
-    component: SearchWindow,
   },
 ] satisfies WindowDefinition[];
