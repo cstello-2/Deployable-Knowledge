@@ -10,8 +10,6 @@ import { getProvider } from "$lib/server/providers/registry";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  if (!params.id) return json({ status: "error", provider_id: params.id });
-
   const provider = getProvider(params.id);
   const availableOnly = url.searchParams.get("available") === "true";
   const apiKey = await provider.getApiKey();
@@ -31,7 +29,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
 
   const body = await request.json();
-  const apiKey = String(body.apiKey ?? body.api_key ?? "").trim();
+  const apiKey = String(body.apiKey ?? "").trim();
 
   if (!apiKey) {
     throw error(400, "API key is required");

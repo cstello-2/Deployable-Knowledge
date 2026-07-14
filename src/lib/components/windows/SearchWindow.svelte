@@ -36,7 +36,7 @@
   ];
 
   let query = $state(appState.lastQuery);
-  let retrievalMode = $state(readRetrievalMode(appState.retrievalMode));
+  let retrievalMode = $state<RetrievalMode>("hybrid");
   let ragTopK = $state(appState.ragTopK);
   let results = $state<SearchResults>({
     semantic: [],
@@ -46,14 +46,6 @@
   let loading = $state(false);
   let error = $state("");
   const activeResults = $derived(results[retrievalMode] ?? []);
-
-  function readRetrievalMode(value: unknown): RetrievalMode {
-    if (value === "semantic" || value === "bm25" || value === "hybrid") {
-      return value;
-    }
-
-    return "hybrid";
-  }
 
   function pdfHref(result: SearchMatch) {
     return `/document-files/${encodeURIComponent(result.documentId)}#page=${result.pageIndex + 1}`;

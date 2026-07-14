@@ -17,6 +17,55 @@ type SentenceSpan = {
   end: number;
 };
 
+function splitRangeByLength(text: string, start: number, end: number): SentenceSpan[] {
+  const spans: SentenceSpan[] = [];
+  let cursor = start;
+
+  while (cursor < end) {
+    while (cursor < end && /\s/.test(text[cursor])) {
+      cursor += 1;
+    }
+
+    if (cursor >= end) break;
+
+    let splitAt = Math.min(cursor + MAX_CHARS, end);
+
+    if (splitAt < end) {
+      const window = text.slice(cursor, splitAt + 1);
+      const boundary = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
+
+      // Prefer a natural boundary, but hard-split unbroken text so the size limit is guaranteed.
+      if (boundary > 0) {
+        splitAt = cursor + boundary;
+      }
+    }
+
+    const value = normalizeWhitespace(text.slice(cursor, splitAt));
+
+    if (value) {
+      spans.push({
+        text: value,
+        start: cursor,
+        end: splitAt,
+      });
+    }
+
+    cursor = splitAt;
+  }
+
+  return spans;
+}
+
+function splitOversizedSpans(text: string, spans: SentenceSpan[]): SentenceSpan[] {
+  return spans.flatMap((span) => {
+    if (span.end - span.start <= MAX_CHARS) {
+      return span;
+    }
+
+    return splitRangeByLength(text, span.start, span.end);
+  });
+}
+
 export function cleanPageText(text: string): string {
   // Keep page cleanup light as extraction does most de-noising
   return text
@@ -125,17 +174,18 @@ function chunkSentenceSpans(
   content: string,
   spans: SentenceSpan[],
 ): ParsedChunk[] {
-  if (spans.length === 0) return [];
+  const boundedSpans = splitOversizedSpans(content, spans);
+  if (boundedSpans.length === 0) return [];
 
   const chunks: ParsedChunk[] = [];
   let chunkIndex = 0;
   let cursor = 0;
 
-  while (cursor < spans.length) {
+  while (cursor < boundedSpans.length) {
     let end = cursor + 1;
 
-    while (end < spans.length) {
-      const candidateLength = spans[end].end - spans[cursor].start;
+    while (end < boundedSpans.length) {
+      const candidateLength = boundedSpans[end].end - boundedSpans[cursor].start;
 
       if (candidateLength > MAX_CHARS) {
         break;
@@ -144,7 +194,7 @@ function chunkSentenceSpans(
       end += 1;
     }
 
-    const selected = spans.slice(cursor, end);
+    const selected = boundedSpans.slice(cursor, end);
     const startChar = selected[0].start;
     const endChar = selected[selected.length - 1].end;
     const chunkContent = getChunkContent(content, startChar, endChar);
@@ -161,7 +211,7 @@ function chunkSentenceSpans(
       chunkIndex += 1;
     }
 
-    if (end >= spans.length) {
+    if (end >= boundedSpans.length) {
       break;
     }
 
@@ -186,17 +236,19 @@ function chunkPage(page: ExtractedChunk): ParsedChunk[] {
   if (!content) return [];
 
   if (page.chunkType !== "TEXT") {
-    // Tables/images are already extracted as standalone units, so they skip sentence grouping
-    return [
-      {
-        chunkId: buildChunkId(page, 0, content),
+    // Keep extracted media units together when possible, but still enforce the embedding size limit.
+    return splitRangeByLength(content, 0, content.length).map((span, chunkIndex) => {
+      const chunkContent = span.text;
+
+      return {
+        chunkId: buildChunkId(page, chunkIndex, chunkContent),
         chunkType: page.chunkType,
         source: page.source,
         pageIndex: Number(page.pageIndex),
-        chunkIndex: 0,
-        content,
-      },
-    ];
+        chunkIndex,
+        content: chunkContent,
+      };
+    });
   }
 
   const spans = splitSentencesWithOffsets(content);

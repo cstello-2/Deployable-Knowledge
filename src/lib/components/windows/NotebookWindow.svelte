@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
+  import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
@@ -46,16 +47,12 @@
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let editingId = $state<string | null>(null);
   let editingTitle = $state("");
-  let selectorEl = $state<HTMLElement | null>(null);
-  let selectorToggleEl = $state<HTMLElement | null>(null);
 
   // Sources attached to the active notebook (via "Send to Notebook") — hidden
   // from the notebook page text, viewable here.
   let sourcesOpen = $state(false);
   let sources = $state<NotebookSourceItem[]>([]);
   let sourcesLoading = $state(false);
-  let sourcesEl = $state<HTMLElement | null>(null);
-  let sourcesToggleEl = $state<HTMLElement | null>(null);
 
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
@@ -72,23 +69,22 @@
     editingTitle = "";
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as Node;
-    if (
-      selectorOpen &&
-      selectorEl && !selectorEl.contains(target) &&
-      selectorToggleEl && !selectorToggleEl.contains(target)
-    ) {
-      selectorOpen = false;
-    }
-    if (
-      sourcesOpen &&
-      sourcesEl && !sourcesEl.contains(target) &&
-      sourcesToggleEl && !sourcesToggleEl.contains(target)
-    ) {
-      sourcesOpen = false;
-    }
+  function toggleSources() {
+    sourcesOpen = !sourcesOpen;
+    if (sourcesOpen) selectorOpen = false;
   }
+
+  function toggleSelector() {
+    selectorOpen = !selectorOpen;
+    if (selectorOpen) sourcesOpen = false;
+  }
+
+  $effect(() => {
+    if (!collapsed) return;
+
+    sourcesOpen = false;
+    selectorOpen = false;
+  });
 
   async function commitEdit(type: "notebook" | "page", id: string) {
     const title = editingTitle.trim();
@@ -277,11 +273,9 @@
     loadNotebooks();
     window.addEventListener("dk:send-to-notebook", appendTextFromChat);
     window.addEventListener("notebook-sources:refresh", loadSources);
-    document.addEventListener("click", handleClickOutside);
     return () => {
       window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
       window.removeEventListener("notebook-sources:refresh", loadSources);
-      document.removeEventListener("click", handleClickOutside);
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -314,22 +308,80 @@
       </div>
 
       <div class="notebook-actions">
-        <button
-          class="icon-action"
-          class:active={sourcesOpen}
-          type="button"
-          title="View loaded sources"
-          aria-label="View loaded sources"
-          aria-expanded={sourcesOpen}
-          data-window-action
-          bind:this={sourcesToggleEl}
-          onclick={() => (sourcesOpen = !sourcesOpen)}
+        <Dropdown
+          id="notebook_sources"
+          bind:open={sourcesOpen}
+          align="end"
+          width="340px"
+          maxHeight={430}
+          role="dialog"
+          ariaLabel="Loaded notebook sources"
+          menuClass="notebook-sources-dropdown"
         >
-          <Icon name="description" size={17} />
-          {#if sources.length}
-            <span class="source-count-badge">{sources.length}</span>
-          {/if}
-        </button>
+          {#snippet trigger({ open, menuId })}
+            <button
+              class="icon-action"
+              class:active={open}
+              type="button"
+              title="View loaded sources"
+              aria-label="View loaded sources"
+              aria-haspopup="dialog"
+              aria-controls={menuId}
+              aria-expanded={open}
+              data-window-action
+              onclick={toggleSources}
+            >
+              <Icon name="description" size={17} />
+              {#if sources.length}
+                <span class="source-count-badge">{sources.length}</span>
+              {/if}
+            </button>
+          {/snippet}
+
+          <div class="sources-panel" data-window-action>
+            <header class="sources-panel-header">
+              <span>Loaded Sources ({sources.length})</span>
+              <button
+                class="btn btn-sm btn-danger"
+                type="button"
+                disabled={!sources.length}
+                onclick={clearAllSources}
+              >
+                Clear All
+              </button>
+            </header>
+
+            <div class="sources-list">
+              {#if sourcesLoading}
+                <div class="sources-empty">Loading…</div>
+              {:else if !sources.length}
+                <div class="sources-empty">
+                  No sources loaded yet. Use "Send to Notebook" on an assistant
+                  reply to attach its sources.
+                </div>
+              {:else}
+                {#each sources as source (source.id)}
+                  <div class="source-row">
+                    <button
+                      class="source-remove"
+                      type="button"
+                      title="Remove source"
+                      aria-label="Remove source"
+                      onclick={() => removeSource(source.id)}
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                    <div class="source-row-main">
+                      <span class="source-doc-title">{source.documentTitle}</span>
+                      <span class="source-page">Page {source.pageIndex + 1}</span>
+                    </div>
+                    <p class="source-preview">{source.preview}</p>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        </Dropdown>
 
         <button
           class="icon-action"
@@ -344,164 +396,161 @@
           <Icon name={previewMode ? "edit" : "visibility"} size={17} />
         </button>
 
-        <button
-          class="icon-action"
-          class:active={selectorOpen}
-          type="button"
-          title="Open notebook selector"
-          aria-label="Open notebook selector"
-          aria-expanded={selectorOpen}
-          data-window-action
-          bind:this={selectorToggleEl}
-          onclick={() => (selectorOpen = !selectorOpen)}
+        <Dropdown
+          id="notebook_selector"
+          bind:open={selectorOpen}
+          align="end"
+          width="320px"
+          maxHeight={430}
+          role="dialog"
+          ariaLabel="Choose notebook and page"
+          menuClass="notebook-selector-dropdown"
         >
-          <Icon name="menu_book" size={17} />
-        </button>
+          {#snippet trigger({ open, menuId })}
+            <button
+              class="icon-action"
+              class:active={open}
+              type="button"
+              title="Open notebook selector"
+              aria-label="Open notebook selector"
+              aria-haspopup="dialog"
+              aria-controls={menuId}
+              aria-expanded={open}
+              data-window-action
+              onclick={toggleSelector}
+            >
+              <Icon name="menu_book" size={17} />
+            </button>
+          {/snippet}
+
+          <div class="notebook-selector" data-window-action>
+            <section class="selector-column">
+              <header class="selector-header">
+                <span>Notebooks</span>
+                <div class="inline-button-group selector-actions">
+                  <button
+                    class="inline-action-button"
+                    type="button"
+                    title="Create notebook"
+                    aria-label="Create notebook"
+                    onclick={createNotebook}
+                  >
+                    <Icon name="add" size={16} />
+                  </button>
+                  <button
+                    class="inline-action-button danger"
+                    type="button"
+                    title="Delete selected notebook"
+                    aria-label="Delete selected notebook"
+                    onclick={() =>
+                      appState.activeNotebookId &&
+                      deleteNotebook(appState.activeNotebookId)}
+                  >
+                    <Icon name="delete" size={16} />
+                  </button>
+                </div>
+              </header>
+
+              <div class="selector-list">
+                {#each appState.notebooks as notebook (notebook.id)}
+                  <button
+                    class="selector-item"
+                    class:active={notebook.id === appState.activeNotebookId}
+                    type="button"
+                    title={notebook.title}
+                    onclick={() => selectNotebook(notebook.id)}
+                    ondblclick={(event) => {
+                      event.stopPropagation();
+                      startEdit(`nb-${notebook.id}`, notebook.title);
+                    }}
+                  >
+                    {#if editingId === `nb-${notebook.id}`}
+                      <input
+                        class="item-edit-input"
+                        type="text"
+                        bind:value={editingTitle}
+                        use:focusOnMount
+                        onclick={(event) => event.stopPropagation()}
+                        onblur={() => commitEdit("notebook", notebook.id)}
+                        onkeydown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          else if (event.key === "Escape") cancelEdit();
+                        }}
+                      />
+                    {:else}
+                      {notebook.title}
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            </section>
+
+            <section class="selector-column">
+              <header class="selector-header">
+                <span>Pages</span>
+                <div class="inline-button-group selector-actions">
+                  <button
+                    class="inline-action-button"
+                    type="button"
+                    title="Create page"
+                    aria-label="Create page"
+                    onclick={createPage}
+                  >
+                    <Icon name="add" size={16} />
+                  </button>
+                  <button
+                    class="inline-action-button danger"
+                    type="button"
+                    title="Delete selected page"
+                    aria-label="Delete selected page"
+                    onclick={() =>
+                      appState.activePage && deletePage(appState.activePage)}
+                  >
+                    <Icon name="delete" size={16} />
+                  </button>
+                </div>
+              </header>
+
+              <div class="selector-list">
+                {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
+                  <button
+                    class="selector-item"
+                    class:active={
+                      page.id === appState.activeNotebook?.activePageId
+                    }
+                    type="button"
+                    title={page.title}
+                    onclick={() => selectPage(page)}
+                    ondblclick={(event) => {
+                      event.stopPropagation();
+                      startEdit(`pg-${page.id}`, page.title);
+                    }}
+                  >
+                    {#if editingId === `pg-${page.id}`}
+                      <input
+                        class="item-edit-input"
+                        type="text"
+                        bind:value={editingTitle}
+                        use:focusOnMount
+                        onclick={(event) => event.stopPropagation()}
+                        onblur={() => commitEdit("page", page.id)}
+                        onkeydown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          else if (event.key === "Escape") cancelEdit();
+                        }}
+                      />
+                    {:else}
+                      {page.title}
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            </section>
+          </div>
+        </Dropdown>
 
       </div>
     </header>
-
-    {#if sourcesOpen && !collapsed}
-      <div class="sources-panel" data-window-action bind:this={sourcesEl}>
-        <header class="sources-panel-header">
-          <span>Loaded Sources ({sources.length})</span>
-          <button
-            class="btn btn-sm btn-danger"
-            type="button"
-            disabled={!sources.length}
-            onclick={clearAllSources}
-          >
-            Clear All
-          </button>
-        </header>
-        <div class="sources-list">
-          {#if sourcesLoading}
-            <div class="sources-empty">Loading…</div>
-          {:else if !sources.length}
-            <div class="sources-empty">
-              No sources loaded yet. Use "Send to Notebook" on an assistant reply to attach its sources.
-            </div>
-          {:else}
-            {#each sources as source (source.id)}
-              <div class="source-row">
-                <button
-                  class="source-remove"
-                  type="button"
-                  title="Remove source"
-                  aria-label="Remove source"
-                  onclick={() => removeSource(source.id)}
-                >
-                  <Icon name="close" size={14} />
-                </button>
-                <div class="source-row-main">
-                  <span class="source-doc-title">{source.documentTitle}</span>
-                  <span class="source-page">Page {source.pageIndex + 1}</span>
-                </div>
-                <p class="source-preview">{source.preview}</p>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    {/if}
-
-    {#if selectorOpen && !collapsed}
-      <div class="notebook-selector" data-window-action bind:this={selectorEl}>
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Notebooks</span>
-            <div class="segmented-actions">
-              <button type="button" title="Create notebook" aria-label="Create notebook" onclick={createNotebook}>
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected notebook"
-                aria-label="Delete selected notebook"
-                onclick={() => appState.activeNotebookId && deleteNotebook(appState.activeNotebookId)}
-              >
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-              </button>
-            </div>
-          </header>
-          <div class="selector-list">
-            {#each appState.notebooks as notebook (notebook.id)}
-              <button
-                class="selector-item"
-                class:active={notebook.id === appState.activeNotebookId}
-                type="button"
-                title={notebook.title}
-                onclick={() => selectNotebook(notebook.id)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`nb-${notebook.id}`, notebook.title); }}
-              >
-                {#if editingId === `nb-${notebook.id}`}
-                  <input
-                    class="item-edit-input"
-                    type="text"
-                    bind:value={editingTitle}
-                    use:focusOnMount
-                    onclick={(e) => e.stopPropagation()}
-                    onblur={() => commitEdit("notebook", notebook.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
-                  />
-                {:else}
-                  {notebook.title}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </section>
-
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Pages</span>
-            <div class="segmented-actions">
-              <button type="button" title="Create page" aria-label="Create page" onclick={createPage}>
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected page"
-                aria-label="Delete selected page"
-                onclick={() => appState.activePage && deletePage(appState.activePage)}
-              >
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-              </button>
-            </div>
-          </header>
-          <div class="selector-list">
-            {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
-              <button
-                class="selector-item"
-                class:active={page.id === appState.activeNotebook?.activePageId}
-                type="button"
-                title={page.title}
-                onclick={() => selectPage(page)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`pg-${page.id}`, page.title); }}
-              >
-                {#if editingId === `pg-${page.id}`}
-                  <input
-                    class="item-edit-input"
-                    type="text"
-                    bind:value={editingTitle}
-                    use:focusOnMount
-                    onclick={(e) => e.stopPropagation()}
-                    onblur={() => commitEdit("page", page.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
-                  />
-                {:else}
-                  {page.title}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </section>
-      </div>
-    {/if}
 
     <div class="notebook-editor-wrap">
       {#if previewMode}
@@ -621,20 +670,19 @@
     place-items: center;
   }
 
-  .sources-panel {
-    position: absolute;
-    top: 56px;
-    right: 10px;
-    z-index: 100;
-    display: flex;
-    width: min(340px, 80vw);
-    max-height: min(430px, 62vh);
+  :global(.notebook-sources-dropdown),
+  :global(.notebook-selector-dropdown) {
+    padding: 0;
     overflow: hidden;
+  }
+
+  .sources-panel {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
     flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
   }
 
   .sources-panel-header {
@@ -658,6 +706,7 @@
     flex: 1 1 auto;
     flex-direction: column;
     gap: 6px;
+    max-height: min(380px, calc(100vh - 96px));
   }
 
   .sources-empty {
@@ -731,19 +780,12 @@
   }
 
   .notebook-selector {
-    position: absolute;
-    top: 56px;
-    right: 10px;
-    z-index: 100;
     display: grid;
-    width: min(320px, 72vw);
-    height: min(430px, 62vh);
+    width: 100%;
+    height: min(420px, calc(100vh - 96px));
+    min-height: 0;
     overflow: hidden;
     grid-template-columns: 1fr 1fr;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
   }
 
   .selector-column {
@@ -776,70 +818,18 @@
     white-space: nowrap;
   }
 
-  .segmented-actions {
-    display: flex;
+  .selector-actions {
     width: 58px;
     height: 24px;
-    overflow: hidden;
-    border: 1px solid var(--border);
+    grid-auto-columns: 28px;
     border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
-    align-items: stretch;
   }
 
-  .segmented-actions div {
-    width: 1px;
-    flex-shrink: 0;
-    background: var(--border);
-  }
-
-  .segmented-actions button {
-    position: relative;
-    display: flex;
-    flex: 1;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-    align-items: center;
-    justify-content: center;
-    line-height: 0;
-  }
-
-  .segmented-actions button::before {
-    content: '';
-    position: absolute;
-    width: 35px;
-    height: 30px;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-  }
-
-  .segmented-actions button:hover::before {
-    background: color-mix(in oklab, var(--accent) 12%, transparent);
-  }
-
-  .segmented-actions button.danger {
-    color: color-mix(in oklab, #ff6b6b 78%, var(--text));
-  }
-
-  .segmented-actions button.danger:hover::before {
-    background: color-mix(in oklab, #ff6b6b 12%, transparent);
-  }
-
-  .seg-icon {
-    position: relative;
-    display: block;
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    transform: translateY(-3px);
+  .selector-actions .inline-action-button {
+    width: 28px;
+    min-width: 28px;
+    height: 24px;
+    min-height: 24px;
   }
 
   .selector-list {

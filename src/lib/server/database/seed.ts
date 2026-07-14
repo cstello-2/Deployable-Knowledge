@@ -1,56 +1,51 @@
 import { eq } from "drizzle-orm";
+
 import { db } from "$lib/server/database/database";
 import {
   sessions,
   settings,
   users,
   type User,
-  type UserSettings,
 } from "$lib/server/database/schema";
 
-const localUser = "local_user";
+export const localUsername = "local_user";
 
-export async function seedLocalUser(): Promise<{
-  user: User;
-  settings: UserSettings;
-}> {
+export async function seedLocalUser(): Promise<User> {
+  await db
+    .update(sessions)
+    .set({ userId: localUsername })
+    .where(eq(sessions.userId, "default"));
+
   let user = await db
     .select()
     .from(users)
-    .where(eq(users.username, localUser))
+    .where(eq(users.username, localUsername))
     .get();
 
   if (!user) {
     [user] = await db
       .insert(users)
       .values({
-        username: localUser,
+        username: localUsername,
+        activeProfileId: null,
         lastLogin: new Date(),
       })
       .returning();
   }
 
-  let userSettings = await db
+  const userSettings = await db
     .select()
     .from(settings)
-    .where(eq(settings.id, localUser))
+    .where(eq(settings.id, localUsername))
     .get();
 
   if (!userSettings) {
-    [userSettings] = await db
-      .insert(settings)
-      .values({
-        id: localUser,
-        userId: user.id,
-        updatedAt: new Date(),
-      })
-      .returning();
+    await db.insert(settings).values({
+      id: localUsername,
+      userId: user.id,
+      updatedAt: new Date(),
+    });
   }
 
-  await db
-    .update(sessions)
-    .set({ userId: localUser })
-    .where(eq(sessions.userId, "default"));
-
-  return { user, settings: userSettings };
+  return user;
 }

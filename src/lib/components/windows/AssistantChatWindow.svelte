@@ -174,15 +174,17 @@
       requestBody.prompt_template_id = appState.promptTemplateId || null;
       requestBody.persona = appState.persona;
       requestBody.document_ids = getSelectedDocumentIds();
-      requestBody.retrieval_mode = appState.retrievalMode;
       requestBody.rag_top_k = appState.ragTopK;
     }
 
-    const res = await fetch(`/sessions/${session.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
+    const res = await fetch(
+      `/sessions/${encodeURIComponent(session.id)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      },
+    );
 
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
@@ -300,7 +302,11 @@
       {/if}
     </div>
 
-    <form class="chat-input" onsubmit={handleSubmit}>
+    <form
+      class="chat-input inline-action-control"
+      style="--inline-action-count: 3;"
+      onsubmit={handleSubmit}
+    >
       <input
         class="input"
         type="text"
@@ -311,7 +317,7 @@
         disabled={busy}
       />
       <button
-        class="chat-action-button chat-mode-toggle"
+        class="inline-action-button chat-mode-toggle"
         class:active={notebookMode}
         type="button"
         disabled={busy}
@@ -323,7 +329,7 @@
         <Icon name="menu_book" size={16} />
       </button>
       <button
-        class="chat-action-button chat-new-button"
+        class="inline-action-button chat-new-button"
         type="button"
         disabled={busy}
         aria-label="Start a new chat"
@@ -333,7 +339,7 @@
         <Icon name="add_comment" size={16} />
       </button>
       <button
-        class="chat-action-button chat-send-button"
+        class="inline-action-button chat-send-button"
         type="submit"
         aria-label="Send message"
         title="Send message"
@@ -605,75 +611,13 @@
   }
 
   .chat-input {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
-    gap: 0;
-    align-items: center;
     margin-top: 10px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 3%));
-    box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
   }
 
-  .chat-input .input {
-    min-width: 0;
-    width: 100%;
-    min-height: 36px;
-    padding: 10px 12px;
-    border: 0;
-    border-radius: 13px 0 0 13px;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .chat-input .input:focus {
-    box-shadow: none;
-  }
-
-  .chat-action-button {
-    display: inline-grid;
-    width: 44px;
-    min-width: 44px;
-    height: 42px;
-    min-height: 42px;
-    place-items: center;
-    padding: 0;
-    border: 0;
-    border-left: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    line-height: 1;
-  }
-
-  .chat-action-button:hover {
-    background: color-mix(in oklab, var(--accent) 9%, transparent);
-    color: var(--text);
-  }
-
-  .chat-action-button:active {
-    transform: none;
-  }
-
-  .chat-action-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  .chat-mode-toggle.active {
-    background: #8ae7ff;
-    color: #06262b;
-  }
-
+  .chat-mode-toggle.active,
   .chat-mode-toggle.active:hover {
-    background: #8ae7ff;
-    color: #06262b;
-  }
-
-  .chat-send-button {
-    border-radius: 0 13px 13px 0;
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    color: var(--text);
   }
 
   @media (max-width: 680px) {
@@ -687,17 +631,17 @@
       border-radius: 13px 13px 0 0;
     }
 
-    .chat-action-button {
+    .chat-input .inline-action-button {
       width: 100%;
       min-width: 0;
       border-left: 0;
     }
 
-    .chat-action-button:first-of-type {
+    .chat-input .inline-action-button:first-of-type {
       border-radius: 0 0 0 13px;
     }
 
-    .chat-action-button + .chat-action-button {
+    .chat-input .inline-action-button + .inline-action-button {
       border-left: 1px solid var(--border);
     }
 

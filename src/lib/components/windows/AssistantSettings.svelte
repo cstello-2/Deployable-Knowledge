@@ -2,6 +2,7 @@
   import { getContext, onMount } from "svelte";
 
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import {
     AssistantApiKeyPopup,
@@ -12,17 +13,19 @@
   import type { Provider } from "$lib/server/providers/provider";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type {
+    ActiveAssistantProfile,
+    AssistantProfile,
+    AssistantProfileActivationResponse,
+    AssistantProfileListResponse,
+    AssistantProfileValues,
     PromptTemplate,
-    UserSettings,
+    PromptTemplateFormValue,
   } from "$lib/server/database/schema";
 
   type ProviderOption = Pick<Provider, "id" | "name">;
-  type RetrievalMode = UserSettings["retrievalMode"];
-  type PromptTemplateFormValue = {
-    id?: string;
-    name: string;
-    description: string;
-    systemPrompt: string;
+  type RetrievalMode = AssistantProfileValues["retrievalMode"];
+  type ProviderModelGroup = ProviderOption & {
+    models: string[];
   };
   type SearchMatch = {
     chunkId: string;
@@ -31,7 +34,6 @@
     content: string;
     relevanceScore: number;
   };
-
   let {
     id,
     title,
@@ -49,16 +51,15 @@
     { id: "hybrid", label: "Hybrid" },
   ];
 
-  let providers = $state<ProviderOption[]>([]);
-  let models = $state<string[]>([]);
-  let retrievalMode = $state<RetrievalMode>(
-    readRetrievalMode(appState.retrievalMode),
-  );
-  let ragTopK = $state<number | undefined>(appState.ragTopK);
+  let providerModelGroups = $state<ProviderModelGroup[]>([]);
+  let profiles = $state<AssistantProfile[]>([]);
   let temperature = $state<number | undefined>(appState.temperature);
   let topK = $state<number | undefined>(appState.topK);
   let maxTokens = $state<number | undefined>(appState.maxTokens);
   let persona = $state(appState.persona);
+  let retrievalMode = $state<RetrievalMode>("hybrid");
+  let ragTopK = $state<number | undefined>(appState.ragTopK);
+  let profileMenuOpen = $state(false);
   let busy = $state(false);
   let searchCompareOpen = $state(false);
   let searchQuery = $state("");
@@ -68,54 +69,35 @@
   let hybridResults = $state<SearchMatch[]>([]);
   let apiKeyPopupOpen = $state(false);
   let templatePopupOpen = $state(false);
+  let modelMenuOpen = $state(false);
   let templateMenuOpen = $state(false);
   let editingTemplate = $state<PromptTemplate | null>(null);
-  let templateMenuElement = $state<HTMLElement | null>(null);
   let selectedTemplate = $derived(
     appState.promptTemplates.find(
       (template) => template.id === appState.promptTemplateId,
     ) ?? null,
   );
+  let currentProfile = $derived(
+    profiles.find((profile) => profile.id === appState.activeProfileId) ??
+      null,
+  );
+  let selectedProviderModelLabel = $derived(getSelectedProviderModelLabel());
+  let hasProviderModels = $derived(
+    providerModelGroups.some((provider) => provider.models.length > 0),
+  );
 
   onMount(() => {
     initialize();
-
-    function handleDocumentPointerDown(event: PointerEvent) {
-      if (!templateMenuOpen || !templateMenuElement) return;
-      if (
-        event.target instanceof Node &&
-        templateMenuElement.contains(event.target)
-      ) {
-        return;
-      }
-
-      templateMenuOpen = false;
-    }
-
-    document.addEventListener("pointerdown", handleDocumentPointerDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handleDocumentPointerDown);
-    };
   });
 
   async function initialize() {
-    await loadSettings();
+    await loadActiveProfile();
+    await loadProfiles();
     await loadPromptTemplates();
-    await loadProviders();
-    await loadModels();
+    await loadProviderModelGroups();
   }
 
-  function readRetrievalMode(value: unknown): RetrievalMode {
-    if (value === "semantic" || value === "bm25" || value === "hybrid") {
-      return value;
-    }
-
-    return "hybrid";
-  }
-
-  function syncSettingsFields() {
-    retrievalMode = readRetrievalMode(appState.retrievalMode);
+  function syncProfileFields() {
     ragTopK = appState.ragTopK;
     temperature = appState.temperature;
     topK = appState.topK;
@@ -123,62 +105,218 @@
     persona = appState.persona;
   }
 
-  async function loadSettings() {
-    const resp = await fetch("/settings", {
-      method: "GET",
-    });
-
-    const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
+  function applyProfileFieldsToState() {
+    appState.temperature = temperature ?? 0.2;
+    appState.topK = topK ?? 8;
+    appState.maxTokens = maxTokens ?? 512;
+    appState.persona = persona;
   }
 
-  async function loadProviders() {
-    const resp = await fetch("/providers?available=true", {
-      method: "GET",
-    });
+  function applyProfile(profile: ActiveAssistantProfile) {
+    appState.activeProfileId = profile?.id ?? null;
 
-    providers = (await resp.json()) as ProviderOption[];
+    if (!profile) return;
 
-    if (
-      providers.length &&
-      !providers.some((provider) => provider.id === appState.currentProviderId)
-    ) {
-      appState.currentProviderId = providers[0].id;
-    }
+    appState.currentProviderId = profile.provider || "ollama";
+    appState.currentModelId = profile.model || "granite4:350m";
+    appState.maxTokens = profile.maxTokens ?? 512;
+    appState.temperature = profile.temperature ?? 0.2;
+    appState.topK = profile.topK ?? 8;
+    retrievalMode = profile.retrievalMode || "hybrid";
+    appState.ragTopK = profile.ragTopK ?? 5;
+    appState.promptTemplateId = profile.promptTemplateId || "";
+    appState.persona = profile.persona || "";
   }
 
-  async function loadModels() {
-    if (!appState.currentProviderId) {
-      models = [];
-      appState.currentModelId = "";
+  function getProfileValues(): AssistantProfileValues {
+    return {
+      provider: appState.currentProviderId,
+      model: appState.currentModelId,
+      maxTokens: appState.maxTokens,
+      temperature: appState.temperature,
+      topK: appState.topK,
+      retrievalMode,
+      ragTopK: appState.ragTopK,
+      promptTemplateId: appState.promptTemplateId || null,
+      persona: appState.persona,
+    };
+  }
+
+  async function loadActiveProfile() {
+    const resp = await fetch("/profiles/active", {
+      method: "GET",
+    });
+    const profile = (await resp.json()) as ActiveAssistantProfile;
+
+    applyProfile(profile);
+    syncProfileFields();
+  }
+
+  async function loadProfiles() {
+    const resp = await fetch("/profiles", { method: "GET" });
+    const data = (await resp.json()) as AssistantProfileListResponse;
+
+    profiles = data.profiles;
+    appState.activeProfileId = data.activeProfileId || null;
+  }
+
+  async function activateProfile(
+    profile: AssistantProfile,
+    message = "Profile loaded",
+  ) {
+    profileMenuOpen = false;
+
+    if (profile.id === appState.activeProfileId) return;
+
+    const resp = await fetch(
+      `/profiles/${encodeURIComponent(profile.id)}/activate`,
+      { method: "POST" },
+    );
+    const data = (await resp.json()) as AssistantProfileActivationResponse;
+
+    applyProfile(data.profile);
+    syncProfileFields();
+    await loadPromptTemplates();
+    await loadProviderModelGroups();
+    await loadProfiles();
+    showToast(message);
+  }
+
+  async function createProfileFromMenu() {
+    const name = window.prompt("Profile name", "New Profile")?.trim();
+
+    if (!name) return;
+
+    applyProfileFieldsToState();
+
+    const resp = await fetch("/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        ...getProfileValues(),
+      }),
+    });
+    const profile = (await resp.json()) as AssistantProfile;
+
+    await activateProfile(profile, "Profile created");
+  }
+
+  async function saveProfile(profile = currentProfile) {
+    if (!profile) {
+      showToast("No profile selected");
       return;
     }
 
-    const providerId = encodeURIComponent(appState.currentProviderId);
-    const resp = await fetch(
-      `/providers/${providerId}?available=true`,
-      { method: "GET" },
+    applyProfileFieldsToState();
+
+    const resp = await fetch(`/profiles/${encodeURIComponent(profile.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getProfileValues()),
+    });
+    const savedProfile = (await resp.json()) as AssistantProfile;
+
+    if (savedProfile.id === appState.activeProfileId) {
+      applyProfile(savedProfile);
+      syncProfileFields();
+    }
+
+    await loadProfiles();
+    showToast("Profile saved");
+  }
+
+  async function saveProfileFromMenu(profile: AssistantProfile) {
+    profileMenuOpen = false;
+    await saveProfile(profile);
+  }
+
+  async function deleteProfile(profile: AssistantProfile) {
+    profileMenuOpen = false;
+
+    if (!window.confirm(`Delete "${profile.name}"?`)) return;
+
+    const deletedActiveProfile = profile.id === appState.activeProfileId;
+    const resp = await fetch(`/profiles/${encodeURIComponent(profile.id)}`, {
+      method: "DELETE",
+    });
+    await resp.json();
+
+    if (deletedActiveProfile) {
+      await loadActiveProfile();
+      await loadPromptTemplates();
+      await loadProviderModelGroups();
+    }
+
+    await loadProfiles();
+    showToast("Profile deleted");
+  }
+
+  function ensureSelectedProviderModel() {
+    const selectedProvider = providerModelGroups.find(
+      (provider) => provider.id === appState.currentProviderId,
     );
 
-    models = (await resp.json()) as string[];
+    if (selectedProvider?.models.includes(appState.currentModelId)) return;
 
-    if (models.length && !models.includes(appState.currentModelId)) {
-      appState.currentModelId = models[0];
-    } else if (!models.length) {
-      appState.currentModelId = "";
+    const firstProviderWithModels = providerModelGroups.find(
+      (provider) => provider.models.length > 0,
+    );
+
+    if (firstProviderWithModels) {
+      appState.currentProviderId = firstProviderWithModels.id;
+      appState.currentModelId = firstProviderWithModels.models[0];
+      return;
     }
+
+    appState.currentProviderId = providerModelGroups[0]?.id ?? "";
+    appState.currentModelId = "";
+  }
+
+  function getSelectedProviderModelLabel() {
+    const provider = providerModelGroups.find(
+      (item) => item.id === appState.currentProviderId,
+    );
+
+    if (provider && appState.currentModelId) {
+      return `${provider.name} / ${appState.currentModelId}`;
+    }
+
+    if (appState.currentModelId) return appState.currentModelId;
+
+    return providerModelGroups.some((item) => item.models.length > 0)
+      ? "Select chat model"
+      : "No models available";
+  }
+
+  async function loadProviderModelGroups() {
+    const resp = await fetch("/providers?available=true", {
+      method: "GET",
+    });
+    const providers = (await resp.json()) as ProviderOption[];
+
+    providerModelGroups = await Promise.all(
+      providers.map(async (provider) => {
+        const providerId = encodeURIComponent(provider.id);
+        const modelsResp = await fetch(
+          `/providers/${providerId}?available=true`,
+          { method: "GET" },
+        );
+
+        return {
+          ...provider,
+          models: (await modelsResp.json()) as string[],
+        };
+      }),
+    );
+
+    ensureSelectedProviderModel();
   }
 
   async function loadPromptTemplates() {
     const resp = await fetch("/prompt-templates", { method: "GET" });
-
-    if (!resp.ok) {
-      showToast("Prompt templates failed to load");
-      return;
-    }
-
     const templates = (await resp.json()) as PromptTemplate[];
+
     appState.promptTemplates = templates;
 
     if (
@@ -224,15 +362,11 @@
       }),
     });
 
-    if (!resp.ok) {
-      throw new Error(await resp.text());
-    }
-
     const template = (await resp.json()) as PromptTemplate;
     await loadPromptTemplates();
     appState.promptTemplateId = template.id;
 
-    await saveRuntimeSettings(
+    await saveActiveProfile(
       value.id ? "Prompt template updated" : "Prompt template created",
     );
 
@@ -245,7 +379,7 @@
     if (appState.promptTemplateId === templateId) return;
 
     appState.promptTemplateId = templateId;
-    await saveRuntimeSettings("Prompt template updated");
+    await saveActiveProfile("Prompt template updated");
   }
 
   async function deletePromptTemplate(template: PromptTemplate) {
@@ -257,11 +391,7 @@
       `/prompt-templates/${encodeURIComponent(template.id)}`,
       { method: "DELETE" },
     );
-
-    if (!resp.ok) {
-      showToast("Prompt template delete failed");
-      return;
-    }
+    await resp.json();
 
     const deletedSelectedTemplate = appState.promptTemplateId === template.id;
 
@@ -270,25 +400,23 @@
     await loadPromptTemplates();
 
     if (deletedSelectedTemplate) {
-      await saveRuntimeSettings("Prompt template deleted");
+      await saveActiveProfile("Prompt template deleted");
     } else {
       showToast("Prompt template deleted");
     }
   }
 
-  async function saveRuntimeSettings(message = "Assistant settings updated") {
-    busy = true;
-    appState.retrievalMode = retrievalMode;
+  async function saveActiveProfile(message = "Active profile updated") {
+    applyProfileFieldsToState();
     appState.ragTopK = ragTopK ?? 5;
-    appState.temperature = temperature ?? 0.2;
-    appState.topK = topK ?? 8;
-    appState.maxTokens = maxTokens ?? 512;
-    appState.persona = persona;
 
-    const resp = await fetch("/settings", {
+    if (!currentProfile) return;
+
+    busy = true;
+    const resp = await fetch("/profiles/active", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(appState.settings),
+      body: JSON.stringify(getProfileValues()),
     });
 
     if (!resp.ok) {
@@ -297,38 +425,52 @@
       return;
     }
 
-    const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
+    const profile = (await resp.json()) as AssistantProfile;
+    applyProfile(profile);
+    syncProfileFields();
     busy = false;
     showToast(message);
+  }
+
+  async function handleActiveProfileChange() {
+    if (busy) return;
+
+    await saveActiveProfile();
   }
 
   async function handleRuntimeSettingsChange() {
     if (busy) return;
 
-    await saveRuntimeSettings();
+    await saveActiveProfile("Search settings updated");
   }
 
   async function handleRetrievalModeChange(mode: RetrievalMode) {
     if (busy || retrievalMode === mode) return;
 
     retrievalMode = mode;
-    await saveRuntimeSettings("Search settings updated");
+    await saveActiveProfile("Search settings updated");
   }
 
-  async function handleProviderChange() {
-    await loadModels();
-    await saveRuntimeSettings();
-  }
+  async function selectProviderModel(providerId: string, modelId: string) {
+    modelMenuOpen = false;
 
-  async function handleModelChange() {
-    await saveRuntimeSettings();
+    if (!modelId) return;
+
+    if (
+      providerId === appState.currentProviderId &&
+      modelId === appState.currentModelId
+    ) {
+      return;
+    }
+
+    appState.currentProviderId = providerId;
+    appState.currentModelId = modelId;
+
+    await saveActiveProfile("Chat model updated");
   }
 
   async function handleApiKeysChanged() {
-    await loadProviders();
-    await loadModels();
+    await loadProviderModelGroups();
   }
 
   function toggleSearchComparison() {
@@ -378,85 +520,176 @@
 >
   <div class="form assistant-settings-form">
     <div class="row">
+      <label for="profile_select">Current Profile</label>
+
+      <div class="assistant-profile-strip">
+        <Dropdown
+          id="profile_select"
+          bind:open={profileMenuOpen}
+          width="var(--assistant-dropdown-width)"
+          maxHeight={260}
+        >
+          {#snippet trigger({ open, toggle, menuId })}
+            <button
+              id="profile_select"
+              class="input profile-trigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-controls={menuId}
+              aria-expanded={open}
+              onclick={toggle}
+            >
+              <span>{currentProfile?.name ?? "No saved profile"}</span>
+              <Icon name="expand_more" size={16} />
+            </button>
+          {/snippet}
+
+          {#each profiles as profile (profile.id)}
+            <div
+              class="profile-item"
+              class:selected={profile.id === appState.activeProfileId}
+            >
+              <button
+                type="button"
+                class="profile-option"
+                role="menuitemradio"
+                aria-checked={profile.id === appState.activeProfileId}
+                onclick={() => activateProfile(profile)}
+              >
+                <span class="profile-name">{profile.name}</span>
+              </button>
+
+              <div class="profile-item-actions">
+                <button
+                  type="button"
+                  class="dropdown-action-button"
+                  title="Save to profile"
+                  aria-label={`Save current values to ${profile.name}`}
+                  onclick={() => saveProfileFromMenu(profile)}
+                >
+                  <Icon name="save" size={16} />
+                </button>
+
+                <button
+                  type="button"
+                  class="dropdown-action-button danger"
+                  title="Delete profile"
+                  aria-label={`Delete ${profile.name}`}
+                  onclick={() => deleteProfile(profile)}
+                >
+                  <Icon name="delete" size={16} />
+                </button>
+              </div>
+            </div>
+          {/each}
+
+          <button
+            type="button"
+            class="dropdown-create-button"
+            role="menuitem"
+            onclick={createProfileFromMenu}
+          >
+            <Icon name="add" size={16} />
+            <span>New profile</span>
+          </button>
+        </Dropdown>
+
+        <button
+          type="button"
+          class="profile-save-button"
+          title="Save active profile"
+          aria-label="Save active profile"
+          onclick={() => saveProfile()}
+        >
+          <Icon name="save" size={17} />
+        </button>
+      </div>
+    </div>
+
+    <div class="row">
       <label for="tmpl_select">Prompt Template</label>
 
-      <div class="prompt-template-menu" bind:this={templateMenuElement}>
+      <Dropdown
+        id="tmpl_select"
+        bind:open={templateMenuOpen}
+        width="var(--assistant-dropdown-width)"
+        maxHeight={260}
+      >
+        {#snippet trigger({ open, toggle, menuId })}
+          <button
+            id="tmpl_select"
+            class="input prompt-template-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-controls={menuId}
+            aria-expanded={open}
+            onclick={toggle}
+          >
+            <span>{selectedTemplate?.name ?? "None"}</span>
+            <Icon name="expand_more" size={16} />
+          </button>
+        {/snippet}
+
         <button
-          id="tmpl_select"
-          class="input prompt-template-trigger"
           type="button"
-          aria-haspopup="menu"
-          aria-expanded={templateMenuOpen}
-          onclick={() => (templateMenuOpen = !templateMenuOpen)}
+          class="prompt-template-option"
+          class:selected={!appState.promptTemplateId}
+          role="menuitemradio"
+          aria-checked={!appState.promptTemplateId}
+          onclick={() => selectPromptTemplate("")}
         >
-          <span>{selectedTemplate?.name ?? "None"}</span>
-          <Icon name="expand_more" size={16} />
+          None
         </button>
 
-        {#if templateMenuOpen}
-          <div class="prompt-template-dropdown" role="menu">
+        {#each appState.promptTemplates as template (template.id)}
+          <div
+            class="prompt-template-item"
+            class:selected={template.id === appState.promptTemplateId}
+          >
             <button
               type="button"
               class="prompt-template-option"
-              class:selected={!appState.promptTemplateId}
               role="menuitemradio"
-              aria-checked={!appState.promptTemplateId}
-              onclick={() => selectPromptTemplate("")}
+              aria-checked={template.id === appState.promptTemplateId}
+              onclick={() => selectPromptTemplate(template.id)}
             >
-              None
+              <span class="prompt-template-name">{template.name}</span>
             </button>
 
-            {#each appState.promptTemplates as template (template.id)}
-              <div
-                class="prompt-template-item"
-                class:selected={template.id === appState.promptTemplateId}
+            <div class="prompt-template-item-actions">
+              <button
+                type="button"
+                class="dropdown-action-button"
+                title="Edit prompt template"
+                aria-label={`Edit ${template.name}`}
+                onclick={() => openEditPromptTemplate(template)}
               >
-                <button
-                  type="button"
-                  class="prompt-template-option"
-                  role="menuitemradio"
-                  aria-checked={template.id === appState.promptTemplateId}
-                  onclick={() => selectPromptTemplate(template.id)}
-                >
-                  <span class="prompt-template-name">{template.name}</span>
-                </button>
+                <Icon name="edit" size={16} />
+              </button>
 
-                <div class="prompt-template-item-actions">
-                  <button
-                    type="button"
-                    class="btn btn-icon"
-                    title="Edit prompt template"
-                    aria-label={`Edit ${template.name}`}
-                    onclick={() => openEditPromptTemplate(template)}
-                  >
-                    <Icon name="edit" size={16} />
-                  </button>
-
-                  <button
-                    type="button"
-                    class="btn btn-icon btn-danger"
-                    title="Delete prompt template"
-                    aria-label={`Delete ${template.name}`}
-                    onclick={() => deletePromptTemplate(template)}
-                  >
-                    <Icon name="delete" size={16} />
-                  </button>
-                </div>
-              </div>
-            {/each}
-
-            <button
-              type="button"
-              class="prompt-template-create"
-              role="menuitem"
-              onclick={openNewPromptTemplate}
-            >
-              <Icon name="add" size={16} />
-              <span>Create prompt template</span>
-            </button>
+              <button
+                type="button"
+                class="dropdown-action-button danger"
+                title="Delete prompt template"
+                aria-label={`Delete ${template.name}`}
+                onclick={() => deletePromptTemplate(template)}
+              >
+                <Icon name="delete" size={16} />
+              </button>
+            </div>
           </div>
-        {/if}
-      </div>
+        {/each}
+
+        <button
+          type="button"
+          class="dropdown-create-button"
+          role="menuitem"
+          onclick={openNewPromptTemplate}
+        >
+          <Icon name="add" size={16} />
+          <span>New prompt template</span>
+        </button>
+      </Dropdown>
     </div>
 
     <div
@@ -479,7 +712,7 @@
             placeholder="0.2"
             style="width: 100%; box-sizing: border-box;"
             bind:value={temperature}
-            onchange={handleRuntimeSettingsChange}
+            onchange={handleActiveProfileChange}
           />
         </div>
 
@@ -494,7 +727,7 @@
             placeholder="8"
             style="width: 100%; box-sizing: border-box;"
             bind:value={topK}
-            onchange={handleRuntimeSettingsChange}
+            onchange={handleActiveProfileChange}
           />
         </div>
 
@@ -509,7 +742,7 @@
             placeholder="512"
             style="width: 100%; box-sizing: border-box;"
             bind:value={maxTokens}
-            onchange={handleRuntimeSettingsChange}
+            onchange={handleActiveProfileChange}
           />
         </div>
       </div>
@@ -654,42 +887,62 @@
         placeholder="Write the persona instructions here."
         style="min-height: 90px;"
         bind:value={persona}
-        onchange={handleRuntimeSettingsChange}
+        onchange={handleActiveProfileChange}
       ></textarea>
     </div>
 
     <div class="row">
-      <label for="assistant_llm_provider">LLM Provider</label>
-
-      <select
-        id="assistant_llm_provider"
-        class="input"
-        bind:value={appState.currentProviderId}
-        onchange={handleProviderChange}
-      >
-        {#each providers as provider (provider.id)}
-          <option value={provider.id}>{provider.name}</option>
-        {:else}
-          <option value="ollama">Ollama</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class="row">
       <label for="assistant_llm_model">Chat Model</label>
-      <select
+
+      <Dropdown
         id="assistant_llm_model"
-        class="input"
-        bind:value={appState.currentModelId}
-        disabled={!models.length}
-        onchange={handleModelChange}
+        bind:open={modelMenuOpen}
+        width="var(--assistant-dropdown-width)"
+        maxHeight={260}
       >
-        {#each models as model (model)}
-          <option value={model}>{model}</option>
+        {#snippet trigger({ open, toggle, menuId })}
+          <button
+            id="assistant_llm_model"
+            class="input model-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-controls={menuId}
+            aria-expanded={open}
+            disabled={!hasProviderModels}
+            onclick={toggle}
+          >
+            <span>{selectedProviderModelLabel}</span>
+            <Icon name="expand_more" size={16} />
+          </button>
+        {/snippet}
+
+        {#each providerModelGroups as provider (provider.id)}
+          <div class="model-provider-section">
+            <div class="model-provider-heading">{provider.name}</div>
+
+            {#if provider.models.length}
+              {#each provider.models as model (model)}
+                <button
+                  type="button"
+                  class="model-option"
+                  class:selected={provider.id === appState.currentProviderId &&
+                    model === appState.currentModelId}
+                  role="menuitemradio"
+                  aria-checked={provider.id === appState.currentProviderId &&
+                    model === appState.currentModelId}
+                  onclick={() => selectProviderModel(provider.id, model)}
+                >
+                  <span class="model-name">{model}</span>
+                </button>
+              {/each}
+            {:else}
+              <div class="model-empty">No models available</div>
+            {/if}
+          </div>
         {:else}
-          <option value="">No models available</option>
+          <div class="model-empty">No providers available</div>
         {/each}
-      </select>
+      </Dropdown>
     </div>
   </div>
 </BaseWindow>
@@ -709,88 +962,295 @@
 
 <style>
   .assistant-settings-form {
+    --assistant-dropdown-width: 300px;
+    --assistant-option-bg: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    --assistant-option-hover-bg: hsl(
+      var(--h) var(--sat) calc(var(--l-panel) + 6%)
+    );
+    --assistant-option-selected-bg: color-mix(
+      in oklab,
+      var(--accent) 30%,
+      hsl(var(--h) var(--sat) calc(var(--l-panel) + 8%))
+    );
+    --assistant-option-selected-ring: color-mix(
+      in oklab,
+      var(--accent) 45%,
+      transparent
+    );
+
     display: grid;
     gap: 10px;
   }
 
-  .prompt-template-menu {
-    position: relative;
+  .assistant-profile-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 3%));
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
   }
 
-  .prompt-template-trigger {
+  .assistant-profile-strip:focus-within {
+    border-color: var(--accent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
+      0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+
+  .profile-trigger {
     display: grid;
+    min-width: 0;
+    min-height: 38px;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 13px 0 0 13px;
+    background: transparent;
+    box-shadow: none;
     text-align: left;
   }
 
-  .prompt-template-trigger span {
+  .profile-trigger:focus {
+    box-shadow: none;
+  }
+
+  .profile-trigger span {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .prompt-template-dropdown {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 100;
-    display: grid;
-    width: min(240px, 100%);
-    max-height: 260px;
-    overflow: auto;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
-    gap: 4px;
+  .profile-save-button {
+    display: inline-grid;
+    width: 44px;
+    min-width: 44px;
+    height: 40px;
+    min-height: 40px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0 13px 13px 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    line-height: 1;
   }
 
-  .prompt-template-create,
-  .prompt-template-option {
-    width: 100%;
+  .profile-save-button:hover {
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    color: var(--text);
+  }
+
+  .profile-save-button:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+    outline-offset: -3px;
+  }
+
+  .profile-save-button:active {
+    transform: none;
+  }
+
+  .model-trigger,
+  .prompt-template-trigger {
+    display: grid;
     min-width: 0;
-    justify-content: flex-start;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
     text-align: left;
   }
 
-  .prompt-template-create {
-    display: inline-flex;
-    gap: 8px;
-    color: var(--muted);
+  .model-trigger span,
+  .prompt-template-trigger span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
+  .model-provider-section {
+    display: grid;
+    gap: 4px;
+    padding-bottom: 6px;
+  }
+
+  .model-provider-section:not(:last-child) {
+    border-bottom: 1px solid
+      color-mix(in oklab, var(--border) 82%, transparent);
+    margin-bottom: 2px;
+  }
+
+  .model-provider-heading {
+    padding: 4px 8px 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .profile-item,
   .prompt-template-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     border-radius: 8px;
-    gap: 6px;
+    background: var(--assistant-option-bg);
+    overflow: hidden;
+    gap: 0;
   }
 
+  .model-option,
+  .prompt-template-option,
+  .dropdown-create-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    justify-content: flex-start;
+    border: 0;
+    border-radius: 8px;
+    background: var(--assistant-option-bg);
+    text-align: left;
+  }
+
+  .profile-option {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    justify-content: flex-start;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    text-align: left;
+  }
+
+  .prompt-template-item .prompt-template-option {
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .model-option:hover,
+  .profile-item:hover,
   .prompt-template-item:hover,
+  .prompt-template-option:hover,
+  .dropdown-create-button:hover {
+    background: var(--assistant-option-hover-bg);
+  }
+
+  .prompt-template-item .prompt-template-option:hover {
+    background: transparent;
+  }
+
+  .model-option.selected,
+  .profile-item.selected,
   .prompt-template-item.selected,
   .prompt-template-option.selected {
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 5%));
+    background: var(--assistant-option-selected-bg);
+    box-shadow: inset 0 0 0 1px var(--assistant-option-selected-ring);
+    color: var(--text);
   }
 
-  .prompt-template-item-actions {
-    display: inline-flex;
-    padding-right: 4px;
-    gap: 4px;
+  .model-option.selected,
+  .profile-item.selected .profile-option,
+  .profile-item.selected .dropdown-action-button,
+  .prompt-template-item.selected .prompt-template-option,
+  .prompt-template-item.selected .dropdown-action-button,
+  .prompt-template-option.selected {
+    color: var(--text);
   }
 
+  .profile-name,
+  .model-name,
   .prompt-template-name {
     display: block;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .model-empty {
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--assistant-option-bg);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .profile-item-actions {
+    display: inline-flex;
+    align-self: stretch;
+    gap: 0;
+  }
+
+  .profile-empty {
+    padding: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .dropdown-create-button {
+    display: inline-flex;
+    gap: 8px;
+    color: var(--muted);
+  }
+
+  .dropdown-create-button:hover {
+    color: var(--text);
+  }
+
+  .dropdown-action-button {
+    display: inline-grid;
+    width: 34px;
+    min-width: 34px;
+    height: 32px;
+    min-height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .dropdown-action-button:hover {
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    color: var(--text);
+  }
+
+  .dropdown-action-button.danger:hover {
+    background: color-mix(in oklab, var(--danger-but) 55%, transparent);
+    color: var(--danger-bor);
+  }
+
+  .dropdown-action-button:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+    outline-offset: -3px;
+  }
+
+  .dropdown-action-button:active {
+    transform: none;
+  }
+
+  .prompt-template-item-actions {
+    display: inline-flex;
+    align-self: stretch;
+    gap: 0;
   }
 
   .assistant-compact-field {
@@ -1037,9 +1497,10 @@
       margin-left: 0 !important;
     }
 
-    .prompt-template-dropdown {
-      width: 100%;
+    .assistant-profile-strip {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
+
   }
 
   @media (max-width: 420px) {

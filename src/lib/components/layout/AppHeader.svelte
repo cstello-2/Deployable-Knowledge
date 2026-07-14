@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
 
@@ -43,6 +44,18 @@
     userOpen = false;
   }
 
+  function toggleMainMenu() {
+    menuOpen = !menuOpen;
+    toolsOpen = false;
+    userOpen = false;
+  }
+
+  function toggleToolsMenu() {
+    toolsOpen = !toolsOpen;
+    menuOpen = false;
+    userOpen = false;
+  }
+
   function toggleUserMenu() {
     userOpen = !userOpen;
     menuOpen = false;
@@ -52,72 +65,62 @@
 
 <header class="app-header">
   <div class="left">
-    <div class="menu">
+    <Dropdown id="main_menu" bind:open={menuOpen} minWidth="220px">
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleMainMenu}
+        >
+          Menu
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
       <button
-        class="menu-trigger"
+        class="menu-item"
         type="button"
-        aria-haspopup="true"
-        aria-expanded={menuOpen}
-        onclick={() => {
-          menuOpen = !menuOpen;
-          toolsOpen = false;
-          userOpen = false;
-        }}
+        role="menuitem"
+        onclick={createNewChat}>New Chat</button
       >
-        Menu
-        <Icon name="expand_more" size={16} />
-      </button>
-
-      {#if menuOpen}
-        <div class="menu-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={createNewChat}>New Chat</button
-          >
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={openThemePopup}>Theme</button
-          >
-        </div>
-      {/if}
-    </div>
-
-    <div class="menu">
       <button
-        class="menu-trigger"
+        class="menu-item"
         type="button"
-        aria-haspopup="true"
-        aria-expanded={toolsOpen}
-        onclick={() => {
-          toolsOpen = !toolsOpen;
-          menuOpen = false;
-          userOpen = false;
-        }}
+        role="menuitem"
+        onclick={openThemePopup}>Theme</button
       >
-        Tools
-        <Icon name="expand_more" size={16} />
-      </button>
+    </Dropdown>
 
-      {#if toolsOpen}
-        <div class="menu-dropdown" role="menu">
-          {#each windowDefinitions as window (window.id)}
-            <button
-              class="menu-item"
-              class:visible={isWindowVisible(window.id)}
-              type="button"
-              role="menuitem"
-              onclick={() => restoreWindow(window.id)}
-            >
-              <span>{window.title}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <Dropdown id="tools_menu" bind:open={toolsOpen} minWidth="220px">
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleToolsMenu}
+        >
+          Tools
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
+      {#each windowDefinitions as window (window.id)}
+        <button
+          class="menu-item"
+          class:visible={isWindowVisible(window.id)}
+          type="button"
+          role="menuitem"
+          onclick={() => restoreWindow(window.id)}
+        >
+          <span>{window.title}</span>
+        </button>
+      {/each}
+    </Dropdown>
   </div>
 
   <div class="brand">
@@ -125,28 +128,30 @@
   </div>
 
   <div class="right">
-    <div class="menu">
-      <button
-        class="menu-trigger"
-        type="button"
-        aria-haspopup="true"
-        aria-expanded={userOpen}
-        onclick={toggleUserMenu}
+    <Dropdown
+      id="user_menu"
+      bind:open={userOpen}
+      align="end"
+      minWidth="220px"
+    >
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleUserMenu}
+        >
+          local-user
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
+      <button class="menu-item" type="button" role="menuitem" disabled={true}
+        >Logout</button
       >
-        local-user
-        <Icon name="expand_more" size={16} />
-      </button>
-      {#if userOpen}
-        <div class="menu-dropdown user-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            disabled={true}>Logout</button
-          >
-        </div>
-      {/if}
-    </div>
+    </Dropdown>
   </div>
 </header>
 
@@ -193,10 +198,6 @@
     transform: translateX(-50%);
   }
 
-  .menu {
-    position: relative;
-  }
-
   .menu-trigger {
     display: inline-flex;
     align-items: center;
@@ -215,24 +216,6 @@
 
   .menu-trigger:hover {
     border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
-  }
-
-  .menu-dropdown {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 50;
-    min-width: 220px;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
-  }
-
-  .user-dropdown {
-    right: 0;
-    left: auto;
   }
 
   .menu-item {
