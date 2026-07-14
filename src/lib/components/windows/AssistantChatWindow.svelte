@@ -1,11 +1,44 @@
 <script lang="ts">
-  import { getContext, tick, onMount } from "svelte";
+  import { getContext, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
-  import { selectedDocumentIds } from "$lib/utils/documentSelection";
-  import { type WindowInstanceProps } from "./index";
+  import { showToast } from "$lib/components/utils/ToastHost.svelte";
+  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
+  import { renderMarkdown } from "$lib/utils/markdown";
+  import { showWindow } from "$lib/utils/workspaceState";
+  import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
-  import type { Session, SessionMessage } from "$lib/server/database/schema";
+  import type {
+    NotebookWithPages,
+    Session,
+    SessionMessage,
+  } from "$lib/server/database/schema";
+
+  // Shape of a citation stored on an assistant message's metadata.
+  type ChatSource = {
+    url?: string;
+    title?: string;
+    description?: string;
+    chunkId?: string;
+    pageIndex?: number;
+    score?: number;
+  };
+
+  // dk:send-to-notebook carries fully-composed text — the notebook just
+  // appends it as plain text.
+  type SendToNotebookDetail = { text: string };
+
+  function getMessageSources(message: SessionMessage): ChatSource[] {
+    return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
+  }
+
+  function sourceScorePct(source: ChatSource): number {
+    return source.score != null ? Math.round(source.score * 100) : 0;
+  }
+
+  function sourceScoreLabel(source: ChatSource): string {
+    return source.score != null ? `${Math.round(source.score * 100)}%` : "N/A";
+  }
 
   let {
     id,
@@ -18,55 +51,91 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
+
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
-  let status = $state("");
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
-  let sendDisabled = $derived(busy ? true : draft.trim().length === 0);
+  let sendDisabled = $derived(busy || draft.trim().length === 0);
   let loadedSessionId: string | undefined;
-  let selectedAssistantText = $state("");
 
-  type Source = { url?: string; title?: string; description?: string; score?: number };
-
-  function getMessageSources(message: SessionMessage): Source[] {
-    return (message.metadata as { sources?: Source[] })?.sources ?? [];
+  // Notebook mode: RAG off, context = the entire open notebook (all its pages)
+  // instead of retrieved document chunks.
+  let notebookMode = $state(false);
+  function toggleNotebookMode() {
+    notebookMode = !notebookMode;
   }
 
-  function sourceHref(s: Source) { return s.url ?? null; }
-  function sourceName(s: Source) { return s.title ?? s.url ?? "Source"; }
-  function sourceDescription(s: Source) { return s.description ?? s.title ?? ""; }
-  function angularSimilarityPercent(s: Source): number | null { return s.score != null ? Math.round(s.score * 100) : null; }
-  function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
-  let sendToNotebookVisible = $state(false);
-  let sendToNotebookTop = $state(0);
-  let sendToNotebookLeft = $state(0);
+  // Fetch the currently open notebook fresh (rather than trusting appState,
+  // which can lag behind saves) and flatten all of its pages into one context blob.
+  async function fetchNotebookContext(): Promise<string> {
+    const res = await fetch("/notebooks");
+    const data = (await res.json()) as {
+      activeNotebookId: string | null;
+      notebooks: NotebookWithPages[];
+    };
+    const notebook = data.notebooks.find((nb) => nb.id === data.activeNotebookId);
+    if (!notebook) return "";
+    return notebook.pages.map((p) => p.content).filter(Boolean).join("\n\n");
+  }
 
+  // Send an assistant reply to the currently open notebook page (visible,
+  // plain text), and separately attach the RAG chunks behind it to the
+  // notebook server-side — hidden from the page text, but usable by
+  // notebook-mode chat and viewable via the notebook's Sources panel.
+  async function sendToNotebook(message: SessionMessage) {
+    const detail: SendToNotebookDetail = { text: message.content };
+    window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail }));
+
+    const chunkIds = getMessageSources(message)
+      .filter((s) => s.chunkId)
+      .map((s) => s.chunkId as string);
+
+    if (chunkIds.length && appState.activeNotebookId) {
+      await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chunk_ids: chunkIds }),
+      });
+      window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+    }
+
+    showToast(
+      chunkIds.length
+        ? `Sent to notebook (+${chunkIds.length} source${chunkIds.length === 1 ? "" : "s"})`
+        : "Sent to notebook",
+    );
+  }
+
+  // Reload when the current session changes (e.g. picked in Chat History).
   $effect(() => {
     const sessionId = appState.currentSession?.id;
     if (busy || sessionId === loadedSessionId) return;
-
     loadedSessionId = sessionId;
-    refresh(sessionId).catch(() => {});
+    if (sessionId) {
+      loadMessages(sessionId)
+        .then((m) => { if (sessionId === appState.currentSession?.id) messages = m; })
+        .catch(() => {});
+    } else {
+      messages = [];
+      messageStream = "";
+    }
   });
 
-  async function refresh(sessionId = appState.currentSession?.id) {
-    const nextMessages = await loadMessages(sessionId);
-    if (sessionId === appState.currentSession?.id) messages = nextMessages;
-  }
-
-  async function loadMessages(sessionId = appState.currentSession?.id): Promise<SessionMessage[]> {
-    if (!sessionId) return [];
-    return await fetch(`/sessions/${sessionId}`).then((r) => r.json());
+  async function loadMessages(sessionId: string): Promise<SessionMessage[]> {
+    const res = await fetch(`/sessions/${sessionId}`);
+    return (await res.json()) as SessionMessage[];
   }
 
   async function createSession(): Promise<Session> {
-    const session = await fetch("/sessions", {
+    const res = await fetch("/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-    }).then((r) => r.json()) as Session;
+    });
+    const session = (await res.json()) as Session;
+    appState.currentSession = session;
     window.dispatchEvent(new CustomEvent("sessions:refresh"));
     return session;
   }
@@ -76,53 +145,24 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
-  function handleSendToChat(event: Event) {
-    const { text } = (event as CustomEvent<{ text: string }>).detail;
-    if (!text?.trim()) return;
-    draft = draft.trim() ? `${draft.trimEnd()}\n\n${text.trim()}` : text.trim();
-  }
-
-  function handleAssistantSelection() {
-    const selection = window.getSelection();
-    const selectedText = selection?.toString().trim();
-    const messageElement = selection?.anchorNode?.parentElement?.closest(".msg.assistant");
-
-    if (!selectedText || !messageElement || !logElement?.contains(messageElement)) {
-      selectedAssistantText = "";
-      sendToNotebookVisible = false;
-      return;
-    }
-
-    const rangeRect = selection!.getRangeAt(0).getBoundingClientRect();
-    const logRect = logElement!.getBoundingClientRect();
-
-    selectedAssistantText = selectedText;
-    sendToNotebookLeft = Math.max(8, rangeRect.left - logRect.left);
-    sendToNotebookTop = Math.max(8, rangeRect.top - logRect.top - 38);
-    sendToNotebookVisible = true;
-  }
-
-  function sendSelectionToNotebook() {
-    window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail: { text: selectedAssistantText } }));
-    selectedAssistantText = "";
-    sendToNotebookVisible = false;
-    status = "Sent to notebook";
-    window.getSelection()?.removeAllRanges();
+  async function openGraphGalaxy() {
+    const visualQuery = draft.trim() || appState.lastQuery;
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }));
   }
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
-
     const text = draft.trim();
     if (!text) return;
 
+    appState.lastQuery = text;
     draft = "";
     busy = true;
-    status = "";
 
     const session = appState.currentSession ?? (await createSession());
-    appState.currentSession = session;
 
     messages = [...messages, {
       id: (messages.at(-1)?.id ?? 0) + 1,
@@ -132,8 +172,28 @@
       sessionId: session.id,
       metadata: null,
     }];
-
     await scrollToBottom();
+
+    const requestBody: Record<string, unknown> = {
+      message: text,
+      model_id: appState.currentModelId,
+      provider_id: appState.currentProviderId,
+      max_tokens: appState.maxTokens,
+      temperature: appState.temperature,
+      top_k: appState.topK,
+    };
+
+    if (notebookMode) {
+      requestBody.conversational = true;
+      requestBody.context = await fetchNotebookContext();
+      requestBody.notebook_id = appState.activeNotebookId;
+    } else {
+      requestBody.prompt_template_id = appState.promptTemplateId || null;
+      requestBody.persona = appState.persona;
+      requestBody.document_ids = getSelectedDocumentIds();
+      requestBody.retrieval_mode = appState.retrievalMode;
+      requestBody.rag_top_k = appState.ragTopK;
+    }
 
     const res = await fetch(`/sessions/${session.id}/messages`, {
       method: "POST",
@@ -147,7 +207,7 @@
         top_k: appState.topK,
         prompt_template_id: appState.promptTemplateId || null,
         persona: appState.persona,
-        document_ids: $selectedDocumentIds,
+        document_ids: getSelectedDocumentIds(),
         retrieval_mode: appState.retrievalMode,
         rag_top_k: appState.ragTopK,
       }),
@@ -155,14 +215,11 @@
 
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
-        messageStream += token;
-        await scrollToBottom();
-      }
+      messageStream += decoder.decode(value, { stream: true });
+      await scrollToBottom();
     }
 
     messages = await loadMessages(session.id);
@@ -174,20 +231,11 @@
 
   async function createNewChat() {
     if (busy) return;
-    status = "";
     messages = [];
+    messageStream = "";
     appState.currentSession = await createSession();
   }
 
-  onMount(() => {
-    window.addEventListener("dk:send-to-chat", handleSendToChat);
-    document.addEventListener("selectionchange", handleAssistantSelection);
-
-    return () => {
-      window.removeEventListener("dk:send-to-chat", handleSendToChat);
-      document.removeEventListener("selectionchange", handleAssistantSelection);
-    };
-  });
 </script>
 
 <BaseWindow
@@ -200,55 +248,56 @@
   {onClose}
   contentLabel="Assistant chat"
 >
+  {#snippet subtitle()}
+    {notebookMode
+      ? `Using ${appState.activeNotebook?.title ?? "Notebook"} for Context`
+      : "Using Documents for Context"}
+  {/snippet}
+
   <div class="chat-window">
-    {#if status}
-      <div class="chat-status li-subtle">
-        {status}
-      </div>
-    {/if}
-
     <div class="chat-log" bind:this={logElement} aria-live="polite">
-      {#if sendToNotebookVisible}
-        <button
-          class="selection-action chat-selection-action"
-          type="button"
-          style={`top: ${sendToNotebookTop}px; left: ${sendToNotebookLeft}px;`}
-          onclick={sendSelectionToNotebook}
-        >
-          Send to Notebook
-        </button>
-      {/if}
-
       {#each messages as message (message.id)}
         <div
           class="msg"
           class:user={message.role === "user"}
           class:assistant={message.role === "assistant"}
         >
-          {#if message.role === "user"}
-            {message.content}
-          {:else if message.role === "assistant"}
-            {message.content}
-            {#if getMessageSources(message).length}
-              <div class="msg-citations">
-                <div class="msg-citations-label">Sources</div>
+          {#if message.role === "assistant"}
+            <div class="msg-md">{@html renderMarkdown(message.content)}</div>
+            {@const sources = getMessageSources(message)}
+            <div class="msg-citations">
+              <div class="msg-citations-header">
+                {#if sources.length}
+                  <span class="msg-citations-label">Sources</span>
+                {:else}
+                  <span></span>
+                {/if}
+                <button class="send-to-notebook-btn" type="button" onclick={() => sendToNotebook(message)}>
+                  Send to Notebook
+                </button>
+              </div>
+
+              {#if sources.length}
                 <ol class="chat-source-list">
-                  {#each getMessageSources(message) as source, index}
+                  {#each sources as source, index (index)}
                     <li class="chat-source-row">
                       <div class="chat-source-main">
                         <div class="chat-source-text-block">
                           <span class="chat-source-num">{index + 1}.</span>
-                          <span class="chat-source-text">{sourceDescription(source)}</span>
+                          <span class="chat-source-text">{source.description ?? source.title ?? ""}</span>
                         </div>
                         <div class="chat-source-action-line">
                           <div class="chat-source-action-left">
-                            {#if sourceHref(source)}
-                              <a class="btn btn-sm chat-source-btn" href={sourceHref(source)} target="_blank" rel="noopener noreferrer">
-                                {sourceName(source)}
+                            {#if source.url}
+                              <a class="btn btn-sm chat-source-btn" href={source.url} target="_blank" rel="noopener noreferrer">
+                                {source.title ?? source.url}
                               </a>
                             {/if}
                           </div>
-                          <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
+                          <span
+                            class="chat-source-score"
+                            style={`--score-pct: ${sourceScorePct(source)}%`}
+                          >
                             Angular Similarity: {sourceScoreLabel(source)}
                           </span>
                         </div>
@@ -256,15 +305,16 @@
                     </li>
                   {/each}
                 </ol>
-              </div>
-            {/if}
+              {/if}
+            </div>
           {:else}
             {message.content}
           {/if}
         </div>
       {/each}
-
-      {#if busy && messageStream.length === 0}
+      
+      
+      {#if busy && !messageStream}
         <div class="msg assistant">
           <div class="msg-md msg-pending" role="status" aria-live="polite">
             <span class="typing-indicator" aria-hidden="true">
@@ -274,7 +324,9 @@
           </div>
         </div>
       {:else if messageStream.length !== 0}
-        <div class="msg assistant">{messageStream}</div>
+        <div class="msg assistant">
+          <div class="msg-md">{@html renderMarkdown(messageStream)}</div>
+        </div>
       {/if}
     </div>
 
@@ -282,11 +334,24 @@
       <input
         class="input"
         type="text"
+        name="message"
         placeholder="Type a message..."
         bind:value={draft}
         aria-label="Message"
         disabled={busy}
       />
+      <button
+        class="chat-action-button chat-mode-toggle"
+        class:active={notebookMode}
+        type="button"
+        disabled={busy}
+        aria-label="Chat About Your Notebook"
+        aria-pressed={notebookMode}
+        title="Chat About Your Notebook"
+        onclick={toggleNotebookMode}
+      >
+        <Icon name="menu_book" size={16} />
+      </button>
       <button
         class="chat-action-button chat-new-button"
         type="button"
@@ -296,6 +361,15 @@
         onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
+      </button>
+      <button
+        class="chat-action-button chat-graph-button"
+        type="button"
+        aria-label="Visualize knowledge graph"
+        title="Visualize knowledge graph"
+        onclick={openGraphGalaxy}
+      >
+        <Icon name="hub" size={16} />
       </button>
       <button
         class="chat-action-button chat-send-button"
@@ -320,6 +394,29 @@
     overflow: hidden;
   }
 
+  .chat-window {
+    position: relative;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .chat-log {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+    padding: 8px;
+    border-radius: 12px;
+    scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
+      hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    scrollbar-width: thin;
+  }
+
   .chat-log::-webkit-scrollbar {
     width: 12px;
     height: 12px;
@@ -338,54 +435,6 @@
 
   .chat-log::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%));
-  }
-
-  .chat-window {
-    display: flex;
-    height: 100%;
-    min-height: 0;
-    flex-direction: column;
-  }
-
-  .chat-status {
-    margin-bottom: 8px;
-    overflow-wrap: anywhere;
-  }
-
-  .chat-log {
-    position: relative;
-    display: flex;
-    min-height: 0;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 8px;
-    overflow: auto;
-    padding: 8px;
-    border-radius: 12px;
-    scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
-      hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
-    scrollbar-width: thin;
-  }
-
-  .selection-action {
-    position: absolute;
-    z-index: 30;
-    padding: 6px 9px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12px;
-    box-shadow: var(--shadow);
-  }
-
-  .selection-action:hover {
-    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
-  }
-
-  .chat-selection-action {
-    white-space: nowrap;
   }
 
   .msg {
@@ -418,26 +467,35 @@
 
   .msg-md > :global(:first-child) { margin-top: 0; }
   .msg-md > :global(:last-child) { margin-bottom: 0; }
-
-  .msg-md :global(p),
-  .msg-md :global(li),
-  .msg-md :global(blockquote),
+  .msg-md :global(p) { margin: 0 0 0.75em; }
+  .msg-md :global(ul),
+  .msg-md :global(ol) { margin: 0 0 0.75em; padding-left: 1.5em; }
+  .msg-md :global(li) { margin: 0.15em 0; }
+  .msg-md :global(blockquote) {
+    margin: 0 0 0.75em;
+    padding: 0.1em 1em;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
   .msg-md :global(h1),
   .msg-md :global(h2),
   .msg-md :global(h3),
   .msg-md :global(h4),
   .msg-md :global(h5),
-  .msg-md :global(h6),
-  .msg-md :global(a) {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-  }
-
-  .msg-md :global(p) { margin: 0 0 0.75em; }
+  .msg-md :global(h6) { margin: 0.75em 0 0.5em; line-height: 1.3; }
+  .msg-md :global(hr) { border: none; border-top: 1px solid var(--border); margin: 0.75em 0; }
   .msg-md :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
   .msg-md :global(code) { white-space: pre-wrap; }
-  .msg-error { color: var(--danger); }
-  .msg-md :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+  .msg-md :global(a) { overflow-wrap: anywhere; }
+  .msg-md :global(table) {
+    display: block;
+    max-width: 100%;
+    margin: 0 0 0.75em;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+  .msg-md :global(th),
+  .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
   .msg-pending {
@@ -481,6 +539,13 @@
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
+  }
+
+  .msg-citations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
 
   .msg-citations-label {
@@ -551,8 +616,8 @@
     border-radius: 999px;
     background: linear-gradient(
       90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct) 100%
+      rgb(37 99 235 / 85%) 0 var(--score-pct, 0%),
+      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct, 0%) 100%
     );
     color: var(--text);
     font-size: 11px;
@@ -561,9 +626,26 @@
     white-space: nowrap;
   }
 
+  .send-to-notebook-btn {
+    padding: 3px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .send-to-notebook-btn:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+
   .chat-input {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
@@ -571,16 +653,6 @@
     border-radius: 14px;
     background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 3%));
     box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
-    transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-
-  .chat-input:focus-within {
-    border-color: var(--accent);
-    box-shadow:
-      inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
-      0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
   }
 
   .chat-input .input {
@@ -620,13 +692,6 @@
     color: var(--text);
   }
 
-  .chat-action-button:focus-visible {
-    position: relative;
-    z-index: 1;
-    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-    outline-offset: -3px;
-  }
-
   .chat-action-button:active {
     transform: none;
   }
@@ -636,13 +701,23 @@
     opacity: 0.45;
   }
 
+  .chat-mode-toggle.active {
+    background: #8ae7ff;
+    color: #06262b;
+  }
+
+  .chat-mode-toggle.active:hover {
+    background: #8ae7ff;
+    color: #06262b;
+  }
+
   .chat-send-button {
     border-radius: 0 13px 13px 0;
   }
 
   @media (max-width: 680px) {
     .chat-input {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
     .chat-input .input {
@@ -657,13 +732,16 @@
       border-left: 0;
     }
 
-    .chat-send-button {
-      border-left: 1px solid var(--border);
-      border-radius: 0 0 13px 0;
+    .chat-action-button:first-of-type {
+      border-radius: 0 0 0 13px;
     }
 
-    .chat-new-button {
-      border-radius: 0 0 0 13px;
+    .chat-action-button + .chat-action-button {
+      border-left: 1px solid var(--border);
+    }
+
+    .chat-send-button {
+      border-radius: 0 0 13px 0;
     }
   }
 </style>

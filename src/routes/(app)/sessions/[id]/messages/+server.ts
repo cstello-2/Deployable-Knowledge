@@ -1,6 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import {
+  document_chunks,
+  notebook_sources,
   promptTemplates,
   type SessionMessage,
   sessions,
@@ -14,11 +16,56 @@ import type {
 } from "$lib/server/providers/provider";
 import {
   retrieveRagContext,
+  type RagContextResult,
+
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
 import type { RequestHandler } from "./$types";
 
-// This is where we construct the final prompt
+// Notebook mode (RAG off) uses this conversational prompt instead of the strict
+// "answer only from context" instruction the user supplies their own context
+// (their open notebook's content) rather than us retrieving it.
+const CONVERSATIONAL_SYSTEM_PROMPT = `You are a helpful assistant that answers questions and completes tasks for the user.
+
+The user may load reference material. Treat it as background knowledge — facts to draw on — not as a ready-made answer. Never copy, reprint, or restate the reference material or your earlier answers back to the user.
+- If the user asks a question, answer it in your own words, adding explanation and detail beyond what the material literally says.
+- If the user asks you to write, draft, summarize, or analyze something, do the task fully and originally.
+- If the user asks you to expand, elaborate, explain further, or "go deeper" on a point, provide NEW detail, examples, and reasoning about that specific point. Do not repeat the point itself or reprint sentences already shown — assume the user has already read them and wants more.
+
+If you notice you are about to repeat text that already appears above, stop and instead explain it, give an example, or add specifics. Always give a direct, helpful answer, and respond only to the user's most recent message.`;
+
+function createConversationalPrompt(
+  messages: SessionMessage[],
+  userMessage: string,
+  context = "",
+): string {
+  const lines = [`system: ${CONVERSATIONAL_SYSTEM_PROMPT}`];
+  for (const message of messages.slice(-20)) {
+    lines.push(`${message.role}: ${message.content}`);
+  }
+
+  if (context) {
+    // Reference material goes immediately before the request, and the grounding
+    // instruction is co-located with it small models attend most strongly to
+    // text right at the point of generation. The instruction is deliberately
+    // balanced: use the material as source data, but still perform the task
+    // rather than copying the material back.
+    lines.push(`Reference material (background knowledge — do not reprint it):\n\n${context}`);
+    lines.push(
+      `user: Use the reference material above as background knowledge. Then respond to the request below in your own words:\n` +
+        `- Answer or complete the request, adding explanation, detail, and reasoning that go beyond what the material literally says.\n` +
+        `- If the request asks you to expand, elaborate, or "go deeper" on a point, give NEW information, examples, and specifics about it — do not restate the point or repeat sentences already shown above.\n` +
+        `- Never copy or reprint the material or earlier answers. If you catch yourself repeating the source, stop and instead explain it, give an example, or add detail.\n\n` +
+        `Request: ${userMessage}`,
+    );
+  } else {
+    lines.push(`user: ${userMessage}`);
+  }
+
+  lines.push("assistant:");
+  return lines.join("\n\n");
+}
+
 function createPrompt(
   messages: SessionMessage[],
   userMessage: string,
@@ -47,6 +94,27 @@ function createPrompt(
   return lines.join("\n\n");
 }
 
+const MAX_SOURCE_EXCERPT_CHARS = 1200;
+
+// Chunks attached to a notebook via "Send to Notebook" — never shown in the
+// notebook page text, but pulled in here so notebook-mode chat can use them.
+async function getNotebookSourceExcerpts(notebookId: string): Promise<string> {
+  const rows = await db
+    .select({ content: document_chunks.content })
+    .from(notebook_sources)
+    .innerJoin(document_chunks, eq(document_chunks.id, notebook_sources.chunkId))
+    .where(eq(notebook_sources.notebookId, notebookId));
+
+  if (!rows.length) return "";
+
+  return rows
+    .map((row, index) => {
+      const text = row.content.replace(/\s+/g, " ").trim().slice(0, MAX_SOURCE_EXCERPT_CHARS);
+      return `[${index + 1}] ${text}`;
+    })
+    .join("\n\n");
+}
+
 async function createTitle(
   userMessage: string,
   provider: Provider,
@@ -70,6 +138,14 @@ async function createTitle(
   return title.trim().split("\n")[0] || "New conversation";
 }
 
+function readRetrievalMode(value: unknown): RagRetrievalMode | undefined {
+  if (value === "semantic" || value === "bm25" || value === "hybrid" || value === "graph") {
+    return value;
+  }
+
+  return undefined;
+}
+
 export const POST: RequestHandler = async ({ params, request }) => {
   const body = await request.json();
   const userSettings = (await db
@@ -85,7 +161,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const documentIds = Array.isArray(body.document_ids)
     ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
     : [];
-  const retrievalMode = (body.retrieval_mode || userSettings.retrievalMode) as RagRetrievalMode;
+  const retrievalMode =
+    readRetrievalMode(body.retrieval_mode) ??
+    readRetrievalMode(userSettings.retrievalMode) ??
+    "hybrid";
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -133,20 +212,36 @@ export const POST: RequestHandler = async ({ params, request }) => {
           )
           .get()
       : null;
-  const ragContext = await retrieveRagContext({
-    question: message,
-    documentIds,
-    mode: retrievalMode,
-    topK: body.rag_top_k ?? userSettings.ragTopK,
-  });
-  const prompt = createPrompt(
-    messages,
-    message,
-    promptTemplate?.systemPrompt || "",
-    persona,
-    ragContext.contextBlock,
-  );
+  const conversational = body.conversational === true;
+  const pageContext = typeof body.context === "string" ? body.context.trim() : "";
+  const notebookId = typeof body.notebook_id === "string" ? body.notebook_id.trim() : "";
 
+  const ragContext: RagContextResult = conversational
+    ? { mode: retrievalMode, contextBlock: "", sources: [] }
+    : await retrieveRagContext({
+        question: message,
+        documentIds,
+        mode: retrievalMode,
+        topK: body.rag_top_k ?? userSettings.ragTopK,
+      });
+
+  // Notebook-mode context = the visible page text + the notebook's attached
+  // sources (hidden from the notebook page, invisible to the user, but the
+  // model sees the full excerpts).
+  const sourceExcerpts = conversational && notebookId
+    ? await getNotebookSourceExcerpts(notebookId)
+    : "";
+  const context = [pageContext, sourceExcerpts].filter(Boolean).join("\n\n");
+
+  const prompt = conversational
+    ? createConversationalPrompt(messages, message, context)
+    : createPrompt(
+        messages,
+        message,
+        promptTemplate?.systemPrompt || "",
+        persona,
+        ragContext.contextBlock,
+      );
   const timestamp = new Date();
 
   const stream = new ReadableStream({

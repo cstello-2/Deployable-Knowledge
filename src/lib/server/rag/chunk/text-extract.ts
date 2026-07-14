@@ -108,7 +108,6 @@ export async function TextExtract(file: Source, ocr_langs: string[] = ["eng"], m
     if (doc.ocr && doc.ocr.active) {
         for (let i = 0; i < doc.ocr.active.length; i++) {
             const finalPageText = extractTextFromPage(doc.ocr.active[i]);
-            
             if (finalPageText.length > 0) {
                 nativeTextByPage.set(i, finalPageText);
                 chunks.push({
