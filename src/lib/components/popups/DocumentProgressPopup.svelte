@@ -3,8 +3,6 @@
 
   type ProgressResponse = {
     percent?: number;
-    total?: number;
-    current?: number;
     label?: string;
     message?: string;
   };
@@ -14,8 +12,6 @@
     title?: string;
     progress?: ProgressResponse | null;
     files?: Array<{ path: string; name: string; status: string; message?: string }>;
-    complete?: boolean;
-    onClose?: () => void;
   };
 
   let {
@@ -23,8 +19,6 @@
     title = "Working",
     progress = null,
     files = [],
-    complete = false,
-    onClose = () => {},
   }: Props = $props();
 
   const finishedStatuses = new Set([
@@ -37,38 +31,8 @@
     "failed",
   ]);
 
-  function formatBytes(bytes: number | undefined) {
-    const value = bytes ?? 0;
-
-    if (!Number.isFinite(value) || value <= 0) return "0 B";
-
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let size = value;
-    let index = 0;
-
-    while (size >= 1024 && index < units.length - 1) {
-      size /= 1024;
-      index += 1;
-    }
-
-    const decimals = size >= 10 || index === 0 ? 0 : 1;
-    return `${size.toFixed(decimals)} ${units[index]}`;
-  }
-
   let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
-  let total = $derived(progress?.total ?? 0);
-  let current = $derived(progress?.current ?? 0);
-  let hasTotal = $derived(total > 0);
   let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
-  let hasFiles = $derived(files.length > 0);
-  let hasActiveFiles = $derived(files.some((file) => file.status === "queued" || file.status === "ingesting"));
-  let displayedPercent = $derived(
-    hasFiles ? (finishedFiles / files.length) * 100 : complete && !hasTotal ? 100 : percent,
-  );
-  let indeterminate = $derived(
-    (!hasTotal && !hasFiles && !complete) || (hasActiveFiles && displayedPercent === 0),
-  );
-  let label = $derived(progress?.label || title);
   let message = $derived(progress?.message || "Please wait.");
 
   function statusLabel(status: string) {
@@ -79,41 +43,27 @@
 <Popup
   {open}
   id="document-progress"
-  title={hasFiles ? `${label}: ${finishedFiles}/${files.length}` : hasTotal ? `${label}: ${percent.toFixed(1)}%` : label}
+  title={files.length ? `${title}: ${finishedFiles}/${files.length}` : title}
   contentLabel="Document progress"
   closeOnBackdrop={false}
-  closable={complete}
-  {onClose}
 >
   <div class="progress-body" aria-live="polite" aria-busy={open}>
     <div class="progress-wrap">
       <div
         class="progress-track"
         role="progressbar"
-        aria-label={label}
+        aria-label={title}
         aria-valuemin="0"
         aria-valuemax="100"
-        aria-valuenow={indeterminate ? undefined : Math.round(displayedPercent)}
+        aria-valuenow={Math.round(percent)}
       >
-        <div
-          class:indeterminate
-          class="progress-fill"
-          style:width={!indeterminate && (hasTotal || hasFiles || complete) ? `${displayedPercent}%` : undefined}
-        ></div>
+        <div class="progress-fill" style:width={`${percent}%`}></div>
       </div>
-      <strong class="progress-percent">{indeterminate ? "…" : `${Math.round(displayedPercent)}%`}</strong>
+      <strong class="progress-percent">{Math.round(percent)}%</strong>
     </div>
-    {#if !hasFiles || complete}
-      <div class="progress-message">
-        {#if hasTotal}
-          {message} - {formatBytes(current)} / {formatBytes(total)}
-        {:else}
-          {message}
-        {/if}
-      </div>
-    {/if}
+    <div class="progress-message">{message}</div>
 
-    {#if hasFiles}
+    {#if files.length}
       <div class="progress-files">
         {#each files as file (file.path)}
           <div class="progress-file" title={file.path}>
@@ -157,11 +107,6 @@
     border-radius: 999px;
     background: var(--accent);
     transition: width 180ms ease;
-  }
-
-  .progress-fill.indeterminate {
-    width: 35%;
-    animation: progress-slide 1.1s ease-in-out infinite;
   }
 
   .progress-message {
@@ -217,17 +162,4 @@
     font-size: 11px;
   }
 
-  @keyframes progress-slide {
-    0% {
-      transform: translateX(-120%);
-    }
-
-    50% {
-      transform: translateX(95%);
-    }
-
-    100% {
-      transform: translateX(260%);
-    }
-  }
 </style>

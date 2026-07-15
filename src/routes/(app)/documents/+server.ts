@@ -4,6 +4,11 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { count, desc, eq } from "drizzle-orm";
 import { error, json } from "@sveltejs/kit";
+import type {
+  DocumentIngestEvent,
+  DocumentIngestProgress,
+  DocumentIngestResult,
+} from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { document_chunks, documents, synced_files, type Document } from "$lib/server/database/schema";
 import { containsPath } from "$lib/server/documents/remove-document";
@@ -11,15 +16,6 @@ import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
-
-type UploadResult = {
-  status: "success" | "error";
-  filename: string;
-  documentId?: string;
-  title?: string;
-  chunkCount?: number;
-  message?: string;
-};
 
 type DocumentListRow = Pick<Document, "id" | "title" | "sourcePath" | "sourceType" | "updatedAt"> & {
   chunkCount: number;
@@ -52,7 +48,11 @@ export const GET: RequestHandler = async () => {
   });
 };
 
-async function ingestBuffer(originalName: string, buffer: Buffer): Promise<UploadResult> {
+async function ingestBuffer(
+  originalName: string,
+  buffer: Buffer,
+  onProgress: (progress: DocumentIngestProgress) => void,
+): Promise<DocumentIngestResult> {
   const isPdfName = originalName.toLowerCase().endsWith(".pdf");
   const isPdfContent = buffer.subarray(0, 5).toString() === "%PDF-";
 
@@ -67,6 +67,7 @@ async function ingestBuffer(originalName: string, buffer: Buffer): Promise<Uploa
     .select({
       documentId: documents.id,
       title: documents.title,
+      sourcePath: documents.sourcePath,
       chunkCount: count(document_chunks.id),
     })
     .from(documents)
@@ -76,26 +77,26 @@ async function ingestBuffer(originalName: string, buffer: Buffer): Promise<Uploa
     .limit(1);
 
   if (existing) {
-    return {
-      status: "success",
-      filename: originalName,
-      ...existing,
-      chunkCount: Number(existing.chunkCount ?? 0),
-      message: "This PDF is already in the library.",
-    };
+    return { ...existing, pageCount: 0, chunkCount: Number(existing.chunkCount ?? 0) };
   }
 
   await writeFile(savedPath, buffer);
 
-  const result = await ingestDocument({
-    filePath: savedPath,
-    title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
-  });
+  const result = await ingestDocument(
+    {
+      filePath: savedPath,
+      title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+    },
+    onProgress,
+  );
 
-  return { status: "success", filename: originalName, ...result };
+  return result;
 }
 
-async function ingestPath(filePath: string): Promise<UploadResult> {
+async function ingestPath(
+  filePath: string,
+  onProgress: (progress: DocumentIngestProgress) => void,
+): Promise<DocumentIngestResult> {
   const root = await realpath(homedir());
   const path = await realpath(resolve(filePath));
   const fileStats = await stat(path);
@@ -108,6 +109,7 @@ async function ingestPath(filePath: string): Promise<UploadResult> {
     .select({
       documentId: documents.id,
       title: documents.title,
+      sourcePath: documents.sourcePath,
       chunkCount: count(document_chunks.id),
     })
     .from(synced_files)
@@ -118,16 +120,10 @@ async function ingestPath(filePath: string): Promise<UploadResult> {
     .limit(1);
 
   if (tracked) {
-    return {
-      status: "success",
-      filename: basename(path),
-      ...tracked,
-      chunkCount: Number(tracked.chunkCount ?? 0),
-      message: "This PDF is already managed by its folder.",
-    };
+    return { ...tracked, pageCount: 0, chunkCount: Number(tracked.chunkCount ?? 0) };
   }
 
-  return ingestBuffer(basename(path), await readFile(path));
+  return ingestBuffer(basename(path), await readFile(path), onProgress);
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -136,25 +132,34 @@ export const POST: RequestHandler = async ({ request }) => {
     ? paths.filter((path): path is string => typeof path === "string")
     : [];
 
-  if (selectedPaths.length === 0) {
-    throw error(400, "Upload at least one PDF file.");
+  if (selectedPaths.length !== 1) {
+    throw error(400, "Upload one PDF file per request.");
   }
 
   await mkdir(DOCUMENTS_DIR, { recursive: true });
-  const results: UploadResult[] = [];
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (event: DocumentIngestEvent) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
 
-  // Keep document ingestion sequential until Scribe's shared worker lifecycle is concurrency-safe.
-  for (const path of selectedPaths) {
-    try {
-      results.push(await ingestPath(path));
-    } catch (uploadError) {
-      results.push({
-        status: "error",
-        filename: basename(path) || "document.pdf",
-        message: uploadError instanceof Error ? uploadError.message : String(uploadError),
-      });
-    }
-  }
+      void ingestPath(selectedPaths[0], (progress) => send({ status: "progress", ...progress }))
+        .then((result) => send({ status: "complete", result }))
+        .catch((cause) => {
+          send({
+            status: "error",
+            message: cause instanceof Error ? cause.message : "Document ingestion failed",
+          });
+        })
+        .finally(() => controller.close());
+    },
+  });
 
-  return json({ uploads: results });
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+    },
+  });
 };

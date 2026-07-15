@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, open, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { eq } from "drizzle-orm";
+import type { DocumentIngestProgress } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { documents, synced_files, synced_folders } from "$lib/server/database/schema";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
@@ -27,6 +28,8 @@ export type SyncFileStatus =
 export type SyncFileProgress = {
   sourcePath: string;
   status: SyncFileStatus;
+  percent?: number;
+  label?: string;
   message?: string;
 };
 
@@ -85,7 +88,11 @@ async function unlinkIfPresent(filePath: string) {
   }
 }
 
-async function ingestManagedCopy(sourcePath: string, managedPath: string) {
+async function ingestManagedCopy(
+  sourcePath: string,
+  managedPath: string,
+  onProgress?: (progress: DocumentIngestProgress) => void,
+) {
   const replacementId = randomUUID();
   const stagedPath = `${managedPath}.${replacementId}.tmp`;
   const backupPath = `${managedPath}.${replacementId}.bak`;
@@ -109,10 +116,10 @@ async function ingestManagedCopy(sourcePath: string, managedPath: string) {
   }
 
   try {
-    const result = await ingestDocument({
-      filePath: managedPath,
-      title: pdfTitle(sourcePath),
-    });
+    const result = await ingestDocument(
+      { filePath: managedPath, title: pdfTitle(sourcePath) },
+      onProgress,
+    );
     if (hasBackup) await unlinkIfPresent(backupPath);
     return result;
   } catch (error) {
@@ -262,7 +269,11 @@ export async function syncFolder(
       if (existingDocument) {
         ingestedDocumentId = existingDocument.id;
       } else {
-        ingestedDocumentId = (await ingestManagedCopy(file.sourcePath, managedPath)).documentId;
+        ingestedDocumentId = (
+          await ingestManagedCopy(file.sourcePath, managedPath, (progress) => {
+            onProgress?.({ sourcePath: file.sourcePath, status: "ingesting", ...progress });
+          })
+        ).documentId;
         createdDocument = true;
       }
 
