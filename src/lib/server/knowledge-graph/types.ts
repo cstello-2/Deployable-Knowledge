@@ -12,7 +12,8 @@ export type EntityKind =
   | "organization"
   | "technology"
   | "concept"
-  | "unknown";
+  | "unknown"
+  | string;
 
 export type RelationType =
   | "CONTAINS"
@@ -24,7 +25,8 @@ export type RelationType =
   | "HAS_COMPONENT"
   | "DETECTS"
   | "OBSERVES"
-  | "RELATED_TO";
+  | "RELATED_TO"
+  | string;
 
 export type GraphNode = {
   id: string;
@@ -33,6 +35,7 @@ export type GraphNode = {
   entityKind?: EntityKind;
   documentId?: string;
   chunkId?: string;
+  chunkIds?: string[];
 };
 
 export type GraphEdge = {

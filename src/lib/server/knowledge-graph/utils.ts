@@ -10,6 +10,27 @@ export function normalizeLabel(input: string): string {
   return input.trim().replace(/\s+/g, " ");
 }
 
+export function sanitizeEntityLabel(input: string): string {
+  const normalized = normalizeLabel(input);
+  if (!normalized) return "";
+
+  const lower = normalized.toLowerCase();
+  if (/^(?:\d+|0+)$/.test(normalized)) return "";
+  if (/^(?:sample|chunk|document|page|section|chapter)(?:[\s\-_]?\d+)?$/i.test(normalized)) return "";
+  if (/^(?:\d+|0+)[\s\-_]?(?:sample|chunk|document|page|section|chapter)$/i.test(normalized)) return "";
+  if (/(?:^|[\s\-_])(sample|chunk|document|page|section|chapter)(?:[\s\-_]?\d+)?$/i.test(normalized)) return "";
+
+  const cleaned = normalized
+    .replace(/(?:^|[\s\-_])(sample|chunk|document|page|section|chapter)(?:[\s\-_]?\d+)?/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+  if (/^(?:\d+|0+)$/.test(cleaned)) return "";
+
+  return cleaned;
+}
+
 export function graphId(kind: string, label: string): string {
   return `${kind}:${normalizeLabel(label)
     .toLowerCase()

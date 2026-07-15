@@ -4,11 +4,10 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { document_chunks, documents } from "$lib/server/database/schema";
-import { extractEntities } from "./entity-extractor";
+import {extractChunkEntitiesAndRelations, resolveEntityLabels } from "./gliner-extractor";
 import { GraphStore } from "./graph-store";
-import { extractRelations } from "./relation-extractor";
 import type { IndexedChunk } from "./types";
-import { graphId, unique } from "./utils";
+import { graphId, sanitizeEntityLabel, unique } from "./utils";
 
 export type KnowledgeGraphIndex = {
   graph: GraphStore;
@@ -94,7 +93,7 @@ export async function loadKnowledgeGraph(
         content: row.content,
       };
       chunksById.set(chunk.chunkId, chunk);
-      addChunkToGraph(graph, chunk);
+      await addChunkToGraph(graph, chunk);
     }
   }
 
@@ -104,7 +103,7 @@ export async function loadKnowledgeGraph(
   return index;
 }
 
-function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): void {
+async function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): Promise<void> {
   const documentNodeId = graphId("document", chunk.documentId);
   const chunkNodeId = graphId("chunk", chunk.chunkId);
 
@@ -125,15 +124,13 @@ function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): void {
     documentId: chunk.documentId,
   });
 
-  const entities = extractEntities(chunk.content);
+  const { entities, relations } = await extractChunkEntitiesAndRelations(chunk.content, [], chunk.chunkId);
+
   for (const entity of entities) {
-    const entityNodeId = graphId("entity", entity.label);
-    graph.addNode({
-      id: entityNodeId,
-      label: entity.label,
-      kind: "entity",
-      entityKind: entity.kind,
-    });
+    const label = sanitizeEntityLabel(entity.label);
+    if (!label) continue;
+    upsertEntityNode(graph, { ...entity, label }, chunk.chunkId);
+    const entityNodeId = graphId("entity", label);
     graph.addEdge({
       source: chunkNodeId,
       target: entityNodeId,
@@ -145,12 +142,144 @@ function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): void {
     });
   }
 
-  for (const edge of extractRelations(
-    chunk.chunkId,
-    chunk.documentId,
-    chunk.content,
-    entities,
-  )) {
-    graph.addEdge(edge);
+  for (const relation of relations) {
+    const sourceLabel = sanitizeEntityLabel(relation.source);
+    const targetLabel = sanitizeEntityLabel(relation.target);
+    if (!sourceLabel || !targetLabel) continue;
+
+    const sourceNodeId = graphId("entity", sourceLabel);
+    const targetNodeId = graphId("entity", targetLabel);
+
+    graph.addNode({
+      id: sourceNodeId,
+      label: sourceLabel,
+      kind: "entity",
+      entityKind: "unknown",
+    });
+    graph.addNode({
+      id: targetNodeId,
+      label: targetLabel,
+      kind: "entity",
+      entityKind: "unknown",
+    });
+
+    graph.addEdge({
+      source: sourceNodeId,
+      target: targetNodeId,
+      relation: relation.relation || "RELATED_TO",
+      weight: 1,
+      evidence: relation.evidence ?? chunk.content,
+      chunkId: chunk.chunkId,
+      documentId: chunk.documentId,
+    });
   }
+}
+
+export async function augmentGraphWithQueryLabels(
+  graph: GraphStore,
+  chunksById: Map<string, IndexedChunk>,
+  labels: string[],
+): Promise<GraphStore> {
+  const augmented = cloneGraph(graph);
+  const normalizedLabels = resolveEntityLabels(labels);
+  const corpusEntities = new Set<string>();
+
+  for (const chunk of chunksById.values()) {
+    const { entities, relations } = await extractChunkEntitiesAndRelations(chunk.content, normalizedLabels, chunk.chunkId);
+    const chunkNodeId = graphId("chunk", chunk.chunkId);
+
+    // fish
+    //if (entities.length > 0) {
+    //  console.log(`[gliner] chunk ents:`, entities.map((entity) => entity.label));
+    //}
+
+    for (const entity of entities) {
+      const label = sanitizeEntityLabel(entity.label);
+      if (!label) continue;
+      corpusEntities.add(label);
+      upsertEntityNode(augmented, { ...entity, label }, chunk.chunkId);
+      const entityNodeId = graphId("entity", label);
+      augmented.addEdge({
+        source: chunkNodeId,
+        target: entityNodeId,
+        relation: "MENTIONS",
+        weight: 1,
+        evidence: chunk.content,
+        chunkId: chunk.chunkId,
+        documentId: chunk.documentId,
+      });
+    }
+
+    for (const relation of relations) {
+      const sourceLabel = sanitizeEntityLabel(relation.source);
+      const targetLabel = sanitizeEntityLabel(relation.target);
+      if (!sourceLabel || !targetLabel) continue;
+      corpusEntities.add(sourceLabel);
+      corpusEntities.add(targetLabel);
+      const sourceNodeId = graphId("entity", sourceLabel);
+      const targetNodeId = graphId("entity", targetLabel);
+      augmented.addNode({
+        id: sourceNodeId,
+        label: sourceLabel,
+        kind: "entity",
+        entityKind: "unknown",
+      });
+      augmented.addNode({
+        id: targetNodeId,
+        label: targetLabel,
+        kind: "entity",
+        entityKind: "unknown",
+      });
+      augmented.addEdge({
+        source: sourceNodeId,
+        target: targetNodeId,
+        relation: relation.relation || "RELATED_TO",
+        weight: 1,
+        evidence: relation.evidence ?? chunk.content,
+        chunkId: chunk.chunkId,
+        documentId: chunk.documentId,
+      });
+    }
+  }
+
+  if (corpusEntities.size > 0) {
+    console.log("Corpus chunk entities:", Array.from(corpusEntities).sort());
+  }
+  return augmented;
+}
+
+function cloneGraph(graph: GraphStore): GraphStore {
+  const copy = new GraphStore();
+  for (const node of graph.nodes.values()) {
+    copy.addNode(node);
+  }
+  for (const edge of graph.edges) {
+    copy.addEdge(edge);
+  }
+  return copy;
+}
+
+function upsertEntityNode(
+  graph: GraphStore,
+  entity: { label: string; kind: string; chunkIds?: string[] },
+  chunkId?: string,
+): void {
+  const nodeId = graphId("entity", entity.label);
+  const existing = graph.getNode(nodeId);
+  const mergedChunkIds = unique([...(existing?.chunkIds ?? []), ...(entity.chunkIds ?? []), ...(chunkId ? [chunkId] : [])]);
+
+  const nextNode = {
+    id: nodeId,
+    label: entity.label,
+    kind: "entity" as const,
+    entityKind: entity.kind,
+    chunkIds: mergedChunkIds.length ? mergedChunkIds : undefined,
+  };
+
+  if (existing) {
+    graph.nodes.set(nodeId, { ...existing, ...nextNode });
+    return;
+  }
+
+  graph.addNode(nextNode);
 }
