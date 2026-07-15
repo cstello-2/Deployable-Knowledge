@@ -64,7 +64,10 @@ export async function storeDocumentChunks(chunks: ParsedChunk[]): Promise<StoreC
   // Embed the final assembled chunks only, so stored vectors match the exact stored content
   const now = new Date().toISOString();
   const documentRow = buildDocumentRow(chunks, now);
-  const embeddings = await embedTexts(chunks.map((chunk) => chunk.content));
+  const embeddings = await embedTexts(
+    chunks.map((chunk) => chunk.content),
+    "search_document",
+  );
   const chunkRows = buildChunkRows(chunks, documentRow.id, embeddings, now);
 
   // Upsert the document shell first, then replace its chunks in one clean ingest pass

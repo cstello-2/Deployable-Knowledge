@@ -301,8 +301,8 @@ textarea:disabled {
 .inline-action-control .input {
 	min-width: 0;
 	width: 100%;
-	min-height: 36px;
-	padding: 10px 12px;
+	height: 42px;
+	padding: 0 12px;
 	border: 0;
 	border-radius: 13px 0 0 13px;
 	background: transparent;
