@@ -1267,7 +1267,7 @@
 
   .retrieval-row {
     display: grid;
-    grid-template-columns: auto 380px;
+    grid-template-columns: auto 300px;
     gap: 8px;
     align-items: center;
   }
@@ -1299,7 +1299,6 @@
     color: var(--muted);
     font-size: 11px;
     font-weight: 650;
-    white-space: nowrap;
   }
 
   .retrieval-toggle button:first-child {
@@ -1506,7 +1505,7 @@
     }
 
     .retrieval-toggle {
-      width: min(380px, 100%);
+      width: min(300px, 100%);
     }
   }
 </style>
