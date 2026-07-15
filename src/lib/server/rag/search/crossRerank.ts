@@ -10,10 +10,6 @@ export type RerankCandidate = {
   content: string;
 };
 
-export type RerankedCandidate = RerankCandidate & {
-  relevanceScore: number;
-};
-
 let tokenizer: any = null;
 let model: any = null;
 
@@ -25,14 +21,10 @@ async function initializeModel() {
   }
 }
 
-export function toRelevanceScore(logit: number): number {
-  return 1 / (1 + Math.exp(-logit));
-}
-
-export async function scoreCandidates(
+export async function rerankCandidates(
   query: string,
   candidates: RerankCandidate[],
-): Promise<RerankedCandidate[]> {
+): Promise<RerankCandidate[]> {
   const uniqueCandidates = [
     ...new Map(candidates.map((candidate) => [candidate.chunkId, candidate])).values(),
   ];
@@ -53,8 +45,9 @@ export async function scoreCandidates(
 
   return uniqueCandidates
     .map((candidate, index) => ({
-      ...candidate,
-      relevanceScore: toRelevanceScore(Number(logits.data[index])),
+      candidate,
+      logit: Number(logits.data[index]),
     }))
-    .sort((left, right) => right.relevanceScore - left.relevanceScore);
+    .sort((left, right) => right.logit - left.logit)
+    .map(({ candidate }) => candidate);
 }

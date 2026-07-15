@@ -1,12 +1,9 @@
 import { searchSemantic } from "./semantic-search";
-import {
-  searchHybrid,
-  withRelevanceScores,
-} from "./hybrid-search";
+import { searchHybrid } from "./hybrid-search";
 import { searchBm25 } from "./bm25-search";
 import type {
-  RelevanceSearchMatch,
   SearchChunkType,
+  SearchMatchBase,
 } from "./search-shared";
 import { RAG_CHUNK_CHARACTER_LIMIT } from "$lib/utils/contextLimits";
 
@@ -25,7 +22,6 @@ export type RagSource = {
   chunkId: string;
   pageIndex: number;
   chunkIndex: number;
-  relevanceScore: number;
 };
 
 export type RagContextResult = {
@@ -42,7 +38,7 @@ function compactText(text: string, limit: number) {
 }
 
 // Format retrieved chunks in the old RAG prompt style
-function formatContext(matches: RelevanceSearchMatch[]) {
+function formatContext(matches: SearchMatchBase[]) {
   if (matches.length === 0) return "";
 
   const items = matches.map((match) => {
@@ -56,7 +52,7 @@ function formatContext(matches: RelevanceSearchMatch[]) {
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-function buildSources(matches: RelevanceSearchMatch[]): RagSource[] {
+function buildSources(matches: SearchMatchBase[]): RagSource[] {
   return matches.map((match) => ({
     title: match.sourceTitle,
     description: `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
@@ -64,7 +60,6 @@ function buildSources(matches: RelevanceSearchMatch[]): RagSource[] {
     chunkId: match.chunkId,
     pageIndex: match.pageIndex,
     chunkIndex: match.chunkIndex,
-    relevanceScore: match.relevanceScore,
   }));
 }
 
@@ -89,16 +84,16 @@ export async function retrieveRagContext({
     documentIds,
     chunkTypes,
   };
-  let matches: RelevanceSearchMatch[];
+  let matches: SearchMatchBase[];
 
   if (mode === "bm25") {
     const search = await searchBm25(searchOptions);
-    matches = (await withRelevanceScores(question, [], search.results)).bm25;
+    matches = search.results.map(({ score: _score, ...match }) => match);
   } else if (mode === "hybrid") {
     matches = (await searchHybrid(searchOptions)).results;
   } else {
     const search = await searchSemantic(searchOptions);
-    matches = (await withRelevanceScores(question, search.results)).semantic;
+    matches = search.results.map(({ score: _score, ...match }) => match);
   }
 
   return {

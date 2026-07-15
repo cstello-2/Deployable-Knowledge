@@ -14,7 +14,6 @@
     sourceTitle: string;
     pageIndex: number;
     content: string;
-    relevanceScore: number;
   };
   type SearchResults = Record<RetrievalMode, SearchMatch[]>;
 
@@ -168,7 +167,6 @@
               <span class="result-rank">#{index + 1}</span>
               <span class="result-title">{result.sourceTitle}</span>
               <span>Page {result.pageIndex + 1}</span>
-              <span>Relevance: {result.relevanceScore.toFixed(3)}</span>
             </div>
             <p class="result-content">{result.content}</p>
             <div class="result-actions">

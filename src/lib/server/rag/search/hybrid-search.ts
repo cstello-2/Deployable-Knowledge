@@ -1,60 +1,25 @@
-// Hybrid search combines semantic and BM25 candidates with one shared relevance score.
+// Hybrid search gathers semantic and BM25 candidates, then reranks them together.
 
+import { searchSemantic } from "./semantic-search";
+import { searchBm25 } from "./bm25-search";
+import { rerankCandidates } from "./crossRerank";
 import {
-  searchSemantic,
-  type SemanticSearchMatch,
-} from "./semantic-search";
-import { searchBm25, type Bm25SearchMatch } from "./bm25-search";
-import { scoreCandidates } from "./crossRerank";
-import {
-  type RelevanceSearchMatch,
   type ScoredSearchMatch,
+  type SearchMatchBase,
   type SearchOptionsBase,
   type SearchResult,
 } from "./search-shared";
 
 type SearchMethodResults = {
   query: string;
-  semantic: RelevanceSearchMatch[];
-  bm25: RelevanceSearchMatch[];
-  hybrid: RelevanceSearchMatch[];
+  semantic: SearchMatchBase[];
+  bm25: SearchMatchBase[];
+  hybrid: SearchMatchBase[];
 };
 
-function toRelevanceMatch(
-  match: ScoredSearchMatch,
-  relevanceScore: number,
-): RelevanceSearchMatch {
+function withoutScore(match: ScoredSearchMatch): SearchMatchBase {
   const { score: _score, ...chunk } = match;
-  return { ...chunk, relevanceScore };
-}
-
-export async function withRelevanceScores(
-  query: string,
-  semantic: SemanticSearchMatch[] = [],
-  bm25: Bm25SearchMatch[] = [],
-) {
-  const scoredCandidates = await scoreCandidates(
-    query,
-    [...semantic, ...bm25].map((match) => ({
-      chunkId: match.chunkId,
-      content: match.content,
-    })),
-  );
-  const scores = new Map(
-    scoredCandidates.map((candidate) => [
-      candidate.chunkId,
-      candidate.relevanceScore,
-    ]),
-  );
-
-  return {
-    semantic: semantic.map((match) =>
-      toRelevanceMatch(match, scores.get(match.chunkId) ?? 0),
-    ),
-    bm25: bm25.map((match) =>
-      toRelevanceMatch(match, scores.get(match.chunkId) ?? 0),
-    ),
-  };
+  return chunk;
 }
 
 export async function searchAllMethods(
@@ -76,34 +41,42 @@ export async function searchAllMethods(
     searchSemantic(sharedOptions),
     searchBm25(sharedOptions),
   ]);
-  const scored = await withRelevanceScores(
-    query,
-    semanticSearch.results,
-    bm25Search.results,
-  );
-  const byChunkId = new Map<string, RelevanceSearchMatch>();
+  const semantic = semanticSearch.results.map(withoutScore);
+  const bm25 = bm25Search.results.map(withoutScore);
+  const byChunkId = new Map<string, SearchMatchBase>();
 
-  for (const match of [...scored.semantic, ...scored.bm25]) {
+  for (const match of [...semantic, ...bm25]) {
     if (!byChunkId.has(match.chunkId)) {
       byChunkId.set(match.chunkId, match);
     }
   }
 
-  const hybrid = [...byChunkId.values()]
-    .sort((left, right) => right.relevanceScore - left.relevanceScore)
-    .slice(0, topK);
+  const rankedCandidates = await rerankCandidates(
+    query,
+    [...byChunkId.values()].map((match) => ({
+      chunkId: match.chunkId,
+      content: match.content,
+    })),
+  );
+  const hybrid: SearchMatchBase[] = [];
+
+  for (const candidate of rankedCandidates) {
+    const match = byChunkId.get(candidate.chunkId);
+    if (match) hybrid.push(match);
+    if (hybrid.length === topK) break;
+  }
 
   return {
     query,
-    semantic: scored.semantic.slice(0, topK),
-    bm25: scored.bm25.slice(0, topK),
+    semantic: semantic.slice(0, topK),
+    bm25: bm25.slice(0, topK),
     hybrid,
   };
 }
 
 export async function searchHybrid(
   options: SearchOptionsBase,
-): Promise<SearchResult<RelevanceSearchMatch>> {
+): Promise<SearchResult<SearchMatchBase>> {
   const search = await searchAllMethods(options);
   return {
     query: search.query,

@@ -23,7 +23,6 @@
     title?: string;
     description?: string;
     chunkId?: string;
-    relevanceScore?: number;
   };
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
@@ -278,12 +277,6 @@
                               </a>
                             {/if}
                           </div>
-                          <span
-                            class="chat-source-score"
-                            style={`--score-pct: ${Math.round((source.relevanceScore ?? 0) * 100)}%`}
-                          >
-                            Relevance: {source.relevanceScore?.toFixed(3) ?? "N/A"}
-                          </span>
                         </div>
                       </div>
                     </li>
@@ -571,10 +564,8 @@
   }
 
   .chat-source-action-line {
-    display: grid;
+    display: flex;
     min-width: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
     align-items: center;
     padding-left: 20px;
   }
@@ -582,27 +573,6 @@
   .chat-source-action-left { display: flex; min-width: 0; align-items: center; }
 
   .chat-source-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .chat-source-score {
-    display: inline-flex;
-    min-width: 150px;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: linear-gradient(
-      90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct) 100%
-    );
-    color: var(--text);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    white-space: nowrap;
-  }
 
   .send-to-notebook-btn {
     padding: 3px 9px;
@@ -622,6 +592,7 @@
   }
 
   .chat-input {
+    flex-shrink: 0;
     margin-top: 10px;
   }
 

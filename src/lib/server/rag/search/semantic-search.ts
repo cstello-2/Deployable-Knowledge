@@ -48,7 +48,7 @@ export async function searchSemantic(
   }
 
   // Same embedding path as chunking/storage so query vectors stay in sync with the corpus
-  const queryEmbedding = (await embedTexts([query]))[0] ?? [];
+  const queryEmbedding = (await embedTexts([query], "search_query"))[0] ?? [];
   const filters: SQL[] = [];
 
   if (documentIds.length > 0) {
@@ -113,11 +113,11 @@ export async function searchSemantic(
 
   for (const candidate of decodedCandidates) {
     const { row, vector } = candidate;
+
     let score = 0;
-    const limit = Math.min(queryEmbedding.length, vector.length);
 
     // Embeddings are normalized, so dot product is the cosine score
-    for (let index = 0; index < limit; index += 1) {
+    for (let index = 0; index < queryEmbedding.length; index += 1) {
       score += queryEmbedding[index] * vector[index]; // dot product
     }
     scoredRows.push({
