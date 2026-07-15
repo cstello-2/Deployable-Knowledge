@@ -3,6 +3,12 @@
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
+  import {
+    knowledgeGraphState,
+    knowledgeGraphStateMatches,
+    refreshKnowledgeGraphStatus,
+    type KnowledgeGraphClientState,
+  } from "$lib/utils/knowledgeGraphState";
   import { showWindow } from "$lib/utils/workspaceState";
   import { type WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
@@ -25,25 +31,71 @@
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
-  let sendDisabled = $derived(busy || !draft.trim());
   let loadedSessionId: string | undefined;
   let selectedAssistantText = $state("");
+  let graphRequestId = 0;
+  let currentGraphState = $derived(
+    knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds)
+      ? $knowledgeGraphState
+      : null,
+  );
+  let graphReadinessMessage = $derived(
+    formatGraphReadinessMessage(appState.retrievalMode, currentGraphState),
+  );
+  let hasSubmittedQuery = $derived(messages.some((message) => message.role === "user"));
+  let sendDisabled = $derived(busy || hasSubmittedQuery || !draft.trim());
 
-  type Source = { url?: string; title?: string; description?: string; score?: number };
+  type Source = {
+    url?: string;
+    title?: string;
+    description?: string;
+    score?: number;
+    rawScore?: number;
+    documentId?: string;
+    chunkId?: string;
+    pageIndex?: number;
+    chunkIndex?: number;
+    chunkType?: string;
+    content?: string;
+    sourceTitle?: string;
+  };
+
+  type AssistantMetadata = {
+    sources?: Source[];
+    retrievalMode?: string;
+    query?: string;
+    documentIds?: string[];
+    graphTopK?: number;
+  };
+
+  let selectedResultChunkId = $state<string | null>(null);
+  let galaxySelectedChunkId = $state<string | null>(null);
 
   function getMessageSources(message: SessionMessage): Source[] {
-    return (message.metadata as { sources?: Source[] })?.sources ?? [];
+    return (message.metadata as AssistantMetadata)?.sources ?? [];
   }
 
   function messageRetrievalMode(message: SessionMessage): string | undefined {
     return (message.metadata as { retrievalMode?: string })?.retrievalMode;
   }
-  // Semantic score is a cosine similarity in [-1, 1], so it doubles as an angular-similarity percentage
-  function angularSimilarityPercent(s: Source): number | null { return s.score != null ? Math.round(s.score * 100) : null; }
-  function sourceScoreLabel(s: Source) { return s.score != null ? `${Math.round(s.score * 100)}%` : "N/A"; }
-  // BM25 scores are unbounded, so show the raw score rather than treating it as a percentage
-  function bm25ScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
-  function rawScoreLabel(s: Source) { return s.score != null ? s.score.toFixed(4) : "N/A"; }
+  function sourceScorePercent(source: Source): number {
+    if (source.score == null || !Number.isFinite(source.score)) return 0;
+    return Math.round(Math.max(0, Math.min(1, source.score)) * 100);
+  }
+
+  function sourceScoreLabel(source: Source) {
+    return source.score == null ? "N/A" : `${sourceScorePercent(source)}%`;
+  }
+
+  async function assistantErrorMessage(response: Response) {
+    try {
+      const body = await response.json() as { message?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) return body.message;
+    } catch {
+      // Fall back to a concise HTTP error when the response is not JSON.
+    }
+    return `Assistant request failed (${response.status})`;
+  }
   let sendToNotebookVisible = $state(false);
   let sendToNotebookTop = $state(0);
   let sendToNotebookLeft = $state(0);
@@ -53,12 +105,79 @@
     if (busy || sessionId === loadedSessionId) return;
 
     loadedSessionId = sessionId;
+    draft = "";
+    status = "";
+    messages = [];
+    clearGraphGalaxy();
     refresh(sessionId).catch(() => {});
   });
 
+  $effect(() => {
+    const retrievalMode = appState.retrievalMode;
+    const documentIds = $selectedDocumentIds;
+    if (retrievalMode !== "graph") return;
+    void refreshKnowledgeGraphStatus(documentIds);
+  });
+
+  function formatGraphReadinessMessage(
+    retrievalMode: string,
+    state: KnowledgeGraphClientState | null,
+  ) {
+    if (retrievalMode !== "graph") return "";
+    if (!state || state.status === "unknown" || state.status === "checking") {
+      return "Checking Knowledge Graph status...";
+    }
+    if (state.status === "building") {
+      return "The Knowledge Graph is building automatically for your question.";
+    }
+    if (state.status === "unavailable") {
+      return state.message || "Knowledge Graph status is unavailable.";
+    }
+    if (state.status === "failed") {
+      return "The previous graph build failed. Your next graph question will retry it automatically.";
+    }
+    if (state.status === "not_built") {
+      return state.needsRebuild
+        ? "The selected documents changed. Your next graph question will rebuild the graph automatically."
+        : "Your first graph question will build the graph automatically.";
+    }
+    return state.needsRebuild
+      ? "The graph will be updated automatically with your next question."
+      : "";
+  }
+
   async function refresh(sessionId = appState.currentSession?.id) {
     const nextMessages = await loadMessages(sessionId);
-    if (sessionId === appState.currentSession?.id) messages = nextMessages;
+    if (sessionId === appState.currentSession?.id) {
+      messages = nextMessages;
+      selectedResultChunkId = null;
+      galaxySelectedChunkId = null;
+      restoreQueryGraph(sessionId, nextMessages);
+    }
+  }
+
+  function restoreQueryGraph(sessionId: string | undefined, sessionMessages: SessionMessage[]) {
+    if (!sessionId) return;
+    const userMessage = sessionMessages.find((message) => message.role === "user");
+    const assistantMessage = [...sessionMessages].reverse().find((message) => message.role === "assistant");
+    const metadata = assistantMessage?.metadata as AssistantMetadata | null;
+    if (!userMessage || metadata?.retrievalMode !== "graph") return;
+
+    const documentIds = Array.isArray(metadata.documentIds)
+      ? metadata.documentIds
+      : [...new Set((metadata.sources ?? []).map((source) => source.documentId).filter((id): id is string => Boolean(id)))];
+    const requestId = ++graphRequestId;
+    appState.lastQuery = metadata.query?.trim() || userMessage.content;
+    showWindow("graph-galaxy-window");
+    window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
+      detail: {
+        sessionId,
+        query: appState.lastQuery,
+        documentIds,
+        requestId,
+        topK: metadata.graphTopK,
+      },
+    }));
   }
 
   async function loadMessages(sessionId = appState.currentSession?.id): Promise<SessionMessage[]> {
@@ -84,6 +203,10 @@
   function handleSendToChat(event: Event) {
     const { text } = (event as CustomEvent<{ text: string }>).detail;
     if (!text?.trim()) return;
+    if (hasSubmittedQuery) {
+      status = "This chat already has a question. Start a new chat to ask another one.";
+      return;
+    }
     draft = draft.trim() ? `${draft.trimEnd()}\n\n${text.trim()}` : text.trim();
   }
 
@@ -115,16 +238,89 @@
     window.getSelection()?.removeAllRanges();
   }
 
-  function openGraphGalaxy() {
-    const visualQuery = draft.trim() || appState.lastQuery;
+  async function updateGraphGalaxy(
+    query: string,
+    documentIds: string[],
+    requestId: number,
+    phase: "loading" | "ready" | "error",
+  ) {
     showWindow("graph-galaxy-window");
-    window.dispatchEvent(new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }));
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", {
+      detail: {
+        query,
+        documentIds,
+        requestId,
+        phase,
+        sessionId: appState.currentSession?.id,
+        topK: appState.ragTopK,
+      },
+    }));
+  }
+
+  function clearGraphGalaxy() {
+    const requestId = ++graphRequestId;
+    appState.lastQuery = "";
+    window.dispatchEvent(new CustomEvent("dk:clear-graph", {
+      detail: { requestId },
+    }));
+  }
+
+  function selectResultChunk(source: Source) {
+    if (!source.chunkId) return;
+    selectedResultChunkId = source.chunkId;
+    showWindow("graph-galaxy-window");
+    window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
+      detail: { chunkId: source.chunkId },
+    }));
+  }
+
+  async function saveResultChunk(source: Source, queryText: string) {
+    if (!source.chunkId) return;
+    selectedResultChunkId = source.chunkId;
+    let resolvedSource = source;
+    if (!source.content?.trim()) {
+      try {
+        const response = await fetch(`/chunks/${encodeURIComponent(source.chunkId)}`);
+        if (!response.ok) throw new Error(await assistantErrorMessage(response));
+        resolvedSource = { ...source, ...(await response.json() as Source) };
+      } catch (error) {
+        status = error instanceof Error ? error.message : "The chunk could not be loaded.";
+        return;
+      }
+    }
+    showWindow("graph-galaxy-window");
+    await tick();
+    const content = resolvedSource.content?.trim() || resolvedSource.description?.replace(/^Page \d+:\s*/, "").trim() || "";
+    window.dispatchEvent(new CustomEvent("dk:save-result-chunk", {
+      detail: {
+        query: queryText,
+        chunk: {
+          id: `chunk:${source.chunkId}`,
+          kind: "chunk",
+          label: resolvedSource.sourceTitle || resolvedSource.title || `Chunk ${resolvedSource.chunkIndex ?? ""}`.trim(),
+          chunkId: resolvedSource.chunkId,
+          documentId: resolvedSource.documentId,
+          sourceTitle: resolvedSource.sourceTitle || resolvedSource.title,
+          pageIndex: resolvedSource.pageIndex,
+          chunkIndex: resolvedSource.chunkIndex,
+          chunkType: resolvedSource.chunkType,
+          content,
+          preview: resolvedSource.description,
+          retrievalScore: resolvedSource.score,
+          score: resolvedSource.score,
+        },
+      },
+    }));
   }
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
-
+    if (hasSubmittedQuery) {
+      status = "This chat already has a question. Start a new chat to ask another one.";
+      return;
+    }
     const text = draft.trim();
     if (!text) return;
 
@@ -132,71 +328,114 @@
     busy = true;
     status = "";
     appState.lastQuery = text;
+    const graphMode = appState.retrievalMode === "graph";
+    const graphDocumentIds = [...$selectedDocumentIds];
+    const currentGraphRequestId = graphMode ? ++graphRequestId : 0;
+    let graphRefreshRequested = false;
 
-    const session = appState.currentSession ?? (await createSession());
-    appState.currentSession = session;
-
-    messages = [...messages, {
-      id: (messages.at(-1)?.id ?? 0) + 1,
-      role: "user",
-      content: text,
-      createdAt: new Date(),
-      sessionId: session.id,
-      metadata: null,
-    }];
-
-    await scrollToBottom();
-
-    const res = await fetch(`/sessions/${session.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        model_id: appState.currentModelId,
-        provider_id: appState.currentProviderId,
-        max_tokens: appState.maxTokens,
-        temperature: appState.temperature,
-        top_k: appState.topK,
-        prompt_template_id: appState.promptTemplateId || null,
-        persona: appState.persona,
-        document_ids: $selectedDocumentIds,
-        retrieval_mode: appState.retrievalMode,
-        rag_top_k: appState.ragTopK,
-      }),
-    });
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
-        messageStream += token;
-        await scrollToBottom();
-      }
+    if (graphMode) {
+      await updateGraphGalaxy(text, graphDocumentIds, currentGraphRequestId, "loading");
     }
 
-    messages = await loadMessages(session.id);
-    loadedSessionId = session.id;
-    busy = false;
-    messageStream = "";
-    await scrollToBottom();
+    try {
+      const session = appState.currentSession ?? (await createSession());
+      appState.currentSession = session;
+
+      messages = [...messages, {
+        id: (messages.at(-1)?.id ?? 0) + 1,
+        role: "user",
+        content: text,
+        createdAt: new Date(),
+        sessionId: session.id,
+        metadata: null,
+      }];
+
+      await scrollToBottom();
+
+      const res = await fetch(`/sessions/${session.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          model_id: appState.currentModelId,
+          provider_id: appState.currentProviderId,
+          max_tokens: appState.maxTokens,
+          temperature: appState.temperature,
+          top_k: appState.topK,
+          prompt_template_id: appState.promptTemplateId || null,
+          persona: appState.persona,
+          document_ids: graphDocumentIds,
+          retrieval_mode: appState.retrievalMode,
+          rag_top_k: appState.ragTopK,
+        }),
+      });
+
+      if (!res.ok) {
+        const message = await assistantErrorMessage(res);
+        if (res.status === 409 && appState.retrievalMode === "graph") {
+          void refreshKnowledgeGraphStatus($selectedDocumentIds);
+        }
+        throw new Error(message);
+      }
+      if (!res.body) throw new Error("Assistant returned an empty response stream");
+
+      if (graphMode) {
+        void refreshKnowledgeGraphStatus(graphDocumentIds);
+        await updateGraphGalaxy(text, graphDocumentIds, currentGraphRequestId, "ready");
+        graphRefreshRequested = true;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const token of decoder.decode(value, { stream: true }).split("\n").filter(Boolean)) {
+          messageStream += token;
+          await scrollToBottom();
+        }
+      }
+
+      messages = await loadMessages(session.id);
+      loadedSessionId = session.id;
+      await scrollToBottom();
+    } catch (error) {
+      console.error("Assistant chat error:", error);
+      status = error instanceof Error
+        ? error.message
+        : "Assistant request failed. Check the server log and try again.";
+      if (graphMode && !graphRefreshRequested) {
+        await updateGraphGalaxy(text, graphDocumentIds, currentGraphRequestId, "error");
+      }
+    } finally {
+      busy = false;
+      messageStream = "";
+    }
   }
 
   async function createNewChat() {
     if (busy) return;
     status = "";
+    draft = "";
     messages = [];
+    clearGraphGalaxy();
     appState.currentSession = await createSession();
   }
 
   onMount(() => {
+    const handleGalaxySelection = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string | null; chunkId?: string | null }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      galaxySelectedChunkId = detail?.chunkId ?? null;
+    };
     window.addEventListener("dk:send-to-chat", handleSendToChat);
+    window.addEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
     document.addEventListener("selectionchange", handleAssistantSelection);
 
     return () => {
       window.removeEventListener("dk:send-to-chat", handleSendToChat);
+      window.removeEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
       document.removeEventListener("selectionchange", handleAssistantSelection);
     };
   });
@@ -217,6 +456,12 @@
     {#if status}
       <div class="chat-status li-subtle">
         {status}
+      </div>
+    {/if}
+
+    {#if graphReadinessMessage}
+      <div class="chat-status chat-graph-status li-subtle" role="status" aria-live="polite">
+        {graphReadinessMessage}
       </div>
     {/if}
 
@@ -252,12 +497,21 @@
                     {@const href = source.url ?? null}
                     {@const title = source.title ?? source.url ?? "Source"}
                     {@const description = source.description ?? source.title ?? ""}
-                    <li class="chat-source-row">
+                    <li
+                      class="chat-source-row"
+                      class:selected={source.chunkId === selectedResultChunkId}
+                      class:galaxy-match={source.chunkId === galaxySelectedChunkId}
+                    >
                       <div class="chat-source-main">
-                        <div class="chat-source-text-block">
+                        <button
+                          class="chat-source-text-block chat-source-select"
+                          type="button"
+                          disabled={!source.chunkId}
+                          onclick={() => selectResultChunk(source)}
+                        >
                           <span class="chat-source-num">{index + 1}.</span>
                           <span class="chat-source-text">{description}</span>
-                        </div>
+                        </button>
                         <div class="chat-source-action-line">
                           <div class="chat-source-action-left">
                             {#if href}
@@ -265,18 +519,28 @@
                                 {title}
                               </a>
                             {/if}
+                            <button
+                              class="btn btn-sm chat-source-btn"
+                              type="button"
+                              disabled={!source.chunkId}
+                              onclick={() => saveResultChunk(source, messages.find((item) => item.role === "user")?.content ?? appState.lastQuery)}
+                            >Save chunk</button>
                           </div>
                           {#if retrievalMode === "semantic"}
-                            <span class="chat-source-score" style={`--score-pct: ${angularSimilarityPercent(source) ?? 0}%`}>
-                              Angular Similarity: {sourceScoreLabel(source)}
+                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
+                              Similarity: {sourceScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "bm25"}
-                            <span class="chat-source-score">
-                              BM25 Score: {bm25ScoreLabel(source)}
+                            <span
+                              class="chat-source-score"
+                              style={`--score-pct: ${sourceScorePercent(source)}%`}
+                              title={source.rawScore == null ? "Relative BM25 relevance" : `Raw BM25 score: ${source.rawScore.toFixed(4)}`}
+                            >
+                              Relative relevance: {sourceScoreLabel(source)}
                             </span>
                           {:else if retrievalMode === "hybrid" || retrievalMode === "graph"}
-                            <span class="chat-source-score">
-                              Score: {rawScoreLabel(source)}
+                            <span class="chat-source-score" style={`--score-pct: ${sourceScorePercent(source)}%`}>
+                              Relevance: {sourceScoreLabel(source)}
                             </span>
                           {/if}
                         </div>
@@ -307,14 +571,20 @@
       {/if}
     </div>
 
+    {#if hasSubmittedQuery}
+      <div class="chat-query-complete" role="status" aria-live="polite">
+        This chat is complete. Start a new chat to ask another question.
+      </div>
+    {/if}
+
     <form class="chat-input" onsubmit={handleSubmit}>
       <input
         class="input"
         type="text"
-        placeholder="Type a message..."
+        placeholder={hasSubmittedQuery ? "Start a new chat to ask another question." : "Type a message..."}
         bind:value={draft}
         aria-label="Message"
-        disabled={busy}
+        disabled={busy || hasSubmittedQuery}
       />
       <button
         class="chat-action-button chat-new-button"
@@ -325,15 +595,6 @@
         onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
-      </button>
-      <button
-        class="chat-action-button chat-graph-button"
-        type="button"
-        aria-label="Visualize knowledge graph"
-        title="Visualize knowledge graph"
-        onclick={openGraphGalaxy}
-      >
-        <Icon name="hub" size={16} />
       </button>
       <button
         class="chat-action-button chat-send-button"
@@ -388,6 +649,23 @@
   .chat-status {
     margin-bottom: 8px;
     overflow-wrap: anywhere;
+  }
+
+  .chat-graph-status {
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .chat-query-complete {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in oklab, var(--accent) 34%, var(--border));
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .chat-log {
@@ -537,6 +815,18 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     background: hsl(var(--h) var(--sat) var(--l-panel));
+    transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+  }
+
+  .chat-source-row.selected {
+    border-color: color-mix(in oklab, var(--accent) 58%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, hsl(var(--h) var(--sat) var(--l-panel)));
+  }
+
+  .chat-source-row.galaxy-match {
+    border-color: color-mix(in oklab, #a78bfa 78%, var(--border));
+    background: color-mix(in oklab, #8b5cf6 18%, hsl(var(--h) var(--sat) var(--l-panel)));
+    box-shadow: inset 3px 0 0 #a78bfa, 0 0 0 1px rgb(167 139 250 / 18%);
   }
 
   .chat-source-main { display: grid; min-width: 0; gap: 6px; }
@@ -547,6 +837,20 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 6px;
     align-items: start;
+  }
+
+  .chat-source-select {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .chat-source-select:disabled {
+    cursor: default;
   }
 
   .chat-source-num { color: var(--text); font-size: 13px; font-weight: 700; }
@@ -573,7 +877,7 @@
     padding-left: 20px;
   }
 
-  .chat-source-action-left { display: flex; min-width: 0; align-items: center; }
+  .chat-source-action-left { display: flex; min-width: 0; gap: 6px; align-items: center; }
 
   .chat-source-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -600,7 +904,7 @@
 
   .chat-input {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0;
     align-items: center;
     margin-top: 10px;
@@ -679,7 +983,7 @@
 
   @media (max-width: 680px) {
     .chat-input {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .chat-input .input {
@@ -692,10 +996,6 @@
       width: 100%;
       min-width: 0;
       border-left: 0;
-    }
-
-    .chat-graph-button {
-      border-left: 1px solid var(--border);
     }
 
     .chat-send-button {

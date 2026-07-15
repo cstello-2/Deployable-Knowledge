@@ -1,8 +1,18 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { loadKnowledgeGraph } from "$lib/server/knowledge-graph/graph-index";
-import { searchKnowledgeGraph } from "$lib/server/knowledge-graph";
-import type { GraphEdge, GraphNode, RelationType } from "$lib/server/knowledge-graph/types";
+import {
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+  ensureKnowledgeGraph,
+  getBuiltKnowledgeGraph,
+  searchKnowledgeGraph,
+} from "$lib/server/knowledge-graph";
+import type {
+  GraphEdge,
+  GraphNode,
+  KnowledgeGraphMatch,
+  RelationType,
+} from "$lib/server/knowledge-graph/types";
 import { graphId } from "$lib/server/knowledge-graph/utils";
 
 type VisualNode = {
@@ -13,7 +23,17 @@ type VisualNode = {
   documentId?: string;
   chunkId?: string;
   score?: number;
+  retrievalScore?: number;
+  hybridScore?: number;
+  graphScore?: number;
   preview?: string;
+  content?: string;
+  sourceTitle?: string;
+  pageIndex?: number;
+  chunkIndex?: number;
+  chunkType?: string;
+  matchedEntities?: string[];
+  relations?: RelationType[];
 };
 
 type VisualEdge = {
@@ -33,47 +53,73 @@ export const GET: RequestHandler = async ({ url }) => {
   const query = (url.searchParams.get("query") ?? "").trim();
   const topK = Math.max(1, Math.min(20, parseInt(url.searchParams.get("topK") ?? "8", 10)));
   const documentIds = url.searchParams.getAll("documentIds").filter(Boolean);
-  const index = await loadKnowledgeGraph(documentIds);
+  // No documentIds is the canonical request for the complete collection.
+  try {
+    const index = await ensureKnowledgeGraph(documentIds);
 
-  if (query) {
-    const search = await searchKnowledgeGraph({
-      query,
-      topK,
-      documentIds: documentIds.length ? documentIds : undefined,
-    });
-    const visual = createQueryGraph(index.graph, query, search.results, search.paths);
+    if (query) {
+      const search = await searchKnowledgeGraph({
+        query,
+        topK,
+        documentIds,
+      });
+      const visual = createQueryGraph(index, query, search.results, search.paths);
+      return json({
+        query,
+        mode: "query",
+        stats: index.graph.stats(),
+        ...visual,
+      });
+    }
+
     return json({
       query,
-      mode: "query",
+      mode: "overview",
       stats: index.graph.stats(),
-      ...visual,
+      ...createOverviewGraph(index.graph),
     });
+  } catch (error) {
+    return visualGraphError(error);
   }
-
-  return json({
-    query,
-    mode: "overview",
-    stats: index.graph.stats(),
-    ...createOverviewGraph(index.graph),
-  });
 };
 
+function visualGraphError(error: unknown): Response {
+  if (error instanceof KnowledgeGraphNotBuiltError) {
+    return json(
+      { code: error.code, message: error.message, graphStatus: error.graphStatus },
+      { status: 409 },
+    );
+  }
+  if (error instanceof KnowledgeGraphNoDocumentsError) {
+    return json(
+      { code: error.code, message: error.message, graphStatus: error.graphStatus },
+      { status: 404 },
+    );
+  }
+
+  console.error("Knowledge Graph visualization error:", error);
+  return json(
+    { code: "KNOWLEDGE_GRAPH_VISUAL_ERROR", message: "Knowledge Graph visualization failed." },
+    { status: 500 },
+  );
+}
+
 function createQueryGraph(
-  graph: Awaited<ReturnType<typeof loadKnowledgeGraph>>["graph"],
+  index: Awaited<ReturnType<typeof getBuiltKnowledgeGraph>>,
   query: string,
-  results: Array<{
-    chunkId: string;
-    documentId: string;
-    score: number;
-    content: string;
-  }>,
+  results: KnowledgeGraphMatch[],
   paths: Array<{ nodes: GraphNode[]; edges: GraphEdge[] }>,
 ) {
+  const { graph, chunksById } = index;
   const nodes = new Map<string, VisualNode>();
   const edges = new Map<string, VisualEdge>();
 
-  const addNode = (node: GraphNode, score?: number, preview?: string) => {
+  const addNode = (node: GraphNode, score?: number, result?: KnowledgeGraphMatch) => {
     const existing = nodes.get(node.id);
+    const chunk = node.kind === "chunk" && node.chunkId
+      ? chunksById.get(node.chunkId)
+      : undefined;
+    const content = result?.content ?? chunk?.content ?? existing?.content;
     nodes.set(node.id, {
       id: node.id,
       label: node.label,
@@ -82,7 +128,23 @@ function createQueryGraph(
       documentId: node.documentId,
       chunkId: node.chunkId,
       score: Math.max(existing?.score ?? 0, score ?? 0) || undefined,
-      preview: preview ?? existing?.preview,
+      retrievalScore: result?.score ?? existing?.retrievalScore,
+      hybridScore: result?.hybridScore ?? existing?.hybridScore,
+      graphScore: result?.graphScore ?? existing?.graphScore,
+      preview: content ? truncate(content) : existing?.preview,
+      content,
+      sourceTitle: result?.sourceTitle ?? chunk?.sourceTitle ?? existing?.sourceTitle,
+      pageIndex: result?.pageIndex ?? chunk?.pageIndex ?? existing?.pageIndex,
+      chunkIndex: result?.chunkIndex ?? chunk?.chunkIndex ?? existing?.chunkIndex,
+      chunkType: result?.chunkType ?? chunk?.chunkType ?? existing?.chunkType,
+      matchedEntities: uniqueStrings([
+        ...(existing?.matchedEntities ?? []),
+        ...(result?.matchedEntities ?? []),
+      ]),
+      relations: uniqueRelations([
+        ...(existing?.relations ?? []),
+        ...(result?.relations ?? []),
+      ]),
     });
   };
   const addEdge = (edge: GraphEdge) => {
@@ -101,7 +163,7 @@ function createQueryGraph(
     const documentNode = graph.getNode(graphId("document", result.documentId));
     const chunkNode = graph.getNode(graphId("chunk", result.chunkId));
     if (documentNode) addNode(documentNode, result.score);
-    if (chunkNode) addNode(chunkNode, result.score, truncate(result.content));
+    if (chunkNode) addNode(chunkNode, result.score, result);
 
     for (const neighbor of graph.neighbors(graphId("chunk", result.chunkId)).slice(0, MAX_QUERY_NEIGHBORS_PER_CHUNK)) {
       addNode(neighbor.node, result.score * Math.max(0.2, neighbor.edge.weight));
@@ -126,7 +188,17 @@ function createQueryGraph(
   };
 }
 
-function createOverviewGraph(graph: Awaited<ReturnType<typeof loadKnowledgeGraph>>["graph"]) {
+function uniqueStrings(values: readonly string[]): string[] | undefined {
+  const unique = [...new Set(values.filter(Boolean))];
+  return unique.length ? unique : undefined;
+}
+
+function uniqueRelations(values: readonly RelationType[]): RelationType[] | undefined {
+  const unique = [...new Set(values)];
+  return unique.length ? unique : undefined;
+}
+
+function createOverviewGraph(graph: Awaited<ReturnType<typeof getBuiltKnowledgeGraph>>["graph"]) {
   const degree = new Map<string, number>();
   for (const edge of graph.edges) {
     degree.set(edge.source, (degree.get(edge.source) ?? 0) + edge.weight);

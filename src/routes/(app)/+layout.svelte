@@ -1,6 +1,6 @@
 <script lang="ts">
   import "../../app.css";
-  import { setContext } from "svelte";
+  import { onMount, setContext } from "svelte";
   import "material-symbols/rounded.css";
   import AppHeader from "$lib/components/layout/AppHeader.svelte";
   import ToastHost from "$lib/components/utils/ToastHost.svelte";
@@ -16,7 +16,11 @@
     appState.applySettings(data.settings);
   });
 
-  initWorkspaceStateStorage();
+  // The server cannot read localStorage. Waiting until mount keeps the first
+  // client render identical to SSR, then restores the user's saved layout.
+  onMount(() => {
+    initWorkspaceStateStorage();
+  });
 </script>
 
 <svelte:head>

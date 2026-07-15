@@ -6,13 +6,15 @@ export const EMBEDDING_MODEL =
 // TODO: Explore alternative embedding models at some point
 const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
-const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
+// A fresh checkout does not have a model cache yet. Allow the first run to
+// populate it unless the installation explicitly opts into offline-only mode.
+const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE !== "0";
 const EMBEDDING_CACHE_DIR =
   process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), ".cache", "transformersjs");
 
 // Keep model files inside the repo by default so setup is portable across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
-// Remote downloads are opt-in; normal runs should use the configured local cache
+// Once downloaded, Transformers.js continues to use the configured local cache.
 env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 
 let embeddingPipelinePromise: Promise<any> | null = null;

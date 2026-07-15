@@ -36,6 +36,10 @@ export type RagSource = {
   pageIndex: number;
   chunkIndex: number;
   score: number;
+  rawScore?: number;
+  content: string;
+  sourceTitle: string;
+  chunkType: SearchChunkType;
 };
 
 export type RagContextResult = {
@@ -66,16 +70,35 @@ function formatContext(matches: RagMatch[]) {
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-function buildSources(matches: RagMatch[]): RagSource[] {
-  return matches.map((match) => ({
+function buildSources(matches: RagMatch[], mode: RagRetrievalMode): RagSource[] {
+  const rawScores = matches.map((match) =>
+    Number.isFinite(match.score) ? match.score : 0,
+  );
+  const maximumBm25Score = Math.max(0, ...rawScores);
+
+  return matches.map((match, index) => ({
     title: match.sourceTitle,
     description: `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
     documentId: match.documentId,
     chunkId: match.chunkId,
     pageIndex: match.pageIndex,
     chunkIndex: match.chunkIndex,
-    score: match.score,
+    // Citation scores always use a [0, 1] UI contract. BM25 is unbounded, so
+    // it is normalized relative to the strongest returned result.
+    score: mode === "bm25"
+      ? maximumBm25Score > 0
+        ? clamp01(rawScores[index] / maximumBm25Score)
+        : 0
+      : clamp01(rawScores[index]),
+    rawScore: mode === "bm25" ? rawScores[index] : undefined,
+    content: match.content,
+    sourceTitle: match.sourceTitle,
+    chunkType: match.chunkType,
   }));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }
 
 function formatGraphPaths(paths: KnowledgeGraphPath[]): string {
@@ -121,7 +144,7 @@ export async function retrieveRagContext({
     return {
       mode,
       contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
+      sources: buildSources(search.results, mode),
     };
   }
 
@@ -136,7 +159,7 @@ export async function retrieveRagContext({
     return {
       mode,
       contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
+      sources: buildSources(search.results, mode),
     };
   }
 
@@ -154,7 +177,7 @@ export async function retrieveRagContext({
         formatContext(search.results),
         formatGraphPaths(search.paths),
       ].filter(Boolean).join("\n\n"),
-      sources: buildSources(search.results),
+      sources: buildSources(search.results, mode),
     };
   }
 
@@ -168,6 +191,6 @@ export async function retrieveRagContext({
   return {
     mode,
     contextBlock: formatContext(search.results),
-    sources: buildSources(search.results),
+    sources: buildSources(search.results, mode),
   };
 }

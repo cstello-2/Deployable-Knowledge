@@ -10,6 +10,12 @@
     selectedDocumentIds,
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
+  import {
+    knowledgeGraphState,
+    knowledgeGraphStateMatches,
+    refreshKnowledgeGraphStatus,
+    type KnowledgeGraphClientState,
+  } from "$lib/utils/knowledgeGraphState";
   import type { Document } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
@@ -38,12 +44,33 @@
   let documents = $state<DocumentRow[]>([]);
   let status = $state("");
   let busy = $state(false);
+  let documentsLoaded = $state(false);
   let progressOpen = $state(false);
+  let progressTitle = $state("Working");
   let progress = $state<{ label: string; message: string } | null>(null);
   let selectedCount = $derived($selectedDocumentIds.length);
+  let currentGraphState = $derived(
+    knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds)
+      ? $knowledgeGraphState
+      : null,
+  );
+  let graphBuilding = $derived(currentGraphState?.status === "building");
+  let operationBusy = $derived(busy || graphBuilding);
+  let graphStatusText = $derived(formatGraphStatus(currentGraphState));
 
   onMount(() => {
     refreshDocuments().catch(() => showToast("Documents failed to load"));
+  });
+
+  $effect(() => {
+    const documentIds = $selectedDocumentIds;
+    const librarySignature = documents
+      .map((document) => `${document.id}:${document.updatedAt}:${document.chunkCount}`)
+      .join("|");
+
+    if (!documentsLoaded) return;
+    void librarySignature;
+    void refreshKnowledgeGraphStatus(documentIds);
   });
 
   function shortId(id: string) {
@@ -65,6 +92,40 @@
     return `Stored ${result.chunkCount} chunks from ${result.title}.`;
   }
 
+  function graphScopeLabel() {
+    if (selectedCount === 0) return "All documents (default)";
+    if (documentsLoaded && selectedCount === documents.length) return "All documents selected";
+    return `${selectedCount} selected ${selectedCount === 1 ? "document" : "documents"}`;
+  }
+
+  function formatGraphStatus(state: KnowledgeGraphClientState | null) {
+    if (!documentsLoaded) return "Checking build status...";
+    if (!documents.length) return "Upload a document to use Knowledge Graph retrieval.";
+    if (!state || state.status === "unknown" || state.status === "checking") {
+      return "Checking build status...";
+    }
+
+    if (state.status === "building") return "Building automatically for the current question...";
+    if (state.status === "unavailable") {
+      return state.message || "Build status is unavailable.";
+    }
+    if (state.status === "failed") {
+      return state.error
+        ? `The previous automatic build failed: ${state.error}`
+        : "The previous automatic build failed. Your next graph question will retry it.";
+    }
+    if (state.status === "not_built") {
+      return state.needsRebuild
+        ? "Documents changed. The next graph question will rebuild it automatically."
+        : "The first graph question will build it automatically.";
+    }
+
+    const stats = state.stats;
+    return stats
+      ? `Ready (${stats.nodes} nodes, ${stats.edges} edges). Each question refreshes the Galaxy view.`
+      : "Ready. Each question refreshes the Galaxy view.";
+  }
+
   async function refreshDocuments(message = "") {
     const response = await fetch("/documents/list");
     if (!response.ok) {
@@ -74,6 +135,7 @@
     const body = await response.json();
     documents = (body.documents ?? []) as DocumentRow[];
     keepExistingDocumentSelections(new Set(documents.map((document) => document.id)));
+    documentsLoaded = true;
     if (message) status = message;
   }
 //TODO: Add configuration pane allowing the user to select local directories or mapped network drives (e.g., OneDrive sync folders) for automated ingestion.
@@ -85,10 +147,11 @@
 
   async function handleUpload(event: SubmitEvent) {
     event.preventDefault();
-    if (!selectedFile || busy) return;
+    if (!selectedFile || operationBusy) return;
 
     busy = true;
     progressOpen = true;
+    progressTitle = "Ingesting PDF";
     progress = {
       label: "Ingesting PDF",
       message: "Parsing, chunking, embedding, and storing.",
@@ -122,6 +185,7 @@
       progress = null;
     }
   }
+
 </script>
 
 <BaseWindow
@@ -145,7 +209,7 @@
       <button
         class="btn docs-file-button"
         type="button"
-        disabled={busy}
+        disabled={operationBusy}
         onclick={() => fileInput?.click()}
       >
         <Icon name="attach_file" size={16} />
@@ -157,7 +221,7 @@
       <button
         class="btn btn-primary docs-upload-button"
         type="submit"
-        disabled={!selectedFile || busy}
+        disabled={!selectedFile || operationBusy}
       >
         <Icon name="upload_file" size={16} />
         <span>Upload</span>
@@ -167,19 +231,38 @@
         type="button"
         title="Refresh documents"
         aria-label="Refresh documents"
-        disabled={busy}
+        disabled={operationBusy}
         onclick={() => refreshDocuments().catch(() => showToast("Documents failed to load"))}
       >
         <Icon name="refresh" size={16} />
       </button>
     </form>
 
-    {#if status}
-      <div class="docs-status li-subtle">{status}</div>
-    {/if}
+    <div class="docs-status li-subtle" aria-live="polite">{status}</div>
 
     <div class="docs-selection li-subtle">
-      {selectedCount} selected. If none are selected, chat searches all stored documents.
+      {#if selectedCount === 0}
+        No documents selected. Queries use all available documents by default.
+      {:else if selectedCount === documents.length}
+        All documents selected. Queries use the full document collection.
+      {:else}
+        {selectedCount} selected. Queries use only those documents.
+      {/if}
+    </div>
+
+    <div
+      class="docs-graph-controls"
+      data-status={currentGraphState?.status ?? "checking"}
+      aria-live="polite"
+      aria-busy={graphBuilding}
+    >
+      <div class="docs-graph-status">
+        <div class="docs-graph-heading">
+          <strong>Knowledge Graph</strong>
+          <span class="li-meta">{graphScopeLabel()}</span>
+        </div>
+        <div class="li-subtle">{graphStatusText}</div>
+      </div>
     </div>
 
     <div class="docs-list" aria-live="polite">
@@ -190,6 +273,7 @@
             type="checkbox"
             aria-label={`Use ${document.title} in chat`}
             checked={$selectedDocumentIds.includes(document.id)}
+            disabled={operationBusy}
             onchange={() => toggleDocumentSelection(document.id)}
           />
           <div class="docs-icon" aria-hidden="true">
@@ -214,7 +298,7 @@
 
 <DocumentProgressPopup
   open={progressOpen}
-  title="Ingesting PDF"
+  title={progressTitle}
   {progress}
 />
 
@@ -228,7 +312,7 @@
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -263,12 +347,40 @@
   }
 
   .docs-status {
+    min-height: 16px;
     overflow-wrap: anywhere;
   }
 
   .docs-selection {
     min-height: 16px;
   }
+
+  .docs-graph-controls {
+    display: flex;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .docs-graph-status {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  .docs-graph-heading {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+  }
+
 
   .docs-list {
     display: grid;
@@ -343,6 +455,11 @@
 
     .docs-row {
       grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .docs-graph-controls {
+      align-items: stretch;
+      flex-direction: column;
     }
 
     .docs-id {

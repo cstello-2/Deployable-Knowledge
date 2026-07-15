@@ -2,7 +2,10 @@
   import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
+  import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type { AppState } from "$lib/state.svelte";
+  import type { NotebookWithPages } from "$lib/server/database/schema";
+  import { showWindow } from "$lib/utils/workspaceState";
   import type { WindowInstanceProps } from "./index";
 
   type VisualNode = {
@@ -13,7 +16,17 @@
     documentId?: string;
     chunkId?: string;
     score?: number;
+    retrievalScore?: number;
+    hybridScore?: number;
+    graphScore?: number;
     preview?: string;
+    content?: string;
+    sourceTitle?: string;
+    pageIndex?: number;
+    chunkIndex?: number;
+    chunkType?: string;
+    matchedEntities?: string[];
+    relations?: string[];
   };
 
   type VisualEdge = {
@@ -31,6 +44,18 @@
     stats: { nodes: number; edges: number };
     nodes: VisualNode[];
     edges: VisualEdge[];
+  };
+
+  type StoredGraphState = {
+    query: string;
+    documentIds: string[];
+    topK: number;
+    graph: GraphResponse;
+    selectedNodeId: string | null;
+    inspectorExpanded: boolean;
+    yaw: number;
+    pitch: number;
+    zoom: number;
   };
 
   type GalaxyNode = VisualNode & {
@@ -66,6 +91,17 @@
   let loading = $state(false);
   let status = $state("");
   let selectedNode = $state<GalaxyNode | null>(null);
+  let inspectorExpanded = $state(false);
+  let savingChunkId = $state<string | null>(null);
+  let saveDialogOpen = $state(false);
+  let saveDialogLoading = $state(false);
+  let saveDialogError = $state("");
+  let pendingChunk = $state<VisualNode | null>(null);
+  let destinationNotebookId = $state("");
+  let destinationPageId = $state("");
+  let existingNotebookNewPageTitle = $state("");
+  let newNotebookTitle = $state("");
+  let newPageTitle = $state("");
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
   let zoom = $state(DEFAULT_ZOOM);
@@ -73,67 +109,220 @@
   let lastPointer = { x: 0, y: 0 };
   let frame = 0;
   let resizeObserver: ResizeObserver | null = null;
+  let graphAbortController: AbortController | null = null;
+  let latestRequestId = -1;
+  let loadGeneration = 0;
+  let activeSessionId = $state<string | null>(null);
+  let activeDocumentIds: string[] = [];
+  let activeTopK = appState.ragTopK || 8;
 
   const nodeById = $derived(new Map(nodes.map((node) => [node.id, node])));
+  const destinationNotebook = $derived(
+    appState.notebooks.find((notebook) => notebook.id === destinationNotebookId) ?? null,
+  );
+  const destinationPage = $derived(
+    destinationNotebook?.pages.find((page) => page.id === destinationPageId) ?? null,
+  );
 
   onMount(() => {
-    query = appState.lastQuery;
-    loadGraph(appState.lastQuery).catch(() => {});
     resizeObserver = new ResizeObserver(() => resizeCanvas());
     if (canvas?.parentElement) resizeObserver.observe(canvas.parentElement);
     frame = requestAnimationFrame(draw);
 
     function handleVisualize(event: Event) {
-      const nextQuery = (event as CustomEvent<{ query?: string }>).detail?.query ?? appState.lastQuery;
+      const detail = (event as CustomEvent<{
+        query?: string;
+        documentIds?: string[];
+        requestId?: number;
+        sessionId?: string;
+        topK?: number;
+        phase?: "loading" | "ready" | "error";
+      }>).detail;
+      const nextQuery = detail?.query?.trim() ?? "";
+      const requestId = detail?.requestId ?? 0;
+      if (requestId < latestRequestId) return;
+
+      latestRequestId = requestId;
+      activeSessionId = detail?.sessionId ?? activeSessionId;
+      activeDocumentIds = [...(detail?.documentIds ?? [])];
+      activeTopK = detail?.topK ?? appState.ragTopK ?? 8;
       query = nextQuery;
-      loadGraph(nextQuery).catch(() => {});
+      if (detail?.phase === "loading") {
+        beginGraphQuery(nextQuery);
+        return;
+      }
+      if (detail?.phase === "error") {
+        graphAbortController?.abort();
+        loading = false;
+        status = `Unable to refresh the Galaxy for “${nextQuery}”.`;
+        return;
+      }
+      loadGraph(nextQuery, detail?.documentIds ?? [], requestId).catch(() => {});
+    }
+
+    function handleRestoreQuery(event: Event) {
+      const detail = (event as CustomEvent<{
+        sessionId: string;
+        query: string;
+        documentIds: string[];
+        requestId: number;
+        topK?: number;
+      }>).detail;
+      if (!detail?.sessionId || detail.requestId < latestRequestId) return;
+      latestRequestId = detail.requestId;
+      activeSessionId = detail.sessionId;
+      activeDocumentIds = [...detail.documentIds];
+      activeTopK = detail.topK ?? appState.ragTopK ?? 8;
+      closeSaveDialog();
+
+      const stored = readGraphSnapshot(detail.sessionId);
+      if (stored && stored.query === detail.query) {
+        graphAbortController?.abort();
+        activeDocumentIds = [...(stored.documentIds ?? detail.documentIds)];
+        activeTopK = stored.topK ?? detail.topK ?? appState.ragTopK ?? 8;
+        query = stored.query;
+        graph = stored.graph;
+        nodes = layoutNodes(stored.graph.nodes);
+        selectedNode = nodes.find((node) => node.id === stored.selectedNodeId) ?? null;
+        inspectorExpanded = Boolean(selectedNode && stored.inspectorExpanded);
+        yaw = stored.yaw;
+        pitch = stored.pitch;
+        zoom = stored.zoom;
+        status = stored.graph.summary;
+        loading = false;
+        emitChunkSelection();
+        void tick().then(resizeCanvas);
+        return;
+      }
+
+      loadGraph(detail.query, detail.documentIds, detail.requestId).catch(() => {});
+    }
+
+    function handleFocusChunk(event: Event) {
+      const chunkId = (event as CustomEvent<{ chunkId?: string }>).detail?.chunkId;
+      selectedNode = nodes.find((node) => node.kind === "chunk" && node.chunkId === chunkId) ?? null;
+      inspectorExpanded = Boolean(selectedNode);
+      emitChunkSelection();
+      persistGraphSnapshot();
+    }
+
+    function handleSaveExternalChunk(event: Event) {
+      const detail = (event as CustomEvent<{ chunk?: VisualNode; query?: string }>).detail;
+      if (!detail?.chunk?.chunkId) return;
+      if (detail.query?.trim()) query = detail.query.trim();
+      void openSaveChunkDialogFor(detail.chunk);
+    }
+
+    function handleClearGraph(event: Event) {
+      const requestId = (event as CustomEvent<{ requestId?: number }>).detail?.requestId ?? 0;
+      if (requestId < latestRequestId) return;
+      latestRequestId = requestId;
+      graphAbortController?.abort();
+      loadGeneration += 1;
+      graph = null;
+      nodes = [];
+      query = "";
+      loading = false;
+      status = "";
+      selectedNode = null;
+      inspectorExpanded = false;
+      savingChunkId = null;
+      closeSaveDialog();
+      emitChunkSelection();
     }
 
     window.addEventListener("dk:visualize-graph", handleVisualize);
+    window.addEventListener("dk:clear-graph", handleClearGraph);
+    window.addEventListener("dk:restore-query-graph", handleRestoreQuery);
+    window.addEventListener("dk:focus-galaxy-chunk", handleFocusChunk);
+    window.addEventListener("dk:save-result-chunk", handleSaveExternalChunk);
     return () => {
       cancelAnimationFrame(frame);
+      graphAbortController?.abort();
       resizeObserver?.disconnect();
       window.removeEventListener("dk:visualize-graph", handleVisualize);
+      window.removeEventListener("dk:clear-graph", handleClearGraph);
+      window.removeEventListener("dk:restore-query-graph", handleRestoreQuery);
+      window.removeEventListener("dk:focus-galaxy-chunk", handleFocusChunk);
+      window.removeEventListener("dk:save-result-chunk", handleSaveExternalChunk);
     };
   });
 
-  async function loadGraph(nextQuery = query) {
+  function beginGraphQuery(nextQuery: string) {
+    graphAbortController?.abort();
+    loadGeneration += 1;
+    loading = true;
+    graph = null;
+    nodes = [];
+    selectedNode = null;
+    inspectorExpanded = false;
+    savingChunkId = null;
+    closeSaveDialog();
+    status = `Building or updating the graph for “${nextQuery}”…`;
+  }
+
+  async function loadGraph(nextQuery: string, documentIds: string[], requestId: number) {
+    graphAbortController?.abort();
+    const controller = new AbortController();
+    graphAbortController = controller;
+    const generation = ++loadGeneration;
     loading = true;
     status = "";
     selectedNode = null;
+    inspectorExpanded = false;
     try {
       const params = new URLSearchParams({
-        topK: String(appState.ragTopK || 8),
+        topK: String(activeTopK),
       });
       if (nextQuery.trim()) params.set("query", nextQuery.trim());
-      const response = await fetch(`/knowledge-graph/visual?${params}`);
-      if (!response.ok) throw new Error(`Graph request failed (${response.status})`);
-      graph = (await response.json()) as GraphResponse;
-      nodes = layoutNodes(graph.nodes);
+      for (const documentId of documentIds) params.append("documentIds", documentId);
+      const response = await fetch(`/knowledge-graph/visual?${params}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await graphRequestError(response));
+      const nextGraph = (await response.json()) as GraphResponse;
+      if (controller.signal.aborted || generation !== loadGeneration || requestId !== latestRequestId) {
+        return;
+      }
+      graph = nextGraph;
+      nodes = layoutNodes(nextGraph.nodes);
       await tick();
       resizeCanvas();
-      status = graph.summary;
+      status = nextGraph.summary;
+      persistGraphSnapshot();
     } catch (error) {
+      if (controller.signal.aborted || generation !== loadGeneration || requestId !== latestRequestId) {
+        return;
+      }
+      graph = null;
+      nodes = [];
       status = error instanceof Error ? error.message : "Unable to load graph galaxy.";
     } finally {
-      loading = false;
+      if (generation === loadGeneration && requestId === latestRequestId) loading = false;
     }
   }
 
-  function visualizeLastQuery() {
-    query = appState.lastQuery;
-    loadGraph(query).catch(() => {});
+  async function graphRequestError(response: Response): Promise<string> {
+    try {
+      const body = await response.json() as { message?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) return body.message;
+    } catch {
+      // Fall back to the HTTP status when the response is not JSON.
+    }
+    return `Graph request failed (${response.status})`;
   }
 
   function resetCamera() {
     yaw = 0.42;
     pitch = -0.18;
     zoom = DEFAULT_ZOOM;
+    persistGraphSnapshot();
   }
 
   function setWideView() {
     zoom = WIDE_ZOOM;
     pitch = -0.12;
+    persistGraphSnapshot();
   }
 
   function layoutNodes(input: VisualNode[]): GalaxyNode[] {
@@ -294,11 +483,13 @@
   function handlePointerUp(event: PointerEvent) {
     dragging = false;
     canvas?.releasePointerCapture(event.pointerId);
+    persistGraphSnapshot();
   }
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
     zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.88 : 1.1)));
+    persistGraphSnapshot();
   }
 
   function handleClick(event: MouseEvent) {
@@ -315,7 +506,292 @@
         bestDistance = distance;
       }
     }
+    if (best?.id !== selectedNode?.id) inspectorExpanded = false;
     selectedNode = best;
+    emitChunkSelection();
+    persistGraphSnapshot();
+  }
+
+  function toggleInspectorExpanded() {
+    if (selectedNode?.kind !== "chunk") return;
+    inspectorExpanded = !inspectorExpanded;
+    persistGraphSnapshot();
+  }
+
+  function emitChunkSelection() {
+    window.dispatchEvent(new CustomEvent("dk:galaxy-chunk-selection", {
+      detail: {
+        sessionId: activeSessionId,
+        chunkId: selectedNode?.kind === "chunk" ? selectedNode.chunkId ?? null : null,
+      },
+    }));
+  }
+
+  function graphStorageKey(sessionId: string) {
+    return `dk:query-graph:${sessionId}`;
+  }
+
+  function readGraphSnapshot(sessionId: string): StoredGraphState | null {
+    try {
+      const raw = localStorage.getItem(graphStorageKey(sessionId));
+      return raw ? JSON.parse(raw) as StoredGraphState : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistGraphSnapshot() {
+    if (!activeSessionId || !graph || typeof localStorage === "undefined") return;
+    const snapshot: StoredGraphState = {
+      query,
+      documentIds: [...activeDocumentIds],
+      topK: activeTopK,
+      graph,
+      selectedNodeId: selectedNode?.id ?? null,
+      inspectorExpanded,
+      yaw,
+      pitch,
+      zoom,
+    };
+    try {
+      localStorage.setItem(graphStorageKey(activeSessionId), JSON.stringify(snapshot));
+    } catch {
+      // Graph restoration remains available through deterministic rebuilding.
+    }
+  }
+
+  function chunkSaveKey(node: VisualNode) {
+    return node.chunkId || node.id;
+  }
+
+  function formatChunkNotebookEntry(node: VisualNode) {
+    const scoreLines = [
+      node.retrievalScore == null ? null : `Retrieval score: ${node.retrievalScore.toFixed(4)}`,
+      node.hybridScore == null ? null : `Hybrid score: ${node.hybridScore.toFixed(4)}`,
+      node.graphScore == null ? null : `Graph score: ${node.graphScore.toFixed(4)}`,
+      node.score == null ? null : `Galaxy score: ${node.score.toFixed(4)}`,
+    ].filter((line): line is string => Boolean(line));
+    const metadata = [
+      query ? `Query: ${query}` : null,
+      node.sourceTitle ? `Document: ${node.sourceTitle}` : null,
+      node.pageIndex == null ? null : `Page: ${node.pageIndex + 1}`,
+      node.chunkIndex == null ? null : `Chunk index: ${node.chunkIndex}`,
+      node.chunkType ? `Chunk type: ${node.chunkType}` : null,
+      node.documentId ? `Document ID: ${node.documentId}` : null,
+      node.chunkId ? `Chunk ID: ${node.chunkId}` : null,
+      node.matchedEntities?.length ? `Matched entities: ${node.matchedEntities.join(", ")}` : null,
+      node.relations?.length ? `Relations: ${node.relations.join(", ")}` : null,
+      ...scoreLines,
+    ].filter((line): line is string => Boolean(line));
+
+    return [
+      `[Knowledge Graph Chunk] ${node.label}`,
+      ...metadata,
+      "",
+      node.content || node.preview || "No chunk text is available.",
+    ].join("\n");
+  }
+
+  function applyNotebookState(data: {
+    activeNotebookId: string | null;
+    notebooks: NotebookWithPages[];
+  }) {
+    appState.notebooks = data.notebooks ?? [];
+    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
+    appState.activeNotebook =
+      appState.notebooks.find((notebook) => notebook.id === appState.activeNotebookId) ??
+      appState.notebooks[0] ??
+      null;
+    appState.activePage =
+      appState.activeNotebook?.pages.find(
+        (page) => page.id === appState.activeNotebook?.activePageId,
+      ) ?? appState.activeNotebook?.pages[0] ?? null;
+  }
+
+  function chooseDestinationNotebook(notebookId: string, preferredPageId?: string | null) {
+    destinationNotebookId = notebookId;
+    const notebook = appState.notebooks.find((candidate) => candidate.id === notebookId);
+    destinationPageId =
+      notebook?.pages.find((page) => page.id === preferredPageId)?.id ??
+      notebook?.pages.find((page) => page.id === notebook.activePageId)?.id ??
+      notebook?.pages[0]?.id ??
+      "";
+  }
+
+  async function loadSaveDestinations() {
+    saveDialogLoading = true;
+    saveDialogError = "";
+    try {
+      const response = await fetch("/notebooks");
+      if (!response.ok) throw new Error("Notebook destinations could not be loaded.");
+      const data = await response.json() as {
+        activeNotebookId: string | null;
+        notebooks: NotebookWithPages[];
+      };
+      applyNotebookState(data);
+      const notebookId =
+        data.notebooks.find((notebook) => notebook.id === data.activeNotebookId)?.id ??
+        data.notebooks[0]?.id ??
+        "";
+      chooseDestinationNotebook(notebookId);
+    } catch (error) {
+      saveDialogError = error instanceof Error ? error.message : "Notebook destinations could not be loaded.";
+    } finally {
+      saveDialogLoading = false;
+    }
+  }
+
+  async function openSaveChunkDialog() {
+    const node = selectedNode;
+    if (node?.kind !== "chunk") return;
+    await openSaveChunkDialogFor(node);
+  }
+
+  async function openSaveChunkDialogFor(node: VisualNode) {
+    pendingChunk = node;
+    saveDialogOpen = true;
+    saveDialogError = "";
+    existingNotebookNewPageTitle = "";
+    newNotebookTitle = "";
+    newPageTitle = "";
+    await loadSaveDestinations();
+  }
+
+  function closeSaveDialog() {
+    if (savingChunkId) return;
+    saveDialogOpen = false;
+    saveDialogError = "";
+    pendingChunk = null;
+    existingNotebookNewPageTitle = "";
+    newNotebookTitle = "";
+    newPageTitle = "";
+  }
+
+  function notifyNotebookChanged() {
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+  }
+
+  async function createPageInExistingNotebook() {
+    const notebookId = destinationNotebookId;
+    const pageTitle = existingNotebookNewPageTitle.trim();
+    if (saveDialogLoading) return;
+    if (!notebookId) {
+      saveDialogError = "Choose a notebook before creating a page.";
+      return;
+    }
+    if (!pageTitle) {
+      saveDialogError = "Enter a page name.";
+      return;
+    }
+
+    saveDialogLoading = true;
+    saveDialogError = "";
+    try {
+      const response = await fetch(`/notebooks/${notebookId}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: pageTitle }),
+      });
+      const data = await response.json() as {
+        message?: string;
+        activeNotebookId: string | null;
+        notebooks: NotebookWithPages[];
+        createdPageId?: string;
+      };
+      if (!response.ok) throw new Error(data.message || "The page could not be created.");
+
+      applyNotebookState(data);
+      chooseDestinationNotebook(notebookId, data.createdPageId);
+      existingNotebookNewPageTitle = "";
+      notifyNotebookChanged();
+      showToast("Page created and selected");
+    } catch (error) {
+      saveDialogError = error instanceof Error ? error.message : "The page could not be created.";
+    } finally {
+      saveDialogLoading = false;
+    }
+  }
+
+  async function createDestination() {
+    const notebookTitle = newNotebookTitle.trim();
+    const pageTitle = newPageTitle.trim();
+    if (saveDialogLoading) return;
+    if (!notebookTitle || !pageTitle) {
+      saveDialogError = "Enter both a notebook name and a page name.";
+      return;
+    }
+    saveDialogLoading = true;
+    saveDialogError = "";
+    try {
+      const response = await fetch("/notebooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: notebookTitle, pageTitle }),
+      });
+      const data = await response.json() as {
+        message?: string;
+        activeNotebookId: string | null;
+        notebooks: NotebookWithPages[];
+        createdNotebookId?: string;
+        createdPageId?: string;
+      };
+      if (!response.ok) throw new Error(data.message || "The destination could not be created.");
+      applyNotebookState(data);
+      chooseDestinationNotebook(
+        data.createdNotebookId ?? data.activeNotebookId ?? "",
+        data.createdPageId,
+      );
+      newNotebookTitle = "";
+      newPageTitle = "";
+      notifyNotebookChanged();
+    } catch (error) {
+      saveDialogError = error instanceof Error ? error.message : "The destination could not be created.";
+    } finally {
+      saveDialogLoading = false;
+    }
+  }
+
+  async function saveChunkToDestination() {
+    const node = pendingChunk;
+    if (node?.kind !== "chunk" || !destinationNotebook || !destinationPage) return;
+    const saveKey = chunkSaveKey(node);
+    if (savingChunkId) return;
+
+    savingChunkId = saveKey;
+    saveDialogError = "";
+    try {
+      const response = await fetch(
+        `/notebooks/${destinationNotebook.id}/pages/${destinationPage.id}/chunks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chunkId: saveKey,
+            text: formatChunkNotebookEntry(node),
+          }),
+        },
+      );
+      const data = await response.json() as {
+        message?: string;
+        activeNotebookId: string | null;
+        notebooks: NotebookWithPages[];
+        duplicate?: boolean;
+      };
+      if (!response.ok) throw new Error(data.message || "The chunk could not be saved.");
+
+      applyNotebookState(data);
+      showWindow("notebook-window");
+      await tick();
+      notifyNotebookChanged();
+      const destination = `${destinationNotebook.title} → ${destinationPage.title}`;
+      showToast(data.duplicate ? `Chunk already exists in ${destination}` : `Chunk saved to ${destination}`);
+      saveDialogOpen = false;
+      pendingChunk = null;
+    } catch (error) {
+      saveDialogError = error instanceof Error ? error.message : "The chunk could not be saved.";
+    } finally {
+      savingChunkId = null;
+    }
   }
 
   function nodeColor(node: VisualNode) {
@@ -361,26 +837,15 @@
 >
   <div class="galaxy-window">
     <div class="toolbar">
-      <input
-        class="input"
-        bind:value={query}
-        placeholder="Use last query or type a graph focus..."
-        aria-label="Graph focus query"
-        onkeydown={(event) => event.key === "Enter" && loadGraph(query)}
-      />
-      <button class="btn btn-sm" type="button" onclick={visualizeLastQuery} title="Visualize latest chat query">
-        <Icon name="auto_awesome" size={15} />
-        Last query
-      </button>
-      <button class="btn btn-sm" type="button" onclick={() => loadGraph(query)} disabled={loading}>
-        {loading ? "Loading..." : "Visualize"}
-      </button>
+      <span class="toolbar-query" title={query}>
+        {query ? `Query: ${query}` : "Ask a Knowledge Graph question in Chat to populate the Galaxy."}
+      </span>
       <button class="btn btn-sm" type="button" onclick={setWideView}>Wide view</button>
       <button class="btn btn-sm" type="button" onclick={resetCamera}>Reset</button>
     </div>
 
     <div class="meta-row">
-      <span>{status || "Drag to orbit. Scroll to zoom. Click a node to inspect."}</span>
+      <span>{status || "The Galaxy refreshes automatically after each graph question."}</span>
       {#if graph}
         <span>{graph.nodes.length} visible nodes · {graph.edges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
       {/if}
@@ -410,24 +875,249 @@
       </div>
 
       {#if selectedNode}
-        <aside class="inspector">
-          <div class="kind">{selectedNode.kind}{selectedNode.entityKind ? ` · ${selectedNode.entityKind}` : ""}</div>
+        <aside
+          class="inspector"
+          class:expanded={selectedNode.kind === "chunk" && inspectorExpanded}
+        >
+          <div class="inspector-header">
+            <div class="kind">{selectedNode.kind}{selectedNode.entityKind ? ` · ${selectedNode.entityKind}` : ""}</div>
+            {#if selectedNode.kind === "chunk"}
+              <div class="inspector-actions">
+                {#if inspectorExpanded}
+                  <button
+                    class="btn btn-sm inspector-toggle"
+                    type="button"
+                    disabled={savingChunkId === chunkSaveKey(selectedNode)}
+                    onclick={openSaveChunkDialog}
+                  >
+                    <Icon name="bookmark_add" size={14} />
+                    Save Chunk
+                  </button>
+                {/if}
+                <button
+                  class="btn btn-sm inspector-toggle"
+                  type="button"
+                  aria-expanded={inspectorExpanded}
+                  onclick={toggleInspectorExpanded}
+                >
+                  <Icon name={inspectorExpanded ? "close_fullscreen" : "open_in_full"} size={14} />
+                  {inspectorExpanded ? "Collapse details" : "Expand details"}
+                </button>
+              </div>
+            {/if}
+          </div>
           <h3>{selectedNode.label}</h3>
-          {#if selectedNode.score}
-            <p class="score">Score: {selectedNode.score.toFixed(4)}</p>
-          {/if}
-          {#if selectedNode.preview}
-            <p>{selectedNode.preview}</p>
-          {/if}
-          {#if selectedNode.documentId}
-            <p class="mono">document: {selectedNode.documentId.slice(0, 14)}…</p>
-          {/if}
-          {#if selectedNode.chunkId}
-            <p class="mono">chunk: {selectedNode.chunkId.slice(0, 14)}…</p>
+
+          {#if selectedNode.kind === "chunk" && inspectorExpanded}
+            <dl class="chunk-metadata">
+              <div>
+                <dt>Retrieval score</dt>
+                <dd>{selectedNode.retrievalScore == null ? "Graph expansion" : selectedNode.retrievalScore.toFixed(4)}</dd>
+              </div>
+              {#if selectedNode.hybridScore != null}
+                <div><dt>Hybrid score</dt><dd>{selectedNode.hybridScore.toFixed(4)}</dd></div>
+              {/if}
+              {#if selectedNode.graphScore != null}
+                <div><dt>Graph score</dt><dd>{selectedNode.graphScore.toFixed(4)}</dd></div>
+              {/if}
+              {#if selectedNode.sourceTitle}
+                <div><dt>Document</dt><dd>{selectedNode.sourceTitle}</dd></div>
+              {/if}
+              {#if selectedNode.pageIndex != null}
+                <div><dt>Page</dt><dd>{selectedNode.pageIndex + 1}</dd></div>
+              {/if}
+              {#if selectedNode.chunkIndex != null}
+                <div><dt>Chunk index</dt><dd>{selectedNode.chunkIndex}</dd></div>
+              {/if}
+              {#if selectedNode.chunkType}
+                <div><dt>Chunk type</dt><dd>{selectedNode.chunkType}</dd></div>
+              {/if}
+            </dl>
+
+            {#if selectedNode.matchedEntities?.length}
+              <section class="chunk-detail-section">
+                <h4>Matched entities</h4>
+                <p>{selectedNode.matchedEntities.join(", ")}</p>
+              </section>
+            {/if}
+            {#if selectedNode.relations?.length}
+              <section class="chunk-detail-section">
+                <h4>Relations</h4>
+                <p>{selectedNode.relations.join(", ")}</p>
+              </section>
+            {/if}
+
+            <section class="chunk-detail-section chunk-content">
+              <h4>Chunk content</h4>
+              <p>{selectedNode.content || selectedNode.preview || "No chunk text is available."}</p>
+            </section>
+
+            {#if selectedNode.documentId}
+              <div class="identifier-row">
+                <span>Document ID</span>
+                <code>{selectedNode.documentId}</code>
+              </div>
+            {/if}
+            {#if selectedNode.chunkId}
+              <div class="identifier-row">
+                <span>Chunk ID</span>
+                <code>{selectedNode.chunkId}</code>
+              </div>
+            {/if}
+          {:else}
+            {#if selectedNode.score != null}
+              <p class="score">Score: {selectedNode.score.toFixed(4)}</p>
+            {/if}
+            {#if selectedNode.preview}
+              <p>{selectedNode.preview}</p>
+            {/if}
+            {#if selectedNode.documentId}
+              <p class="mono">document: {selectedNode.documentId.slice(0, 14)}…</p>
+            {/if}
+            {#if selectedNode.chunkId}
+              <p class="mono">chunk: {selectedNode.chunkId.slice(0, 14)}…</p>
+            {/if}
           {/if}
         </aside>
       {/if}
     </div>
+
+    {#if saveDialogOpen}
+      <div class="save-dialog-backdrop">
+        <div
+          class="save-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Save chunk destination"
+        >
+          <header class="save-dialog-header">
+            <div>
+              <div class="kind">Save Chunk</div>
+              <h3>{pendingChunk?.label ?? "Selected chunk"}</h3>
+            </div>
+            <button
+              class="icon-action"
+              type="button"
+              aria-label="Close save destination"
+              disabled={Boolean(savingChunkId)}
+              onclick={closeSaveDialog}
+            >
+              <Icon name="close" size={17} />
+            </button>
+          </header>
+
+          {#if saveDialogLoading && !appState.notebooks.length}
+            <div class="save-dialog-loading" role="status">Loading notebook destinations...</div>
+          {:else}
+            <div class="destination-choice-label">1. Save to an existing notebook and page</div>
+            <div class="destination-grid">
+              <label>
+                <span>Notebook</span>
+                <select
+                  class="input"
+                  aria-label="Destination notebook"
+                  value={destinationNotebookId}
+                  onchange={(event) => chooseDestinationNotebook(event.currentTarget.value)}
+                >
+                  {#each appState.notebooks as notebook (notebook.id)}
+                    <option value={notebook.id}>{notebook.title}</option>
+                  {/each}
+                </select>
+              </label>
+
+              <label>
+                <span>Page</span>
+                <select
+                  class="input"
+                  aria-label="Destination page"
+                  bind:value={destinationPageId}
+                  disabled={!destinationNotebook?.pages.length}
+                >
+                  {#each destinationNotebook?.pages ?? [] as page (page.id)}
+                    <option value={page.id}>{page.title}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+
+            <div class="destination-summary" role="status">
+              {#if destinationNotebook && destinationPage}
+                Destination: <strong>{destinationNotebook.title} → {destinationPage.title}</strong>
+              {:else}
+                Choose or create a notebook page before saving.
+              {/if}
+            </div>
+
+            <section class="destination-create-section">
+              <h4>2. Create a new page in the selected notebook</h4>
+              <div class="destination-create-page-row">
+                <input
+                  class="input"
+                  type="text"
+                  aria-label="New page name in selected notebook"
+                  placeholder="New page name"
+                  bind:value={existingNotebookNewPageTitle}
+                  disabled={!destinationNotebookId || saveDialogLoading}
+                />
+                <button
+                  class="btn btn-sm"
+                  type="button"
+                  disabled={!destinationNotebookId || !existingNotebookNewPageTitle.trim() || saveDialogLoading}
+                  onclick={createPageInExistingNotebook}
+                >Create page</button>
+              </div>
+            </section>
+
+            <section class="destination-create-section">
+              <h4>3. Create a new notebook and page</h4>
+              <div class="destination-create-fields">
+                <input
+                  class="input"
+                  type="text"
+                  aria-label="New notebook name"
+                  placeholder="New notebook name"
+                  bind:value={newNotebookTitle}
+                />
+                <input
+                  class="input"
+                  type="text"
+                  aria-label="New page name"
+                  placeholder="New page name"
+                  bind:value={newPageTitle}
+                />
+              </div>
+              <div class="destination-create-actions">
+                <button
+                  class="btn btn-sm"
+                  type="button"
+                  disabled={!newNotebookTitle.trim() || !newPageTitle.trim() || saveDialogLoading}
+                  onclick={createDestination}
+                >{saveDialogLoading ? "Creating..." : "Create notebook and page"}</button>
+              </div>
+            </section>
+          {/if}
+
+          {#if saveDialogError}
+            <div class="save-dialog-error" role="alert">{saveDialogError}</div>
+          {/if}
+
+          <footer class="save-dialog-footer">
+            <button
+              class="btn btn-sm"
+              type="button"
+              disabled={Boolean(savingChunkId)}
+              onclick={closeSaveDialog}
+            >Cancel</button>
+            <button
+              class="btn btn-sm save-dialog-primary"
+              type="button"
+              disabled={!destinationNotebook || !destinationPage || saveDialogLoading || Boolean(savingChunkId)}
+              onclick={saveChunkToDestination}
+            >{savingChunkId ? "Saving..." : "Save Chunk"}</button>
+          </footer>
+        </div>
+      </div>
+    {/if}
   </div>
 </BaseWindow>
 
@@ -442,6 +1132,7 @@
   }
 
   .galaxy-window {
+    position: relative;
     display: grid;
     height: 100%;
     min-height: 0;
@@ -451,7 +1142,7 @@
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 6px;
     align-items: center;
   }
@@ -562,6 +1253,7 @@
 
   .inspector {
     position: absolute;
+    z-index: 5;
     right: 12px;
     bottom: 12px;
     display: grid;
@@ -578,6 +1270,49 @@
     backdrop-filter: blur(10px);
   }
 
+  .toolbar-query {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inspector.expanded {
+    top: 12px;
+    width: min(680px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    gap: 10px;
+    background: rgb(8 13 28 / 94%);
+  }
+
+  .inspector-header {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 4px;
+    background: linear-gradient(rgb(8 13 28 / 98%) 75%, transparent);
+  }
+
+  .inspector-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+  }
+
+  .inspector-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
   .inspector h3,
   .inspector p {
     margin: 0;
@@ -591,6 +1326,206 @@
     color: rgb(218 226 244 / 86%);
     font-size: 12px;
     line-height: 1.35;
+  }
+
+  .chunk-metadata {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+  }
+
+  .chunk-metadata div {
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid rgb(148 163 184 / 18%);
+    border-radius: 9px;
+    background: rgb(15 23 42 / 62%);
+  }
+
+  .chunk-metadata dt,
+  .identifier-row span,
+  .chunk-detail-section h4 {
+    margin: 0 0 3px;
+    color: rgb(148 163 184);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .chunk-metadata dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: rgb(238 244 255);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chunk-detail-section {
+    display: grid;
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgb(148 163 184 / 18%);
+  }
+
+  .chunk-detail-section h4 {
+    margin: 0;
+  }
+
+  .chunk-content p {
+    white-space: pre-wrap;
+  }
+
+  .identifier-row {
+    display: grid;
+    gap: 3px;
+  }
+
+  .identifier-row code {
+    overflow-wrap: anywhere;
+    color: rgb(203 213 225);
+    font-size: 11px;
+  }
+
+  .save-dialog-backdrop {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    display: grid;
+    overflow: auto;
+    padding: 18px;
+    background: rgb(2 6 23 / 72%);
+    place-items: center;
+    backdrop-filter: blur(5px);
+  }
+
+  .save-dialog {
+    display: grid;
+    width: min(620px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid color-mix(in oklab, var(--accent) 44%, var(--border));
+    border-radius: 16px;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    box-shadow: 0 24px 70px rgb(0 0 0 / 48%);
+  }
+
+  .save-dialog-header,
+  .save-dialog-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .save-dialog-header {
+    justify-content: space-between;
+  }
+
+  .save-dialog-header h3,
+  .destination-create-section h4 {
+    margin: 2px 0 0;
+  }
+
+  .destination-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .destination-grid label {
+    display: grid;
+    min-width: 0;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .destination-grid select {
+    width: 100%;
+  }
+
+  .destination-summary,
+  .save-dialog-loading,
+  .save-dialog-error {
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .destination-summary strong {
+    color: var(--text);
+  }
+
+  .save-dialog-error {
+    border-color: color-mix(in oklab, #ef4444 50%, var(--border));
+    color: #fca5a5;
+  }
+
+  .destination-create-section {
+    display: grid;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .destination-create-section h4 {
+    font-size: 12px;
+  }
+
+  .destination-choice-label {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .destination-create-page-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .destination-create-page-row .input {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .destination-create-page-row .btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .destination-create-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .destination-create-fields .input {
+    min-width: 0;
+  }
+
+  .destination-create-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .destination-create-actions .btn {
+    white-space: nowrap;
+  }
+
+  .save-dialog-footer {
+    justify-content: flex-end;
+  }
+
+  .save-dialog-primary {
+    border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
+    background: color-mix(in oklab, var(--accent) 20%, transparent);
   }
 
   .kind,
@@ -609,13 +1544,30 @@
       grid-template-columns: 1fr 1fr;
     }
 
-    .toolbar .input {
+    .toolbar-query {
       grid-column: 1 / -1;
     }
 
     .meta-row {
       flex-direction: column;
       gap: 3px;
+    }
+
+    .chunk-metadata {
+      grid-template-columns: 1fr;
+    }
+
+    .destination-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .destination-create-fields {
+      grid-template-columns: 1fr;
+    }
+
+    .destination-create-page-row {
+      align-items: stretch;
+      flex-direction: column;
     }
   }
 </style>

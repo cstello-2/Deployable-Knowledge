@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { json } from "@sveltejs/kit";
 import { db } from "$lib/server/database/database";
 import {
   promptTemplates,
@@ -16,6 +17,10 @@ import {
   retrieveRagContext,
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
+import {
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+} from "$lib/server/knowledge-graph";
 import type { RequestHandler } from "./$types";
 
 // This is where we construct the final prompt
@@ -86,17 +91,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(settings.id, "local_user"))
     .get())!;
 
-  const message = String(body.message).trim();
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    return json(
+      { code: "EMPTY_MESSAGE", message: "Enter a question before sending." },
+      { status: 400 },
+    );
+  }
   const modelId = body.model_id || userSettings.model;
   const providerId = body.provider_id || userSettings.provider;
   const persona = body.persona || userSettings.persona || "";
   const documentIds = Array.isArray(body.document_ids)
     ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
     : [];
+  // An empty selection intentionally means the complete document collection.
   const retrievalMode =
     readRetrievalMode(body.retrieval_mode) ??
     readRetrievalMode(userSettings.retrievalMode) ??
     "hybrid";
+
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -130,6 +143,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(session_messages.sessionId, params.id))
     .orderBy(asc(session_messages.id));
 
+  if (messages.some((existingMessage) => existingMessage.role === "user")) {
+    return json(
+      {
+        code: "SESSION_QUERY_LIMIT",
+        message: "This chat already has a question. Start a new chat to ask another one.",
+      },
+      { status: 409 },
+    );
+  }
+
   const provider = getProvider(providerId);
   const promptTemplate =
     typeof promptTemplateId === "string" && promptTemplateId.trim()
@@ -144,12 +167,54 @@ export const POST: RequestHandler = async ({ params, request }) => {
           )
           .get()
       : null;
-  const ragContext = await retrieveRagContext({
-    question: message,
-    documentIds,
-    mode: retrievalMode,
-    topK: body.rag_top_k ?? userSettings.ragTopK,
-  });
+  const ragTopK = body.rag_top_k ?? userSettings.ragTopK;
+  let ragContext;
+
+  try {
+    ragContext = await retrieveRagContext({
+      question: message,
+      documentIds,
+      mode: retrievalMode,
+      topK: ragTopK,
+    });
+  } catch (error) {
+    if (error instanceof KnowledgeGraphNotBuiltError) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+    if (error instanceof KnowledgeGraphNoDocumentsError) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Semantic, hybrid, and graph retrieval depend on the embedding model.
+    // Keep chat usable while a fresh installation downloads that model, or
+    // when an offline installation does not have it cached yet.
+    if (retrievalMode === "bm25") throw error;
+
+    console.warn(
+      `Retrieval mode "${retrievalMode}" failed; falling back to BM25.`,
+      error,
+    );
+    ragContext = await retrieveRagContext({
+      question: message,
+      documentIds,
+      mode: "bm25",
+      topK: ragTopK,
+    });
+  }
   const prompt = createPrompt(
     messages,
     message,
@@ -183,12 +248,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: ragContext.sources.length
-              ? {
-                  retrievalMode: ragContext.mode,
-                  sources: ragContext.sources,
-                }
-              : null,
+            metadata: {
+              retrievalMode: ragContext.mode,
+              sources: ragContext.sources,
+              query: message,
+              documentIds,
+              graphTopK: ragTopK,
+            },
             createdAt: timestamp,
           },
         ]);
@@ -200,11 +266,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
             updatedAt: new Date(),
           })
           .where(eq(sessions.id, params.id));
+        controller.close();
       } catch (error) {
         console.error("Streaming error:", error);
         controller.error(error);
-      } finally {
-        controller.close();
       }
     },
   });
