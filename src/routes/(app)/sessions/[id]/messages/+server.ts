@@ -91,27 +91,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(settings.id, "local_user"))
     .get())!;
 
-  const message = String(body.message).trim();
+  const message = String(body.message ?? "").trim();
+  if (!message) {
+    return json(
+      { code: "EMPTY_MESSAGE", message: "Enter a question before sending." },
+      { status: 400 },
+    );
+  }
   const modelId = body.model_id || userSettings.model;
   const providerId = body.provider_id || userSettings.provider;
   const persona = body.persona || userSettings.persona || "";
   const documentIds = Array.isArray(body.document_ids)
     ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
     : [];
+  // An empty selection intentionally means the complete document collection.
   const retrievalMode =
     readRetrievalMode(body.retrieval_mode) ??
     readRetrievalMode(userSettings.retrievalMode) ??
     "hybrid";
 
-  if (retrievalMode === "graph" && documentIds.length === 0) {
-    return json(
-      {
-        code: "DOCUMENT_SELECTION_REQUIRED",
-        message: "Select at least one document before asking a Knowledge Graph question.",
-      },
-      { status: 400 },
-    );
-  }
   const promptTemplateId =
     body.prompt_template_id ||
     body.promptTemplateId ||
@@ -144,6 +142,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .from(session_messages)
     .where(eq(session_messages.sessionId, params.id))
     .orderBy(asc(session_messages.id));
+
+  if (messages.some((existingMessage) => existingMessage.role === "user")) {
+    return json(
+      {
+        code: "SESSION_QUERY_LIMIT",
+        message: "This chat already has a question. Start a new chat to ask another one.",
+      },
+      { status: 409 },
+    );
+  }
 
   const provider = getProvider(providerId);
   const promptTemplate =
@@ -240,12 +248,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: ragContext.sources.length
-              ? {
-                  retrievalMode: ragContext.mode,
-                  sources: ragContext.sources,
-                }
-              : null,
+            metadata: {
+              retrievalMode: ragContext.mode,
+              sources: ragContext.sources,
+              query: message,
+              documentIds,
+              graphTopK: ragTopK,
+            },
             createdAt: timestamp,
           },
         ]);

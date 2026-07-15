@@ -9,8 +9,8 @@
     <marker id="r" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d94e62"/></marker>
   </defs>
   <rect width="1800" height="1540" fill="#f7f8fb"/>
-  <text x="60" y="72" class="title">Retrieval, Knowledge Graph Search &amp; Answer Flow</text>
-  <text x="60" y="110" class="subtitle">Parallel search paths converge once, keeping query-time behavior clear</text>
+  <text x="60" y="72" class="title">Query, Retrieval &amp; Answer Implementation</text>
+  <text x="60" y="110" class="subtitle">Standard retrieval and graph-native evidence paths converge into one grounded LLM response</text>
 
   <rect x="635" y="145" width="530" height="105" class="box white"/>
   <text x="663" y="184" class="bt">User query · retrieveRagContext()</text>
@@ -41,17 +41,19 @@
 
   <rect x="235" y="855" width="450" height="100" class="box amber"/>
   <text x="260" y="893" class="bt">Traditional ranked results</text>
-  <text x="260" y="925" class="body">Top chunks + cross-encoder/fallback scores</text>
+  <text x="260" y="925" class="body">Top chunks + normalized relevance [0,1]</text>
   <path d="M460 800 V855" class="gArrow"/>
+  <path d="M685 905 H900 V712 H1060" class="pArrow"/>
+  <text x="700" y="890" class="label">hybrid seed handoff</text>
 
   <rect x="925" y="300" width="830" height="690" class="panel purple" fill-opacity=".16"/>
   <text x="955" y="345" class="section">2. Knowledge Graph retrieval</text>
 
   <rect x="965" y="400" width="340" height="145" class="box purple"/>
-  <text x="990" y="438" class="bt">Require built GraphStore</text>
+  <text x="990" y="438" class="bt">Load / require GraphStore</text>
   <text x="990" y="470" class="body">getBuiltKnowledgeGraph()</text>
-  <text x="990" y="496" class="body">Uses manual-build cache</text>
-  <text x="990" y="522" class="body">Never rebuilds during a query</text>
+  <text x="990" y="496" class="body">Memory cache or SQLite snapshot</text>
+  <text x="990" y="522" class="body">Signature-valid; never auto-builds</text>
 
   <rect x="1375" y="400" width="340" height="145" class="box purple"/>
   <text x="1400" y="438" class="bt">Combined seed sources</text>
@@ -83,8 +85,8 @@
 
   <rect x="85" y="1140" width="290" height="130" class="box red"/>
   <text x="110" y="1178" class="bt">Retrieved evidence</text>
-  <text x="110" y="1210" class="body">Traditional top chunks</text>
-  <text x="110" y="1236" class="body">KG chunks + graph paths</text>
+  <text x="110" y="1210" class="body">Standard top chunks [0,1]</text>
+  <text x="110" y="1236" class="body">KG chunks + graph paths [0,1]</text>
 
   <rect x="435" y="1140" width="290" height="130" class="box red"/>
   <text x="460" y="1178" class="bt">Context + prompt</text>

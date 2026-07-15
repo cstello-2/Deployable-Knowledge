@@ -3,7 +3,7 @@
 
 import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
 import type { SearchChunkType } from "$lib/server/rag/search/search-shared";
-import { getBuiltKnowledgeGraph } from "./graph-index";
+import { ensureKnowledgeGraph } from "./graph-index";
 import { lightRagSearch } from "./light-rag";
 import { pathRagSearch } from "./path-rag";
 import { selectGraphSeedCandidates } from "./seed-selection";
@@ -39,9 +39,9 @@ export async function searchKnowledgeGraph(
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   if (!query || topK === 0) return { query, results: [], paths: [] };
 
-  // Refuse graph-mode queries until the selected documents have an explicitly built,
-  // current graph. Do this before the relatively expensive hybrid retrieval.
-  const index = await getBuiltKnowledgeGraph(options.documentIds);
+  // Build a missing or stale selected-document graph automatically. A current graph
+  // is reused, and concurrent answer/visualization requests share the same build.
+  const index = await ensureKnowledgeGraph(options.documentIds);
 
   // Hybrid chunks remain strong grounded seeds; label matching adds graph-native recall.
   const hybrid = await searchHybrid({

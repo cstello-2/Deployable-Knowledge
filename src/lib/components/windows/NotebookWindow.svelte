@@ -29,6 +29,12 @@
   let editingId = $state<string | null>(null);
   let editingTitle = $state("");
 
+  type NotebookAppendDetail = {
+    text: string;
+    source?: "chat" | "galaxy";
+    onComplete?: (saved: boolean) => void;
+  };
+
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
     node.select();
@@ -45,38 +51,51 @@
   }
 
   async function commitEdit(type: "notebook" | "page", id: string) {
+    if (editingId !== `${type === "notebook" ? "nb" : "pg"}-${id}`) return;
     const title = editingTitle.trim();
-    editingId = null;
-    editingTitle = "";
-    if (!title) return;
+    if (!title) {
+      cancelEdit();
+      showToast(`${type === "notebook" ? "Notebook" : "Page"} name cannot be empty`);
+      return;
+    }
+    let renamed = false;
     if (type === "notebook") {
-      await renameNotebook(id, title);
+      renamed = await renameNotebook(id, title);
     } else {
       const page = appState.activeNotebook?.pages.find((p) => p.id === id);
-      if (page) await renamePage(page, title);
+      if (page) renamed = await renamePage(page, title);
     }
+    cancelEdit();
+    if (renamed) showToast(`${type === "notebook" ? "Notebook" : "Page"} renamed`);
   }
 
-  async function renameNotebook(notebookId: string, title: string) {
+  async function responseError(res: Response, fallback: string) {
+    const data = await res.json().catch(() => ({})) as { message?: unknown };
+    return typeof data.message === "string" && data.message.trim() ? data.message : fallback;
+  }
+
+  async function renameNotebook(notebookId: string, title: string): Promise<boolean> {
     const res = await fetch(`/notebooks/${notebookId}/rename`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
     });
-    if (!res.ok) { showToast("Failed to rename notebook"); return; }
+    if (!res.ok) { showToast(await responseError(res, "Failed to rename notebook")); return false; }
     applyState(await res.json());
+    return true;
   }
 
-  async function renamePage(page: NotebookPage, title: string) {
+  async function renamePage(page: NotebookPage, title: string): Promise<boolean> {
     const nb = appState.activeNotebook;
-    if (!nb) return;
+    if (!nb) return false;
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/rename`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
     });
-    if (!res.ok) { showToast("Failed to rename page"); return; }
+    if (!res.ok) { showToast(await responseError(res, "Failed to rename page")); return false; }
     applyState(await res.json());
+    return true;
   }
 
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
@@ -98,10 +117,10 @@
     }
   }
 
-  async function saveCurrentPage() {
+  async function saveCurrentPage(): Promise<boolean> {
     const nb = appState.activeNotebook;
     const page = appState.activePage;
-    if (!nb || !page) return;
+    if (!nb || !page) return false;
 
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/update`, {
       method: "PATCH",
@@ -109,9 +128,10 @@
       body: JSON.stringify({ content: notes }),
     });
 
-    if (!res.ok) { saveStatus = "Save failed"; return; }
+    if (!res.ok) { saveStatus = "Save failed"; return false; }
     appState.notebooks = (await res.json()).notebooks ?? appState.notebooks;
     saveStatus = "Saved";
+    return true;
   }
 
   function queueSaveCurrentPage() {
@@ -205,18 +225,36 @@
   }
 
   async function appendTextFromChat(event: Event) {
-    const { text } = (event as CustomEvent<{ text: string }>).detail;
-    if (!text?.trim() || !appState.activePage) return;
-    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text.trim()}` : text.trim();
-    await saveCurrentPage();
-    saveStatus = "Added from chat";
+    const detail = (event as CustomEvent<NotebookAppendDetail>).detail;
+    const text = detail?.text?.trim();
+    if (!text) {
+      detail?.onComplete?.(false);
+      return;
+    }
+
+    if (!appState.activePage) await loadNotebooks();
+    if (!appState.activePage) {
+      saveStatus = "Create a notebook page first";
+      detail.onComplete?.(false);
+      return;
+    }
+
+    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text}` : text;
+    const saved = await saveCurrentPage();
+    if (saved) {
+      saveStatus = detail.source === "galaxy" ? "Added chunk from Galaxy" : "Added from chat";
+    }
+    detail.onComplete?.(saved);
   }
 
   onMount(() => {
     loadNotebooks();
+    const handleNotebookUpdate = () => { void loadNotebooks(); };
     window.addEventListener("dk:send-to-notebook", appendTextFromChat);
+    window.addEventListener("dk:notebooks-updated", handleNotebookUpdate);
     return () => {
       window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
+      window.removeEventListener("dk:notebooks-updated", handleNotebookUpdate);
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -291,13 +329,9 @@
           </header>
           <div class="selector-list">
             {#each appState.notebooks as notebook (notebook.id)}
-              <button
+              <div
                 class="selector-item"
                 class:active={notebook.id === appState.activeNotebookId}
-                type="button"
-                title={notebook.title}
-                onclick={() => selectNotebook(notebook.id)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`nb-${notebook.id}`, notebook.title); }}
               >
                 {#if editingId === `nb-${notebook.id}`}
                   <input
@@ -307,12 +341,25 @@
                     use:focusOnMount
                     onclick={(e) => e.stopPropagation()}
                     onblur={() => commitEdit("notebook", notebook.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
+                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); } }}
                   />
                 {:else}
-                  {notebook.title}
+                  <button
+                    class="selector-item-select"
+                    type="button"
+                    title={notebook.title}
+                    onclick={() => selectNotebook(notebook.id)}
+                    ondblclick={(e) => { e.stopPropagation(); startEdit(`nb-${notebook.id}`, notebook.title); }}
+                  >{notebook.title}</button>
+                  <button
+                    class="selector-item-rename"
+                    type="button"
+                    title={`Rename ${notebook.title}`}
+                    aria-label={`Rename notebook ${notebook.title}`}
+                    onclick={() => startEdit(`nb-${notebook.id}`, notebook.title)}
+                  ><Icon name="edit" size={14} /></button>
                 {/if}
-              </button>
+              </div>
             {/each}
           </div>
         </section>
@@ -338,13 +385,9 @@
           </header>
           <div class="selector-list">
             {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
-              <button
+              <div
                 class="selector-item"
                 class:active={page.id === appState.activeNotebook?.activePageId}
-                type="button"
-                title={page.title}
-                onclick={() => selectPage(page)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`pg-${page.id}`, page.title); }}
               >
                 {#if editingId === `pg-${page.id}`}
                   <input
@@ -354,12 +397,25 @@
                     use:focusOnMount
                     onclick={(e) => e.stopPropagation()}
                     onblur={() => commitEdit("page", page.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
+                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); } }}
                   />
                 {:else}
-                  {page.title}
+                  <button
+                    class="selector-item-select"
+                    type="button"
+                    title={page.title}
+                    onclick={() => selectPage(page)}
+                    ondblclick={(e) => { e.stopPropagation(); startEdit(`pg-${page.id}`, page.title); }}
+                  >{page.title}</button>
+                  <button
+                    class="selector-item-rename"
+                    type="button"
+                    title={`Rename ${page.title}`}
+                    aria-label={`Rename page ${page.title}`}
+                    onclick={() => startEdit(`pg-${page.id}`, page.title)}
+                  ><Icon name="edit" size={14} /></button>
                 {/if}
-              </button>
+              </div>
             {/each}
           </div>
         </section>
@@ -596,19 +652,17 @@
   }
 
   .selector-item {
+    display: flex;
     width: 100%;
     min-height: 30px;
-    padding: 7px 8px;
+    padding: 0;
     overflow: hidden;
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
     color: var(--text);
-    cursor: pointer;
     font-size: 12px;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    align-items: center;
   }
 
   .selector-item:hover {
@@ -621,9 +675,50 @@
     background: color-mix(in oklab, var(--accent) 14%, transparent);
   }
 
+  .selector-item-select {
+    min-width: 0;
+    min-height: 28px;
+    overflow: hidden;
+    padding: 7px 4px 7px 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+  }
+
+  .selector-item-rename {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    flex: 0 0 auto;
+    opacity: 0;
+    place-items: center;
+  }
+
+  .selector-item:hover .selector-item-rename,
+  .selector-item:focus-within .selector-item-rename {
+    opacity: 1;
+  }
+
+  .selector-item-rename:hover {
+    background: color-mix(in oklab, var(--accent) 16%, transparent);
+    color: var(--text);
+  }
+
   .item-edit-input {
     width: 100%;
-    padding: 0;
+    padding: 7px 8px;
     border: none;
     outline: none;
     background: transparent;

@@ -49,6 +49,11 @@
     await fetch(`/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+    try {
+      localStorage.removeItem(`dk:query-graph:${id}`);
+    } catch {
+      // Session deletion is complete even when browser storage is unavailable.
+    }
   }
 
   async function handleSessionKeydown(event: KeyboardEvent, session: Session) {

@@ -138,6 +138,22 @@ export async function getBuiltKnowledgeGraph(
   return index;
 }
 
+// Graph-mode requests lazily ensure that the selected-document index exists. The
+// registry reuses a current graph, shares an in-flight build, and rebuilds only
+// when the document signature or graph build version has changed.
+export async function ensureKnowledgeGraph(
+  requestedDocumentIds: string[] = [],
+): Promise<KnowledgeGraphIndex> {
+  try {
+    return await getBuiltKnowledgeGraph(requestedDocumentIds);
+  } catch (error) {
+    if (!(error instanceof KnowledgeGraphNotBuiltError)) throw error;
+  }
+
+  await buildKnowledgeGraph(requestedDocumentIds);
+  return getBuiltKnowledgeGraph(requestedDocumentIds);
+}
+
 async function restoreKnowledgeGraphSnapshot(scope: ResolvedGraphScope): Promise<void> {
   if (graphRegistry.getBuilt(scope.buildScope)) return;
 
@@ -173,14 +189,13 @@ async function resolveGraphScope(
   requestedDocumentIds: string[] = [],
 ): Promise<ResolvedGraphScope> {
   const documentIds = normalizeDocumentIds(requestedDocumentIds);
+  const allRows = await db
+    .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
+    .from(documents);
+  const selectedIds = new Set(documentIds);
   const rows = documentIds.length
-    ? await db
-        .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
-        .from(documents)
-        .where(inArray(documents.id, documentIds))
-    : await db
-        .select({ id: documents.id, title: documents.title, updatedAt: documents.updatedAt })
-        .from(documents);
+    ? allRows.filter((row) => selectedIds.has(String(row.id)))
+    : allRows;
   const documentRows = rows
     .map((row) => ({
       id: String(row.id),
@@ -189,11 +204,13 @@ async function resolveGraphScope(
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const signature = graphSignature(documentRows);
+  const usesAllDocuments = documentRows.length === allRows.length;
 
   return {
     documentRows,
     buildScope: {
-      scopeKey: graphScopeKey(documentIds),
+      // Empty selection and explicitly selecting every document are the same scope.
+      scopeKey: graphScopeKey(usesAllDocuments ? [] : documentIds),
       documentIds: documentRows.map((row) => row.id),
       documentCount: documentRows.length,
       signature,

@@ -11,10 +11,8 @@
     toggleDocumentSelection,
   } from "$lib/utils/documentSelection";
   import {
-    buildKnowledgeGraph,
     knowledgeGraphState,
     knowledgeGraphStateMatches,
-    normalizeDocumentIds,
     refreshKnowledgeGraphStatus,
     type KnowledgeGraphClientState,
   } from "$lib/utils/knowledgeGraphState";
@@ -59,17 +57,6 @@
   let graphBuilding = $derived(currentGraphState?.status === "building");
   let operationBusy = $derived(busy || graphBuilding);
   let graphStatusText = $derived(formatGraphStatus(currentGraphState));
-  let graphButtonLabel = $derived(formatGraphButtonLabel(currentGraphState));
-  let graphButtonDisabled = $derived(
-    !documentsLoaded ||
-      documents.length === 0 ||
-      selectedCount === 0 ||
-      operationBusy ||
-      !currentGraphState ||
-      currentGraphState.status === "unknown" ||
-      currentGraphState.status === "checking" ||
-      currentGraphState.status === "built",
-  );
 
   onMount(() => {
     refreshDocuments().catch(() => showToast("Documents failed to load"));
@@ -106,47 +93,37 @@
   }
 
   function graphScopeLabel() {
-    if (selectedCount > 0) {
-      return `${selectedCount} selected ${selectedCount === 1 ? "document" : "documents"}`;
-    }
-
-    return "No documents selected";
+    if (selectedCount === 0) return "All documents (default)";
+    if (documentsLoaded && selectedCount === documents.length) return "All documents selected";
+    return `${selectedCount} selected ${selectedCount === 1 ? "document" : "documents"}`;
   }
 
   function formatGraphStatus(state: KnowledgeGraphClientState | null) {
     if (!documentsLoaded) return "Checking build status...";
-    if (!documents.length) return "Not built. Upload a document first.";
-    if (selectedCount === 0) return "Select at least one document to build the graph.";
+    if (!documents.length) return "Upload a document to use Knowledge Graph retrieval.";
     if (!state || state.status === "unknown" || state.status === "checking") {
       return "Checking build status...";
     }
 
-    if (state.status === "building") return "Building...";
+    if (state.status === "building") return "Building automatically for the current question...";
     if (state.status === "unavailable") {
       return state.message || "Build status is unavailable.";
     }
     if (state.status === "failed") {
-      return state.error ? `Build failed: ${state.error}` : "Build failed.";
+      return state.error
+        ? `The previous automatic build failed: ${state.error}`
+        : "The previous automatic build failed. Your next graph question will retry it.";
     }
     if (state.status === "not_built") {
-      return state.needsRebuild ? "Needs rebuild." : "Not built.";
+      return state.needsRebuild
+        ? "Documents changed. The next graph question will rebuild it automatically."
+        : "The first graph question will build it automatically.";
     }
 
     const stats = state.stats;
     return stats
-      ? `Built successfully (${stats.nodes} nodes, ${stats.edges} edges).`
-      : "Built successfully.";
-  }
-
-  function formatGraphButtonLabel(state: KnowledgeGraphClientState | null) {
-    if (!state || state.status === "unknown" || state.status === "checking") {
-      return "Checking...";
-    }
-    if (state.status === "building") return "Building...";
-    if (state.status === "built") return "Knowledge Graph Built";
-    if (state.status === "failed") return "Retry Build";
-    if (state.status === "not_built" && state.needsRebuild) return "Rebuild Knowledge Graph";
-    return "Build Knowledge Graph";
+      ? `Ready (${stats.nodes} nodes, ${stats.edges} edges). Each question refreshes the Galaxy view.`
+      : "Ready. Each question refreshes the Galaxy view.";
   }
 
   async function refreshDocuments(message = "") {
@@ -209,34 +186,6 @@
     }
   }
 
-  async function handleBuildKnowledgeGraph() {
-    if (selectedCount === 0) {
-      status = "Select at least one document before building the Knowledge Graph.";
-      showToast("Select at least one document first");
-      return;
-    }
-    if (graphButtonDisabled) return;
-
-    const documentIds = normalizeDocumentIds($selectedDocumentIds);
-    progressOpen = true;
-    progressTitle = "Building Knowledge Graph";
-    progress = {
-      label: "Building Knowledge Graph",
-      message: `Extracting entities and relationships for ${graphScopeLabel()}.`,
-    };
-
-    try {
-      const result = await buildKnowledgeGraph(documentIds);
-      if (result.status === "built") {
-        showToast("Knowledge Graph built successfully");
-      }
-    } catch {
-      showToast("Knowledge Graph build failed");
-    } finally {
-      progressOpen = false;
-      progress = null;
-    }
-  }
 </script>
 
 <BaseWindow
@@ -293,9 +242,11 @@
 
     <div class="docs-selection li-subtle">
       {#if selectedCount === 0}
-        No documents selected. Select at least one to build or query the Knowledge Graph.
+        No documents selected. Queries use all available documents by default.
+      {:else if selectedCount === documents.length}
+        All documents selected. Queries use the full document collection.
       {:else}
-        {selectedCount} selected for retrieval and Knowledge Graph operations.
+        {selectedCount} selected. Queries use only those documents.
       {/if}
     </div>
 
@@ -312,15 +263,6 @@
         </div>
         <div class="li-subtle">{graphStatusText}</div>
       </div>
-      <button
-        class="btn btn-primary docs-graph-button"
-        type="button"
-        disabled={graphButtonDisabled}
-        onclick={handleBuildKnowledgeGraph}
-      >
-        <Icon name="account_tree" size={16} />
-        <span>{graphButtonLabel}</span>
-      </button>
     </div>
 
     <div class="docs-list" aria-live="polite">
@@ -439,11 +381,6 @@
     gap: 8px;
   }
 
-  .docs-graph-button {
-    flex: 0 0 auto;
-    gap: 6px;
-    white-space: nowrap;
-  }
 
   .docs-list {
     display: grid;
@@ -523,10 +460,6 @@
     .docs-graph-controls {
       align-items: stretch;
       flex-direction: column;
-    }
-
-    .docs-graph-button {
-      justify-content: center;
     }
 
     .docs-id {

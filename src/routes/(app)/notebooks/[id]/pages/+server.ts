@@ -11,6 +11,21 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const body = await request.json().catch(() => ({}));
   const title = String(body?.title ?? "").trim() || "New Page";
 
+  const [notebook] = await db
+    .select({ id: notebooks.id })
+    .from(notebooks)
+    .where(eq(notebooks.id, notebookId))
+    .limit(1);
+  if (!notebook) return json({ message: "Notebook not found." }, { status: 404 });
+
+  const existingPages = await db
+    .select({ title: notebook_pages.title })
+    .from(notebook_pages)
+    .where(eq(notebook_pages.notebookId, notebookId));
+  if (existingPages.some((page) => page.title.trim().toLocaleLowerCase() === title.toLocaleLowerCase())) {
+    return json({ message: `A page named “${title}” already exists in this notebook.` }, { status: 409 });
+  }
+
   const timestamp = new Date().toISOString();
   const pageId = randomUUID();
 
@@ -30,5 +45,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(notebooks.id, notebookId));
   await setActiveNotebook(notebookId);
 
-  return json(await loadNotebookState(), { status: 201 });
+  return json({
+    ...(await loadNotebookState()),
+    createdPageId: pageId,
+  }, { status: 201 });
 };

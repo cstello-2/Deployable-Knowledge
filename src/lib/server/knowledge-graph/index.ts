@@ -5,6 +5,7 @@ export {
   KnowledgeGraphNoDocumentsError,
   KnowledgeGraphNotBuiltError,
   buildKnowledgeGraph,
+  ensureKnowledgeGraph,
   getBuiltKnowledgeGraph,
   getKnowledgeGraphStatus,
   invalidateKnowledgeGraphCache,

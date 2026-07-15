@@ -229,16 +229,6 @@ export function refreshKnowledgeGraphStatus(
   const requestedDocumentIds = normalizeDocumentIds(documentIds);
   const requestKey = knowledgeGraphScopeKey(requestedDocumentIds);
 
-  if (requestedDocumentIds.length === 0) {
-    clearStatusPoll();
-    activeStatusRequest?.controller.abort();
-    activeStatusRequest = undefined;
-    const state = emptyState([], "unavailable");
-    state.message = "Select at least one document to use the Knowledge Graph.";
-    knowledgeGraphState.set(state);
-    return Promise.resolve(state);
-  }
-
   if (activeBuildRequest?.requestKey === requestKey) {
     return activeBuildRequest.promise;
   }
@@ -298,16 +288,6 @@ export function buildKnowledgeGraph(
   options: { force?: boolean } = {},
 ): Promise<KnowledgeGraphClientState> {
   const requestedDocumentIds = normalizeDocumentIds(documentIds);
-  if (requestedDocumentIds.length === 0) {
-    const error = new Error(
-      "Select at least one document before building the Knowledge Graph.",
-    );
-    const state = emptyState([], "failed");
-    state.error = error.message;
-    state.message = error.message;
-    knowledgeGraphState.set(state);
-    return Promise.reject(error);
-  }
   const requestKey = knowledgeGraphScopeKey(requestedDocumentIds);
   if (activeBuildRequest?.requestKey === requestKey) {
     return activeBuildRequest.promise;

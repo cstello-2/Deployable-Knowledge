@@ -7,8 +7,8 @@
     <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8050d9"/></marker>
   </defs>
   <rect width="1800" height="1380" fill="#f7f8fb"/>
-  <text x="60" y="72" class="title">Document &amp; Knowledge Graph Build Flow</text>
-  <text x="60" y="110" class="subtitle">Explicit, reusable graph construction — separate from question answering</text>
+  <text x="60" y="72" class="title">Ingestion &amp; Knowledge Graph Build Implementation</text>
+  <text x="60" y="110" class="subtitle">Selected-document processing, persistent retrieval storage, and restart-safe graph construction</text>
 
   <rect x="45" y="145" width="1710" height="455" class="panel blue" fill-opacity=".35"/>
   <text x="75" y="190" class="section">1. Document ingestion and persistent storage</text>
@@ -49,14 +49,16 @@
   <text x="642" y="518" class="body">storeDocumentChunks() → documents + document_chunks</text>
   <text x="642" y="544" class="body">Chunk text, embeddings, page/source metadata, updatedAt</text>
   <path d="M1142 395 V425 H900 V450" class="arrow"/><path d="M1515 395 V425 H900" class="arrow"/>
+  <path d="M900 560 V610 H1170 V735" class="arrow"/>
+  <text x="925" y="600" class="label">selected stored chunks</text>
 
   <rect x="45" y="635" width="1710" height="610" class="panel purple" fill-opacity=".20"/>
   <text x="75" y="680" class="section">2. Manual Knowledge Graph build</text>
 
   <rect x="75" y="735" width="240" height="135" class="box white"/>
   <text x="98" y="772" class="bt">Selected documents</text>
-  <text x="98" y="805" class="body">Document Library scope</text>
-  <text x="98" y="831" class="body">One or many stored PDFs</text>
+  <text x="98" y="805" class="body">Document Library scope (required)</text>
+  <text x="98" y="831" class="body">No selection → build disabled</text>
 
   <rect x="370" y="735" width="255" height="135" class="box green"/>
   <text x="393" y="772" class="bt">Build KG button</text>
@@ -99,14 +101,15 @@
   <text x="98" y="1101" class="body">as needing an explicit rebuild.</text>
 
   <rect x="650" y="940" width="300" height="185" class="box amber"/>
-  <text x="673" y="977" class="bt">Process-local graph cache</text>
-  <text x="673" y="1010" class="body">Built GraphStore is reused</text>
-  <text x="673" y="1036" class="body">No query-time auto-build</text>
-  <text x="673" y="1075" class="body">Cache resets on rebuild, scope</text>
-  <text x="673" y="1101" class="body">change, or server restart.</text>
+  <text x="673" y="977" class="bt">Compressed SQLite KG snapshot</text>
+  <text x="673" y="1010" class="body">knowledge_graph_snapshots</text>
+  <text x="673" y="1036" class="body">Nodes · edges · chunks · stats</text>
+  <text x="673" y="1075" class="body">Restores GraphStore after restart</text>
+  <text x="673" y="1101" class="body">No extraction or query-time rebuild</text>
   <path d="M575 1032 H650" class="arrow"/><path d="M1360 1055 H950" class="purpleArrow"/>
+  <text x="965" y="1044" class="label">gzip snapshot / restore</text>
 
   <rect x="45" y="1270" width="1710" height="75" rx="18" fill="#fff" stroke="#cbd4e1" stroke-width="2"/>
   <text x="75" y="1316" class="bt">Key outcome:</text>
-  <text x="210" y="1316" class="body">The graph is built only from the selected, stored document version and is ready before the first question is asked.</text>
+  <text x="210" y="1316" class="body">Build once from selected documents; restore the valid snapshot after restart and rebuild only when its signature is stale.</text>
 </svg>

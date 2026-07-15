@@ -37,6 +37,9 @@ export type RagSource = {
   chunkIndex: number;
   score: number;
   rawScore?: number;
+  content: string;
+  sourceTitle: string;
+  chunkType: SearchChunkType;
 };
 
 export type RagContextResult = {
@@ -88,6 +91,9 @@ function buildSources(matches: RagMatch[], mode: RagRetrievalMode): RagSource[] 
         : 0
       : clamp01(rawScores[index]),
     rawScore: mode === "bm25" ? rawScores[index] : undefined,
+    content: match.content,
+    sourceTitle: match.sourceTitle,
+    chunkType: match.chunkType,
   }));
 }
 

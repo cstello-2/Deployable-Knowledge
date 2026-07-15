@@ -11,8 +11,6 @@ export const GET: RequestHandler = async ({ url }) => {
     url.searchParams.getAll("documentIds"),
   );
 
-  if (documentIds.length === 0) return selectionRequired();
-
   try {
     return json(await getKnowledgeGraphStatus(documentIds));
   } catch (error) {
@@ -53,8 +51,6 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const documentIds = normalizeRequestedDocumentIds(rawDocumentIds);
-  if (documentIds.length === 0) return selectionRequired();
-
   try {
     const status = await buildKnowledgeGraph(documentIds, { force: body.force === true });
     return json(status, { status: status.status === "failed" ? 500 : 200 });
@@ -88,14 +84,4 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function normalizeRequestedDocumentIds(documentIds: readonly string[]): string[] {
   return [...new Set(documentIds.map((id) => id.trim()).filter(Boolean))].sort();
-}
-
-function selectionRequired(): Response {
-  return json(
-    {
-      code: "DOCUMENT_SELECTION_REQUIRED",
-      message: "Select at least one document before building the Knowledge Graph.",
-    },
-    { status: 400 },
-  );
 }
