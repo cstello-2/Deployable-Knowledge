@@ -1,12 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { count, desc, eq } from "drizzle-orm";
-import { error, json } from "@sveltejs/kit";
-import { db } from "$lib/server/database/database";
-import { document_chunks, documents, synced_files, type Document } from "$lib/server/database/schema";
-import { containsPath } from "$lib/server/documents/remove-document";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { error } from "@sveltejs/kit";
+import type { DocumentIngestEvent } from "$lib/requestTypes";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
@@ -85,76 +81,60 @@ async function ingestBuffer(originalName: string, buffer: Buffer): Promise<Uploa
     };
   }
 
-  await writeFile(savedPath, buffer);
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (event: DocumentIngestEvent) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
 
-  const result = await ingestDocument({
-    filePath: savedPath,
-    title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+      void (async () => {
+        try {
+          send({
+            status: "progress",
+            percent: 0,
+            label: "Ingesting PDF",
+            message: "Preparing OCR",
+          });
+          await mkdir(DOCUMENTS_DIR, { recursive: true });
+          await writeFile(savedPath, buffer);
+
+          const result = await ingestDocument(
+            {
+              filePath: savedPath,
+              title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+            },
+            (progress) => send({ status: "progress", ...progress }),
+          );
+
+          send({
+            status: "progress",
+            percent: 100,
+            label: "Ingesting PDF",
+            message: "Complete",
+          });
+          send({ status: "complete", result });
+        } catch (cause) {
+          console.error("Document ingestion failed", cause);
+          send({
+            status: "error",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Document ingestion failed",
+          });
+        } finally {
+          controller.close();
+        }
+      })();
+    },
   });
 
-  return { status: "success", filename: originalName, ...result };
-}
-
-async function ingestPath(filePath: string): Promise<UploadResult> {
-  const root = await realpath(homedir());
-  const path = await realpath(resolve(filePath));
-  const fileStats = await stat(path);
-
-  if (!containsPath(root, path) || !fileStats.isFile()) {
-    throw new Error("Select a PDF file inside your home folder.");
-  }
-
-  const [tracked] = await db
-    .select({
-      documentId: documents.id,
-      title: documents.title,
-      chunkCount: count(document_chunks.id),
-    })
-    .from(synced_files)
-    .innerJoin(documents, eq(documents.id, synced_files.documentId))
-    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
-    .where(eq(synced_files.sourcePath, path))
-    .groupBy(documents.id)
-    .limit(1);
-
-  if (tracked) {
-    return {
-      status: "success",
-      filename: basename(path),
-      ...tracked,
-      chunkCount: Number(tracked.chunkCount ?? 0),
-      message: "This PDF is already managed by its folder.",
-    };
-  }
-
-  return ingestBuffer(basename(path), await readFile(path));
-}
-
-export const POST: RequestHandler = async ({ request }) => {
-  const { paths } = (await request.json()) as { paths?: unknown };
-  const selectedPaths = Array.isArray(paths)
-    ? paths.filter((path): path is string => typeof path === "string")
-    : [];
-
-  if (selectedPaths.length === 0) {
-    throw error(400, "Upload at least one PDF file.");
-  }
-
-  await mkdir(DOCUMENTS_DIR, { recursive: true });
-  const results: UploadResult[] = [];
-
-  // Keep document ingestion sequential until Scribe's shared worker lifecycle is concurrency-safe.
-  for (const path of selectedPaths) {
-    try {
-      results.push(await ingestPath(path));
-    } catch (uploadError) {
-      results.push({
-        status: "error",
-        filename: basename(path) || "document.pdf",
-        message: uploadError instanceof Error ? uploadError.message : String(uploadError),
-      });
-    }
-  }
-
-  return json({ uploads: results });
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
 };

@@ -17,6 +17,12 @@ type StoreChunksResult = {
   chunkCount: number;
 };
 
+export type StoreDocumentProgress = {
+  stage: "embedding" | "storing";
+  current: number;
+  total: number;
+};
+
 // SQLite DB stores embeddings as bytes, however semantic search reads them back as Float32 vectors
 function embeddingToBuffer(values: number[]): Buffer {
   const array = Float32Array.from(values);
@@ -56,7 +62,10 @@ function buildChunkRows(
   }));
 }
 
-export async function storeDocumentChunks(chunks: ParsedChunk[]): Promise<StoreChunksResult> {
+export async function storeDocumentChunks(
+  chunks: ParsedChunk[],
+  onProgress?: (progress: StoreDocumentProgress) => void,
+): Promise<StoreChunksResult> {
   if (chunks.length === 0) {
     throw new Error("Cannot store embeddings for an empty chunk list.");
   }
@@ -67,8 +76,11 @@ export async function storeDocumentChunks(chunks: ParsedChunk[]): Promise<StoreC
   const embeddings = await embedTexts(
     chunks.map((chunk) => chunk.content),
     "search_document",
+    (current, total) => onProgress?.({ stage: "embedding", current, total }),
   );
   const chunkRows = buildChunkRows(chunks, documentRow.id, embeddings, now);
+
+  onProgress?.({ stage: "storing", current: 0, total: chunkRows.length });
 
   // Upsert the document shell first, then replace its chunks in one clean ingest pass
   await db
@@ -90,6 +102,11 @@ export async function storeDocumentChunks(chunks: ParsedChunk[]): Promise<StoreC
   for (let index = 0; index < chunkRows.length; index += INSERT_BATCH_SIZE) {
     const batch = chunkRows.slice(index, index + INSERT_BATCH_SIZE);
     await db.insert(document_chunks).values(batch);
+    onProgress?.({
+      stage: "storing",
+      current: Math.min(index + INSERT_BATCH_SIZE, chunkRows.length),
+      total: chunkRows.length,
+    });
   }
 
   return {

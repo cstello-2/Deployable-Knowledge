@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    DocumentIngestEvent,
+    DocumentIngestProgress,
+    DocumentIngestResult,
     DocumentTagAssignmentRequest,
     DocumentTagRequest,
   } from "$lib/requestTypes";
   import TagMenu from "$lib/components/menus/TagMenu.svelte";
-  import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
-  import Icon from "$lib/components/utils/Icon.svelte";
-  import DocumentFilePickerPopup from "$lib/components/popups/DocumentFilePickerPopup.svelte";
-  import DocumentProgressPopup from "$lib/components/popups/DocumentProgressPopup.svelte";
+  import { ProgressPopup } from "$lib/components/popups";
   import DocumentTagPickerPopup from "$lib/components/popups/DocumentTagPickerPopup.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import {
@@ -23,56 +23,6 @@
     chunkCount: number;
     folderId: string | null;
     tags: string[];
-  };
-
-  type UploadResult = {
-    status: "success" | "error";
-    filename: string;
-    documentId?: string;
-    title?: string;
-    chunkCount?: number;
-    message?: string;
-  };
-
-  type SyncResult = {
-    added: number;
-    updated: number;
-    removed: number;
-    unchanged: number;
-    failed: number;
-  };
-
-  type ProgressFile = {
-    path: string;
-    name: string;
-    status: string;
-    message?: string;
-  };
-
-  type FolderSyncEvent =
-    | { type: "folder"; folderId: string; created: boolean }
-    | { type: "file"; sourcePath: string; status: string; message?: string }
-    | { type: "done"; result?: SyncResult }
-    | { type: "error"; message: string };
-
-  type SyncedFolderRow = {
-    id: string;
-    path: string;
-    lastError: string | null;
-    watching: boolean;
-  };
-
-  type DirectoryItem = { name: string; path: string; kind: "folder" | "pdf" };
-  type DirectoryResponse = {
-    path: string;
-    parentPath: string | null;
-    items: DirectoryItem[];
-  };
-  type DocumentGroup = {
-    key: string;
-    label: string;
-    documents: DocumentRow[];
-    folder: SyncedFolderRow | null;
   };
 
   type TagPickerMode = "add" | "remove";
@@ -100,14 +50,7 @@
   let tagPickerMode = $state<TagPickerMode>("add");
   let status = $state("");
   let progressOpen = $state(false);
-  let progress = $state<{ label: string; message: string } | null>(null);
-  let progressFiles = $state<ProgressFile[]>([]);
-  let progressComplete = $state(false);
-  let pickerOpen = $state(false);
-  let pickerPath = $state("");
-  let pickerParentPath = $state<string | null>(null);
-  let pickerItems = $state<DirectoryItem[]>([]);
-  let pickerSelectedPaths = $state<string[]>([]);
+  let progress = $state<DocumentIngestProgress | null>(null);
   let selectedCount = $derived($selectedDocumentIds.length);
 
   onMount(() => {
@@ -146,23 +89,48 @@
     });
   }
 
-  function documentGroups(): DocumentGroup[] {
-    const registeredIds = new Set(folders.map((folder) => folder.id));
-    const visible = visibleDocuments();
-    const groups: DocumentGroup[] = folders.map((folder) => ({
-      key: folder.id,
-      label: shortFolderName(folder.path),
-      documents: visible.filter((document) => document.folderId === folder.id),
-      folder,
-    }));
-    const individual = visible.filter(
-      (document) => !document.folderId || !registeredIds.has(document.folderId),
-    );
+  function formatUploadStatus(result: DocumentIngestResult) {
+    return `Stored ${result.chunkCount} chunks from ${result.title}.`;
+  }
 
-    if (individual.length || groups.length === 0) {
-      groups.push({ key: "individual", label: "Individual files", documents: individual, folder: null });
+  async function readIngestResult(response: Response): Promise<DocumentIngestResult> {
+    if (!response.ok) throw new Error(await response.text());
+    if (!response.body) throw new Error("The server did not return ingestion progress.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let result: DocumentIngestResult | null = null;
+
+    const handleLine = (line: string) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line) as DocumentIngestEvent;
+
+      if (event.status === "progress") {
+        progress = event;
+      } else if (event.status === "complete") {
+        result = event.result;
+        progressOpen = false;
+      } else {
+        throw new Error(event.message);
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      lines.forEach(handleLine);
     }
-    return groups;
+
+    pending += decoder.decode();
+    handleLine(pending);
+
+    if (!result) throw new Error("Document ingestion ended before completion.");
+    return result;
   }
 
   function visibleDocuments() {
@@ -309,55 +277,10 @@
     progressFiles = files;
     progressComplete = false;
     progressOpen = true;
-  }
-
-  function closeProgress() {
-    if (!progressComplete) return;
-    progressOpen = false;
-    progress = null;
-    progressFiles = [];
-    progressComplete = false;
-  }
-
-  function updateProgressFile(path: string, status: string, message?: string) {
-    const existing = progressFiles.some((file) => file.path === path);
-    const file = { path, name: shortFolderName(path), status, message };
-    progressFiles = existing
-      ? progressFiles.map((current) => (current.path === path ? file : current))
-      : [...progressFiles, file];
-  }
-
-  async function readFolderSync(response: Response) {
-    if (!response.body) throw new Error("Folder sync response could not be read.");
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let created = true;
-    let result: SyncResult | undefined;
-    let streamError = "";
-
-    const handleLine = (line: string) => {
-      if (!line.trim()) return;
-      const event = JSON.parse(line) as FolderSyncEvent;
-
-      if (event.type === "folder") {
-        created = event.created;
-      } else if (event.type === "file") {
-        updateProgressFile(event.sourcePath, event.status, event.message);
-        progress = {
-          label: progress?.label ?? "Ingesting folder",
-          message:
-            event.status === "ingesting"
-              ? `Ingesting ${shortFolderName(event.sourcePath)}`
-              : `${progressFiles.length} PDF${progressFiles.length === 1 ? "" : "s"} found.`,
-        };
-      } else if (event.type === "done") {
-        result = event.result;
-        progress = { label: progress?.label ?? "Ingesting folder", message: syncSummary(result) };
-      } else {
-        streamError = event.message;
-      }
+    progress = {
+      percent: 0,
+      label: "Ingesting PDF",
+      message: "Preparing upload",
     };
 
     while (true) {
@@ -388,16 +311,13 @@
       });
       if (!response.ok) throw new Error(await responseError(response));
 
-      const synced = await readFolderSync(response);
-      await refreshAll(synced.created ? "Folder registered and synced." : "Folder synced.");
-      progress = {
-        label: "Folder sync complete",
-        message: syncSummary(synced.result),
-      };
-    } catch (folderError) {
-      const message = folderError instanceof Error ? folderError.message : String(folderError);
-      progress = { label: "Folder sync failed", message };
-      showToast(message);
+      const result = await readIngestResult(response);
+      selectedFile = null;
+      if (fileInput) fileInput.value = "";
+      if (typeof result.documentId === "string") selectDocument(result.documentId);
+      await refreshDocuments(formatUploadStatus(result));
+    } catch {
+      showToast("Document upload failed");
     } finally {
       working = null;
       progressComplete = true;
@@ -798,26 +718,11 @@
   onClose={() => (tagPickerOpen = false)}
 />
 
-<DocumentFilePickerPopup
-  open={pickerOpen}
-  pathLabel={pickerPath}
-  items={pickerItems}
-  busy={Boolean(working)}
-  canGoBack={Boolean(pickerParentPath)}
-  selectedPdfPaths={pickerSelectedPaths}
-  onClose={() => {
-    pickerOpen = false;
-    pickerSelectedPaths = [];
-  }}
-  onBack={() => pickerParentPath && openDirectory(pickerParentPath)}
-  onSubmit={() => pickerSelectedPaths.length ? addSelectedPdfs() : addFolder(pickerPath)}
-  onOpenFolder={openDirectory}
-  onTogglePdf={togglePickerPdf}
-/>
-
-<DocumentProgressPopup
+<ProgressPopup
   open={progressOpen}
-  title="Ingesting PDFs"
+  id="document-progress"
+  title="Ingesting PDF"
+  contentLabel="Document ingestion progress"
   {progress}
   files={progressFiles}
   complete={progressComplete}
