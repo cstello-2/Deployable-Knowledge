@@ -1,6 +1,10 @@
 // These types describe the small in-memory property graph built from stored RAG chunks.
 
-import type { SearchMatchBase, SearchResult } from "$lib/server/rag/search/search-shared";
+import type {
+  ScoredSearchMatch,
+  SearchMatchBase,
+  SearchResult,
+} from "$lib/server/rag/search/search-shared";
 
 export type NodeKind = "document" | "chunk" | "entity";
 
@@ -12,7 +16,8 @@ export type EntityKind =
   | "organization"
   | "technology"
   | "concept"
-  | "unknown";
+  | "unknown"
+  | string;
 
 export type RelationType =
   | "CONTAINS"
@@ -24,7 +29,8 @@ export type RelationType =
   | "HAS_COMPONENT"
   | "DETECTS"
   | "OBSERVES"
-  | "RELATED_TO";
+  | "RELATED_TO"
+  | string;
 
 export type GraphNode = {
   id: string;
@@ -33,6 +39,7 @@ export type GraphNode = {
   entityKind?: EntityKind;
   documentId?: string;
   chunkId?: string;
+  chunkIds?: string[];
 };
 
 export type GraphEdge = {
@@ -59,7 +66,7 @@ export type KnowledgeGraphPath = {
   chunkIds: string[];
 };
 
-export type KnowledgeGraphMatch = SearchMatchBase & {
+export type KnowledgeGraphMatch = ScoredSearchMatch & {
   graphScore: number;
   hybridScore?: number;
   matchedEntities: string[];
@@ -72,4 +79,4 @@ export type KnowledgeGraphSearchResult = SearchResult<KnowledgeGraphMatch> & {
 };
 
 // Stored chunks already contain everything needed for citations except a search score.
-export type IndexedChunk = Omit<SearchMatchBase, "score">;
+export type IndexedChunk = SearchMatchBase;

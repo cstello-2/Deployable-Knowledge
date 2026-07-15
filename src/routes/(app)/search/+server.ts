@@ -1,8 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { searchBm25 } from "$lib/server/rag/search/bm25-search";
-import { searchSemantic } from "$lib/server/rag/search/semantic-search";
-import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
+import { searchAllMethods } from "$lib/server/rag/search/hybrid-search";
 import { searchKnowledgeGraph } from "$lib/server/knowledge-graph";
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -17,17 +15,14 @@ export const GET: RequestHandler = async ({ url }) => {
 
   const opts = { query, topK, documentIds: docs };
 
-  const [bm25, semantic, hybrid, graph] = await Promise.all([
-    searchBm25(opts),
-    searchSemantic(opts),
-    searchHybrid(opts),
+  const [results, graph] = await Promise.all([
+    searchAllMethods(opts),
     searchKnowledgeGraph(opts),
   ]);
-
   return json({
-    bm25: bm25.results,
-    semantic: semantic.results,
-    hybrid: hybrid.results,
+    bm25: results.bm25,
+    semantic: results.semantic,
+    hybrid: results.hybrid,
     graph: graph.results,
   });
 };

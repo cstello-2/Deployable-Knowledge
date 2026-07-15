@@ -54,6 +54,12 @@ export const windowDefinitions = [
     defaultVisible: false,
   },
   {
+    id: "search-context-window",
+    title: "Search Context",
+    column: "right",
+    component: SearchWindow,
+  },
+  {
     id: "chat-history-window",
     title: "Chat History",
     column: "left",

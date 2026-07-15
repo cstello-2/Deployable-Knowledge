@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
+  import favicon from "$lib/assets/icon.svg";
 
   import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
   import { showWindow, windowPlacements } from "$lib/utils/workspaceState";
@@ -43,6 +45,18 @@
     userOpen = false;
   }
 
+  function toggleMainMenu() {
+    menuOpen = !menuOpen;
+    toolsOpen = false;
+    userOpen = false;
+  }
+
+  function toggleToolsMenu() {
+    toolsOpen = !toolsOpen;
+    menuOpen = false;
+    userOpen = false;
+  }
+
   function toggleUserMenu() {
     userOpen = !userOpen;
     menuOpen = false;
@@ -52,101 +66,94 @@
 
 <header class="app-header">
   <div class="left">
-    <div class="menu">
+    <Dropdown id="main_menu" bind:open={menuOpen} minWidth="220px">
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleMainMenu}
+        >
+          Menu
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
       <button
-        class="menu-trigger"
+        class="menu-item"
         type="button"
-        aria-haspopup="true"
-        aria-expanded={menuOpen}
-        onclick={() => {
-          menuOpen = !menuOpen;
-          toolsOpen = false;
-          userOpen = false;
-        }}
+        role="menuitem"
+        onclick={createNewChat}>New Chat</button
       >
-        Menu
-        <Icon name="expand_more" size={16} />
-      </button>
-
-      {#if menuOpen}
-        <div class="menu-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={createNewChat}>New Chat</button
-          >
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            onclick={openThemePopup}>Theme</button
-          >
-        </div>
-      {/if}
-    </div>
-
-    <div class="menu">
       <button
-        class="menu-trigger"
+        class="menu-item"
         type="button"
-        aria-haspopup="true"
-        aria-expanded={toolsOpen}
-        onclick={() => {
-          toolsOpen = !toolsOpen;
-          menuOpen = false;
-          userOpen = false;
-        }}
+        role="menuitem"
+        onclick={openThemePopup}>Theme</button
       >
-        Tools
-        <Icon name="expand_more" size={16} />
-      </button>
+    </Dropdown>
 
-      {#if toolsOpen}
-        <div class="menu-dropdown" role="menu">
-          {#each windowDefinitions as window (window.id)}
-            <button
-              class="menu-item"
-              class:visible={isWindowVisible(window.id)}
-              type="button"
-              role="menuitem"
-              onclick={() => restoreWindow(window.id)}
-            >
-              <span>{window.title}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <Dropdown id="tools_menu" bind:open={toolsOpen} minWidth="220px">
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleToolsMenu}
+        >
+          Tools
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
+      {#each windowDefinitions as window (window.id)}
+        <button
+          class="menu-item"
+          class:visible={isWindowVisible(window.id)}
+          type="button"
+          role="menuitem"
+          onclick={() => restoreWindow(window.id)}
+        >
+          <span>{window.title}</span>
+        </button>
+      {/each}
+    </Dropdown>
   </div>
 
   <div class="brand">
+    <img src={favicon} alt="" aria-hidden="true" />
     <strong>Deployable Knowledge vA0.3.0</strong>
   </div>
 
   <div class="right">
-    <div class="menu">
-      <button
-        class="menu-trigger"
-        type="button"
-        aria-haspopup="true"
-        aria-expanded={userOpen}
-        onclick={toggleUserMenu}
+    <Dropdown
+      id="user_menu"
+      bind:open={userOpen}
+      align="end"
+      minWidth="220px"
+    >
+      {#snippet trigger({ open, menuId })}
+        <button
+          class="menu-trigger"
+          type="button"
+          aria-haspopup="true"
+          aria-controls={menuId}
+          aria-expanded={open}
+          onclick={toggleUserMenu}
+        >
+          local-user
+          <Icon name="expand_more" size={16} />
+        </button>
+      {/snippet}
+
+      <button class="menu-item" type="button" role="menuitem" disabled={true}
+        >Logout</button
       >
-        local-user
-        <Icon name="expand_more" size={16} />
-      </button>
-      {#if userOpen}
-        <div class="menu-dropdown user-dropdown" role="menu">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            disabled={true}>Logout</button
-          >
-        </div>
-      {/if}
-    </div>
+    </Dropdown>
   </div>
 </header>
 
@@ -183,18 +190,29 @@
   .brand {
     position: absolute;
     left: 50%;
+    display: flex;
     max-width: min(44vw, 420px);
+    min-width: 0;
     overflow: hidden;
     color: var(--muted);
     font-size: 14px;
     letter-spacing: 0.3px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    align-items: center;
+    gap: 8px;
     transform: translateX(-50%);
   }
 
-  .menu {
-    position: relative;
+  .brand img {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+  }
+
+  .brand strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .menu-trigger {
@@ -206,9 +224,6 @@
     background: hsl(var(--h) var(--sat) var(--l-panel));
     color: var(--text);
     font-size: 12px;
-  }
-
-  .menu-trigger {
     padding: 6px 10px;
     cursor: pointer;
   }
@@ -217,26 +232,8 @@
     border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
   }
 
-  .menu-dropdown {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 50;
-    min-width: 220px;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
-  }
-
-  .user-dropdown {
-    right: 0;
-    left: auto;
-  }
-
   .menu-item {
-    display: block;
+    display: grid;
     width: 100%;
     padding: 8px 10px;
     border: 0;
@@ -246,10 +243,6 @@
     cursor: pointer;
     font-size: 12px;
     text-align: left;
-  }
-
-  .menu-item {
-    display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
@@ -275,7 +268,7 @@
       order: -1;
       width: 100%;
       max-width: none;
-      text-align: center;
+      justify-content: center;
       transform: none;
     }
 

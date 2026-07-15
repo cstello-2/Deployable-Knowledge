@@ -22,10 +22,18 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 # First time setup (don't do this everytime)
 npm install
 npm run db:generate
-
 npm run db:migrate # to be run if there were upstream database changes
+```
+## For Knowledge Graph GLiNER
+`python -m venv .venv`
+* macOS/Linux:
+`source .venv/bin/activate`
+* Windows:
+`.\.venv\Scripts\activate`
+`pip install -r requirements.txt`
 
 # After and every other startup run 
+```bash
 npm run dev
 ```
 

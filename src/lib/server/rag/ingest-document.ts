@@ -33,9 +33,9 @@ export async function ingestDocument({
   };
 
   // Updated linear ingest path: extract pages/tables, chunk text, assemble final chunks, then store
-  const pages = await TextExtract(source);
-  const rawChunks = await chunkPages(pages);
-  const chunks = assembleChunks(pages, rawChunks);
+  const extraction = await TextExtract(source);
+  const rawChunks = chunkPages(extraction.chunks);
+  const chunks = assembleChunks(extraction.chunks, rawChunks);
   const stored = await storeDocumentChunks(chunks);
   invalidateKnowledgeGraphCache();
 
@@ -44,7 +44,7 @@ export async function ingestDocument({
     documentId: stored.documentId,
     title: source.title,
     sourcePath: source.path,
-    pageCount: pages.length,
+    pageCount: extraction.pageCount,
     chunkCount: stored.chunkCount,
   };
 }

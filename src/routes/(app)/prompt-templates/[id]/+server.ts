@@ -1,30 +1,23 @@
 import { error, json } from "@sveltejs/kit";
 import { and, eq } from "drizzle-orm";
 
+import type { PromptTemplateRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
+  profiles,
   promptTemplates,
-  settings,
 } from "$lib/server/database/schema";
 import { seedLocalUser } from "$lib/server/database/seed";
 import type { RequestHandler } from "./$types";
 
 async function getLocalUserId() {
-  const row = await db
-    .select({ userId: settings.userId })
-    .from(settings)
-    .where(eq(settings.id, "local_user"))
-    .get();
-
-  if (row) return row.userId;
-
-  const seeded = await seedLocalUser();
-  return seeded.settings.userId;
+  const user = await seedLocalUser();
+  return user.id;
 }
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const name = String(body.name ?? "").trim();
+  const body = (await request.json()) as PromptTemplateRequest;
+  const name = body.name.trim();
 
   if (!name) {
     throw error(400, "Prompt template name is required");
@@ -35,8 +28,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     .update(promptTemplates)
     .set({
       name,
-      description: String(body.description ?? ""),
-      systemPrompt: String(body.systemPrompt ?? body.system_prompt ?? ""),
+      description: body.description,
+      systemPrompt: body.systemPrompt,
       updatedAt: new Date(),
     })
     .where(
@@ -57,12 +50,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 export const DELETE: RequestHandler = async ({ params }) => {
   const userId = await getLocalUserId();
   await db
-    .update(settings)
+    .update(profiles)
     .set({ promptTemplateId: null, updatedAt: new Date() })
     .where(
       and(
-        eq(settings.userId, userId),
-        eq(settings.promptTemplateId, params.id),
+        eq(profiles.userId, userId),
+        eq(profiles.promptTemplateId, params.id),
       ),
     );
 
