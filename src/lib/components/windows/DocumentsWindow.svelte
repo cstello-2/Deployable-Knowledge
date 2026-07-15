@@ -474,24 +474,43 @@
     working = "upload";
     openProgress(
       `Ingesting ${selectedFiles.length} PDF${selectedFiles.length === 1 ? "" : "s"}`,
-      "Files are processed sequentially through the shared ingestion pipeline.",
+      `Ingesting ${selectedFiles[0].name}`,
       selectedFiles.map((file) => ({ path: file.name, name: file.name, status: "queued" })),
     );
 
     try {
-      const form = new FormData();
-      for (const file of selectedFiles) form.append("files", file);
+      const uploads: UploadResult[] = [];
 
-      const body = await request<{ uploads?: UploadResult[] }>("/documents", {
-        method: "POST",
-        body: form,
-      });
-      const uploads = body.uploads ?? [];
+      for (const file of selectedFiles) {
+        updateProgressFile(file.name, "ingesting");
+        progress = {
+          label: `Ingesting ${selectedFiles.length} PDF${selectedFiles.length === 1 ? "" : "s"}`,
+          message: `Ingesting ${file.name}`,
+        };
+
+        try {
+          const form = new FormData();
+          form.append("files", file);
+          const body = await request<{ uploads?: UploadResult[] }>("/documents", {
+            method: "POST",
+            body: form,
+          });
+          const result = body.uploads?.[0] ?? {
+            status: "error",
+            filename: file.name,
+            message: "No upload result was returned.",
+          };
+          uploads.push(result);
+          updateProgressFile(file.name, result.status, result.message);
+        } catch (fileError) {
+          const message = fileError instanceof Error ? fileError.message : String(fileError);
+          uploads.push({ status: "error", filename: file.name, message });
+          updateProgressFile(file.name, "error", message);
+        }
+      }
+
       const succeeded = uploads.filter((upload) => upload.status === "success");
       const failed = uploads.filter((upload) => upload.status === "error");
-      for (const upload of uploads) {
-        updateProgressFile(upload.filename, upload.status, upload.message);
-      }
       for (const upload of succeeded) {
         if (upload.documentId && !$selectedDocumentIds.includes(upload.documentId)) {
           $selectedDocumentIds = [...$selectedDocumentIds, upload.documentId];
