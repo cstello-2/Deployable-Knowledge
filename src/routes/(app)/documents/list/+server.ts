@@ -5,6 +5,7 @@ import {
   document_chunks,
   document_tags,
   documents,
+  synced_files,
   tags,
 } from "$lib/server/database/schema";
 import type { Document } from "$lib/server/database/schema";
@@ -16,6 +17,7 @@ type DocumentListRow = Pick<
 > & {
   chunkCount: number;
   tags: string[];
+  folderId: string | null;
 };
 
 export const GET: RequestHandler = async () => {
@@ -27,9 +29,11 @@ export const GET: RequestHandler = async () => {
       sourceType: documents.sourceType,
       updatedAt: documents.updatedAt,
       chunkCount: count(document_chunks.id),
+      folderId: synced_files.folderId,
     })
     .from(documents)
     .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
+    .leftJoin(synced_files, eq(synced_files.documentId, documents.id))
     .groupBy(documents.id)
     .orderBy(desc(documents.updatedAt));
 
@@ -58,6 +62,7 @@ export const GET: RequestHandler = async () => {
       updatedAt: row.updatedAt,
       chunkCount: row.chunkCount,
       tags: tagsByDocument.get(row.id) ?? [],
+      folderId: row.folderId ?? null,
     })) satisfies DocumentListRow[],
     tags: availableTagRows.map((row) => row.name),
   });

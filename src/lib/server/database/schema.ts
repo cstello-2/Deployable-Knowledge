@@ -289,6 +289,37 @@ export const document_chunks = sqliteTable(
   ],
 );
 
+export const synced_folders = sqliteTable(
+  "synced_folders",
+  {
+    id: text("id").primaryKey(),
+    path: text("path").notNull(),
+    createdAt: text("created_at").notNull(),
+    lastError: text("last_error"),
+  },
+  (table) => [uniqueIndex("synced_folders_path_idx").on(table.path)],
+);
+
+export const synced_files = sqliteTable(
+  "synced_files",
+  {
+    sourcePath: text("source_path").primaryKey(),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => synced_folders.id, { onDelete: "cascade" }),
+    managedPath: text("managed_path").notNull(),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+    mtimeMs: integer("mtime_ms").notNull(),
+    size: integer("size").notNull(),
+    ignored: integer("ignored", { mode: "boolean" }).notNull().default(false),
+  },
+  (table) => [
+    index("synced_files_folder_idx").on(table.folderId),
+    uniqueIndex("synced_files_managed_path_idx").on(table.managedPath),
+    uniqueIndex("synced_files_document_idx").on(table.documentId),
+  ],
+);
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
@@ -336,6 +367,8 @@ export type NewDocumentTag = typeof document_tags.$inferInsert;
 
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
+
+export type SyncedFolder = typeof synced_folders.$inferSelect;
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;
