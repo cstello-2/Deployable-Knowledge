@@ -766,7 +766,12 @@
     <div class="search-settings-form">
       <div class="retrieval-row" aria-label="Retrieval mode">
         <span class="retrieval-label">Search Method</span>
-        <div class="retrieval-toggle" role="group" aria-label="Retrieval mode">
+        <div
+          class="retrieval-toggle"
+          role="group"
+          aria-label="Retrieval mode"
+          style={`--retrieval-count: ${retrievalModes.length}`}
+        >
           {#each retrievalModes as mode}
             <button
               class:active={retrievalMode === mode.id}
@@ -1271,7 +1276,7 @@
   .retrieval-toggle {
     display: grid;
     min-width: 0;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--retrieval-count), minmax(0, 1fr));
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 8px;
