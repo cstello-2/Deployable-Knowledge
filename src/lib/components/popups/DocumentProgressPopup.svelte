@@ -61,11 +61,12 @@
   let hasTotal = $derived(total > 0);
   let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
   let hasFiles = $derived(files.length > 0);
-  let hasActiveFiles = $derived(
-    files.some((file) => file.status === "queued" || file.status === "ingesting"),
-  );
+  let hasActiveFiles = $derived(files.some((file) => file.status === "queued" || file.status === "ingesting"));
   let displayedPercent = $derived(
     hasFiles ? (finishedFiles / files.length) * 100 : complete && !hasTotal ? 100 : percent,
+  );
+  let indeterminate = $derived(
+    (!hasTotal && !hasFiles && !complete) || (hasActiveFiles && displayedPercent === 0),
   );
   let label = $derived(progress?.label || title);
   let message = $derived(progress?.message || "Please wait.");
@@ -85,23 +86,22 @@
   {onClose}
 >
   <div class="progress-body" aria-live="polite" aria-busy={open}>
-    <div class="progress-wrap" aria-hidden="true">
-      <div class="progress-track">
+    <div class="progress-wrap">
+      <div
+        class="progress-track"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={indeterminate ? undefined : Math.round(displayedPercent)}
+      >
         <div
-          class:indeterminate={!hasTotal && !hasFiles && !complete}
+          class:indeterminate
           class="progress-fill"
-          style:width={hasTotal || hasFiles || complete ? `${displayedPercent}%` : undefined}
+          style:width={!indeterminate && (hasTotal || hasFiles || complete) ? `${displayedPercent}%` : undefined}
         ></div>
-        {#if hasFiles && hasActiveFiles && !complete}
-          <div
-            class="progress-runner"
-            style:left={`${displayedPercent}%`}
-            style:width={`${100 - displayedPercent}%`}
-          >
-            <div class="progress-runner-bar"></div>
-          </div>
-        {/if}
       </div>
+      <strong class="progress-percent">{indeterminate ? "…" : `${Math.round(displayedPercent)}%`}</strong>
     </div>
     {#if !hasFiles || complete}
       <div class="progress-message">
@@ -137,11 +137,13 @@
   }
 
   .progress-wrap {
-    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 10px;
+    align-items: center;
   }
 
   .progress-track {
-    position: relative;
     width: 100%;
     height: 16px;
     overflow: hidden;
@@ -157,20 +159,6 @@
     transition: width 180ms ease;
   }
 
-  .progress-runner {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    overflow: hidden;
-  }
-
-  .progress-runner-bar {
-    width: 35%;
-    height: 100%;
-    animation: progress-slide 1.1s ease-in-out infinite;
-    background: color-mix(in oklab, var(--accent) 65%, white);
-  }
-
   .progress-fill.indeterminate {
     width: 35%;
     animation: progress-slide 1.1s ease-in-out infinite;
@@ -179,6 +167,12 @@
   .progress-message {
     color: var(--muted);
     font-size: 13px;
+  }
+
+  .progress-percent {
+    color: var(--text);
+    font-size: 13px;
+    text-align: right;
   }
 
   .progress-files {
