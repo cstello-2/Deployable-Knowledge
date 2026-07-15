@@ -7,11 +7,12 @@
     items: Array<{ name: string; path: string; kind: "folder" | "pdf" }>;
     busy?: boolean;
     canGoBack?: boolean;
+    selectedPdfPaths: string[];
     onClose: () => void;
     onBack: () => void;
-    onSelectCurrent: () => void;
+    onSubmit: () => void;
     onOpenFolder: (path: string) => void;
-    onChooseFiles: () => void;
+    onTogglePdf: (path: string) => void;
   };
 
   let {
@@ -20,11 +21,12 @@
     items,
     busy = false,
     canGoBack = false,
+    selectedPdfPaths,
     onClose,
     onBack,
-    onSelectCurrent,
+    onSubmit,
     onOpenFolder,
-    onChooseFiles,
+    onTogglePdf,
   }: Props = $props();
 </script>
 
@@ -41,9 +43,12 @@
 
     <div class="file-picker-toolbar">
       <button class="btn" type="button" disabled={busy || !canGoBack} onclick={onBack}>Back</button>
-      <button class="btn" type="button" disabled={busy} onclick={onChooseFiles}>Choose PDFs</button>
-      <button class="btn btn-primary" type="button" disabled={busy} onclick={onSelectCurrent}>
-        {busy ? "Adding..." : "Select Current Folder"}
+      <button class="btn btn-primary" type="button" disabled={busy} onclick={onSubmit}>
+        {busy
+          ? "Adding..."
+          : selectedPdfPaths.length
+            ? `Add ${selectedPdfPaths.length} PDF${selectedPdfPaths.length === 1 ? "" : "s"}`
+            : "Select Current Folder"}
       </button>
     </div>
 
@@ -61,10 +66,18 @@
             <span class="file-picker-name">{item.name}</span>
           </button>
         {:else}
-          <div class="file-picker-row file-picker-file" title={item.path}>
+          <button
+            class:selected={selectedPdfPaths.includes(item.path)}
+            class="file-picker-row file-picker-file"
+            type="button"
+            title={item.path}
+            disabled={busy}
+            onclick={() => onTogglePdf(item.path)}
+          >
+            <span class="file-picker-check">{selectedPdfPaths.includes(item.path) ? "[x]" : "[ ]"}</span>
             <span class="file-picker-icon">[PDF]</span>
             <span class="file-picker-name">{item.name}</span>
-          </div>
+          </button>
         {/if}
       {:else}
         <div class="empty-state">No folders or PDFs shown.</div>
@@ -132,7 +145,13 @@
   }
 
   .file-picker-file {
+    grid-template-columns: auto auto minmax(0, 1fr);
     color: var(--muted);
+  }
+
+  .file-picker-file.selected {
+    background: var(--hover);
+    color: var(--text);
   }
 
   .file-picker-name {

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import { count, desc, eq } from "drizzle-orm";
 import { error, json } from "@sveltejs/kit";
 import { db } from "$lib/server/database/database";
 import { document_chunks, documents, synced_files, type Document } from "$lib/server/database/schema";
+import { containsPath } from "$lib/server/documents/remove-document";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
@@ -50,10 +52,8 @@ export const GET: RequestHandler = async () => {
   });
 };
 
-async function ingestUpload(upload: File): Promise<UploadResult> {
-  const originalName = upload.name || "document.pdf";
+async function ingestBuffer(originalName: string, buffer: Buffer): Promise<UploadResult> {
   const isPdfName = originalName.toLowerCase().endsWith(".pdf");
-  const buffer = Buffer.from(await upload.arrayBuffer());
   const isPdfContent = buffer.subarray(0, 5).toString() === "%PDF-";
 
   if (!isPdfName || !isPdfContent) {
@@ -63,6 +63,27 @@ async function ingestUpload(upload: File): Promise<UploadResult> {
   const contentHash = createHash("sha256").update(buffer).digest("hex");
   const savedName = `${contentHash.slice(0, 16)}.pdf`;
   const savedPath = join(DOCUMENTS_DIR, savedName);
+  const [existing] = await db
+    .select({
+      documentId: documents.id,
+      title: documents.title,
+      chunkCount: count(document_chunks.id),
+    })
+    .from(documents)
+    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
+    .where(eq(documents.sourcePath, savedPath))
+    .groupBy(documents.id)
+    .limit(1);
+
+  if (existing) {
+    return {
+      status: "success",
+      filename: originalName,
+      ...existing,
+      chunkCount: Number(existing.chunkCount ?? 0),
+      message: "This PDF is already in the library.",
+    };
+  }
 
   await writeFile(savedPath, buffer);
 
@@ -74,13 +95,48 @@ async function ingestUpload(upload: File): Promise<UploadResult> {
   return { status: "success", filename: originalName, ...result };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
-  const form = await request.formData();
-  const uploads = [...form.getAll("files"), ...form.getAll("file")].filter(
-    (upload): upload is File => upload instanceof File,
-  );
+async function ingestPath(filePath: string): Promise<UploadResult> {
+  const root = await realpath(homedir());
+  const path = await realpath(resolve(filePath));
+  const fileStats = await stat(path);
 
-  if (uploads.length === 0) {
+  if (!containsPath(root, path) || !fileStats.isFile()) {
+    throw new Error("Select a PDF file inside your home folder.");
+  }
+
+  const [tracked] = await db
+    .select({
+      documentId: documents.id,
+      title: documents.title,
+      chunkCount: count(document_chunks.id),
+    })
+    .from(synced_files)
+    .innerJoin(documents, eq(documents.id, synced_files.documentId))
+    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
+    .where(eq(synced_files.sourcePath, path))
+    .groupBy(documents.id)
+    .limit(1);
+
+  if (tracked) {
+    return {
+      status: "success",
+      filename: basename(path),
+      ...tracked,
+      chunkCount: Number(tracked.chunkCount ?? 0),
+      message: "This PDF is already managed by its folder.",
+    };
+  }
+
+  return ingestBuffer(basename(path), await readFile(path));
+}
+
+export const POST: RequestHandler = async ({ request }) => {
+  const { paths } = (await request.json()) as { paths?: unknown };
+  const selectedPaths = Array.isArray(paths)
+    ? paths.filter((path): path is string => typeof path === "string")
+    : [];
+
+  if (selectedPaths.length === 0) {
     throw error(400, "Upload at least one PDF file.");
   }
 
@@ -88,13 +144,13 @@ export const POST: RequestHandler = async ({ request }) => {
   const results: UploadResult[] = [];
 
   // Keep document ingestion sequential until Scribe's shared worker lifecycle is concurrency-safe.
-  for (const upload of uploads) {
+  for (const path of selectedPaths) {
     try {
-      results.push(await ingestUpload(upload));
+      results.push(await ingestPath(path));
     } catch (uploadError) {
       results.push({
         status: "error",
-        filename: upload.name || "document.pdf",
+        filename: basename(path) || "document.pdf",
         message: uploadError instanceof Error ? uploadError.message : String(uploadError),
       });
     }

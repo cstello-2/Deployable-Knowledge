@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readdir, rename, stat, unlink } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { copyFile, mkdir, open, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
-import { synced_files, synced_folders } from "$lib/server/database/schema";
+import { documents, synced_files, synced_folders } from "$lib/server/database/schema";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import { removeDocument, removeManagedDocumentFile } from "./remove-document";
 
@@ -122,9 +122,9 @@ async function ingestManagedCopy(sourcePath: string, managedPath: string) {
   }
 }
 
-function managedPathFor(sourcePath: string, documentsDir: string): string {
-  const sourceHash = createHash("sha256").update(sourcePath).digest("hex").slice(0, 24);
-  return join(documentsDir, "synced", `${sourceHash}.pdf`);
+async function managedPathFor(sourcePath: string): Promise<string> {
+  const contentHash = createHash("sha256").update(await readFile(sourcePath)).digest("hex");
+  return join("documents", `${contentHash.slice(0, 16)}.pdf`);
 }
 
 function pdfTitle(sourcePath: string): string {
@@ -150,7 +150,6 @@ export async function syncFolder(
   onProgress?: SyncProgressCallback,
   shouldStop?: () => boolean,
 ): Promise<SyncFolderResult> {
-  const documentsDir = resolve("documents");
   const [folder] = await db
     .select()
     .from(synced_folders)
@@ -191,7 +190,7 @@ export async function syncFolder(
     }
   }
 
-  await mkdir(join(documentsDir, "synced"), { recursive: true });
+  await mkdir("documents", { recursive: true });
 
   // Intentionally sequential until the Scribe lifecycle is made concurrency-safe and benchmarked.
   for (const file of pdfFiles) {
@@ -203,7 +202,10 @@ export async function syncFolder(
     }
 
     const unchanged =
-      tracked?.documentId && tracked.mtimeMs === file.mtimeMs && tracked.size === file.size;
+      tracked?.documentId &&
+      tracked.mtimeMs === file.mtimeMs &&
+      tracked.size === file.size &&
+      !resolve(tracked.managedPath).includes(`${sep}documents${sep}synced${sep}`);
 
     if (unchanged) {
       result.unchanged += 1;
@@ -211,8 +213,9 @@ export async function syncFolder(
       continue;
     }
 
-    const managedPath = tracked?.managedPath ?? managedPathFor(file.sourcePath, documentsDir);
+    let managedPath = tracked?.managedPath ?? "";
     let ingestedDocumentId: string | null = null;
+    let createdDocument = false;
 
     try {
       onProgress?.({ sourcePath: file.sourcePath, status: "ingesting" });
@@ -221,8 +224,47 @@ export async function syncFolder(
         throw new Error("File has a .pdf extension but no PDF header.");
       }
 
-      const ingested = await ingestManagedCopy(file.sourcePath, managedPath);
-      ingestedDocumentId = ingested.documentId;
+      managedPath = await managedPathFor(file.sourcePath);
+      const [existingDocument] = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(eq(documents.sourcePath, managedPath))
+        .limit(1);
+      const [existingOwner] = existingDocument
+        ? await db
+            .select({ sourcePath: synced_files.sourcePath, folderId: synced_files.folderId })
+            .from(synced_files)
+            .where(eq(synced_files.documentId, existingDocument.id))
+            .limit(1)
+        : [];
+
+      if (existingOwner && existingOwner.sourcePath !== file.sourcePath) {
+        const renamedInThisFolder =
+          existingOwner.folderId === folderId && !currentPaths.has(existingOwner.sourcePath);
+
+        if (renamedInThisFolder) {
+          await db.delete(synced_files).where(eq(synced_files.sourcePath, existingOwner.sourcePath));
+          currentPaths.add(existingOwner.sourcePath);
+        } else {
+          if (tracked?.documentId) {
+            await removeDocument(tracked.documentId, { syncedFileDisposition: "remove" });
+          }
+          result.unchanged += 1;
+          onProgress?.({
+            sourcePath: file.sourcePath,
+            status: "unchanged",
+            message: "This PDF is already managed by another folder.",
+          });
+          continue;
+        }
+      }
+
+      if (existingDocument) {
+        ingestedDocumentId = existingDocument.id;
+      } else {
+        ingestedDocumentId = (await ingestManagedCopy(file.sourcePath, managedPath)).documentId;
+        createdDocument = true;
+      }
 
       await db
         .insert(synced_files)
@@ -230,7 +272,7 @@ export async function syncFolder(
           sourcePath: file.sourcePath,
           folderId,
           managedPath,
-          documentId: ingested.documentId,
+          documentId: ingestedDocumentId,
           mtimeMs: file.mtimeMs,
           size: file.size,
           ignored: false,
@@ -240,12 +282,16 @@ export async function syncFolder(
           set: {
             folderId,
             managedPath,
-            documentId: ingested.documentId,
+            documentId: ingestedDocumentId,
             mtimeMs: file.mtimeMs,
             size: file.size,
             ignored: false,
           },
         });
+
+      if (tracked?.documentId && tracked.documentId !== ingestedDocumentId) {
+        await removeDocument(tracked.documentId, { syncedFileDisposition: "remove" });
+      }
 
       const status = tracked ? "updated" : "added";
       result[status] += 1;
@@ -256,7 +302,7 @@ export async function syncFolder(
       onProgress?.({ sourcePath: file.sourcePath, status: "failed", message });
       console.error(`[Folder Sync] ${file.sourcePath}: ${message}`);
 
-      if (!tracked) {
+      if (!tracked && createdDocument) {
         try {
           if (ingestedDocumentId) {
             await removeDocument(ingestedDocumentId, { syncedFileDisposition: "remove" });
