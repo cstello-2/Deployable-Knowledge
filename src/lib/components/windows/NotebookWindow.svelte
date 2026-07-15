@@ -1,9 +1,19 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
+  import type {
+    NotebookPageContentRequest,
+    NotebookPageTitleRequest,
+    NotebookTitleRequest,
+  } from "$lib/requestTypes";
+  import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import {
+    NOTEBOOK_TEXT_CHARACTER_LIMIT,
+    NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT,
+  } from "$lib/utils/contextLimits";
   import type { AppState } from "$lib/state.svelte";
   import type {
     Document,
@@ -16,6 +26,7 @@
 
   // dk:send-to-notebook carries fully-composed text — just appended as plain text.
   type SendToNotebookDetail = { text: string };
+  type NotebookView = "notebooks" | "pages" | "editor";
 
   let {
     id,
@@ -40,90 +51,66 @@
 
   let notes = $state("");
   let previewMode = $state(false);
-  let selectorOpen = $state(false);
+  let notebookView = $state<NotebookView>("editor");
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let editingId = $state<string | null>(null);
-  let editingTitle = $state("");
-  let selectorEl = $state<HTMLElement | null>(null);
-  let selectorToggleEl = $state<HTMLElement | null>(null);
+  let otherPageCharacterCount = $derived(
+    appState.activeNotebook?.pages.reduce(
+      (total, page) =>
+        page.id === appState.activePage?.id
+          ? total
+          : total + page.content.length,
+      0,
+    ) ?? 0,
+  );
+  let currentPageCharacterLimit = $derived(
+    Math.max(0, NOTEBOOK_TEXT_CHARACTER_LIMIT - otherPageCharacterCount),
+  );
+  let notebookCharacterCount = $derived(
+    otherPageCharacterCount + notes.length,
+  );
+  let notebookCharactersRemaining = $derived(
+    Math.max(0, NOTEBOOK_TEXT_CHARACTER_LIMIT - notebookCharacterCount),
+  );
+  let notebookNearLimit = $derived(
+    notebookCharacterCount >= NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT,
+  );
+  let notebookAtLimit = $derived(
+    notebookCharacterCount >= NOTEBOOK_TEXT_CHARACTER_LIMIT,
+  );
 
   // Sources attached to the active notebook (via "Send to Notebook") — hidden
   // from the notebook page text, viewable here.
   let sourcesOpen = $state(false);
   let sources = $state<NotebookSourceItem[]>([]);
   let sourcesLoading = $state(false);
-  let sourcesEl = $state<HTMLElement | null>(null);
-  let sourcesToggleEl = $state<HTMLElement | null>(null);
 
-  function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-    node.select();
+  function toggleSources() {
+    sourcesOpen = !sourcesOpen;
   }
 
-  function startEdit(id: string, currentTitle: string) {
-    editingId = id;
-    editingTitle = currentTitle;
+  function showNotebooks() {
+    sourcesOpen = false;
+    notebookView = "notebooks";
   }
 
-  function cancelEdit() {
-    editingId = null;
-    editingTitle = "";
+  function showPages() {
+    sourcesOpen = false;
+    notebookView = appState.activeNotebook ? "pages" : "notebooks";
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as Node;
-    if (
-      selectorOpen &&
-      selectorEl && !selectorEl.contains(target) &&
-      selectorToggleEl && !selectorToggleEl.contains(target)
-    ) {
-      selectorOpen = false;
-    }
-    if (
-      sourcesOpen &&
-      sourcesEl && !sourcesEl.contains(target) &&
-      sourcesToggleEl && !sourcesToggleEl.contains(target)
-    ) {
-      sourcesOpen = false;
+  function navigateBack() {
+    if (notebookView === "editor") {
+      showPages();
+    } else if (notebookView === "pages") {
+      showNotebooks();
     }
   }
 
-  async function commitEdit(type: "notebook" | "page", id: string) {
-    const title = editingTitle.trim();
-    editingId = null;
-    editingTitle = "";
-    if (!title) return;
-    if (type === "notebook") {
-      await renameNotebook(id, title);
-    } else {
-      const page = appState.activeNotebook?.pages.find((p) => p.id === id);
-      if (page) await renamePage(page, title);
-    }
-  }
-
-  async function renameNotebook(notebookId: string, title: string) {
-    const res = await fetch(`/notebooks/${notebookId}/rename`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-    if (!res.ok) { showToast("Failed to rename notebook"); return; }
-    applyState(await res.json());
-  }
-
-  async function renamePage(page: NotebookPage, title: string) {
-    const nb = appState.activeNotebook;
-    if (!nb) return;
-    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/rename`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-    if (!res.ok) { showToast("Failed to rename page"); return; }
-    applyState(await res.json());
-  }
+  $effect(() => {
+    if (collapsed) sourcesOpen = false;
+  });
 
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
     appState.notebooks = data.notebooks ?? [];
@@ -169,6 +156,8 @@
       const res = await fetch("/notebooks");
       if (!res.ok) { showToast("Notebook failed to load"); return; }
       applyState(await res.json());
+      if (!appState.activeNotebook) notebookView = "notebooks";
+      else if (!appState.activePage) notebookView = "pages";
     } finally {
       loading = false;
     }
@@ -182,10 +171,23 @@
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/update`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: notes }),
+      body: JSON.stringify({
+        content: notes,
+      } satisfies NotebookPageContentRequest),
     });
 
-    if (!res.ok) { saveStatus = "Save failed"; return; }
+    if (!res.ok) {
+      if (res.status === 413) {
+        saveStatus = "Limit reached";
+        showToast(
+          `Notebook text is limited to ${NOTEBOOK_TEXT_CHARACTER_LIMIT.toLocaleString()} characters`,
+        );
+        return;
+      }
+
+      saveStatus = "Save failed";
+      return;
+    }
     appState.notebooks = (await res.json()).notebooks ?? appState.notebooks;
     saveStatus = "Saved";
   }
@@ -193,74 +195,211 @@
   function queueSaveCurrentPage() {
     saveStatus = "Saving…";
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { saveCurrentPage(); }, 350);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void saveCurrentPage();
+    }, 350);
   }
 
-  async function selectNotebook(notebookId: string) {
-    if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
+  async function flushPendingSave() {
+    if (!saveTimer) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveCurrentPage();
+  }
+
+  async function selectNotebook(notebookId: string): Promise<boolean> {
+    await flushPendingSave();
     const res = await fetch(`/notebooks/${notebookId}/select`, { method: "POST" });
-    if (!res.ok) { showToast("Failed to select notebook"); return; }
+    if (!res.ok) { showToast("Failed to select notebook"); return false; }
     applyState(await res.json());
+    return true;
   }
 
-  async function selectPage(page: NotebookPage) {
+  async function selectPage(page: NotebookPage): Promise<boolean> {
     const nb = appState.activeNotebook;
-    if (!nb) return;
-    if (saveTimer) { clearTimeout(saveTimer); await saveCurrentPage(); }
+    if (!nb) return false;
+    await flushPendingSave();
     const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/select`, { method: "POST" });
-    if (!res.ok) { showToast("Failed to select page"); return; }
+    if (!res.ok) { showToast("Failed to select page"); return false; }
     applyState(await res.json());
+    return true;
+  }
+
+  async function openNotebookPages(notebookId: string) {
+    const selected =
+      notebookId === appState.activeNotebookId ||
+      (await selectNotebook(notebookId));
+
+    if (selected) notebookView = "pages";
+  }
+
+  async function navigateToPage(page: NotebookPage) {
+    const selected =
+      page.id === appState.activePage?.id || (await selectPage(page));
+
+    if (selected) {
+      sourcesOpen = false;
+      notebookView = "editor";
+    }
   }
 
   async function createNotebook() {
-    const notebookTitle = window.prompt("Notebook name", "New Notebook");
-    if (notebookTitle === null) return;
+    const requestedTitle = window.prompt("Notebook name", "New Notebook");
+    if (requestedTitle === null) return;
+    await flushPendingSave();
+
     const res = await fetch("/notebooks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: notebookTitle.trim() || "New Notebook" }),
+      body: JSON.stringify({
+        title: requestedTitle.trim() || "New Notebook",
+      } satisfies NotebookTitleRequest),
     });
-    if (!res.ok) { showToast("Failed to create notebook"); return; }
+
+    if (!res.ok) {
+      showToast("Failed to create notebook");
+      return;
+    }
+
     applyState(await res.json());
+    notebookView = "editor";
     showToast("Notebook created");
   }
 
   async function createPage() {
-    const nb = appState.activeNotebook;
-    if (!nb) return;
-    const pageTitle = window.prompt("Page name", `Page ${nb.pages.length + 1}`);
-    if (pageTitle === null) return;
-    const res = await fetch(`/notebooks/${nb.id}/pages`, {
+    const notebook = appState.activeNotebook;
+    if (!notebook) return;
+
+    const defaultTitle = `Page ${notebook.pages.length + 1}`;
+    const requestedTitle = window.prompt("Page name", defaultTitle);
+    if (requestedTitle === null) return;
+    await flushPendingSave();
+
+    const res = await fetch(`/notebooks/${notebook.id}/pages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: pageTitle.trim() || `Page ${nb.pages.length + 1}` }),
+      body: JSON.stringify({
+        title: requestedTitle.trim() || defaultTitle,
+      } satisfies NotebookPageTitleRequest),
     });
-    if (!res.ok) { showToast("Failed to create page"); return; }
+
+    if (!res.ok) {
+      showToast("Failed to create page");
+      return;
+    }
+
     applyState(await res.json());
+    notebookView = "editor";
     showToast("Page created");
   }
 
-  async function deleteNotebook(notebookId: string) {
-    const nb = appState.notebooks.find((n) => n.id === notebookId);
-    if (!nb || !window.confirm(`Delete "${nb.title}"?`)) return;
-    const res = await fetch(`/notebooks/${notebookId}/delete`, { method: "DELETE" });
-    if (!res.ok) { showToast("Failed to delete notebook"); return; }
+  async function renameNotebook(notebook: NotebookWithPages) {
+    const requestedTitle = window.prompt("Rename notebook", notebook.title);
+    const nextTitle = requestedTitle?.trim();
+    if (!nextTitle || nextTitle === notebook.title) return;
+
+    await flushPendingSave();
+    const res = await fetch(`/notebooks/${notebook.id}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: nextTitle,
+      } satisfies NotebookTitleRequest),
+    });
+
+    if (!res.ok) {
+      showToast("Failed to rename notebook");
+      return;
+    }
+
     applyState(await res.json());
+    showToast("Notebook renamed");
+  }
+
+  async function renamePage(page: NotebookPage) {
+    const notebook = appState.activeNotebook;
+    if (!notebook) return;
+
+    const requestedTitle = window.prompt("Rename page", page.title);
+    const nextTitle = requestedTitle?.trim();
+    if (!nextTitle || nextTitle === page.title) return;
+
+    await flushPendingSave();
+    const res = await fetch(`/notebooks/${notebook.id}/pages/${page.id}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: nextTitle,
+      } satisfies NotebookPageTitleRequest),
+    });
+
+    if (!res.ok) {
+      showToast("Failed to rename page");
+      return;
+    }
+
+    applyState(await res.json());
+    showToast("Page renamed");
+  }
+
+  async function deleteNotebook(notebook: NotebookWithPages) {
+    const pageLabel = notebook.pages.length === 1 ? "page" : "pages";
+    if (
+      !window.confirm(
+        `Delete “${notebook.title}” and its ${notebook.pages.length} ${pageLabel}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    await flushPendingSave();
+    const res = await fetch(`/notebooks/${notebook.id}/delete`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      showToast("Failed to delete notebook");
+      return;
+    }
+
+    applyState(await res.json());
+    notebookView = "notebooks";
     showToast("Notebook deleted");
   }
 
   async function deletePage(page: NotebookPage) {
-    const nb = appState.activeNotebook;
-    if (!nb || !window.confirm(`Delete "${page.title}"?`)) return;
-    const res = await fetch(`/notebooks/${nb.id}/pages/${page.id}/delete`, { method: "DELETE" });
-    if (!res.ok) { showToast("Failed to delete page"); return; }
+    const notebook = appState.activeNotebook;
+    if (!notebook) return;
+
+    if (
+      !window.confirm(
+        `Delete “${page.title}”? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    await flushPendingSave();
+    const res = await fetch(
+      `/notebooks/${notebook.id}/pages/${page.id}/delete`,
+      { method: "DELETE" },
+    );
+
+    if (!res.ok) {
+      showToast("Failed to delete page");
+      return;
+    }
+
     applyState(await res.json());
+    notebookView = "pages";
     showToast("Page deleted");
   }
 
-  async function clearNotes() {
-    notes = "";
-    await saveCurrentPage();
+  function pagePreview(content: string) {
+    const compact = content.replace(/\s+/g, " ").trim();
+    if (!compact) return "Empty page";
+    return compact.length > 100 ? `${compact.slice(0, 100).trimEnd()}…` : compact;
   }
 
   // Fired by the Send to Notebook button on an assistant reply the text is
@@ -268,20 +407,31 @@
   async function appendTextFromChat(event: Event) {
     const { text } = (event as CustomEvent<SendToNotebookDetail>).detail;
     if (!text?.trim() || !appState.activePage) return;
-    notes = notes.trim() ? `${notes.trimEnd()}\n\n${text.trim()}` : text.trim();
+    const nextNotes = notes.trim()
+      ? `${notes.trimEnd()}\n\n${text.trim()}`
+      : text.trim();
+
+    if (nextNotes.length > currentPageCharacterLimit) {
+      saveStatus = "Limit reached";
+      showToast(
+        `Not enough notebook space (${notebookCharactersRemaining.toLocaleString()} characters remaining)`,
+      );
+      return;
+    }
+
+    notes = nextNotes;
     await saveCurrentPage();
     saveStatus = "Added from chat";
+    notebookView = "editor";
   }
 
   onMount(() => {
     loadNotebooks();
     window.addEventListener("dk:send-to-notebook", appendTextFromChat);
     window.addEventListener("notebook-sources:refresh", loadSources);
-    document.addEventListener("click", handleClickOutside);
     return () => {
       window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
       window.removeEventListener("notebook-sources:refresh", loadSources);
-      document.removeEventListener("click", handleClickOutside);
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -299,229 +449,301 @@
 >
   <section class="notebook-main">
     <header class="notebook-header">
-      <div>
-        <h2>{appState.activePage?.title ?? appState.activeNotebook?.title ?? "Notebook"}</h2>
-        <p>
-          {#if loading}
-            Loading notebook…
-          {:else}
-            {appState.activeNotebook?.title ?? "Scratch notes for your current work."}
-            {#if saveStatus}
-              · {saveStatus}
-            {/if}
-          {/if}
-        </p>
-      </div>
-
-      <div class="notebook-actions">
-        <button
-          class="icon-action"
-          class:active={sourcesOpen}
-          type="button"
-          title="View loaded sources"
-          aria-label="View loaded sources"
-          aria-expanded={sourcesOpen}
-          data-window-action
-          bind:this={sourcesToggleEl}
-          onclick={() => (sourcesOpen = !sourcesOpen)}
-        >
-          <Icon name="description" size={17} />
-          {#if sources.length}
-            <span class="source-count-badge">{sources.length}</span>
-          {/if}
-        </button>
-
-        <button
-          class="icon-action"
-          class:active={previewMode}
-          type="button"
-          title={previewMode ? "Edit notes" : "Preview markdown"}
-          aria-label={previewMode ? "Edit notes" : "Preview markdown"}
-          aria-pressed={previewMode}
-          data-window-action
-          onclick={() => (previewMode = !previewMode)}
-        >
-          <Icon name={previewMode ? "edit" : "visibility"} size={17} />
-        </button>
-
-        <button
-          class="icon-action"
-          class:active={selectorOpen}
-          type="button"
-          title="Open notebook selector"
-          aria-label="Open notebook selector"
-          aria-expanded={selectorOpen}
-          data-window-action
-          bind:this={selectorToggleEl}
-          onclick={() => (selectorOpen = !selectorOpen)}
-        >
-          <Icon name="menu_book" size={17} />
-        </button>
-
-      </div>
-    </header>
-
-    {#if sourcesOpen && !collapsed}
-      <div class="sources-panel" data-window-action bind:this={sourcesEl}>
-        <header class="sources-panel-header">
-          <span>Loaded Sources ({sources.length})</span>
+      <div class="notebook-heading-row">
+        {#if notebookView !== "notebooks"}
           <button
-            class="btn btn-sm btn-danger"
+            class="notebook-back"
             type="button"
-            disabled={!sources.length}
-            onclick={clearAllSources}
+            title={notebookView === "editor" ? "Back to pages" : "Back to notebooks"}
+            aria-label={notebookView === "editor" ? "Back to pages" : "Back to notebooks"}
+            onclick={navigateBack}
           >
-            Clear All
+            <Icon name="arrow_back" size={18} />
           </button>
-        </header>
-        <div class="sources-list">
-          {#if sourcesLoading}
-            <div class="sources-empty">Loading…</div>
-          {:else if !sources.length}
-            <div class="sources-empty">
-              No sources loaded yet. Use "Send to Notebook" on an assistant reply to attach its sources.
-            </div>
+        {/if}
+
+        <div class="notebook-heading">
+          {#if loading}
+            <h2>Loading notebook…</h2>
+            <p>Loading your workspace</p>
+          {:else if notebookView === "notebooks"}
+            <h2>Notebooks</h2>
+            <p>{appState.notebooks.length} available</p>
+          {:else if notebookView === "pages"}
+            <h2>{appState.activeNotebook?.title ?? "Notebook"}</h2>
+            <p>{appState.activeNotebook?.pages.length ?? 0} pages</p>
           {:else}
-            {#each sources as source (source.id)}
-              <div class="source-row">
-                <button
-                  class="source-remove"
-                  type="button"
-                  title="Remove source"
-                  aria-label="Remove source"
-                  onclick={() => removeSource(source.id)}
-                >
-                  <Icon name="close" size={14} />
-                </button>
-                <div class="source-row-main">
-                  <span class="source-doc-title">{source.documentTitle}</span>
-                  <span class="source-page">Page {source.pageIndex + 1}</span>
-                </div>
-                <p class="source-preview">{source.preview}</p>
-              </div>
-            {/each}
+            <h2>{appState.activePage?.title ?? "Page"}</h2>
+            <p>
+              {appState.activeNotebook?.title ?? "Notebook"}
+              {#if saveStatus}
+                · {saveStatus}
+              {/if}
+            </p>
           {/if}
         </div>
       </div>
-    {/if}
 
-    {#if selectorOpen && !collapsed}
-      <div class="notebook-selector" data-window-action bind:this={selectorEl}>
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Notebooks</span>
-            <div class="segmented-actions">
-              <button type="button" title="Create notebook" aria-label="Create notebook" onclick={createNotebook}>
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected notebook"
-                aria-label="Delete selected notebook"
-                onclick={() => appState.activeNotebookId && deleteNotebook(appState.activeNotebookId)}
-              >
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-              </button>
-            </div>
-          </header>
-          <div class="selector-list">
-            {#each appState.notebooks as notebook (notebook.id)}
-              <button
-                class="selector-item"
-                class:active={notebook.id === appState.activeNotebookId}
-                type="button"
-                title={notebook.title}
-                onclick={() => selectNotebook(notebook.id)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`nb-${notebook.id}`, notebook.title); }}
-              >
-                {#if editingId === `nb-${notebook.id}`}
-                  <input
-                    class="item-edit-input"
-                    type="text"
-                    bind:value={editingTitle}
-                    use:focusOnMount
-                    onclick={(e) => e.stopPropagation()}
-                    onblur={() => commitEdit("notebook", notebook.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
-                  />
-                {:else}
-                  {notebook.title}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </section>
-
-        <section class="selector-column">
-          <header class="selector-header">
-            <span>Pages</span>
-            <div class="segmented-actions">
-              <button type="button" title="Create page" aria-label="Create page" onclick={createPage}>
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              </button>
-              <div aria-hidden="true"></div>
-              <button
-                class="danger"
-                type="button"
-                title="Delete selected page"
-                aria-label="Delete selected page"
-                onclick={() => appState.activePage && deletePage(appState.activePage)}
-              >
-                <svg class="seg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-              </button>
-            </div>
-          </header>
-          <div class="selector-list">
-            {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
-              <button
-                class="selector-item"
-                class:active={page.id === appState.activeNotebook?.activePageId}
-                type="button"
-                title={page.title}
-                onclick={() => selectPage(page)}
-                ondblclick={(e) => { e.stopPropagation(); startEdit(`pg-${page.id}`, page.title); }}
-              >
-                {#if editingId === `pg-${page.id}`}
-                  <input
-                    class="item-edit-input"
-                    type="text"
-                    bind:value={editingTitle}
-                    use:focusOnMount
-                    onclick={(e) => e.stopPropagation()}
-                    onblur={() => commitEdit("page", page.id)}
-                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") cancelEdit(); }}
-                  />
-                {:else}
-                  {page.title}
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </section>
-      </div>
-    {/if}
-
-    <div class="notebook-editor-wrap">
-      {#if previewMode}
-        <div class="notebook-preview" aria-label="Notebook preview">
-          {#if notes.trim()}
-            <div class="msg-md">{@html renderMarkdown(notes)}</div>
-          {:else}
-            <p class="notebook-preview-empty">Nothing to preview yet.</p>
-          {/if}
+      {#if notebookView === "notebooks"}
+        <div class="inline-button-group notebook-create-actions">
+          <button
+            class="inline-action-button"
+            type="button"
+            title="Create notebook"
+            aria-label="Create notebook"
+            onclick={createNotebook}
+          >
+            <Icon name="add" size={17} />
+          </button>
+        </div>
+      {:else if notebookView === "pages"}
+        <div class="inline-button-group notebook-create-actions">
+          <button
+            class="inline-action-button"
+            type="button"
+            title="Create page"
+            aria-label="Create page"
+            onclick={createPage}
+          >
+            <Icon name="add" size={17} />
+          </button>
         </div>
       {:else}
-        <textarea
-          class="notebook-textarea"
-          bind:value={notes}
-          oninput={queueSaveCurrentPage}
-          placeholder="Write notes here..."
-          aria-label="Notebook notes"
-        ></textarea>
+        <div class="notebook-actions">
+          <Dropdown
+            id="notebook_sources"
+            bind:open={sourcesOpen}
+            align="end"
+            width="340px"
+            maxHeight={430}
+            role="dialog"
+            ariaLabel="Loaded notebook sources"
+            menuClass="notebook-sources-dropdown"
+          >
+            {#snippet trigger({ open, menuId })}
+              <button
+                class="icon-action"
+                class:active={open}
+                type="button"
+                title="View loaded sources"
+                aria-label="View loaded sources"
+                aria-haspopup="dialog"
+                aria-controls={menuId}
+                aria-expanded={open}
+                data-window-action
+                onclick={toggleSources}
+              >
+                <Icon name="description" size={17} />
+                {#if sources.length}
+                  <span class="source-count-badge">{sources.length}</span>
+                {/if}
+              </button>
+            {/snippet}
+
+            <div class="sources-panel" data-window-action>
+              <header class="sources-panel-header">
+                <span>Loaded Sources ({sources.length})</span>
+                <button
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  disabled={!sources.length}
+                  onclick={clearAllSources}
+                >
+                  Clear All
+                </button>
+              </header>
+
+              <div class="sources-list">
+                {#if sourcesLoading}
+                  <div class="sources-empty">Loading…</div>
+                {:else if !sources.length}
+                  <div class="sources-empty">
+                    No sources loaded yet. Use "Send to Notebook" on an assistant
+                    reply to attach its sources.
+                  </div>
+                {:else}
+                  {#each sources as source (source.id)}
+                    <div class="source-row">
+                      <button
+                        class="source-remove"
+                        type="button"
+                        title="Remove source"
+                        aria-label="Remove source"
+                        onclick={() => removeSource(source.id)}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                      <div class="source-row-main">
+                        <span class="source-doc-title">{source.documentTitle}</span>
+                        <span class="source-page">Page {source.pageIndex + 1}</span>
+                      </div>
+                      <p class="source-preview">{source.preview}</p>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          </Dropdown>
+
+          <button
+            class="icon-action"
+            class:active={previewMode}
+            type="button"
+            title={previewMode ? "Edit notes" : "Preview markdown"}
+            aria-label={previewMode ? "Edit notes" : "Preview markdown"}
+            aria-pressed={previewMode}
+            data-window-action
+            onclick={() => (previewMode = !previewMode)}
+          >
+            <Icon name={previewMode ? "edit" : "visibility"} size={17} />
+          </button>
+        </div>
       {/if}
-    </div>
+    </header>
+
+    {#if notebookView === "notebooks"}
+      <nav class="notebook-browser" aria-label="Notebooks">
+        <div class="navigation-list">
+          {#if appState.notebooks.length}
+            {#each appState.notebooks as notebook (notebook.id)}
+              <div
+                class="navigation-item"
+                class:active={notebook.id === appState.activeNotebookId}
+              >
+                <button
+                  class="navigation-target"
+                  type="button"
+                  aria-current={notebook.id === appState.activeNotebookId
+                    ? "true"
+                    : undefined}
+                  onclick={() => openNotebookPages(notebook.id)}
+                >
+                  <span class="entity-navigation-icon">
+                    <Icon name="menu_book" size={20} />
+                  </span>
+                  <span class="navigation-item-copy">
+                    <strong>{notebook.title}</strong>
+                    <small>
+                      {notebook.pages.length}
+                      {notebook.pages.length === 1 ? "page" : "pages"}
+                    </small>
+                  </span>
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action danger"
+                  type="button"
+                  title={`Delete ${notebook.title}`}
+                  aria-label={`Delete ${notebook.title}`}
+                  onclick={() => deleteNotebook(notebook)}
+                >
+                  <Icon name="delete" size={16} />
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action"
+                  type="button"
+                  title={`Rename ${notebook.title}`}
+                  aria-label={`Rename ${notebook.title}`}
+                  onclick={() => renameNotebook(notebook)}
+                >
+                  <Icon name="edit" size={16} />
+                </button>
+              </div>
+            {/each}
+          {:else}
+            <p class="navigation-empty">No notebooks available.</p>
+          {/if}
+        </div>
+      </nav>
+    {:else if notebookView === "pages"}
+      <nav class="notebook-browser" aria-label="Notebook pages">
+        <div class="navigation-list">
+          {#if appState.activeNotebook?.pages.length}
+            {#each appState.activeNotebook.pages as page (page.id)}
+              <div
+                class="navigation-item"
+                class:active={page.id === appState.activePage?.id}
+              >
+                <button
+                  class="navigation-target"
+                  type="button"
+                  aria-current={page.id === appState.activePage?.id
+                    ? "page"
+                    : undefined}
+                  onclick={() => navigateToPage(page)}
+                >
+                  <span class="entity-navigation-icon">
+                    <Icon name="description" size={20} />
+                  </span>
+                  <span class="navigation-item-copy">
+                    <strong>{page.title}</strong>
+                    <small>{pagePreview(page.content)}</small>
+                  </span>
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action danger"
+                  type="button"
+                  title={`Delete ${page.title}`}
+                  aria-label={`Delete ${page.title}`}
+                  onclick={() => deletePage(page)}
+                >
+                  <Icon name="delete" size={16} />
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action"
+                  type="button"
+                  title={`Rename ${page.title}`}
+                  aria-label={`Rename ${page.title}`}
+                  onclick={() => renamePage(page)}
+                >
+                  <Icon name="edit" size={16} />
+                </button>
+              </div>
+            {/each}
+          {:else}
+            <p class="navigation-empty">No pages in this notebook.</p>
+          {/if}
+        </div>
+      </nav>
+    {:else}
+      <div class="notebook-editor-wrap">
+        {#if previewMode}
+          <div class="notebook-preview" aria-label="Notebook preview">
+            {#if notes.trim()}
+              <div class="msg-md">{@html renderMarkdown(notes)}</div>
+            {:else}
+              <p class="notebook-preview-empty">Nothing to preview yet.</p>
+            {/if}
+          </div>
+        {:else}
+          <textarea
+            class="notebook-textarea"
+            bind:value={notes}
+            maxlength={currentPageCharacterLimit}
+            oninput={queueSaveCurrentPage}
+            placeholder="Write notes here..."
+            aria-label="Notebook notes"
+          ></textarea>
+        {/if}
+        <div
+          class="notebook-character-count"
+          class:warning={notebookNearLimit && !notebookAtLimit}
+          class:limit={notebookAtLimit}
+          role="status"
+          aria-live="polite"
+        >
+          <span>Notebook text</span>
+          <span>
+            {notebookCharacterCount.toLocaleString()} / {NOTEBOOK_TEXT_CHARACTER_LIMIT.toLocaleString()}
+            characters
+            {#if notebookAtLimit}
+              · limit reached
+            {:else if notebookNearLimit}
+              · {notebookCharactersRemaining.toLocaleString()} remaining
+            {/if}
+          </span>
+        </div>
+      </div>
+    {/if}
   </section>
 
 </BaseWindow>
@@ -576,10 +798,61 @@
     font-size: 11px;
   }
 
+  .notebook-heading-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .notebook-heading {
+    min-width: 0;
+  }
+
+  .notebook-heading h2,
+  .notebook-heading p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .notebook-back {
+    display: inline-grid;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    place-items: center;
+  }
+
+  .notebook-back:hover {
+    border-color: var(--border);
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    color: var(--text);
+  }
+
   .notebook-actions {
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .notebook-create-actions {
+    grid-auto-columns: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+
+  .notebook-create-actions .inline-action-button {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
   }
 
   .icon-action {
@@ -621,20 +894,18 @@
     place-items: center;
   }
 
-  .sources-panel {
-    position: absolute;
-    top: 56px;
-    right: 10px;
-    z-index: 100;
-    display: flex;
-    width: min(340px, 80vw);
-    max-height: min(430px, 62vh);
+  :global(.notebook-sources-dropdown) {
+    padding: 0;
     overflow: hidden;
+  }
+
+  .sources-panel {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
     flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
   }
 
   .sources-panel-header {
@@ -658,6 +929,7 @@
     flex: 1 1 auto;
     flex-direction: column;
     gap: 6px;
+    max-height: min(380px, calc(100vh - 96px));
   }
 
   .sources-empty {
@@ -730,163 +1002,113 @@
     color: color-mix(in oklab, #ff6b6b 78%, var(--text));
   }
 
-  .notebook-selector {
-    position: absolute;
-    top: 56px;
-    right: 10px;
-    z-index: 100;
-    display: grid;
-    width: min(320px, 72vw);
-    height: min(430px, 62vh);
-    overflow: hidden;
-    grid-template-columns: 1fr 1fr;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) - 1%));
-    box-shadow: var(--shadow);
-  }
-
-  .selector-column {
+  .notebook-browser {
     display: flex;
+    width: 100%;
     min-width: 0;
     min-height: 0;
-    flex-direction: column;
-  }
-
-  .selector-column + .selector-column {
-    border-left: 1px solid var(--border);
-  }
-
-  .selector-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
-    min-height: 36px;
-    padding: 5px;
-    border-bottom: 1px solid var(--border);
-    align-items: center;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 700;
-  }
-
-  .selector-header span {
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1 1 auto;
   }
 
-  .segmented-actions {
+  .navigation-list {
     display: flex;
-    width: 58px;
-    height: 24px;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 10px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .navigation-item {
+    display: grid;
+    width: 100%;
+    min-height: 58px;
     overflow: hidden;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+    border-radius: 11px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%));
+    color: var(--text);
+    grid-template-columns: minmax(0, 1fr) repeat(2, auto);
     align-items: stretch;
   }
 
-  .segmented-actions div {
-    width: 1px;
-    flex-shrink: 0;
-    background: var(--border);
+  .navigation-item:focus-within {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklab, var(--accent) 45%, transparent);
   }
 
-  .segmented-actions button {
-    position: relative;
-    display: flex;
-    flex: 1;
-    padding: 0;
+  .navigation-item:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+  }
+
+  .navigation-item.active {
+    border-color: color-mix(in oklab, var(--accent) 52%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+
+  .navigation-target {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    padding: 9px 6px 9px 10px;
     border: 0;
     background: transparent;
-    color: var(--text);
+    color: inherit;
     cursor: pointer;
+    grid-template-columns: 36px minmax(0, 1fr);
     align-items: center;
-    justify-content: center;
-    line-height: 0;
-  }
-
-  .segmented-actions button::before {
-    content: '';
-    position: absolute;
-    width: 35px;
-    height: 30px;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-  }
-
-  .segmented-actions button:hover::before {
-    background: color-mix(in oklab, var(--accent) 12%, transparent);
-  }
-
-  .segmented-actions button.danger {
-    color: color-mix(in oklab, #ff6b6b 78%, var(--text));
-  }
-
-  .segmented-actions button.danger:hover::before {
-    background: color-mix(in oklab, #ff6b6b 12%, transparent);
-  }
-
-  .seg-icon {
-    position: relative;
-    display: block;
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    transform: translateY(-3px);
-  }
-
-  .selector-list {
-    display: flex;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 6px;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .selector-item {
-    width: 100%;
-    min-height: 30px;
-    padding: 7px 8px;
-    overflow: hidden;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12px;
+    gap: 10px;
     text-align: left;
+  }
+
+  .navigation-row-action {
+    height: auto;
+    min-height: 56px;
+    align-self: stretch;
+  }
+
+  .navigation-item > .navigation-row-action:last-child {
+    border-radius: 0 10px 10px 0;
+  }
+
+  .navigation-item-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .navigation-item-copy strong,
+  .navigation-item-copy small {
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .selector-item:hover {
-    border-color: var(--border);
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 2%));
+  .navigation-item-copy strong {
+    font-size: 12px;
+    font-weight: 650;
   }
 
-  .selector-item.active {
-    border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
+  .navigation-item-copy small {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 400;
   }
 
-  .item-edit-input {
-    width: 100%;
-    padding: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-size: inherit;
+  .navigation-empty {
+    margin: 0;
+    padding: 18px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
   }
 
   .notebook-textarea {
@@ -905,7 +1127,28 @@
     position: relative;
     display: flex;
     min-height: 0;
+    flex-direction: column;
     flex: 1 1 auto;
+  }
+
+  .notebook-character-count {
+    display: flex;
+    min-height: 30px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--border);
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    color: var(--muted);
+    font-size: 11px;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .notebook-character-count.warning {
+    color: var(--warning, #d6a84b);
+  }
+
+  .notebook-character-count.limit {
+    color: var(--danger, #e06c75);
   }
 
   .notebook-textarea:focus {

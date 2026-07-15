@@ -13,12 +13,32 @@
     open: boolean;
     title?: string;
     progress?: ProgressResponse | null;
+    files?: Array<{ path: string; name: string; status: string; message?: string }>;
+    complete?: boolean;
+    onClose?: () => void;
   };
 
-  let { open, title = "Working", progress = null }: Props = $props();
+  let {
+    open,
+    title = "Working",
+    progress = null,
+    files = [],
+    complete = false,
+    onClose = () => {},
+  }: Props = $props();
+
+  const finishedStatuses = new Set([
+    "success",
+    "error",
+    "added",
+    "updated",
+    "unchanged",
+    "removed",
+    "failed",
+  ]);
 
   function formatBytes(bytes: number | undefined) {
-    const value = Number(bytes || 0);
+    const value = bytes ?? 0;
 
     if (!Number.isFinite(value) || value <= 0) return "0 B";
 
@@ -35,29 +55,39 @@
     return `${size.toFixed(decimals)} ${units[index]}`;
   }
 
-  let percent = $derived(Math.max(0, Math.min(100, Number(progress?.percent || 0))));
-  let total = $derived(Number(progress?.total || 0));
-  let current = $derived(Number(progress?.current || 0));
+  let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
+  let total = $derived(progress?.total ?? 0);
+  let current = $derived(progress?.current ?? 0);
   let hasTotal = $derived(total > 0);
+  let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
+  let hasFiles = $derived(files.length > 0);
+  let displayedPercent = $derived(
+    hasFiles ? (finishedFiles / files.length) * 100 : complete && !hasTotal ? 100 : percent,
+  );
   let label = $derived(progress?.label || title);
   let message = $derived(progress?.message || "Please wait.");
+
+  function statusLabel(status: string) {
+    return status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
+  }
 </script>
 
 <Popup
   {open}
   id="document-progress"
-  title={hasTotal ? `${label}: ${percent.toFixed(1)}%` : label}
+  title={hasFiles ? `${label}: ${finishedFiles}/${files.length}` : hasTotal ? `${label}: ${percent.toFixed(1)}%` : label}
   contentLabel="Document progress"
   closeOnBackdrop={false}
-  closable={false}
+  closable={complete}
+  {onClose}
 >
   <div class="progress-body" aria-live="polite" aria-busy={open}>
     <div class="progress-wrap" aria-hidden="true">
       <div class="progress-track">
         <div
-          class:indeterminate={!hasTotal}
+          class:indeterminate={!hasTotal && !hasFiles && !complete}
           class="progress-fill"
-          style:width={hasTotal ? `${percent}%` : undefined}
+          style:width={hasTotal || hasFiles || complete ? `${displayedPercent}%` : undefined}
         ></div>
       </div>
     </div>
@@ -68,6 +98,20 @@
         {message}
       {/if}
     </div>
+
+    {#if hasFiles}
+      <div class="progress-files">
+        {#each files as file (file.path)}
+          <div class="progress-file" title={file.path}>
+            <div class="progress-file-name">{file.name}</div>
+            <div class:failed={file.status === "failed" || file.status === "error"} class="progress-file-status">
+              {statusLabel(file.status)}
+            </div>
+            {#if file.message}<div class="progress-file-error">{file.message}</div>{/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 </Popup>
 
@@ -105,6 +149,48 @@
   .progress-message {
     color: var(--muted);
     font-size: 13px;
+  }
+
+  .progress-files {
+    display: grid;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .progress-file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .progress-file:last-child {
+    border-bottom: 0;
+  }
+
+  .progress-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .progress-file-status {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .progress-file-status.failed,
+  .progress-file-error {
+    color: var(--danger, #d45b5b);
+  }
+
+  .progress-file-error {
+    grid-column: 1 / -1;
+    font-size: 11px;
   }
 
   @keyframes progress-slide {

@@ -24,7 +24,14 @@ export type SearchMatchBase = {
   chunkIndex: number;
   chunkType: SearchChunkType;
   content: string;
+};
+
+export type ScoredSearchMatch = SearchMatchBase & {
   score: number;
+};
+
+export type RelevanceSearchMatch = SearchMatchBase & {
+  relevanceScore: number;
 };
 
 // All search modules return the normalized query plus ranked results

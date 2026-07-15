@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { randomUUID } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages, type NewNotebookPage, type NotebookPage } from "$lib/server/database/schema";
 import { loadNotebookState, setActiveNotebook } from "$routes/(app)/notebooks/utils";
@@ -11,7 +11,27 @@ export const DELETE: RequestHandler = async ({ params }) => {
   if (!notebookId || !pageId) return json({ error: "Missing id" }, { status: 400 });
   const timestamp = new Date().toISOString();
 
-  await db.delete(notebook_pages).where(eq(notebook_pages.id, pageId));
+  const [page] = await db
+    .select({ id: notebook_pages.id })
+    .from(notebook_pages)
+    .where(
+      and(
+        eq(notebook_pages.id, pageId),
+        eq(notebook_pages.notebookId, notebookId),
+      ),
+    )
+    .limit(1);
+
+  if (!page) return json({ error: "Notebook page not found" }, { status: 404 });
+
+  await db
+    .delete(notebook_pages)
+    .where(
+      and(
+        eq(notebook_pages.id, pageId),
+        eq(notebook_pages.notebookId, notebookId),
+      ),
+    );
 
   const remainingPages: NotebookPage[] = await db
     .select()

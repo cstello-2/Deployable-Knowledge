@@ -49,15 +49,15 @@
   tabindex="-1"
   aria-label={title}
 >
-  <header class="titlebar" class:has-subtitle={!!subtitle} data-window-handle>
+  <header class="titlebar" data-window-handle>
     <div class="title-block">
       <div class="title-row">
         <Icon name="drag_indicator" size={16} />
         <div class="title">{title}</div>
+        {#if subtitle}
+          <div class="subtitle">{@render subtitle()}</div>
+        {/if}
       </div>
-      {#if subtitle}
-        <div class="subtitle">{@render subtitle()}</div>
-      {/if}
     </div>
     {#if headerActions || closable || collapsible}
       <div class="actions">
@@ -142,18 +142,10 @@
     user-select: none;
   }
 
-  .titlebar.has-subtitle {
-    height: auto;
-    min-height: var(--titlebar-height);
-    padding: 6px 12px;
-    flex: 0 0 auto;
-  }
-
   .title-block {
     display: flex;
     min-width: 0;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
     justify-content: center;
   }
 
@@ -162,6 +154,7 @@
     min-width: 0;
     align-items: center;
     overflow: hidden;
+    flex: 0 1 auto;
     font-size: 14px;
     font-weight: 600;
     line-height: 1;
@@ -172,7 +165,9 @@
 
   .title-row {
     display: flex;
+    width: 100%;
     min-width: 0;
+    flex: 1 1 auto;
     align-items: center;
     gap: 7px;
     line-height: 1;
@@ -180,12 +175,17 @@
 
   .title-row :global(.dk-icon) {
     color: var(--muted);
+    flex: 0 0 auto;
   }
 
   .subtitle {
+    min-width: 0;
     overflow: hidden;
-    padding-left: 22px;
+    margin-left: 2px;
+    padding-left: 9px;
+    border-left: 1px solid var(--border);
     color: var(--muted);
+    flex: 1 1 auto;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.02em;

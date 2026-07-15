@@ -4,6 +4,7 @@ import DocumentsWindow from "./DocumentsWindow.svelte";
 import GraphGalaxyWindow from "./GraphGalaxyWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
 import NotebookWindow from "./NotebookWindow.svelte";
+import SearchWindow from "./SearchWindow.svelte";
 
 import type { Component } from "svelte";
 
@@ -50,6 +51,12 @@ export const windowDefinitions = [
     column: "right",
     component: GraphGalaxyWindow,
     defaultVisible: false,
+  },
+  {
+    id: "search-context-window",
+    title: "Search Context",
+    column: "right",
+    component: SearchWindow,
   },
   {
     id: "chat-history-window",

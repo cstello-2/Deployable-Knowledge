@@ -49,9 +49,13 @@ export async function searchKnowledgeGraph(
     documentIds: options.documentIds,
     chunkTypes: options.chunkTypes,
   });
+  const hybridSeeds = hybrid.results.map((match, index) => ({
+    ...match,
+    score: 1 / (index + 1),
+  }));
   const index = await loadKnowledgeGraph(options.documentIds);
   const graph = await augmentGraphWithQueryLabels(index.graph, index.chunksById, queryLabels);
-  const seedChunkIds = hybrid.results.map((match) => match.chunkId);
+  const seedChunkIds = hybridSeeds.map((match) => match.chunkId);
   const lightEvidence = lightRagSearch(query, graph, seedChunkIds);
   const paths = pathRagSearch(
     query,
@@ -60,7 +64,7 @@ export async function searchKnowledgeGraph(
     Math.max(1, Math.min(4, options.maxDepth ?? 3)),
     Math.max(topK * 3, 12),
   );
-  const scores = collectScores(hybrid.results, lightEvidence, paths);
+  const scores = collectScores(hybridSeeds, lightEvidence, paths);
 
   const maxHybrid = maxScore([...scores.values()].map((score) => score.hybridScore));
   const maxLight = maxScore([...scores.values()].map((score) => score.lightScore));

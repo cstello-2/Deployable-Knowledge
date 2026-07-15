@@ -1,4 +1,8 @@
 <script lang="ts">
+  import type {
+    ChatMessageRequest,
+    NotebookSourcesRequest,
+  } from "$lib/requestTypes";
   import { getContext, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
@@ -20,8 +24,6 @@
     title?: string;
     description?: string;
     chunkId?: string;
-    pageIndex?: number;
-    score?: number;
   };
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
@@ -30,14 +32,6 @@
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
     return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
-  }
-
-  function sourceScorePct(source: ChatSource): number {
-    return source.score != null ? Math.round(source.score * 100) : 0;
-  }
-
-  function sourceScoreLabel(source: ChatSource): string {
-    return source.score != null ? `${Math.round(source.score * 100)}%` : "N/A";
   }
 
   let {
@@ -96,7 +90,9 @@
       await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chunk_ids: chunkIds }),
+        body: JSON.stringify({
+          chunk_ids: chunkIds,
+        } satisfies NotebookSourcesRequest),
       });
       window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
     }
@@ -149,7 +145,9 @@
     const visualQuery = draft.trim() || appState.lastQuery;
     showWindow("graph-galaxy-window");
     await tick();
-    window.dispatchEvent(new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }));
+    window.dispatchEvent(
+      new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }),
+    );
   }
 
   async function handleSubmit(event: SubmitEvent) {
@@ -158,9 +156,9 @@
     const text = draft.trim();
     if (!text) return;
 
-    appState.lastQuery = text;
     draft = "";
     busy = true;
+    appState.lastQuery = text;
 
     const session = appState.currentSession ?? (await createSession());
 
@@ -174,7 +172,7 @@
     }];
     await scrollToBottom();
 
-    const requestBody: Record<string, unknown> = {
+    const requestBase = {
       message: text,
       model_id: appState.currentModelId,
       provider_id: appState.currentProviderId,
@@ -183,23 +181,30 @@
       top_k: appState.topK,
     };
 
-    if (notebookMode) {
-      requestBody.conversational = true;
-      requestBody.context = await fetchNotebookContext();
-      requestBody.notebook_id = appState.activeNotebookId;
-    } else {
-      requestBody.prompt_template_id = appState.promptTemplateId || null;
-      requestBody.persona = appState.persona;
-      requestBody.document_ids = getSelectedDocumentIds();
-      requestBody.retrieval_mode = appState.retrievalMode;
-      requestBody.rag_top_k = appState.ragTopK;
-    }
+    const requestBody: ChatMessageRequest = notebookMode
+      ? {
+          ...requestBase,
+          conversational: true,
+          context: await fetchNotebookContext(),
+          notebook_id: appState.activeNotebookId,
+        }
+      : {
+          ...requestBase,
+          conversational: false,
+          prompt_template_id: appState.promptTemplateId || null,
+          persona: appState.persona,
+          document_ids: getSelectedDocumentIds(),
+          rag_top_k: appState.ragTopK,
+        };
 
-    const res = await fetch(`/sessions/${session.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
+    const res = await fetch(
+      `/sessions/${encodeURIComponent(session.id)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      },
+    );
 
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
@@ -282,12 +287,6 @@
                               </a>
                             {/if}
                           </div>
-                          <span
-                            class="chat-source-score"
-                            style={`--score-pct: ${sourceScorePct(source)}%`}
-                          >
-                            Angular Similarity: {sourceScoreLabel(source)}
-                          </span>
                         </div>
                       </div>
                     </li>
@@ -300,9 +299,8 @@
           {/if}
         </div>
       {/each}
-      
-      
-      {#if busy && !messageStream}
+
+      {#if busy && messageStream.length === 0}
         <div class="msg assistant">
           <div class="msg-md msg-pending" role="status" aria-live="polite">
             <span class="typing-indicator" aria-hidden="true">
@@ -318,7 +316,11 @@
       {/if}
     </div>
 
-    <form class="chat-input" onsubmit={handleSubmit}>
+    <form
+      class="chat-input inline-action-control"
+      style="--inline-action-count: 4;"
+      onsubmit={handleSubmit}
+    >
       <input
         class="input"
         type="text"
@@ -329,7 +331,7 @@
         disabled={busy}
       />
       <button
-        class="chat-action-button chat-mode-toggle"
+        class="inline-action-button chat-mode-toggle"
         class:active={notebookMode}
         type="button"
         disabled={busy}
@@ -341,7 +343,7 @@
         <Icon name="menu_book" size={16} />
       </button>
       <button
-        class="chat-action-button chat-new-button"
+        class="inline-action-button chat-new-button"
         type="button"
         disabled={busy}
         aria-label="Start a new chat"
@@ -351,7 +353,7 @@
         <Icon name="add_comment" size={16} />
       </button>
       <button
-        class="chat-action-button chat-graph-button"
+        class="inline-action-button chat-graph-button"
         type="button"
         aria-label="Visualize knowledge graph"
         title="Visualize knowledge graph"
@@ -360,7 +362,7 @@
         <Icon name="hub" size={16} />
       </button>
       <button
-        class="chat-action-button chat-send-button"
+        class="inline-action-button chat-send-button"
         type="submit"
         aria-label="Send message"
         title="Send message"
@@ -581,10 +583,8 @@
   }
 
   .chat-source-action-line {
-    display: grid;
+    display: flex;
     min-width: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
     align-items: center;
     padding-left: 20px;
   }
@@ -592,27 +592,6 @@
   .chat-source-action-left { display: flex; min-width: 0; align-items: center; }
 
   .chat-source-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .chat-source-score {
-    display: inline-flex;
-    min-width: 150px;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: linear-gradient(
-      90deg,
-      rgb(37 99 235 / 85%) 0 var(--score-pct, 0%),
-      hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%)) var(--score-pct, 0%) 100%
-    );
-    color: var(--text);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    white-space: nowrap;
-  }
 
   .send-to-notebook-btn {
     padding: 3px 9px;
@@ -632,80 +611,19 @@
   }
 
   .chat-input {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
-    gap: 0;
-    align-items: center;
+    flex-shrink: 0;
     margin-top: 10px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 3%));
-    box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
   }
 
-  .chat-input .input {
-    min-width: 0;
-    width: 100%;
-    min-height: 36px;
-    padding: 10px 12px;
-    border: 0;
-    border-radius: 13px 0 0 13px;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .chat-input .input:focus {
-    box-shadow: none;
-  }
-
-  .chat-action-button {
-    display: inline-grid;
-    width: 44px;
-    min-width: 44px;
-    height: 42px;
-    min-height: 42px;
-    place-items: center;
-    padding: 0;
-    border: 0;
-    border-left: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    line-height: 1;
-  }
-
-  .chat-action-button:hover {
-    background: color-mix(in oklab, var(--accent) 9%, transparent);
-    color: var(--text);
-  }
-
-  .chat-action-button:active {
-    transform: none;
-  }
-
-  .chat-action-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  .chat-mode-toggle.active {
-    background: #8ae7ff;
-    color: #06262b;
-  }
-
+  .chat-mode-toggle.active,
   .chat-mode-toggle.active:hover {
-    background: #8ae7ff;
-    color: #06262b;
-  }
-
-  .chat-send-button {
-    border-radius: 0 13px 13px 0;
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    color: var(--text);
   }
 
   @media (max-width: 680px) {
     .chat-input {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .chat-input .input {
@@ -714,17 +632,17 @@
       border-radius: 13px 13px 0 0;
     }
 
-    .chat-action-button {
+    .chat-input .inline-action-button {
       width: 100%;
       min-width: 0;
       border-left: 0;
     }
 
-    .chat-action-button:first-of-type {
+    .chat-input .inline-action-button:first-of-type {
       border-radius: 0 0 0 13px;
     }
 
-    .chat-action-button + .chat-action-button {
+    .chat-input .inline-action-button + .inline-action-button {
       border-left: 1px solid var(--border);
     }
 

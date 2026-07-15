@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { error, json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 
+import type { ProviderApiKeyRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { apiKeys } from "$lib/server/database/schema";
 import { getProvider } from "$lib/server/providers/registry";
@@ -10,8 +11,6 @@ import { getProvider } from "$lib/server/providers/registry";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  if (!params.id) return json({ status: "error", provider_id: params.id });
-
   const provider = getProvider(params.id);
   const availableOnly = url.searchParams.get("available") === "true";
   const apiKey = await provider.getApiKey();
@@ -30,8 +29,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     throw error(400, `${provider.name} does not require an API key`);
   }
 
-  const body = await request.json();
-  const apiKey = String(body.apiKey ?? body.api_key ?? "").trim();
+  const body = (await request.json()) as ProviderApiKeyRequest;
+  const apiKey = body.apiKey.trim();
 
   if (!apiKey) {
     throw error(400, "API key is required");

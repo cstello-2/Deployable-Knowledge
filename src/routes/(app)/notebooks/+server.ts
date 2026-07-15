@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import type { NotebookTitleRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { notebooks, notebook_pages, type NewNotebook, type NewNotebookPage } from "$lib/server/database/schema";
 import { loadNotebookState, setActiveNotebook } from "$routes/(app)/notebooks/utils";
@@ -12,8 +13,11 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  const body = await request.json().catch(() => ({}));
-  const title = String(body?.title ?? "").trim() || "New Notebook";
+  const body = (await request.json()) as NotebookTitleRequest;
+  const title = body.title.trim();
+  if (!title) {
+    return json({ error: "Notebook title is required" }, { status: 400 });
+  }
 
   const timestamp = new Date().toISOString();
   const notebookId = randomUUID();

@@ -16,14 +16,14 @@ export function assembleChunks(
   const chunksByPage = new Map<number, ParsedChunk[]>();
 
   for (const chunk of chunks) {
-    const pageIndex = Number(chunk.pageIndex);
+    const pageIndex = chunk.pageIndex;
     const pageChunks = chunksByPage.get(pageIndex) ?? [];
     pageChunks.push(chunk);
     chunksByPage.set(pageIndex, pageChunks);
   }
 
   const finalChunks: ParsedChunk[] = [];
-  const pageIndexes = [...new Set(pages.map((page) => Number(page.pageIndex)))];
+  const pageIndexes = [...new Set(pages.map((page) => page.pageIndex))];
 
   for (const pageIndex of pageIndexes) {
     const seenContent = new Set<string>();

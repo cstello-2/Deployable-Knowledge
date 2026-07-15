@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { asc, eq } from "drizzle-orm";
+import type { NotebookSourcesRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
   document_chunks,
@@ -67,10 +68,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const notebookId = params.id;
   if (!notebookId) return json({ error: "Missing notebook id" }, { status: 400 });
 
-  const body = await request.json().catch(() => ({}));
-  const chunkIds: string[] = Array.isArray(body?.chunk_ids)
-    ? body.chunk_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
-    : [];
+  const body = (await request.json()) as NotebookSourcesRequest;
+  const chunkIds = [...new Set(body.chunk_ids.map((chunkId) => chunkId.trim()))];
 
   if (chunkIds.length) {
     const createdAt = new Date().toISOString();
