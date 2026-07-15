@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    DocumentIngestEvent,
+    DocumentIngestProgress,
+    DocumentIngestResult,
     DocumentTagAssignmentRequest,
     DocumentTagRequest,
   } from "$lib/requestTypes";
   import TagMenu from "$lib/components/menus/TagMenu.svelte";
-  import DocumentProgressPopup from "$lib/components/popups/DocumentProgressPopup.svelte";
+  import { ProgressPopup } from "$lib/components/popups";
   import DocumentTagPickerPopup from "$lib/components/popups/DocumentTagPickerPopup.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
@@ -22,12 +25,6 @@
   type DocumentRow = Pick<Document, "id" | "title" | "updatedAt"> & {
     chunkCount: number;
     tags: string[];
-  };
-
-  type UploadResult = {
-    documentId: string;
-    title: string;
-    chunkCount: number;
   };
 
   type TagPickerMode = "add" | "remove";
@@ -55,7 +52,7 @@
   let status = $state("");
   let busy = $state(false);
   let progressOpen = $state(false);
-  let progress = $state<{ label: string; message: string } | null>(null);
+  let progress = $state<DocumentIngestProgress | null>(null);
   let selectedCount = $derived($selectedDocumentIds.length);
 
   onMount(() => {
@@ -73,8 +70,48 @@
     });
   }
 
-  function formatUploadStatus(result: UploadResult) {
+  function formatUploadStatus(result: DocumentIngestResult) {
     return `Stored ${result.chunkCount} chunks from ${result.title}.`;
+  }
+
+  async function readIngestResult(response: Response): Promise<DocumentIngestResult> {
+    if (!response.ok) throw new Error(await response.text());
+    if (!response.body) throw new Error("The server did not return ingestion progress.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let result: DocumentIngestResult | null = null;
+
+    const handleLine = (line: string) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line) as DocumentIngestEvent;
+
+      if (event.status === "progress") {
+        progress = event;
+      } else if (event.status === "complete") {
+        result = event.result;
+        progressOpen = false;
+      } else {
+        throw new Error(event.message);
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      lines.forEach(handleLine);
+    }
+
+    pending += decoder.decode();
+    handleLine(pending);
+
+    if (!result) throw new Error("Document ingestion ended before completion.");
+    return result;
   }
 
   function visibleDocuments() {
@@ -246,8 +283,9 @@
     busy = true;
     progressOpen = true;
     progress = {
+      percent: 0,
       label: "Ingesting PDF",
-      message: "Parsing, chunking, embedding, and storing.",
+      message: "Preparing upload",
     };
 
     try {
@@ -259,9 +297,7 @@
         body: form,
       });
 
-      if (!response.ok) throw new Error(await response.text());
-
-      const result = (await response.json()) as UploadResult;
+      const result = await readIngestResult(response);
       selectedFile = null;
       if (fileInput) fileInput.value = "";
       if (typeof result.documentId === "string") selectDocument(result.documentId);
@@ -506,9 +542,11 @@
   onClose={() => (tagPickerOpen = false)}
 />
 
-<DocumentProgressPopup
+<ProgressPopup
   open={progressOpen}
+  id="document-progress"
   title="Ingesting PDF"
+  contentLabel="Document ingestion progress"
   {progress}
 />
 

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { json, error } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
+import type { DocumentIngestEvent } from "$lib/requestTypes";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
@@ -28,13 +29,60 @@ export const POST: RequestHandler = async ({ request }) => {
   const savedName = `${contentHash.slice(0, 16)}.pdf`;
   const savedPath = join(DOCUMENTS_DIR, savedName);
 
-  await mkdir(DOCUMENTS_DIR, { recursive: true });
-  await writeFile(savedPath, buffer);
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (event: DocumentIngestEvent) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
 
-  const result = await ingestDocument({
-    filePath: savedPath,
-    title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+      void (async () => {
+        try {
+          send({
+            status: "progress",
+            percent: 0,
+            label: "Ingesting PDF",
+            message: "Preparing OCR",
+          });
+          await mkdir(DOCUMENTS_DIR, { recursive: true });
+          await writeFile(savedPath, buffer);
+
+          const result = await ingestDocument(
+            {
+              filePath: savedPath,
+              title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+            },
+            (progress) => send({ status: "progress", ...progress }),
+          );
+
+          send({
+            status: "progress",
+            percent: 100,
+            label: "Ingesting PDF",
+            message: "Complete",
+          });
+          send({ status: "complete", result });
+        } catch (cause) {
+          console.error("Document ingestion failed", cause);
+          send({
+            status: "error",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Document ingestion failed",
+          });
+        } finally {
+          controller.close();
+        }
+      })();
+    },
   });
 
-  return json(result);
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
 };
