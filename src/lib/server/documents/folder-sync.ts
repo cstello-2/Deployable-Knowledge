@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { eq } from "drizzle-orm";
 import type { DocumentIngestProgress } from "$lib/requestTypes";
@@ -80,51 +80,16 @@ async function hasPdfHeader(filePath: string): Promise<boolean> {
   }
 }
 
-async function unlinkIfPresent(filePath: string) {
-  try {
-    await unlink(filePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-}
-
 async function ingestManagedCopy(
   sourcePath: string,
   managedPath: string,
   onProgress?: (progress: DocumentIngestProgress) => void,
 ) {
-  const replacementId = randomUUID();
-  const stagedPath = `${managedPath}.${replacementId}.tmp`;
-  const backupPath = `${managedPath}.${replacementId}.bak`;
-  let hasBackup = false;
-
-  await copyFile(sourcePath, stagedPath);
-
+  await copyFile(sourcePath, managedPath);
   try {
-    try {
-      await rename(managedPath, backupPath);
-      hasBackup = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-
-    await rename(stagedPath, managedPath);
+    return await ingestDocument({ filePath: managedPath, title: pdfTitle(sourcePath) }, onProgress);
   } catch (error) {
-    await unlinkIfPresent(stagedPath);
-    if (hasBackup) await rename(backupPath, managedPath);
-    throw error;
-  }
-
-  try {
-    const result = await ingestDocument(
-      { filePath: managedPath, title: pdfTitle(sourcePath) },
-      onProgress,
-    );
-    if (hasBackup) await unlinkIfPresent(backupPath);
-    return result;
-  } catch (error) {
-    await unlinkIfPresent(managedPath);
-    if (hasBackup) await rename(backupPath, managedPath);
+    await removeManagedDocumentFile(managedPath);
     throw error;
   }
 }

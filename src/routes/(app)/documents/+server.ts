@@ -2,51 +2,20 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { count, desc, eq } from "drizzle-orm";
-import { error, json } from "@sveltejs/kit";
+import { count, eq } from "drizzle-orm";
+import { error } from "@sveltejs/kit";
 import type {
   DocumentIngestEvent,
   DocumentIngestProgress,
   DocumentIngestResult,
 } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
-import { document_chunks, documents, synced_files, type Document } from "$lib/server/database/schema";
+import { document_chunks, documents, synced_files } from "$lib/server/database/schema";
 import { containsPath } from "$lib/server/documents/remove-document";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
-
-type DocumentListRow = Pick<Document, "id" | "title" | "sourcePath" | "sourceType" | "updatedAt"> & {
-  chunkCount: number;
-  folderId: string | null;
-};
-
-export const GET: RequestHandler = async () => {
-  const rows = await db
-    .select({
-      id: documents.id,
-      title: documents.title,
-      sourcePath: documents.sourcePath,
-      sourceType: documents.sourceType,
-      updatedAt: documents.updatedAt,
-      chunkCount: count(document_chunks.id),
-      folderId: synced_files.folderId,
-    })
-    .from(documents)
-    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
-    .leftJoin(synced_files, eq(synced_files.documentId, documents.id))
-    .groupBy(documents.id)
-    .orderBy(desc(documents.updatedAt));
-
-  return json({
-    documents: rows.map((row) => ({
-      ...row,
-      chunkCount: Number(row.chunkCount ?? 0),
-      folderId: row.folderId ?? null,
-    })) satisfies DocumentListRow[],
-  });
-};
 
 async function ingestBuffer(
   originalName: string,

@@ -21,18 +21,10 @@
     files = [],
   }: Props = $props();
 
-  const finishedStatuses = new Set([
-    "success",
-    "error",
-    "added",
-    "updated",
-    "unchanged",
-    "removed",
-    "failed",
-  ]);
-
   let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
-  let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
+  let finishedFiles = $derived(
+    files.filter((file) => file.status !== "queued" && file.status !== "ingesting").length,
+  );
   let message = $derived(progress?.message || "Please wait.");
 
   function statusLabel(status: string) {
