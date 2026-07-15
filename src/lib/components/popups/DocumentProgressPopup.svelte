@@ -61,6 +61,9 @@
   let hasTotal = $derived(total > 0);
   let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
   let hasFiles = $derived(files.length > 0);
+  let hasActiveFiles = $derived(
+    files.some((file) => file.status === "queued" || file.status === "ingesting"),
+  );
   let displayedPercent = $derived(
     hasFiles ? (finishedFiles / files.length) * 100 : complete && !hasTotal ? 100 : percent,
   );
@@ -89,6 +92,15 @@
           class="progress-fill"
           style:width={hasTotal || hasFiles || complete ? `${displayedPercent}%` : undefined}
         ></div>
+        {#if hasFiles && hasActiveFiles && !complete}
+          <div
+            class="progress-runner"
+            style:left={`${displayedPercent}%`}
+            style:width={`${100 - displayedPercent}%`}
+          >
+            <div class="progress-runner-bar"></div>
+          </div>
+        {/if}
       </div>
     </div>
     {#if !hasFiles || complete}
@@ -129,6 +141,7 @@
   }
 
   .progress-track {
+    position: relative;
     width: 100%;
     height: 16px;
     overflow: hidden;
@@ -141,6 +154,21 @@
     height: 100%;
     border-radius: 999px;
     background: var(--accent);
+    transition: width 180ms ease;
+  }
+
+  .progress-runner {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    overflow: hidden;
+  }
+
+  .progress-runner-bar {
+    width: 35%;
+    height: 100%;
+    animation: progress-slide 1.1s ease-in-out infinite;
+    background: color-mix(in oklab, var(--accent) 65%, white);
   }
 
   .progress-fill.indeterminate {
