@@ -3,7 +3,7 @@
   import { onMount, setContext } from "svelte";
   import "material-symbols/rounded.css";
   import AppHeader from "$lib/components/layout/AppHeader.svelte";
-  import { EmbeddingModelSetupPopup } from "$lib/components/popups";
+  import { ProgressPopup } from "$lib/components/popups";
   import ToastHost, {
     showToast,
   } from "$lib/components/utils/ToastHost.svelte";
@@ -20,10 +20,11 @@
   setContext("appState", appState);
 
   let modelSetupOpen = $state(false);
-  let modelSetupProgress = $state(0);
-  let modelSetupLoaded = $state(0);
-  let modelSetupTotal = $state(0);
-  let modelSetupMessage = $state("Downloading the embedding model.");
+  let modelSetupProgress = $state({
+    percent: 0,
+    label: "Preparing semantic search",
+    message: "Downloading the embedding model.",
+  });
   let modelSetupError = $state("");
 
   initWorkspaceStateStorage();
@@ -46,10 +47,11 @@
 
   async function downloadEmbeddingModel() {
     modelSetupOpen = true;
-    modelSetupProgress = 0;
-    modelSetupLoaded = 0;
-    modelSetupTotal = 0;
-    modelSetupMessage = "Downloading the embedding model.";
+    modelSetupProgress = {
+      percent: 0,
+      label: "Preparing semantic search",
+      message: "Downloading the embedding model.",
+    };
     modelSetupError = "";
 
     try {
@@ -76,10 +78,11 @@
           const event = JSON.parse(line) as EmbeddingModelInstallEvent;
 
           if (event.status === "progress") {
-            modelSetupProgress = event.progress;
-            modelSetupLoaded = event.loaded;
-            modelSetupTotal = event.total;
-            modelSetupMessage = "Downloading and preparing semantic search.";
+            modelSetupProgress = {
+              percent: event.progress,
+              label: "Preparing semantic search",
+              message: "Downloading and preparing semantic search.",
+            };
           } else if (event.status === "ready") {
             ready = true;
           } else {
@@ -116,13 +119,15 @@
     {@render children()}
   </div>
   <ToastHost />
-  <EmbeddingModelSetupPopup
+  <ProgressPopup
     open={modelSetupOpen}
+    id="embedding-model-setup"
+    title="Preparing semantic search"
+    contentLabel="Embedding model setup progress"
     progress={modelSetupProgress}
-    loaded={modelSetupLoaded}
-    total={modelSetupTotal}
-    message={modelSetupMessage}
     error={modelSetupError}
+    errorTitle="Semantic search setup failed"
+    errorDetail="You can continue without semantic search and retry later."
     onRetry={() => void downloadEmbeddingModel()}
     onClose={() => (modelSetupOpen = false)}
   />

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
+    DocumentIngestEvent,
+    DocumentIngestProgress,
+    DocumentIngestResult,
     DocumentTagAssignmentRequest,
     DocumentTagRequest,
   } from "$lib/requestTypes";
@@ -51,7 +54,7 @@
 
   type FolderSyncEvent =
     | { type: "folder"; folderId: string; created: boolean }
-    | { type: "file"; sourcePath: string; status: string; message?: string }
+    | ({ type: "file"; sourcePath: string; status: string } & Partial<DocumentIngestProgress>)
     | { type: "done"; result?: SyncResult }
     | { type: "error"; message: string };
 
@@ -87,8 +90,6 @@
     onClose = () => {},
   }: WindowInstanceProps = $props();
 
-  let fileInput = $state<HTMLInputElement | null>(null);
-  let selectedFiles = $state<File[]>([]);
   let documents = $state<DocumentRow[]>([]);
   let folders = $state<SyncedFolderRow[]>([]);
   let collapsedGroups = $state<string[]>([]);
@@ -102,13 +103,13 @@
   let tagPickerMode = $state<TagPickerMode>("add");
   let status = $state("");
   let progressOpen = $state(false);
-  let progress = $state<{ label: string; message: string } | null>(null);
+  let progress = $state<DocumentIngestProgress | null>(null);
   let progressFiles = $state<ProgressFile[]>([]);
-  let progressComplete = $state(false);
   let pickerOpen = $state(false);
   let pickerPath = $state("");
   let pickerParentPath = $state<string | null>(null);
   let pickerItems = $state<DirectoryItem[]>([]);
+  let pickerSelectedPaths = $state<string[]>([]);
   let selectedCount = $derived($selectedDocumentIds.length);
 
   onMount(() => {
@@ -184,6 +185,17 @@
     tagFilters = tagFilters.includes(tag)
       ? tagFilters.filter((item) => item !== tag)
       : [...tagFilters, tag];
+  }
+
+  function handleDocumentClick(event: MouseEvent, documentId: string) {
+    if ((event.target as HTMLElement).closest("button, a, input")) return;
+    toggleDocumentSelection(documentId);
+  }
+
+  function handleDocumentKeydown(event: KeyboardEvent, documentId: string) {
+    if (event.target !== event.currentTarget || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    toggleDocumentSelection(documentId);
   }
 
   function groupIsSelected(group: DocumentGroup) {
@@ -306,18 +318,15 @@
   }
 
   function openProgress(label: string, message: string, files: ProgressFile[] = []) {
-    progress = { label, message };
+    progress = { percent: 0, label, message };
     progressFiles = files;
-    progressComplete = false;
     progressOpen = true;
   }
 
-  function closeProgress() {
-    if (!progressComplete) return;
+  function hideProgress() {
     progressOpen = false;
     progress = null;
     progressFiles = [];
-    progressComplete = false;
   }
 
   function updateProgressFile(path: string, status: string, message?: string) {
@@ -328,49 +337,51 @@
       : [...progressFiles, file];
   }
 
-  async function readFolderSync(response: Response) {
-    if (!response.body) throw new Error("Folder sync response could not be read.");
-
+  async function readStream(response: Response, handleLine: (line: string) => void) {
+    if (!response.ok || !response.body) throw new Error(await response.text());
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let created = true;
-    let result: SyncResult | undefined;
-    let streamError = "";
-
-    const handleLine = (line: string) => {
-      if (!line.trim()) return;
-      const event = JSON.parse(line) as FolderSyncEvent;
-
-      if (event.type === "folder") {
-        created = event.created;
-      } else if (event.type === "file") {
-        updateProgressFile(event.sourcePath, event.status, event.message);
-        progress = {
-          label: progress?.label ?? "Ingesting folder",
-          message:
-            event.status === "ingesting"
-              ? `Ingesting ${shortFolderName(event.sourcePath)}`
-              : `${progressFiles.length} PDF${progressFiles.length === 1 ? "" : "s"} found.`,
-        };
-      } else if (event.type === "done") {
-        result = event.result;
-        progress = { label: progress?.label ?? "Ingesting folder", message: syncSummary(result) };
-      } else {
-        streamError = event.message;
-      }
-    };
 
     while (true) {
       const { value, done } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      for (const line of lines) handleLine(line);
+      lines.forEach(handleLine);
       if (done) break;
     }
 
     handleLine(buffer);
+  }
+
+  async function readFolderSync(response: Response) {
+    let created = true;
+    let result: SyncResult | undefined;
+    let streamError = "";
+
+    await readStream(response, (line) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line) as FolderSyncEvent;
+
+      if (event.type === "folder") {
+        created = event.created;
+      } else if (event.type === "file") {
+        updateProgressFile(event.sourcePath, event.status, event.status === "failed" ? event.message : undefined);
+        if (event.status === "ingesting") {
+          progress = {
+            percent: event.percent ?? 0,
+            label: event.label ?? "Ingesting PDF",
+            message: event.message ?? `Ingesting ${shortFolderName(event.sourcePath)}`,
+          };
+        }
+      } else if (event.type === "done") {
+        result = event.result;
+      } else {
+        streamError = event.message;
+      }
+    });
+
     if (streamError) throw new Error(streamError);
     return { created, result };
   }
@@ -391,17 +402,12 @@
 
       const synced = await readFolderSync(response);
       await refreshAll(synced.created ? "Folder registered and synced." : "Folder synced.");
-      progress = {
-        label: "Folder sync complete",
-        message: syncSummary(synced.result),
-      };
     } catch (folderError) {
       const message = folderError instanceof Error ? folderError.message : String(folderError);
-      progress = { label: "Folder sync failed", message };
       showToast(message);
     } finally {
       working = null;
-      progressComplete = true;
+      hideProgress();
     }
   }
 
@@ -461,51 +467,70 @@
     }
   }
 
-  function handleFileChange(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
-    selectedFiles = Array.from(input.files ?? []);
-    status = "";
+  function togglePickerPdf(path: string) {
+    pickerSelectedPaths = pickerSelectedPaths.includes(path)
+      ? pickerSelectedPaths.filter((selectedPath) => selectedPath !== path)
+      : [...pickerSelectedPaths, path];
   }
 
-  async function handleUpload(event: SubmitEvent) {
-    event.preventDefault();
-    if (selectedFiles.length === 0 || working) return;
+  async function readUpload(response: Response, path: string): Promise<UploadResult> {
+    let result: DocumentIngestResult | null = null;
+    let streamError = "";
 
+    await readStream(response, (line) => {
+      if (!line.trim()) return;
+      const event = JSON.parse(line) as DocumentIngestEvent;
+
+      if (event.status === "progress") {
+        progress = event;
+      } else if (event.status === "complete") {
+        result = event.result;
+      } else {
+        streamError = event.message;
+      }
+    });
+
+    if (streamError) throw new Error(streamError);
+    if (!result) throw new Error("Document ingestion ended before completion.");
+    return { status: "success", filename: shortFolderName(path), ...(result as DocumentIngestResult) };
+  }
+
+  async function addSelectedPdfs() {
+    if (pickerSelectedPaths.length === 0 || working) return;
+
+    const paths = [...pickerSelectedPaths];
+    pickerOpen = false;
     working = "upload";
     openProgress(
-      `Ingesting ${selectedFiles.length} PDF${selectedFiles.length === 1 ? "" : "s"}`,
-      `Ingesting ${selectedFiles[0].name}`,
-      selectedFiles.map((file) => ({ path: file.name, name: file.name, status: "queued" })),
+      `Ingesting ${paths.length} PDF${paths.length === 1 ? "" : "s"}`,
+      `Ingesting ${shortFolderName(paths[0])}`,
+      paths.map((path) => ({ path, name: shortFolderName(path), status: "queued" })),
     );
 
     try {
       const uploads: UploadResult[] = [];
 
-      for (const file of selectedFiles) {
-        updateProgressFile(file.name, "ingesting");
+      for (const path of paths) {
+        updateProgressFile(path, "ingesting");
         progress = {
-          label: `Ingesting ${selectedFiles.length} PDF${selectedFiles.length === 1 ? "" : "s"}`,
-          message: `Ingesting ${file.name}`,
+          percent: 0,
+          label: `Ingesting ${paths.length} PDF${paths.length === 1 ? "" : "s"}`,
+          message: `Ingesting ${shortFolderName(path)}`,
         };
 
         try {
-          const form = new FormData();
-          form.append("files", file);
-          const body = await request<{ uploads?: UploadResult[] }>("/documents", {
+          const response = await fetch("/documents", {
             method: "POST",
-            body: form,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paths: [path] }),
           });
-          const result = body.uploads?.[0] ?? {
-            status: "error",
-            filename: file.name,
-            message: "No upload result was returned.",
-          };
+          const result = await readUpload(response, path);
           uploads.push(result);
-          updateProgressFile(file.name, result.status, result.message);
+          updateProgressFile(path, "success");
         } catch (fileError) {
           const message = fileError instanceof Error ? fileError.message : String(fileError);
-          uploads.push({ status: "error", filename: file.name, message });
-          updateProgressFile(file.name, "error", message);
+          uploads.push({ status: "error", filename: shortFolderName(path), message });
+          updateProgressFile(path, "error", message);
         }
       }
 
@@ -517,26 +542,17 @@
         }
       }
 
-      selectedFiles = [];
-      if (fileInput) fileInput.value = "";
+      pickerSelectedPaths = [];
       await refreshAll(
         `Uploaded ${succeeded.length} PDF${succeeded.length === 1 ? "" : "s"}${failed.length ? `; ${failed.length} failed` : ""}.`,
       );
-      progress = {
-        label: "Upload complete",
-        message: `${succeeded.length} succeeded${failed.length ? `; ${failed.length} failed` : ""}.`,
-      };
       if (failed.length) showToast(`${failed.length} PDF upload${failed.length === 1 ? "" : "s"} failed`);
     } catch (uploadError) {
       const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
-      progressFiles = progressFiles.map((file) =>
-        file.status === "queued" ? { ...file, status: "error", message } : file,
-      );
-      progress = { label: "Document upload failed", message };
       showToast(message);
     } finally {
       working = null;
-      progressComplete = true;
+      hideProgress();
     }
   }
 
@@ -553,11 +569,6 @@
       showToast("Folder browser failed to open");
     }
   }
-
-  function choosePdfFiles() {
-    pickerOpen = false;
-    fileInput?.click();
-  }
 </script>
 
 <BaseWindow
@@ -571,24 +582,10 @@
   contentLabel="Documents"
 >
   <div class="docs-window">
-    <form class="docs-toolbar" onsubmit={handleUpload}>
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        accept="application/pdf,.pdf"
-        onchange={handleFileChange}
-      />
+    <div class="docs-toolbar">
       <button class="btn btn-primary" type="button" disabled={Boolean(working)} onclick={() => openDirectory()}>
         <Icon name="create_new_folder" size={16} />
         <span>Add document or folder</span>
-      </button>
-      <div class="docs-file-name">
-        {selectedFiles.length ? `${selectedFiles.length} PDF${selectedFiles.length === 1 ? "" : "s"} selected` : "No files selected"}
-      </div>
-      <button class="btn" type="submit" disabled={selectedFiles.length === 0 || Boolean(working)}>
-        <Icon name="upload_file" size={16} />
-        <span>Upload</span>
       </button>
       <button
         class="btn btn-icon"
@@ -600,7 +597,7 @@
       >
         <Icon name="refresh" size={16} />
       </button>
-    </form>
+    </div>
 
     <div class="docs-filter-row">
       <input
@@ -722,14 +719,16 @@
           {#if !collapsedGroups.includes(group.key)}
             <div class="docs-group-documents">
               {#each group.documents as document (document.id)}
-                <article class="docs-row">
-                  <input
-                    class="docs-check"
-                    type="checkbox"
-                    aria-label={`Use ${document.title} in chat`}
-                    checked={$selectedDocumentIds.includes(document.id)}
-                    onchange={() => toggleDocumentSelection(document.id)}
-                  />
+                <div
+                  class:selected={$selectedDocumentIds.includes(document.id)}
+                  class="docs-row"
+                  role="button"
+                  tabindex="0"
+                  aria-pressed={$selectedDocumentIds.includes(document.id)}
+                  aria-label={`Use ${document.title} in chat`}
+                  onclick={(event) => handleDocumentClick(event, document.id)}
+                  onkeydown={(event) => handleDocumentKeydown(event, document.id)}
+                >
                   <div class="docs-icon" aria-hidden="true"><Icon name="description" size={18} /></div>
                   <div class="docs-main">
                     <div class="docs-title" title={document.title}>{document.title}</div>
@@ -779,7 +778,7 @@
                     disabled={Boolean(working)}
                     onclick={() => handleRemoveDocument(document)}
                   ><Icon name="delete" size={16} /></button>
-                </article>
+                </div>
               {/each}
             </div>
           {/if}
@@ -825,11 +824,15 @@
   items={pickerItems}
   busy={Boolean(working)}
   canGoBack={Boolean(pickerParentPath)}
-  onClose={() => (pickerOpen = false)}
+  selectedPdfPaths={pickerSelectedPaths}
+  onClose={() => {
+    pickerOpen = false;
+    pickerSelectedPaths = [];
+  }}
   onBack={() => pickerParentPath && openDirectory(pickerParentPath)}
-  onSelectCurrent={() => addFolder(pickerPath)}
+  onSubmit={() => pickerSelectedPaths.length ? addSelectedPdfs() : addFolder(pickerPath)}
   onOpenFolder={openDirectory}
-  onChooseFiles={choosePdfFiles}
+  onTogglePdf={togglePickerPdf}
 />
 
 <DocumentProgressPopup
@@ -837,8 +840,6 @@
   title="Ingesting PDFs"
   {progress}
   files={progressFiles}
-  complete={progressComplete}
-  onClose={closeProgress}
 />
 
 <style>
@@ -856,25 +857,12 @@
   }
 
   .docs-toolbar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    display: flex;
     gap: 8px;
     align-items: center;
   }
 
-  .docs-toolbar input[type="file"] { display: none; }
-
-  .docs-file-name {
-    min-width: 0;
-    overflow: hidden;
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--muted);
-    font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .docs-toolbar .btn-icon { margin-left: auto; }
 
   .docs-status { overflow-wrap: anywhere; }
   .docs-selection { min-height: 16px; }
@@ -902,9 +890,6 @@
 
   .docs-group {
     overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
   }
 
   .docs-group-header {
@@ -946,20 +931,34 @@
 
   .docs-group-documents {
     display: grid;
-    border-top: 1px solid var(--border);
+    gap: 3px;
   }
 
   .docs-row {
     display: grid;
     min-width: 0;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 9px;
     align-items: center;
-    padding: 9px 10px 9px 42px;
-    border-bottom: 1px solid var(--border);
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
   }
 
-  .docs-row:last-child { border-bottom: 0; }
+  .docs-row:hover {
+    background: var(--hover);
+  }
+
+  .docs-row.selected {
+    border-color: color-mix(in oklab, var(--accent) 52%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+
+  .docs-row:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+  }
 
   .docs-check {
     width: 16px;
@@ -979,11 +978,10 @@
   }
 
   @media (max-width: 760px) {
-    .docs-toolbar,
+    .docs-toolbar { flex-wrap: wrap; }
     .docs-group-header { grid-template-columns: 1fr auto; }
-    .docs-file-name,
     .docs-group-main { grid-column: 1 / -1; }
     .docs-group-actions { grid-column: 1 / -1; justify-content: flex-end; }
-    .docs-row { grid-template-columns: auto auto minmax(0, 1fr) auto; padding-left: 10px; }
+    .docs-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   }
 </style>

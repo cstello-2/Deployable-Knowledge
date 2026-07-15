@@ -3,8 +3,6 @@
 
   type ProgressResponse = {
     percent?: number;
-    total?: number;
-    current?: number;
     label?: string;
     message?: string;
   };
@@ -14,8 +12,6 @@
     title?: string;
     progress?: ProgressResponse | null;
     files?: Array<{ path: string; name: string; status: string; message?: string }>;
-    complete?: boolean;
-    onClose?: () => void;
   };
 
   let {
@@ -23,51 +19,12 @@
     title = "Working",
     progress = null,
     files = [],
-    complete = false,
-    onClose = () => {},
   }: Props = $props();
 
-  const finishedStatuses = new Set([
-    "success",
-    "error",
-    "added",
-    "updated",
-    "unchanged",
-    "removed",
-    "failed",
-  ]);
-
-  function formatBytes(bytes: number | undefined) {
-    const value = bytes ?? 0;
-
-    if (!Number.isFinite(value) || value <= 0) return "0 B";
-
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let size = value;
-    let index = 0;
-
-    while (size >= 1024 && index < units.length - 1) {
-      size /= 1024;
-      index += 1;
-    }
-
-    const decimals = size >= 10 || index === 0 ? 0 : 1;
-    return `${size.toFixed(decimals)} ${units[index]}`;
-  }
-
   let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
-  let total = $derived(progress?.total ?? 0);
-  let current = $derived(progress?.current ?? 0);
-  let hasTotal = $derived(total > 0);
-  let finishedFiles = $derived(files.filter((file) => finishedStatuses.has(file.status)).length);
-  let hasFiles = $derived(files.length > 0);
-  let hasActiveFiles = $derived(
-    files.some((file) => file.status === "queued" || file.status === "ingesting"),
+  let finishedFiles = $derived(
+    files.filter((file) => file.status !== "queued" && file.status !== "ingesting").length,
   );
-  let displayedPercent = $derived(
-    hasFiles ? (finishedFiles / files.length) * 100 : complete && !hasTotal ? 100 : percent,
-  );
-  let label = $derived(progress?.label || title);
   let message = $derived(progress?.message || "Please wait.");
 
   function statusLabel(status: string) {
@@ -78,42 +35,27 @@
 <Popup
   {open}
   id="document-progress"
-  title={hasFiles ? `${label}: ${finishedFiles}/${files.length}` : hasTotal ? `${label}: ${percent.toFixed(1)}%` : label}
+  title={files.length ? `${title}: ${finishedFiles}/${files.length}` : title}
   contentLabel="Document progress"
   closeOnBackdrop={false}
-  closable={complete}
-  {onClose}
 >
   <div class="progress-body" aria-live="polite" aria-busy={open}>
-    <div class="progress-wrap" aria-hidden="true">
-      <div class="progress-track">
-        <div
-          class:indeterminate={!hasTotal && !hasFiles && !complete}
-          class="progress-fill"
-          style:width={hasTotal || hasFiles || complete ? `${displayedPercent}%` : undefined}
-        ></div>
-        {#if hasFiles && hasActiveFiles && !complete}
-          <div
-            class="progress-runner"
-            style:left={`${displayedPercent}%`}
-            style:width={`${100 - displayedPercent}%`}
-          >
-            <div class="progress-runner-bar"></div>
-          </div>
-        {/if}
+    <div class="progress-wrap">
+      <div
+        class="progress-track"
+        role="progressbar"
+        aria-label={title}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={Math.round(percent)}
+      >
+        <div class="progress-fill" style:width={`${percent}%`}></div>
       </div>
+      <strong class="progress-percent">{Math.round(percent)}%</strong>
     </div>
-    {#if !hasFiles || complete}
-      <div class="progress-message">
-        {#if hasTotal}
-          {message} - {formatBytes(current)} / {formatBytes(total)}
-        {:else}
-          {message}
-        {/if}
-      </div>
-    {/if}
+    <div class="progress-message">{message}</div>
 
-    {#if hasFiles}
+    {#if files.length}
       <div class="progress-files">
         {#each files as file (file.path)}
           <div class="progress-file" title={file.path}>
@@ -137,11 +79,13 @@
   }
 
   .progress-wrap {
-    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 10px;
+    align-items: center;
   }
 
   .progress-track {
-    position: relative;
     width: 100%;
     height: 16px;
     overflow: hidden;
@@ -157,28 +101,15 @@
     transition: width 180ms ease;
   }
 
-  .progress-runner {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    overflow: hidden;
-  }
-
-  .progress-runner-bar {
-    width: 35%;
-    height: 100%;
-    animation: progress-slide 1.1s ease-in-out infinite;
-    background: color-mix(in oklab, var(--accent) 65%, white);
-  }
-
-  .progress-fill.indeterminate {
-    width: 35%;
-    animation: progress-slide 1.1s ease-in-out infinite;
-  }
-
   .progress-message {
     color: var(--muted);
     font-size: 13px;
+  }
+
+  .progress-percent {
+    color: var(--text);
+    font-size: 13px;
+    text-align: right;
   }
 
   .progress-files {
@@ -223,17 +154,4 @@
     font-size: 11px;
   }
 
-  @keyframes progress-slide {
-    0% {
-      transform: translateX(-120%);
-    }
-
-    50% {
-      transform: translateX(95%);
-    }
-
-    100% {
-      transform: translateX(260%);
-    }
-  }
 </style>
