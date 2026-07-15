@@ -91,13 +91,15 @@
         ></div>
       </div>
     </div>
-    <div class="progress-message">
-      {#if hasTotal}
-        {message} - {formatBytes(current)} / {formatBytes(total)}
-      {:else}
-        {message}
-      {/if}
-    </div>
+    {#if !hasFiles || complete}
+      <div class="progress-message">
+        {#if hasTotal}
+          {message} - {formatBytes(current)} / {formatBytes(total)}
+        {:else}
+          {message}
+        {/if}
+      </div>
+    {/if}
 
     {#if hasFiles}
       <div class="progress-files">
