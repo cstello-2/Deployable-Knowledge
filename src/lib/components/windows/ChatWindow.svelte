@@ -53,6 +53,7 @@
     rawScore?: number;
     documentId?: string;
     chunkId?: string;
+    nodeId?: string;
     pageIndex?: number;
     chunkIndex?: number;
     chunkType?: string;
@@ -152,11 +153,11 @@
       messages = nextMessages;
       selectedResultChunkId = null;
       galaxySelectedChunkId = null;
-      restoreQueryGraph(sessionId, nextMessages);
+      void restoreQueryGraph(sessionId, nextMessages);
     }
   }
 
-  function restoreQueryGraph(sessionId: string | undefined, sessionMessages: SessionMessage[]) {
+  async function restoreQueryGraph(sessionId: string | undefined, sessionMessages: SessionMessage[]) {
     if (!sessionId) return;
     const userMessage = sessionMessages.find((message) => message.role === "user");
     const assistantMessage = [...sessionMessages].reverse().find((message) => message.role === "assistant");
@@ -169,6 +170,7 @@
     const requestId = ++graphRequestId;
     appState.lastQuery = metadata.query?.trim() || userMessage.content;
     showWindow("graph-galaxy-window");
+    await tick();
     window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
       detail: {
         sessionId,
@@ -266,12 +268,13 @@
     }));
   }
 
-  function selectResultChunk(source: Source) {
-    if (!source.chunkId) return;
-    selectedResultChunkId = source.chunkId;
+  async function selectResultChunk(source: Source) {
+    if (!source.chunkId && !source.nodeId) return;
+    selectedResultChunkId = source.chunkId ?? source.nodeId ?? null;
     showWindow("graph-galaxy-window");
+    await tick();
     window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
-      detail: { chunkId: source.chunkId },
+      detail: { chunkId: source.chunkId, nodeId: source.nodeId },
     }));
   }
 
@@ -429,13 +432,28 @@
       if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
       galaxySelectedChunkId = detail?.chunkId ?? null;
     };
+    const handleGalaxyFocusResult = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sessionId?: string | null;
+        chunkId?: string | null;
+        found?: boolean;
+      }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      if (detail?.found === false) {
+        status = "The selected assistant result is not present in this saved Galaxy view.";
+      } else if (status === "The selected assistant result is not present in this saved Galaxy view.") {
+        status = "";
+      }
+    };
     window.addEventListener("dk:send-to-chat", handleSendToChat);
     window.addEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+    window.addEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
     document.addEventListener("selectionchange", handleAssistantSelection);
 
     return () => {
       window.removeEventListener("dk:send-to-chat", handleSendToChat);
       window.removeEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+      window.removeEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
       document.removeEventListener("selectionchange", handleAssistantSelection);
     };
   });
@@ -499,14 +517,14 @@
                     {@const description = source.description ?? source.title ?? ""}
                     <li
                       class="chat-source-row"
-                      class:selected={source.chunkId === selectedResultChunkId}
+                      class:selected={(source.chunkId ?? source.nodeId) === selectedResultChunkId}
                       class:galaxy-match={source.chunkId === galaxySelectedChunkId}
                     >
                       <div class="chat-source-main">
                         <button
                           class="chat-source-text-block chat-source-select"
                           type="button"
-                          disabled={!source.chunkId}
+                          disabled={!source.chunkId && !source.nodeId}
                           onclick={() => selectResultChunk(source)}
                         >
                           <span class="chat-source-num">{index + 1}.</span>
