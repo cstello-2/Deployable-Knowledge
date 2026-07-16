@@ -1,218 +1,128 @@
 import { readFile } from "node:fs/promises";
-import scribe from "scribe.js-ocr";
+import { PDFParse, type EmbeddedImage, type TableArray } from "pdf-parse";
+import { createWorker, OEM, PSM, type Worker } from "tesseract.js";
 import {
-    normalizeWhitespace,
-    type ExtractedChunk as Chunk,
-    type Source,
-} from "./parse-shared";
-
-type ExtractTextFromTables = (
-    page: any,
-    layoutPage: any,
-) => Array<{ rows?: string[][] }>;
-
-const extractTextFromTables = scribe.extractTextFromTables as unknown as ExtractTextFromTables;
+  normalizeWhitespace,
+  type ExtractedChunk as Chunk,
+  type Source,
+} from "./parse-shared.ts";
 
 export type TextExtractionResult = {
-    chunks: Chunk[];
-    pageCount: number;
+  chunks: Chunk[];
+  pageCount: number;
 };
 
-const IMAGE_OPERATOR_NAMES = [
-    "paintImageXObject",
-    "paintImageXObjectRepeat",
-    "paintJpegXObject",
-    "paintInlineImageXObject",
-    "paintInlineImageXObjectGroup",
-    "paintImageMaskXObject",
-    "paintImageMaskXObjectGroup",
-];
-
-function hasMeaningfulOcrText(text: string): boolean {
-    return (text.match(/[A-Za-z0-9]/g)?.length ?? 0) >= 10;
+function tableToText(table: TableArray): string {
+  return table
+    .map((row) => row.map(normalizeWhitespace).filter(Boolean).join(" | "))
+    .filter(Boolean)
+    .join("\n");
 }
 
-async function detectEmbeddedImagePages(filePath: string): Promise<Set<number>> {
-    const imagePages = new Set<number>();
+async function ocrEmbeddedImages(
+  data: Uint8Array,
+  pageCount: number,
+  onPageProgress?: (current: number, total: number) => void,
+): Promise<Map<number, string[]>> {
+  const textByPage = new Map<number, string[]>();
+  let worker: Worker | undefined;
 
-    try {
-        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs") as any;
-        const imageOps = new Set(
-            IMAGE_OPERATOR_NAMES
-                .map((name) => pdfjs.OPS[name])
-                .filter((value) => typeof value === "number"),
-        );
-        const data = new Uint8Array(await readFile(filePath));
-        const pdf = await pdfjs.getDocument({ data, disableWorker: true }).promise;
+  try {
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const images = await getPageImages(data, pageNumber);
+
+      if (images.length > 0) {
+        console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s)`);
+      }
+
+      for (const image of images) {
+        if (!worker) {
+          worker = await createWorker("eng", OEM.LSTM_ONLY, {
+            cacheMethod: "readOnly",
+            cachePath: process.cwd(),
+            gzip: false,
+            langPath: process.cwd(),
+          });
+          await worker.setParameters({
+            tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+            user_defined_dpi: "300",
+            debug_file: "/dev/null",
+          });
+        }
 
         try {
-            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-                const page = await pdf.getPage(pageNumber);
-                const ops = await page.getOperatorList();
+          const result = await worker.recognize(Buffer.from(image.data));
+          const text = normalizeWhitespace(result.data.text);
 
-                if (ops.fnArray.some((op: number) => imageOps.has(op))) {
-                    imagePages.add(pageNumber - 1);
-                }
-
-                page.cleanup?.();
-            }
-        } finally {
-            await pdf.destroy?.();
+          if (text) {
+            textByPage.set(pageNumber, [...(textByPage.get(pageNumber) ?? []), text]);
+          }
+        } catch (error) {
+          console.warn(`[OCR] Could not read an image on page ${pageNumber}.`, error);
         }
-    } catch (error) {
-        console.warn("[Embedded Image Scan] Failed; continuing without image-aware OCR.", error);
-    }
+      }
 
-    return imagePages;
+      onPageProgress?.(pageNumber, pageCount);
+    }
+  } finally {
+    await worker?.terminate();
+  }
+
+  return textByPage;
 }
 
-function tableRowsToText(rows: string[][]): string {
-    return rows
-        .map((row) =>
-            row
-                .map((cell) => normalizeWhitespace(String(cell ?? "")))
-                .filter(Boolean)
-                .join(" | "),
-        )
-        .filter(Boolean)
-        .join("\n");
-}
+async function getPageImages(data: Uint8Array, pageNumber: number): Promise<EmbeddedImage[]> {
+  const parser = new PDFParse({ data });
 
-async function extractDocument(
-    file: Source,
-    doc: any,
-    embeddedImagePages: Set<number>,
-    ocr_langs: string[],
-    mode: string,
-): Promise<TextExtractionResult> {
-    let chunks: Chunk[] = [];
-    const nativeTextByPage = new Map<number, string>();
-    let text_count = 0;
-    let table_count = 0;
-
-    const extractTextFromPage = (pageData: any) => {
-        let pageTextContent: string[] = [];
-        
-        if (pageData.lines && pageData.lines.length > 0) {
-            for (const line of pageData.lines) {
-                if (line.words) {
-                    pageTextContent.push(line.words.map((w: any) => w.text).join(" "));
-                }
-            }
-        } else if (pageData.paragraphs) {
-            for (const para of pageData.paragraphs || []) {
-                for (const line of (para.lines || [])) {
-                    if (line.words) {
-                        pageTextContent.push(line.words.map((w: any) => w.text).join(" "));
-                    }
-                }
-            }
-        }
-        return pageTextContent.join("\n").trim();
-    };
-
-    // openDocument automatically pulls native PDF text into doc.ocr.active
-    if (doc.ocr && doc.ocr.active) {
-        for (let i = 0; i < doc.ocr.active.length; i++) {
-            const finalPageText = extractTextFromPage(doc.ocr.active[i]);
-            if (finalPageText.length > 0) {
-                nativeTextByPage.set(i, finalPageText);
-                chunks.push({
-                    chunkType: "TEXT", // Tagged  as  text
-                    source: file,
-                    pageIndex: i,
-                    content: finalPageText,
-                });
-                text_count += 1;
-            }
-        }
-    }
-
-    const totalPages = doc.ocr?.active?.length || 0;
-    const img_count = totalPages - text_count;
-    
-    console.log(`[Pre-OCR Scan] Total Pages: ${totalPages} | Native Text Pages: ${text_count} | Page OCR Fallbacks: ${img_count} | Embedded Image Pages: ${embeddedImagePages.size}`);
-
-    //Running ocr
-    await doc.recognize({ ocr_langs, mode });
-
-    if (doc.ocr && doc.ocr.active) {
-        for (let i = 0; i < doc.ocr.active.length; i++) {
-            const hasEmbeddedImage = embeddedImagePages.has(i);
-            const hasNativeText = nativeTextByPage.has(i);
-            
-            // Keep page OCR fallback, but also OCR native-text pages with embedded images
-            if (hasNativeText && !hasEmbeddedImage) {
-                continue; 
-            }
-
-            const ocrText = normalizeWhitespace(extractTextFromPage(doc.ocr.active[i]));
-            const nativeText = normalizeWhitespace(nativeTextByPage.get(i) ?? "");
-            
-            if (ocrText && (!hasEmbeddedImage || (hasMeaningfulOcrText(ocrText) && ocrText !== nativeText))) {
-                chunks.push({
-                    chunkType: "IMAGE", // Tagged correctly as OCR'd text
-                    source: file,
-                    pageIndex: i,
-                    content: hasEmbeddedImage ? `[Image: ${ocrText}]` : ocrText,
-                });
-            }
-        }
-    }
-
-    if (doc.layoutDataTables && doc.layoutDataTables.pages) {
-        for (let i = 0; i < doc.layoutDataTables.pages.length; i++) {
-            const pageTables = doc.layoutDataTables.pages[i];
-            
-            // Check if the engine detected any tables on this specific page
-            if (pageTables && pageTables.tables && pageTables.tables.length > 0) {
-                const extractedTables = extractTextFromTables(doc.ocr.active?.[i], pageTables);
-                for (let t = 0; t < pageTables.tables.length; t++) {
-                    const tableData = pageTables.tables[t];
-                    const rows = extractedTables[t]?.rows ?? [];
-                    const title =
-                        typeof tableData.title === "string"
-                            ? normalizeWhitespace(tableData.title)
-                            : "";
-                    const tableText = tableRowsToText(rows);
-                    const content = [title ? `Table: ${title}` : "", tableText]
-                        .filter(Boolean)
-                        .join("\n")
-                        .trim();
-                    if (!content) {
-                        continue;
-                    }
-                    table_count += 1;
-
-                    chunks.push({
-                        chunkType: "TABLE", 
-                        source: file,
-                        pageIndex: i,
-                        content,
-                    });
-                }
-            }
-        }
-    }
-    
-    console.log("From: ", file.path ,"Images: ", img_count, " Text: ", text_count, " Tables: ", table_count);
-    return {
-        chunks,
-        pageCount: totalPages,
-    };
+  try {
+    const result = await parser.getImage({ partial: [pageNumber], imageDataUrl: false });
+    return result.pages[0]?.images ?? [];
+  } catch (error) {
+    console.warn(`[OCR] Could not extract images from page ${pageNumber}; skipping it.`, error);
+    return [];
+  } finally {
+    await parser.destroy();
+  }
 }
 
 export async function TextExtract(
-    file: Source,
-    ocr_langs: string[] = ["eng"],
-    mode: string = "quality",
+  file: Source,
+  onPageProgress?: (current: number, total: number) => void,
 ): Promise<TextExtractionResult> {
-    const embeddedImagePages = await detectEmbeddedImagePages(file.path);
-    const doc = await scribe.openDocument([file.path]);
+  const data = await readFile(file.path);
+  const parser = new PDFParse({ data });
 
-    try {
-        return await extractDocument(file, doc, embeddedImagePages, ocr_langs, mode);
-    } finally {
-        await scribe.terminate();
+  try {
+    const textResult = await parser.getText();
+    const ocrTextByPage = await ocrEmbeddedImages(data, textResult.total, onPageProgress);
+    const tableResult = await parser.getTable();
+    const chunks: Chunk[] = [];
+
+    for (let pageNumber = 1; pageNumber <= textResult.total; pageNumber += 1) {
+      const pageIndex = pageNumber - 1;
+      const nativeText = normalizeWhitespace(textResult.getPageText(pageNumber));
+
+      if (nativeText) {
+        chunks.push({ chunkType: "TEXT", source: file, pageIndex, content: nativeText });
+      }
+
+      for (const content of ocrTextByPage.get(pageNumber) ?? []) {
+        chunks.push({ chunkType: "IMAGE", source: file, pageIndex, content });
+      }
+
+      const tables = tableResult.pages.find((page) => page.num === pageNumber)?.tables ?? [];
+
+      for (const table of tables) {
+        const content = tableToText(table);
+
+        if (content) {
+          chunks.push({ chunkType: "TABLE", source: file, pageIndex, content });
+        }
+      }
     }
+
+    return { chunks, pageCount: textResult.total };
+  } finally {
+    await parser.destroy();
+  }
 }

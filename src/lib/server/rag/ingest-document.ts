@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import type { DocumentIngestProgress } from "$lib/requestTypes";
 import { TextExtract } from "$lib/server/rag/chunk/text-extract";
 import { chunkPages } from "$lib/server/rag/chunk/chunker";
 import { assembleChunks } from "$lib/server/rag/chunk/assemble-chunks";
@@ -21,10 +22,14 @@ export type IngestDocumentResult = {
 };
 
 // Shared ingest path for both terminal commands (testing) and UI routes
-export async function ingestDocument({
-  filePath,
-  title,
-}: IngestDocumentInput): Promise<IngestDocumentResult> {
+export async function ingestDocument(
+  { filePath, title }: IngestDocumentInput,
+  onProgress?: (progress: DocumentIngestProgress) => void,
+): Promise<IngestDocumentResult> {
+  const report = (percent: number, message: string) => {
+    onProgress?.({ percent, label: "Ingesting PDF", message });
+  };
+
   // Keep source info together so every downstream chunk can carry the same document identity
   const source: Source = {
     title: title?.trim() || basename(filePath),
@@ -33,11 +38,25 @@ export async function ingestDocument({
   };
 
   // Updated linear ingest path: extract pages/tables, chunk text, assemble final chunks, then store
-  const extraction = await TextExtract(source);
+  report(0, "Starting OCR");
+
+  const extraction = await TextExtract(source, (current, total) => {
+    report((current / total) * 50, `OCR page ${current} of ${total}`);
+  });
+
   const rawChunks = chunkPages(extraction.chunks);
   const chunks = assembleChunks(extraction.chunks, rawChunks);
-  const stored = await storeDocumentChunks(chunks);
-  invalidateKnowledgeGraphCache();
+
+  report(50, `Embedding 0 of ${chunks.length} chunks`);
+
+  const stored = await storeDocumentChunks(
+    chunks,
+    ({ stage, current, total }) => {
+      if (stage !== "embedding") return;
+      const ratio = total > 0 ? current / total : 1;
+      report(50 + ratio * 50, `Embedding ${current} of ${total} chunks`);
+    },
+  );
 
 
   return {

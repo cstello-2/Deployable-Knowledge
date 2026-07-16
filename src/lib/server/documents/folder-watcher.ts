@@ -11,76 +11,94 @@ import {
 } from "./folder-sync";
 
 type Folder = Pick<SyncedFolder, "id" | "path">;
-
 type WatchedFolder = {
   watcher: FSWatcher;
-  timer: NodeJS.Timeout | null;
-  running: Promise<SyncFolderResult | undefined> | null;
-  lastResult: SyncFolderResult | undefined;
+  timer?: ReturnType<typeof setTimeout>;
+  running?: Promise<SyncFolderResult | undefined>;
   rerun: boolean;
   closed: boolean;
-  stopping: Promise<void> | null;
-  progressListeners: Set<SyncProgressCallback>;
-  progressByPath: Map<string, SyncFileProgress>;
+  listeners: Set<SyncProgressCallback>;
+  progress: Map<string, SyncFileProgress>;
 };
 
-const globalWatchers = globalThis as typeof globalThis & {
-  deployableKnowledgeFolderWatchers?: { folders?: Map<string, WatchedFolder> };
-  deployableKnowledgeFolderWatcherState?: Map<string, WatchedFolder>;
+const globalState = globalThis as typeof globalThis & {
+  folderWatchers?: Map<string, WatchedFolder>;
 };
+const folders = (globalState.folderWatchers ??= new Map());
 
-const sharedFolders =
-  globalWatchers.deployableKnowledgeFolderWatcherState ??
-  globalWatchers.deployableKnowledgeFolderWatchers?.folders ??
-  new Map<string, WatchedFolder>();
-globalWatchers.deployableKnowledgeFolderWatcherState = sharedFolders;
-
-const FILE_EVENTS = new Set(["add", "change", "unlink"]);
-
-function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  const cause = (error as Error & { cause?: unknown }).cause;
-  return cause ? `${error.message}: ${errorMessage(cause)}` : error.message;
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function isRelevantEvent(event: string, filePath: string): boolean {
-  if (event === "addDir" || event === "unlinkDir") return true;
-  return FILE_EVENTS.has(event) && extname(filePath).toLowerCase() === ".pdf";
+async function recordError(folderId: string, error: unknown) {
+  const text = message(error);
+  console.error(`[Folder Watcher] ${folderId}: ${text}`);
+  await db.update(synced_folders).set({ lastError: text }).where(eq(synced_folders.id, folderId));
 }
 
-export class FolderWatcherManager {
-  readonly folders = sharedFolders;
+async function run(folderId: string): Promise<SyncFolderResult | undefined> {
+  const state = folders.get(folderId);
+  if (!state || state.closed) return;
+  if (state.running) return state.running;
 
-  async start(folder: Folder): Promise<void> {
+  state.running = (async () => {
+    let result: SyncFolderResult | undefined;
+    do {
+      state.rerun = false;
+      state.progress.clear();
+      try {
+        result = await syncFolder(
+          folderId,
+          (progress) => {
+            state.progress.set(progress.sourcePath, progress);
+            for (const listener of state.listeners) listener(progress);
+          },
+          () => state.closed,
+        );
+      } catch (error) {
+        await recordError(folderId, error);
+      }
+    } while (state.rerun && !state.closed);
+    return result;
+  })();
+
+  try {
+    return await state.running;
+  } finally {
+    state.running = undefined;
+  }
+}
+
+export const folderWatcherManager = {
+  async start(folder: Folder) {
     await this.stop(folder.id);
 
     const watcher = watch(resolve(folder.path), {
       ignoreInitial: true,
       atomic: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 2000,
-        pollInterval: 250,
-      },
-      ignored: (filePath, stats) =>
-        Boolean(stats?.isFile() && extname(filePath).toLowerCase() !== ".pdf"),
+      awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 250 },
+      ignored: (path, stats) =>
+        Boolean(stats?.isFile() && extname(path).toLowerCase() !== ".pdf"),
     });
     const state: WatchedFolder = {
       watcher,
-      timer: null,
-      running: null,
-      lastResult: undefined,
       rerun: false,
       closed: false,
-      stopping: null,
-      progressListeners: new Set(),
-      progressByPath: new Map(),
+      listeners: new Set(),
+      progress: new Map(),
     };
-    this.folders.set(folder.id, state);
+    folders.set(folder.id, state);
 
-    watcher.on("all", (event, filePath) => {
-      if (isRelevantEvent(event, filePath)) this.scheduleSync(folder.id);
+    watcher.on("all", (event, path) => {
+      if (
+        event === "addDir" ||
+        event === "unlinkDir" ||
+        (["add", "change", "unlink"].includes(event) && extname(path).toLowerCase() === ".pdf")
+      ) {
+        this.scheduleSync(folder.id);
+      }
     });
-    watcher.on("error", (error) => this.reportError(folder.id, error));
+    watcher.on("error", (error) => void recordError(folder.id, error));
 
     try {
       await new Promise<void>((ready, reject) => {
@@ -88,143 +106,68 @@ export class FolderWatcherManager {
         watcher.once("error", reject);
       });
     } catch (error) {
-      this.folders.delete(folder.id);
+      folders.delete(folder.id);
       await watcher.close();
       throw error;
     }
-  }
+  },
 
-  async startRegistered(): Promise<void> {
-    const folders = await db.select().from(synced_folders);
-
-    for (const folder of folders) {
+  async startRegistered() {
+    for (const folder of await db.select().from(synced_folders)) {
       try {
         await this.start(folder);
       } catch (error) {
-        this.reportError(folder.id, error);
+        await recordError(folder.id, error);
       }
     }
-  }
+  },
 
-  scheduleSync(folderId: string): void {
-    const state = this.folders.get(folderId);
+  scheduleSync(folderId: string) {
+    const state = folders.get(folderId);
     if (!state || state.closed) return;
-
     if (state.running) {
       state.rerun = true;
       return;
     }
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => void run(folderId), 2000);
+  },
 
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = setTimeout(() => {
-      state.timer = null;
-      void this.runSync(folderId);
-    }, 2000);
-  }
+  async syncNow(folderId: string, onProgress?: SyncProgressCallback) {
+    const state = folders.get(folderId);
+    if (!state || state.closed) return;
 
-  async syncNow(
-    folderId: string,
-    onProgress?: SyncProgressCallback,
-  ): Promise<SyncFolderResult | undefined> {
-    const state = this.folders.get(folderId);
-    if (!state || state.closed) return undefined;
-    state.progressListeners ??= new Set();
-    state.progressByPath ??= new Map();
-
+    clearTimeout(state.timer);
     if (onProgress) {
-      state.progressListeners.add(onProgress);
-      if (state.running) {
-        for (const progress of state.progressByPath.values()) onProgress(progress);
-      }
+      state.listeners.add(onProgress);
+      if (state.running) for (const progress of state.progress.values()) onProgress(progress);
     }
-
     try {
-      if (state.timer) {
-        clearTimeout(state.timer);
-        state.timer = null;
-      }
-
-      if (state.running) {
-        await state.running;
-        return state.lastResult;
-      }
-
-      return await this.runSync(folderId);
+      return await run(folderId);
     } finally {
-      if (onProgress) state.progressListeners.delete(onProgress);
+      if (onProgress) state.listeners.delete(onProgress);
     }
-  }
+  },
 
-  async stop(folderId: string): Promise<void> {
-    const state = this.folders.get(folderId);
+  async stop(folderId: string) {
+    const state = folders.get(folderId);
     if (!state) return;
-    if (state.stopping) return state.stopping;
-
     state.closed = true;
-    if (state.timer) clearTimeout(state.timer);
-    state.stopping = (async () => {
-      await state.watcher.close();
-      await state.running;
-      if (this.folders.get(folderId) === state) this.folders.delete(folderId);
-    })();
-    await state.stopping;
-  }
-
-  async waitForIdle(folderId: string): Promise<void> {
-    await this.folders.get(folderId)?.running;
-  }
-
-  async stopAll(): Promise<void> {
-    await Promise.all([...this.folders.keys()].map((folderId) => this.stop(folderId)));
-  }
-
-  isWatching(folderId: string): boolean {
-    return this.folders.has(folderId);
-  }
-
-  private async runSync(folderId: string): Promise<SyncFolderResult | undefined> {
-    const state = this.folders.get(folderId);
-    if (!state || state.closed) return undefined;
-    if (state.running) return state.running;
-
-    state.running = (async () => {
-      do {
-        state.rerun = false;
-        state.progressListeners ??= new Set();
-        state.progressByPath = new Map();
-
-        try {
-          state.lastResult = await syncFolder(
-            folderId,
-            (progress) => {
-              state.progressByPath.set(progress.sourcePath, progress);
-              for (const listener of state.progressListeners) listener(progress);
-            },
-            () => state.closed,
-          );
-        } catch (error) {
-          this.reportError(folderId, error);
-        }
-      } while (state.rerun && !state.closed);
-    })();
-
+    clearTimeout(state.timer);
+    await state.watcher.close();
     await state.running;
-    state.running = null;
-    return state.lastResult;
-  }
+    if (folders.get(folderId) === state) folders.delete(folderId);
+  },
 
-  private reportError(folderId: string, error: unknown): void {
-    const message = errorMessage(error);
-    console.error(`[Folder Watcher] ${folderId}: ${message}`);
-    void db
-      .update(synced_folders)
-      .set({ lastError: message })
-      .where(eq(synced_folders.id, folderId))
-      .catch((databaseError) => {
-        console.error(`[Folder Watcher] Failed to record error: ${errorMessage(databaseError)}`);
-      });
-  }
-}
+  async waitForIdle(folderId: string) {
+    await folders.get(folderId)?.running;
+  },
 
-export const folderWatcherManager = new FolderWatcherManager();
-globalWatchers.deployableKnowledgeFolderWatchers = folderWatcherManager;
+  async stopAll() {
+    await Promise.all([...folders.keys()].map((id) => this.stop(id)));
+  },
+
+  isWatching(folderId: string) {
+    return folders.has(folderId);
+  },
+};

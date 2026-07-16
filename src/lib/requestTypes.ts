@@ -7,6 +7,25 @@ export type DocumentTagAssignmentRequest = DocumentTagRequest & {
   assigned: boolean;
 };
 
+export type DocumentIngestProgress = {
+  percent: number;
+  label: string;
+  message: string;
+};
+
+export type DocumentIngestResult = {
+  documentId: string;
+  title: string;
+  sourcePath: string;
+  pageCount: number;
+  chunkCount: number;
+};
+
+export type DocumentIngestEvent =
+  | ({ status: "progress" } & DocumentIngestProgress)
+  | { status: "complete"; result: DocumentIngestResult }
+  | { status: "error"; message: string };
+
 export type NotebookTitleRequest = {
   title: string;
 };

@@ -68,6 +68,7 @@ async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
 export async function embedTexts(
   texts: string[],
   type: EmbeddingType,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
 
@@ -78,8 +79,14 @@ export async function embedTexts(
     const batch = texts
       .slice(index, index + EMBEDDING_BATCH_SIZE)
       .map((text) => `${type}: ${text}`);
+
     const output = await extractor(batch, { pooling: "mean", normalize: true });
     embeddings.push(...(output.tolist() as number[][]));
+
+    onProgress?.(
+      Math.min(index + EMBEDDING_BATCH_SIZE, texts.length),
+      texts.length,
+    );
   }
 
   return embeddings;
