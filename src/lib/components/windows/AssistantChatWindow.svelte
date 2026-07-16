@@ -3,11 +3,19 @@
     ChatMessageRequest,
     NotebookSourcesRequest,
   } from "$lib/requestTypes";
-  import { getContext, tick } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
-  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
+  import {
+    getSelectedDocumentIds,
+    selectedDocumentIds,
+  } from "$lib/utils/documentSelection";
+  import {
+    knowledgeGraphState,
+    knowledgeGraphStateMatches,
+    refreshKnowledgeGraphStatus,
+  } from "$lib/utils/knowledgeGraphState";
   import { renderMarkdown } from "$lib/utils/markdown";
   import { showWindow } from "$lib/utils/workspaceState";
   import type { WindowInstanceProps } from "./index";
@@ -23,7 +31,24 @@
     url?: string;
     title?: string;
     description?: string;
+    score?: number;
+    rawScore?: number;
+    documentId?: string;
     chunkId?: string;
+    nodeId?: string;
+    pageIndex?: number;
+    chunkIndex?: number;
+    chunkType?: string;
+    content?: string;
+    sourceTitle?: string;
+  };
+
+  type AssistantMetadata = {
+    sources?: ChatSource[];
+    retrievalMode?: string;
+    query?: string;
+    documentIds?: string[];
+    graphTopK?: number;
   };
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
@@ -31,7 +56,7 @@
   type SendToNotebookDetail = { text: string };
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
-    return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
+    return (message.metadata as AssistantMetadata | null)?.sources ?? [];
   }
 
   let {
@@ -48,11 +73,23 @@
 
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
+  let status = $state("");
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
   let sendDisabled = $derived(busy || draft.trim().length === 0);
   let loadedSessionId: string | undefined;
+  let graphRequestId = 0;
+  let selectedResultChunkId = $state<string | null>(null);
+  let galaxySelectedChunkId = $state<string | null>(null);
+  let graphReadinessMessage = $derived(
+    appState.retrievalMode === "graph" &&
+      knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds) &&
+      ($knowledgeGraphState.status === "building" ||
+        $knowledgeGraphState.status === "checking")
+      ? "The Knowledge Graph is preparing for this question."
+      : "",
+  );
 
   // Notebook mode: RAG off, context = the entire open notebook (all its pages)
   // instead of retrieved document chunks.
@@ -109,14 +146,27 @@
     const sessionId = appState.currentSession?.id;
     if (busy || sessionId === loadedSessionId) return;
     loadedSessionId = sessionId;
+    status = "";
+    selectedResultChunkId = null;
+    galaxySelectedChunkId = null;
     if (sessionId) {
       loadMessages(sessionId)
-        .then((m) => { if (sessionId === appState.currentSession?.id) messages = m; })
+        .then((loadedMessages) => {
+          if (sessionId !== appState.currentSession?.id) return;
+          messages = loadedMessages;
+          void restoreQueryGraph(sessionId, loadedMessages);
+        })
         .catch(() => {});
     } else {
       messages = [];
       messageStream = "";
+      clearGraphGalaxy();
     }
+  });
+
+  $effect(() => {
+    if (appState.retrievalMode !== "graph") return;
+    void refreshKnowledgeGraphStatus($selectedDocumentIds);
   });
 
   async function loadMessages(sessionId: string): Promise<SessionMessage[]> {
@@ -141,6 +191,130 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
+  async function assistantErrorMessage(response: Response) {
+    try {
+      const body = await response.json() as { message?: unknown; error?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) return body.message;
+      if (typeof body.error === "string" && body.error.trim()) return body.error;
+    } catch {
+      // Fall back to the HTTP status.
+    }
+    return `Assistant request failed (${response.status})`;
+  }
+
+  async function restoreQueryGraph(
+    sessionId: string,
+    sessionMessages: SessionMessage[],
+  ) {
+    const userMessage = sessionMessages.find((message) => message.role === "user");
+    const assistantMessage = [...sessionMessages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    const metadata = assistantMessage?.metadata as AssistantMetadata | null;
+    if (!userMessage || metadata?.retrievalMode !== "graph") return;
+
+    const documentIds = Array.isArray(metadata.documentIds)
+      ? metadata.documentIds
+      : [...new Set(
+          (metadata.sources ?? [])
+            .map((source) => source.documentId)
+            .filter((value): value is string => Boolean(value)),
+        )];
+    const requestId = ++graphRequestId;
+    appState.lastQuery = metadata.query?.trim() || userMessage.content;
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
+      detail: {
+        sessionId,
+        query: appState.lastQuery,
+        documentIds,
+        requestId,
+        topK: metadata.graphTopK,
+      },
+    }));
+  }
+
+  async function updateGraphGalaxy(
+    query: string,
+    documentIds: string[],
+    requestId: number,
+    phase: "loading" | "ready" | "error",
+  ) {
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", {
+      detail: {
+        query,
+        documentIds,
+        requestId,
+        phase,
+        sessionId: appState.currentSession?.id,
+        topK: appState.ragTopK,
+      },
+    }));
+  }
+
+  function clearGraphGalaxy() {
+    window.dispatchEvent(new CustomEvent("dk:clear-graph", {
+      detail: { requestId: ++graphRequestId },
+    }));
+  }
+
+  async function selectResultChunk(source: ChatSource) {
+    if (!source.chunkId && !source.nodeId) return;
+    selectedResultChunkId = source.chunkId ?? source.nodeId ?? null;
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
+      detail: { chunkId: source.chunkId, nodeId: source.nodeId },
+    }));
+  }
+
+  async function saveResultChunk(source: ChatSource, queryText: string) {
+    if (!source.chunkId) return;
+    selectedResultChunkId = source.chunkId;
+    let resolvedSource = source;
+    if (!source.content?.trim()) {
+      const response = await fetch(`/chunks/${encodeURIComponent(source.chunkId)}`);
+      if (!response.ok) {
+        status = await assistantErrorMessage(response);
+        return;
+      }
+      resolvedSource = { ...source, ...(await response.json() as ChatSource) };
+    }
+
+    showWindow("graph-galaxy-window");
+    await tick();
+    const content =
+      resolvedSource.content?.trim() ||
+      resolvedSource.description?.replace(/^Page \d+:\s*/, "").trim() ||
+      "";
+    window.dispatchEvent(new CustomEvent("dk:save-result-chunk", {
+      detail: {
+        query: queryText,
+        chunk: {
+          id: `chunk:${source.chunkId}`,
+          kind: "chunk",
+          label:
+            resolvedSource.sourceTitle ||
+            resolvedSource.title ||
+            `Chunk ${resolvedSource.chunkIndex ?? ""}`.trim(),
+          chunkId: resolvedSource.chunkId,
+          documentId: resolvedSource.documentId,
+          sourceTitle: resolvedSource.sourceTitle || resolvedSource.title,
+          pageIndex: resolvedSource.pageIndex,
+          chunkIndex: resolvedSource.chunkIndex,
+          chunkType: resolvedSource.chunkType,
+          content,
+          preview: resolvedSource.description,
+          retrievalScore: resolvedSource.score,
+          score: resolvedSource.score,
+        },
+      },
+    }));
+  }
+
   async function openGraphGalaxy() {
     const visualQuery = draft.trim() || appState.lastQuery;
     showWindow("graph-galaxy-window");
@@ -158,76 +332,135 @@
 
     draft = "";
     busy = true;
+    status = "";
     appState.lastQuery = text;
+    const graphMode = !notebookMode && appState.retrievalMode === "graph";
+    const documentIds = getSelectedDocumentIds();
+    const requestId = graphMode ? ++graphRequestId : 0;
+    let graphReady = false;
 
-    const session = appState.currentSession ?? (await createSession());
-
-    messages = [...messages, {
-      id: (messages.at(-1)?.id ?? 0) + 1,
-      role: "user",
-      content: text,
-      createdAt: new Date(),
-      sessionId: session.id,
-      metadata: null,
-    }];
-    await scrollToBottom();
-
-    const requestBase = {
-      message: text,
-      model_id: appState.currentModelId,
-      provider_id: appState.currentProviderId,
-      max_tokens: appState.maxTokens,
-      temperature: appState.temperature,
-      top_k: appState.topK,
-    };
-
-    const requestBody: ChatMessageRequest = notebookMode
-      ? {
-          ...requestBase,
-          conversational: true,
-          context: await fetchNotebookContext(),
-          notebook_id: appState.activeNotebookId,
-        }
-      : {
-          ...requestBase,
-          conversational: false,
-          prompt_template_id: appState.promptTemplateId || null,
-          persona: appState.persona,
-          document_ids: getSelectedDocumentIds(),
-          rag_top_k: appState.ragTopK,
-        };
-
-    const res = await fetch(
-      `/sessions/${encodeURIComponent(session.id)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      },
-    );
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      messageStream += decoder.decode(value, { stream: true });
-      await scrollToBottom();
+    if (graphMode) {
+      await updateGraphGalaxy(text, documentIds, requestId, "loading");
     }
 
-    messages = await loadMessages(session.id);
-    loadedSessionId = session.id;
-    busy = false;
-    messageStream = "";
-    await scrollToBottom();
+    try {
+      const session = appState.currentSession ?? (await createSession());
+
+      messages = [...messages, {
+        id: (messages.at(-1)?.id ?? 0) + 1,
+        role: "user",
+        content: text,
+        createdAt: new Date(),
+        sessionId: session.id,
+        metadata: null,
+      }];
+      await scrollToBottom();
+
+      const requestBase = {
+        message: text,
+        model_id: appState.currentModelId,
+        provider_id: appState.currentProviderId,
+        max_tokens: appState.maxTokens,
+        temperature: appState.temperature,
+        top_k: appState.topK,
+      };
+
+      const requestBody: ChatMessageRequest = notebookMode
+        ? {
+            ...requestBase,
+            conversational: true,
+            context: await fetchNotebookContext(),
+            notebook_id: appState.activeNotebookId,
+          }
+        : {
+            ...requestBase,
+            conversational: false,
+            prompt_template_id: appState.promptTemplateId || null,
+            persona: appState.persona,
+            document_ids: documentIds,
+            rag_top_k: appState.ragTopK,
+          };
+
+      const response = await fetch(
+        `/sessions/${encodeURIComponent(session.id)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        },
+      );
+      if (!response.ok) throw new Error(await assistantErrorMessage(response));
+      if (!response.body) throw new Error("Assistant returned an empty response stream");
+
+      if (graphMode) {
+        void refreshKnowledgeGraphStatus(documentIds);
+        await updateGraphGalaxy(text, documentIds, requestId, "ready");
+        graphReady = true;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        messageStream += decoder.decode(value, { stream: true });
+        await scrollToBottom();
+      }
+
+      messages = await loadMessages(session.id);
+      loadedSessionId = session.id;
+      await scrollToBottom();
+    } catch (error) {
+      status = error instanceof Error ? error.message : "Assistant request failed.";
+      if (graphMode && !graphReady) {
+        await updateGraphGalaxy(text, documentIds, requestId, "error");
+      }
+    } finally {
+      busy = false;
+      messageStream = "";
+    }
   }
 
   async function createNewChat() {
     if (busy) return;
+    status = "";
     messages = [];
     messageStream = "";
+    clearGraphGalaxy();
     appState.currentSession = await createSession();
   }
+
+  onMount(() => {
+    const handleGalaxySelection = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sessionId?: string | null;
+        chunkId?: string | null;
+      }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      galaxySelectedChunkId = detail?.chunkId ?? null;
+    };
+    const handleGalaxyFocusResult = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sessionId?: string | null;
+        found?: boolean;
+      }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      if (detail?.found === false) {
+        status = "The selected assistant result is not present in this saved Galaxy view.";
+      } else if (
+        status === "The selected assistant result is not present in this saved Galaxy view."
+      ) {
+        status = "";
+      }
+    };
+
+    window.addEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+    window.addEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
+    return () => {
+      window.removeEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+      window.removeEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
+    };
+  });
 
 </script>
 
@@ -248,6 +481,14 @@
   {/snippet}
 
   <div class="chat-window">
+    {#if status}
+      <div class="chat-status li-subtle" role="status">{status}</div>
+    {/if}
+    {#if graphReadinessMessage}
+      <div class="chat-status chat-graph-status li-subtle" role="status">
+        {graphReadinessMessage}
+      </div>
+    {/if}
     <div class="chat-log" bind:this={logElement} aria-live="polite">
       {#each messages as message (message.id)}
         <div
@@ -273,12 +514,21 @@
               {#if sources.length}
                 <ol class="chat-source-list">
                   {#each sources as source, index (index)}
-                    <li class="chat-source-row">
+                    <li
+                      class="chat-source-row"
+                      class:selected={(source.chunkId ?? source.nodeId) === selectedResultChunkId}
+                      class:galaxy-match={source.chunkId === galaxySelectedChunkId}
+                    >
                       <div class="chat-source-main">
-                        <div class="chat-source-text-block">
+                        <button
+                          class="chat-source-text-block chat-source-select"
+                          type="button"
+                          disabled={!source.chunkId && !source.nodeId}
+                          onclick={() => selectResultChunk(source)}
+                        >
                           <span class="chat-source-num">{index + 1}.</span>
                           <span class="chat-source-text">{source.description ?? source.title ?? ""}</span>
-                        </div>
+                        </button>
                         <div class="chat-source-action-line">
                           <div class="chat-source-action-left">
                             {#if source.url}
@@ -286,6 +536,18 @@
                                 {source.title ?? source.url}
                               </a>
                             {/if}
+                            <button
+                              class="btn btn-sm chat-source-btn"
+                              type="button"
+                              disabled={!source.chunkId}
+                              onclick={() => saveResultChunk(
+                                source,
+                                messages.find((item) => item.role === "user")?.content ??
+                                  appState.lastQuery,
+                              )}
+                            >
+                              Save chunk
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -390,6 +652,18 @@
     height: 100%;
     min-height: 0;
     flex-direction: column;
+  }
+
+  .chat-status {
+    margin-bottom: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-graph-status {
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
   }
 
   .chat-log {
@@ -557,6 +831,17 @@
     background: hsl(var(--h) var(--sat) var(--l-panel));
   }
 
+  .chat-source-row.selected {
+    border-color: color-mix(in oklab, var(--accent) 58%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, hsl(var(--h) var(--sat) var(--l-panel)));
+  }
+
+  .chat-source-row.galaxy-match {
+    border-color: color-mix(in oklab, #a78bfa 78%, var(--border));
+    background: color-mix(in oklab, #8b5cf6 18%, hsl(var(--h) var(--sat) var(--l-panel)));
+    box-shadow: inset 3px 0 0 #a78bfa, 0 0 0 1px rgb(167 139 250 / 18%);
+  }
+
   .chat-source-main { display: grid; min-width: 0; gap: 6px; }
 
   .chat-source-text-block {
@@ -565,6 +850,20 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 6px;
     align-items: start;
+  }
+
+  .chat-source-select {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .chat-source-select:disabled {
+    cursor: default;
   }
 
   .chat-source-num { color: var(--text); font-size: 13px; font-weight: 700; }

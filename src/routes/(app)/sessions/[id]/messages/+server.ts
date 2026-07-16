@@ -23,6 +23,10 @@ import {
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
 import {
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+} from "$lib/server/knowledge-graph";
+import {
   NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
   RAG_CHUNK_CHARACTER_LIMIT,
 } from "$lib/utils/contextLimits";
@@ -253,15 +257,37 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const persona = body.conversational ? "" : body.persona;
   const pageContext = body.conversational ? body.context : "";
   const notebookId = body.conversational ? body.notebook_id : null;
+  const documentIds = body.conversational
+    ? []
+    : body.document_ids.map((value) => String(value).trim()).filter(Boolean);
+  const ragTopK = body.conversational ? undefined : body.rag_top_k;
 
-  const ragContext: RagContextResult = body.conversational
-    ? { mode: retrievalMode, contextBlock: "", sources: [] }
-    : await retrieveRagContext({
-        question: message,
-        documentIds: body.document_ids,
-        mode: retrievalMode,
-        topK: body.rag_top_k,
-      });
+  let ragContext: RagContextResult;
+  try {
+    ragContext = body.conversational
+      ? { mode: retrievalMode, contextBlock: "", sources: [] }
+      : await retrieveRagContext({
+          question: message,
+          documentIds,
+          mode: retrievalMode,
+          topK: ragTopK,
+        });
+  } catch (error) {
+    if (
+      error instanceof KnowledgeGraphNotBuiltError ||
+      error instanceof KnowledgeGraphNoDocumentsError
+    ) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   // Notebook-mode context = the visible page text + the notebook's attached
   // sources (hidden from the notebook page, invisible to the user, but the
@@ -308,12 +334,15 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: ragContext.sources.length
-              ? {
+            metadata: body.conversational
+              ? null
+              : {
                   retrievalMode: ragContext.mode,
                   sources: ragContext.sources,
-                }
-              : null,
+                  query: message,
+                  documentIds,
+                  graphTopK: ragTopK,
+                },
             createdAt: timestamp,
           },
         ]);

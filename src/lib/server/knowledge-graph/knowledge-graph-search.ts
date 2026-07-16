@@ -1,12 +1,16 @@
-// Knowledge-graph search uses the app's existing hybrid retriever as grounded seeds,
+// Knowledge-graph search combines hybrid chunks with exact and fuzzy entity-label seeds,
 // then adds LightRAG neighborhoods and PathRAG relational traversal before reranking.
 
 import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
 import type { SearchChunkType } from "$lib/server/rag/search/search-shared";
-import {loadKnowledgeGraph, augmentGraphWithQueryLabels} from "./graph-index";
+import {
+  augmentGraphWithQueryLabels,
+  ensureKnowledgeGraph,
+} from "./graph-index";
 import { extractQueryEntities } from "./gliner-extractor";
 import { lightRagSearch } from "./light-rag";
 import { pathRagSearch } from "./path-rag";
+import { selectGraphSeedCandidates } from "./seed-selection";
 import type {
   KnowledgeGraphMatch,
   KnowledgeGraphPath,
@@ -39,10 +43,18 @@ export async function searchKnowledgeGraph(
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   if (!query || topK === 0) return { query, results: [], paths: [] };
 
-  const queryEntities = query ? await extractQueryEntities(query) : [];
+  // Build a missing or stale selected-document graph automatically. A current graph
+  // is reused, and concurrent answer/visualization requests share the same build.
+  const index = await ensureKnowledgeGraph(options.documentIds);
+  const queryEntities = await extractQueryEntities(query);
   const queryLabels = unique(queryEntities.map((entity) => entity.label));
+  const graph = await augmentGraphWithQueryLabels(
+    index.graph,
+    index.chunksById,
+    queryLabels,
+  );
 
-  // The existing hybrid search supplies high-quality lexical/semantic starting chunks.
+  // Hybrid chunks remain strong grounded seeds; label matching adds graph-native recall.
   const hybrid = await searchHybrid({
     query,
     topK: Math.max(topK * 2, 10),
@@ -53,14 +65,16 @@ export async function searchKnowledgeGraph(
     ...match,
     score: 1 / (index + 1),
   }));
-  const index = await loadKnowledgeGraph(options.documentIds);
-  const graph = await augmentGraphWithQueryLabels(index.graph, index.chunksById, queryLabels);
-  const seedChunkIds = hybridSeeds.map((match) => match.chunkId);
-  const lightEvidence = lightRagSearch(query, graph, seedChunkIds);
+  const seeds = selectGraphSeedCandidates({
+    query,
+    graph,
+    hybridResults: hybridSeeds,
+  });
+  const lightEvidence = lightRagSearch(graph, seeds);
   const paths = pathRagSearch(
     query,
     graph,
-    seedChunkIds,
+    seeds,
     Math.max(1, Math.min(4, options.maxDepth ?? 3)),
     Math.max(topK * 3, 12),
   );
@@ -86,12 +100,13 @@ export async function searchKnowledgeGraph(
 
     results.push({
       ...chunk,
-      score:
+      score: clamp01(
         hybridPart * 0.9 +
         lightPart * 0.07 +
         pathPart * 0.03 +
         acronymDefinitionBoost(query, chunk.content),
-      graphScore,
+      ),
+      graphScore: clamp01(graphScore),
       hybridScore: score.hybridScore || undefined,
       matchedEntities: unique(score.matchedEntities),
       relations: unique(score.relations),
@@ -175,4 +190,8 @@ function getScore(
 
 function maxScore(values: number[]): number {
   return Math.max(1, ...values.filter(Number.isFinite));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }

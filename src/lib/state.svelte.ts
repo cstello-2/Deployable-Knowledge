@@ -20,6 +20,7 @@ export class AppState {
   promptTemplateId = $state("");
   promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
+  retrievalMode = $state<"semantic" | "bm25" | "hybrid" | "graph">("hybrid");
   ragTopK = $state(5);
   lastQuery = $state("");
 }

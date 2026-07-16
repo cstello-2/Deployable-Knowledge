@@ -6,6 +6,7 @@ import test from "node:test";
 import { GraphStore } from "./graph-store";
 import { lightRagSearch } from "./light-rag";
 import { pathRagSearch } from "./path-rag";
+import { selectGraphSeedCandidates } from "./seed-selection";
 import { graphId } from "./utils";
 
 test("LightRAG and PathRAG retrieve connected chunk evidence", () => {
@@ -23,9 +24,25 @@ test("LightRAG and PathRAG retrieve connected chunk evidence", () => {
   graph.addEdge({ source: march, target: hemorrhage, relation: "HAS_STEP", weight: 3, evidence: "MARCH begins with massive hemorrhage", chunkId: "chunk-1" });
   graph.addEdge({ source: hemorrhage, target: secondChunk, relation: "MENTIONS", weight: 1, evidence: "Control massive hemorrhage", chunkId: "chunk-2" });
 
-  const light = lightRagSearch("What is MARCH?", graph, ["chunk-1"]);
+  const lightSeeds = selectGraphSeedCandidates({
+    query: "What is MARCH?",
+    graph,
+    hybridResults: [{ chunkId: "chunk-1", score: 1 }],
+  });
+  const light = lightRagSearch(graph, lightSeeds);
   assert.ok(light.some((result) => result.chunkId === "chunk-1"));
 
-  const paths = pathRagSearch("How is MARCH related to hemorrhage?", graph, ["chunk-1"], 3, 10);
+  const pathSeeds = selectGraphSeedCandidates({
+    query: "How is MARCH related to hemorrhage?",
+    graph,
+    hybridResults: [{ chunkId: "chunk-1", score: 1 }],
+  });
+  const paths = pathRagSearch(
+    "How is MARCH related to hemorrhage?",
+    graph,
+    pathSeeds,
+    3,
+    10,
+  );
   assert.ok(paths.some((path) => path.chunkIds.includes("chunk-2")));
 });

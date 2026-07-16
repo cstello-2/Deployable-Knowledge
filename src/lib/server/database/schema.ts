@@ -320,6 +320,24 @@ export const synced_files = sqliteTable(
   ],
 );
 
+// Compressed, versioned Knowledge Graph snapshots let a valid graph survive
+// application/server restarts without rebuilding entity and relationship data.
+export const knowledge_graph_snapshots = sqliteTable("knowledge_graph_snapshots", {
+  scopeKey: text("scope_key").primaryKey(),
+  documentIds: text("document_ids", { mode: "json" }).$type<string[]>().notNull(),
+  signature: text("signature").notNull(),
+  buildVersion: text("build_version").notNull(),
+  payload: blob("payload", { mode: "buffer" }).notNull(),
+  stats: text("stats", { mode: "json" }).$type<{
+    documents: number;
+    chunks: number;
+    nodes: number;
+    edges: number;
+  }>().notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
