@@ -56,6 +56,8 @@
     yaw: number;
     pitch: number;
     zoom: number;
+    panX?: number;
+    panY?: number;
   };
 
   type GalaxyNode = VisualNode & {
@@ -66,6 +68,22 @@
     sy: number;
     sr: number;
     depth: number;
+  };
+
+  type CameraAnimation = {
+    nodeId: string;
+    startedAt: number;
+    duration: number;
+    fromYaw: number;
+    toYaw: number;
+    fromPitch: number;
+    toPitch: number;
+    fromZoom: number;
+    toZoom: number;
+    fromPanX: number;
+    toPanX: number;
+    fromPanY: number;
+    toPanY: number;
   };
 
   let {
@@ -83,6 +101,9 @@
   const DEFAULT_ZOOM = 0.82;
   const WIDE_ZOOM = 0.42;
   const MAX_ZOOM = 3;
+  const FOCUS_ZOOM = 1.18;
+  const FOCUS_DURATION_MS = 650;
+  const NO_MATCH_STATUS = "This assistant result does not have a matching node in the current Galaxy.";
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let graph = $state<GraphResponse | null>(null);
@@ -105,6 +126,8 @@
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
   let zoom = $state(DEFAULT_ZOOM);
+  let panX = $state(0);
+  let panY = $state(0);
   let dragging = false;
   let lastPointer = { x: 0, y: 0 };
   let frame = 0;
@@ -115,6 +138,8 @@
   let activeSessionId = $state<string | null>(null);
   let activeDocumentIds: string[] = [];
   let activeTopK = appState.ragTopK || 8;
+  let cameraAnimation: CameraAnimation | null = null;
+  let pendingFocusRequest: { chunkId?: string; nodeId?: string } | null = null;
 
   const nodeById = $derived(new Map(nodes.map((node) => [node.id, node])));
   const destinationNotebook = $derived(
@@ -188,6 +213,8 @@
         yaw = stored.yaw;
         pitch = stored.pitch;
         zoom = stored.zoom;
+        panX = stored.panX ?? 0;
+        panY = stored.panY ?? 0;
         status = stored.graph.summary;
         loading = false;
         emitChunkSelection();
@@ -199,11 +226,10 @@
     }
 
     function handleFocusChunk(event: Event) {
-      const chunkId = (event as CustomEvent<{ chunkId?: string }>).detail?.chunkId;
-      selectedNode = nodes.find((node) => node.kind === "chunk" && node.chunkId === chunkId) ?? null;
-      inspectorExpanded = Boolean(selectedNode);
-      emitChunkSelection();
-      persistGraphSnapshot();
+      const detail = (event as CustomEvent<{ chunkId?: string; nodeId?: string }>).detail ?? {};
+      if (!detail.chunkId && !detail.nodeId) return;
+      pendingFocusRequest = detail;
+      focusMatchingNode(detail);
     }
 
     function handleSaveExternalChunk(event: Event) {
@@ -226,6 +252,10 @@
       status = "";
       selectedNode = null;
       inspectorExpanded = false;
+      cameraAnimation = null;
+      pendingFocusRequest = null;
+      panX = 0;
+      panY = 0;
       savingChunkId = null;
       closeSaveDialog();
       emitChunkSelection();
@@ -256,6 +286,10 @@
     nodes = [];
     selectedNode = null;
     inspectorExpanded = false;
+    cameraAnimation = null;
+    pendingFocusRequest = null;
+    panX = 0;
+    panY = 0;
     savingChunkId = null;
     closeSaveDialog();
     status = `Building or updating the graph for “${nextQuery}”…`;
@@ -270,6 +304,7 @@
     status = "";
     selectedNode = null;
     inspectorExpanded = false;
+    cameraAnimation = null;
     try {
       const params = new URLSearchParams({
         topK: String(activeTopK),
@@ -289,6 +324,7 @@
       await tick();
       resizeCanvas();
       status = nextGraph.summary;
+      if (pendingFocusRequest) focusMatchingNode(pendingFocusRequest);
       persistGraphSnapshot();
     } catch (error) {
       if (controller.signal.aborted || generation !== loadGeneration || requestId !== latestRequestId) {
@@ -313,15 +349,21 @@
   }
 
   function resetCamera() {
+    cameraAnimation = null;
     yaw = 0.42;
     pitch = -0.18;
     zoom = DEFAULT_ZOOM;
+    panX = 0;
+    panY = 0;
     persistGraphSnapshot();
   }
 
   function setWideView() {
+    cameraAnimation = null;
     zoom = WIDE_ZOOM;
     pitch = -0.12;
+    panX = 0;
+    panY = 0;
     persistGraphSnapshot();
   }
 
@@ -361,9 +403,10 @@
     canvas.style.height = `${rect.height}px`;
   }
 
-  function draw() {
+  function draw(timestamp = performance.now()) {
     frame = requestAnimationFrame(draw);
     if (!canvas) return;
+    updateCameraAnimation(timestamp);
     const context = canvas.getContext("2d");
     if (!context) return;
 
@@ -384,8 +427,8 @@
     const sy = Math.sin(yaw);
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
-    const centerX = width / 2;
-    const centerY = height / 2;
+    const centerX = width / 2 + panX;
+    const centerY = height / 2 + panY;
     const camera = 620;
 
     for (const node of nodes) {
@@ -402,6 +445,117 @@
     }
 
     return [...nodes].sort((left, right) => left.depth - right.depth);
+  }
+
+  function focusMatchingNode(request: { chunkId?: string; nodeId?: string }) {
+    const matchingNode =
+      (request.nodeId ? nodes.find((node) => node.id === request.nodeId) : null) ??
+      (request.chunkId
+        ? nodes.find((node) => node.kind === "chunk" && node.chunkId === request.chunkId)
+        : null);
+
+    if (!matchingNode) {
+      if (!graph) return;
+      pendingFocusRequest = null;
+      status = NO_MATCH_STATUS;
+      emitFocusResult(request, false);
+      return;
+    }
+
+    pendingFocusRequest = null;
+    if (status === NO_MATCH_STATUS) status = graph?.summary ?? "";
+    selectedNode = matchingNode;
+    inspectorExpanded = matchingNode.kind === "chunk";
+    emitChunkSelection();
+    emitFocusResult(request, true);
+    focusCameraOnNode(matchingNode);
+    persistGraphSnapshot();
+  }
+
+  function focusCameraOnNode(node: GalaxyNode) {
+    if (!canvas) return;
+    const width = canvas.getBoundingClientRect().width;
+    const horizontalRadius = Math.hypot(node.x, node.z);
+    const alignedYaw = Math.atan2(node.x, node.z);
+    const targetYaw = yaw + shortestAngle(alignedYaw - yaw);
+    const targetPitch = Math.atan2(node.y, Math.max(1, horizontalRadius));
+    const targetZoom = FOCUS_ZOOM;
+    const targetPanX = -Math.min(240, Math.max(64, width * 0.24));
+    const targetPanY = 0;
+
+    if (cameraAnimation?.nodeId === node.id) return;
+    const alreadyFocused =
+      selectedNode?.id === node.id &&
+      Math.abs(shortestAngle(targetYaw - yaw)) < 0.025 &&
+      Math.abs(targetPitch - pitch) < 0.025 &&
+      Math.abs(targetZoom - zoom) < 0.04 &&
+      Math.abs(targetPanX - panX) < 8 &&
+      Math.abs(targetPanY - panY) < 8;
+    if (alreadyFocused) {
+      persistGraphSnapshot();
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      yaw = targetYaw;
+      pitch = targetPitch;
+      zoom = targetZoom;
+      panX = targetPanX;
+      panY = targetPanY;
+      persistGraphSnapshot();
+      return;
+    }
+
+    cameraAnimation = {
+      nodeId: node.id,
+      startedAt: performance.now(),
+      duration: FOCUS_DURATION_MS,
+      fromYaw: yaw,
+      toYaw: targetYaw,
+      fromPitch: pitch,
+      toPitch: targetPitch,
+      fromZoom: zoom,
+      toZoom: targetZoom,
+      fromPanX: panX,
+      toPanX: targetPanX,
+      fromPanY: panY,
+      toPanY: targetPanY,
+    };
+  }
+
+  function updateCameraAnimation(timestamp: number) {
+    const animation = cameraAnimation;
+    if (!animation) return;
+    const progress = Math.min(1, Math.max(0, (timestamp - animation.startedAt) / animation.duration));
+    const eased = 1 - Math.pow(1 - progress, 3);
+    yaw = lerp(animation.fromYaw, animation.toYaw, eased);
+    pitch = lerp(animation.fromPitch, animation.toPitch, eased);
+    zoom = lerp(animation.fromZoom, animation.toZoom, eased);
+    panX = lerp(animation.fromPanX, animation.toPanX, eased);
+    panY = lerp(animation.fromPanY, animation.toPanY, eased);
+    if (progress < 1) return;
+    cameraAnimation = null;
+    persistGraphSnapshot();
+  }
+
+  function emitFocusResult(request: { chunkId?: string; nodeId?: string }, found: boolean) {
+    window.dispatchEvent(new CustomEvent("dk:galaxy-focus-result", {
+      detail: {
+        sessionId: activeSessionId,
+        chunkId: request.chunkId ?? null,
+        nodeId: request.nodeId ?? null,
+        found,
+      },
+    }));
+  }
+
+  function shortestAngle(angle: number) {
+    return Math.atan2(Math.sin(angle), Math.cos(angle));
+  }
+
+  function lerp(start: number, end: number, amount: number) {
+    return start + (end - start) * amount;
   }
 
   function drawBackdrop(context: CanvasRenderingContext2D, width: number, height: number) {
@@ -466,6 +620,7 @@
   }
 
   function handlePointerDown(event: PointerEvent) {
+    cameraAnimation = null;
     dragging = true;
     lastPointer = { x: event.clientX, y: event.clientY };
     canvas?.setPointerCapture(event.pointerId);
@@ -488,6 +643,7 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
+    cameraAnimation = null;
     zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.88 : 1.1)));
     persistGraphSnapshot();
   }
@@ -508,6 +664,7 @@
     }
     if (best?.id !== selectedNode?.id) inspectorExpanded = false;
     selectedNode = best;
+    cameraAnimation = null;
     emitChunkSelection();
     persistGraphSnapshot();
   }
@@ -552,6 +709,8 @@
       yaw,
       pitch,
       zoom,
+      panX,
+      panY,
     };
     try {
       localStorage.setItem(graphStorageKey(activeSessionId), JSON.stringify(snapshot));
@@ -1281,7 +1440,8 @@
 
   .inspector.expanded {
     top: 12px;
-    width: min(680px, calc(100% - 24px));
+    width: min(680px, max(320px, 52%));
+    max-width: calc(100% - 24px);
     max-height: calc(100% - 24px);
     gap: 10px;
     background: rgb(8 13 28 / 94%);
