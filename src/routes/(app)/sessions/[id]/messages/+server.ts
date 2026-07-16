@@ -1,10 +1,11 @@
 import { json } from "@sveltejs/kit";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { ChatMessageRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
   document_chunks,
   notebook_sources,
+  notebooks,
   profiles,
   promptTemplates,
   type SessionMessage,
@@ -32,7 +33,10 @@ import {
   NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
   RAG_CHUNK_CHARACTER_LIMIT,
 } from "$lib/utils/contextLimits";
+import { resolveNotebookContext } from "$lib/server/notebooks/context";
 import type { RequestHandler } from "./$types";
+
+const NOTEBOOK_USER_ID = "default";
 
 // Notebook mode (RAG off) uses this conversational prompt instead of the strict
 // "answer only from context" instruction the user supplies their own context
@@ -113,7 +117,10 @@ function createPrompt(
 
 // Chunks attached to a notebook via "Send to Notebook" — never shown in the
 // notebook page text, but pulled in here so notebook-mode chat can use them.
-async function getNotebookSourceExcerpts(notebookId: string): Promise<string> {
+async function getNotebookSourceExcerpts(
+  notebookIds: readonly string[],
+): Promise<string> {
+  if (!notebookIds.length) return "";
   const rows = await db
     .select({ content: document_chunks.content })
     .from(notebook_sources)
@@ -121,7 +128,13 @@ async function getNotebookSourceExcerpts(notebookId: string): Promise<string> {
       document_chunks,
       eq(document_chunks.id, notebook_sources.chunkId),
     )
-    .where(eq(notebook_sources.notebookId, notebookId));
+    .innerJoin(notebooks, eq(notebooks.id, notebook_sources.notebookId))
+    .where(
+      and(
+        eq(notebooks.userId, NOTEBOOK_USER_ID),
+        inArray(notebook_sources.notebookId, [...notebookIds]),
+      ),
+    );
 
   if (!rows.length) return "";
 
@@ -267,8 +280,30 @@ export const POST: RequestHandler = async ({ params, request }) => {
           .get()
       : null;
   const persona = body.conversational ? "" : body.persona;
-  const pageContext = body.conversational ? body.context : "";
   const notebookId = body.conversational ? body.notebook_id : null;
+  const hasNotebookIdSelection = body.conversational &&
+    (
+      Boolean(notebookId) ||
+      Boolean(body.notebook_context_notebook_ids?.length) ||
+      Boolean(body.notebook_context_page_ids?.length)
+    );
+  const resolvedNotebookContext = body.conversational
+    ? await resolveNotebookContext(
+        body.notebook_context_notebook_ids,
+        body.notebook_context_page_ids,
+        notebookId,
+      )
+    : {
+        context: "",
+        notebookIds: [],
+        pageIds: [],
+        pages: [],
+      };
+  const pageContext = body.conversational
+    ? hasNotebookIdSelection
+      ? resolvedNotebookContext.context
+      : body.context ?? ""
+    : "";
   const documentIds =
     body.document_ids.map((value) => String(value).trim()).filter(Boolean);
   const ragTopK = body.rag_top_k;
@@ -339,8 +374,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
   // sources (hidden from the notebook page, invisible to the user, but the
   // model sees the full excerpts).
   const sourceExcerpts =
-    body.conversational && notebookId
-      ? await getNotebookSourceExcerpts(notebookId)
+    body.conversational && resolvedNotebookContext.notebookIds.length
+      ? await getNotebookSourceExcerpts(resolvedNotebookContext.notebookIds)
       : "";
 
   const context = [pageContext, sourceExcerpts].filter(Boolean).join("\n\n");
@@ -390,7 +425,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
               graphTopK: ragTopK,
               notebookContext: body.conversational,
               notebookContextPages: body.conversational
-                ? body.notebook_context_pages ?? []
+                ? resolvedNotebookContext.pages
+                : [],
+              notebookContextNotebookIds: body.conversational
+                ? resolvedNotebookContext.notebookIds
+                : [],
+              notebookContextPageIds: body.conversational
+                ? resolvedNotebookContext.pageIds
                 : [],
             },
             createdAt: timestamp,

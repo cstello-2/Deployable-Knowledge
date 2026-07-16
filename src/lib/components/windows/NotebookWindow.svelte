@@ -13,6 +13,7 @@
   import {
     NOTEBOOK_CONTEXT_CHANGED_EVENT,
     type NotebookContextChangedDetail,
+    notebookContextCoverage,
     notebookProvidesContext as notebookIsSelectedForContext,
     pageProvidesNotebookContext,
     restoreNotebookContextPageIds,
@@ -134,6 +135,10 @@
 
   function notebookProvidesContext(notebook: NotebookWithPages) {
     return notebookIsSelectedForContext(appState, notebook);
+  }
+
+  function notebookContextState(notebook: NotebookWithPages) {
+    return notebookContextCoverage(appState, notebook);
   }
 
   function togglePageContext(pageId: string) {
@@ -455,7 +460,8 @@
     void loadNotebooks();
     const handleNotebookContextChanged = (event: Event) => {
       const detail = (event as CustomEvent<NotebookContextChangedDetail>).detail;
-      if (!detail?.pageIds) return;
+      if (!detail?.pageIds || !detail?.notebookIds) return;
+      appState.notebookContextNotebookIds = [...detail.notebookIds];
       appState.notebookContextPageIds = [...detail.pageIds];
     };
     window.addEventListener("notebook-sources:refresh", loadSources);
@@ -688,6 +694,7 @@
                 <button
                   class="inline-action-button navigation-row-action"
                   class:active={notebookProvidesContext(notebook)}
+                  class:partial={notebookContextState(notebook) === "partial"}
                   type="button"
                   title={notebookProvidesContext(notebook)
                     ? `Remove ${notebook.title} from context`
@@ -698,7 +705,12 @@
                   aria-pressed={notebookProvidesContext(notebook)}
                   onclick={() => toggleNotebookContext(notebook)}
                 >
-                  <Icon name="library_add_check" size={16} />
+                  <Icon
+                    name={notebookContextState(notebook) === "partial"
+                      ? "indeterminate_check_box"
+                      : "library_add_check"}
+                    size={16}
+                  />
                 </button>
                 <button
                   class="inline-action-button navigation-row-action danger"
@@ -980,6 +992,12 @@
     color: var(--text);
   }
 
+  .icon-action.active {
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklab, var(--accent) 28%, transparent);
+  }
+
   .source-count-badge {
     position: absolute;
     top: -6px;
@@ -1175,6 +1193,12 @@
     height: auto;
     min-height: 56px;
     align-self: stretch;
+  }
+
+  .navigation-row-action.partial {
+    border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+    color: var(--text);
   }
 
   .navigation-item > .navigation-row-action:last-child {

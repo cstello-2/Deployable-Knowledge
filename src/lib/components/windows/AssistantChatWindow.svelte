@@ -5,6 +5,7 @@
   } from "$lib/requestTypes";
   import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import NotebookContextDialog from "$lib/components/notebooks/NotebookContextDialog.svelte";
   import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
@@ -20,9 +21,9 @@
   import { renderMarkdown } from "$lib/utils/markdown";
   import { showWindow } from "$lib/utils/workspaceState";
   import {
-    pageProvidesNotebookContext,
+    getNotebookContextSummary,
+    hasNotebookContextSelection,
     restoreNotebookContextPageIds,
-    toggleNotebookContextPage,
   } from "$lib/utils/notebookContextSelection";
   import { applyNotebookState } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
@@ -107,8 +108,9 @@
     messages.some((message) => message.role === "user"),
   );
   let hasNotebookContext = $derived(
-    appState.notebookContextPageIds.length > 0,
+    hasNotebookContextSelection(appState),
   );
+  let notebookContextSummary = $derived(getNotebookContextSummary(appState));
   let sendDisabled = $derived(
     busy || loadingSession || hasSubmittedQuery || draft.trim().length === 0,
   );
@@ -123,6 +125,7 @@
   let selectedResultChunkId = $state<string | null>(null);
   let galaxySelectedChunkId = $state<string | null>(null);
   let notebookDestinationOpen = $state(false);
+  let notebookContextOpen = $state(false);
   let pendingNotebookMessage = $state<SessionMessage | null>(null);
   let graphReadinessMessage = $derived(
     appState.retrievalMode === "graph" &&
@@ -133,27 +136,9 @@
       : "",
   );
 
-  function toggleActivePageContext() {
-    const pageId = appState.activePage?.id;
-    if (!pageId || hasSubmittedQuery) return;
-    toggleNotebookContextPage(appState, pageId);
-  }
-
-  // Read the pages explicitly marked "Use for Context" across notebooks.
-  async function fetchNotebookContext(): Promise<string> {
-    const res = await fetch("/notebooks");
-    const data = (await res.json()) as {
-      activeNotebookId: string | null;
-      notebooks: NotebookWithPages[];
-    };
-    const selectedPageIds = new Set(appState.notebookContextPageIds);
-    return data.notebooks.flatMap((notebook) =>
-      notebook.pages
-        .filter((page) => selectedPageIds.has(page.id) && page.content.trim())
-        .map((page) =>
-          `[Notebook: ${notebook.title} | Page: ${page.title}]\n${page.content.trim()}`,
-        )
-    ).join("\n\n");
+  function openNotebookContextPicker() {
+    if (busy || loadingSession || hasSubmittedQuery) return;
+    notebookContextOpen = true;
   }
 
   // Send an assistant reply to the currently open notebook page (visible,
@@ -602,20 +587,6 @@
     appState.lastQuery = text;
     const documentIds = getSelectedDocumentIds();
     const useNotebookContext = hasNotebookContext;
-    const notebookContextPages = useNotebookContext
-      ? appState.notebooks.flatMap((notebook) =>
-          notebook.pages
-            .filter((page) =>
-              appState.notebookContextPageIds.includes(page.id)
-            )
-            .map((page) => ({
-              notebookId: notebook.id,
-              notebookTitle: notebook.title,
-              pageId: page.id,
-              pageTitle: page.title,
-            }))
-        )
-      : [];
 
     try {
       const session = appState.currentSession ?? (await createSession());
@@ -643,9 +614,11 @@
         ? {
             ...requestBase,
             conversational: true,
-            context: await fetchNotebookContext(),
             notebook_id: null,
-            notebook_context_pages: notebookContextPages,
+            notebook_context_notebook_ids: [
+              ...appState.notebookContextNotebookIds,
+            ],
+            notebook_context_page_ids: [...appState.notebookContextPageIds],
             document_ids: documentIds,
             rag_top_k: appState.ragTopK,
           }
@@ -765,9 +738,7 @@
   contentLabel="Assistant chat"
 >
   {#snippet subtitle()}
-    {hasNotebookContext
-      ? `Using ${appState.notebookContextPageIds.length} notebook ${appState.notebookContextPageIds.length === 1 ? "page" : "pages"} for context`
-      : "Using documents for context"}
+    {notebookContextSummary}
   {/snippet}
 
   <div class="chat-window">
@@ -917,19 +888,15 @@
       />
       <button
         class="inline-action-button chat-mode-toggle"
-        class:active={Boolean(
-          appState.activePage &&
-            pageProvidesNotebookContext(appState, appState.activePage.id),
-        )}
+        class:active={hasNotebookContext}
         type="button"
-        disabled={busy || loadingSession || hasSubmittedQuery || !appState.activePage}
-        aria-label="Use active notebook page for context"
-        aria-pressed={Boolean(
-          appState.activePage &&
-            pageProvidesNotebookContext(appState, appState.activePage.id),
-        )}
-        title="Use active notebook page for context"
-        onclick={toggleActivePageContext}
+        disabled={busy || loadingSession || hasSubmittedQuery}
+        aria-label="Choose notebooks and pages for context"
+        aria-pressed={hasNotebookContext}
+        title={hasNotebookContext
+          ? notebookContextSummary
+          : "Choose notebooks and pages for context"}
+        onclick={openNotebookContextPicker}
       >
         <Icon name="menu_book" size={16} />
       </button>
@@ -965,6 +932,11 @@
         <Icon name="send" size={16} />
       </button>
     </form>
+
+    <NotebookContextDialog
+      open={notebookContextOpen}
+      onClose={() => notebookContextOpen = false}
+    />
 
     <NotebookDestinationDialog
       open={notebookDestinationOpen}
