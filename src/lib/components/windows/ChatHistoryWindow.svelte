@@ -6,6 +6,7 @@
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session } from "$lib/server/database/schema";
+  import { showWindow } from "$lib/utils/workspaceState";
 
   let {
     id,
@@ -60,6 +61,7 @@
 
   function handleSessionClick(session: Session) {
     appState.currentSession = session;
+    showWindow("chat-window");
   }
 
   async function handleSessionKeydown(event: KeyboardEvent, session: Session) {

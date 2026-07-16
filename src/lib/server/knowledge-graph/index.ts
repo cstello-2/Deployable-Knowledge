@@ -6,6 +6,7 @@ export {
   KnowledgeGraphNotBuiltError,
   buildKnowledgeGraph,
   ensureKnowledgeGraph,
+  ensureKnowledgeGraphForChunks,
   getBuiltKnowledgeGraph,
   getKnowledgeGraphStatus,
   invalidateKnowledgeGraphCache,

@@ -47,6 +47,7 @@ type DocumentMetadata = {
 type ResolvedGraphScope = {
   documentRows: DocumentMetadata[];
   buildScope: KnowledgeGraphBuildScope;
+  chunkRows?: IndexedChunk[];
 };
 
 export type BuildKnowledgeGraphOptions = {
@@ -156,6 +157,37 @@ export async function ensureKnowledgeGraph(
   return getBuiltKnowledgeGraph(requestedDocumentIds);
 }
 
+export async function ensureKnowledgeGraphForChunks(
+  requestedChunkIds: string[],
+): Promise<KnowledgeGraphIndex> {
+  const chunkIds = normalizeChunkIds(requestedChunkIds);
+  const scope = await resolveChunkGraphScope(chunkIds);
+  requireDocuments(scope);
+  await restoreKnowledgeGraphSnapshot(scope);
+
+  const built = graphRegistry.getBuilt(scope.buildScope);
+  if (built) return built;
+
+  await graphRegistry.build(scope.buildScope, async () => {
+    const index = await constructKnowledgeGraph(scope);
+    const graphStats = index.graph.stats();
+    const stats = {
+      documents: scope.documentRows.length,
+      chunks: index.chunksById.size,
+      nodes: graphStats.nodes,
+      edges: graphStats.edges,
+    };
+    await saveKnowledgeGraphSnapshot(scope.buildScope, index, stats);
+    return { index, stats };
+  });
+
+  const index = graphRegistry.getBuilt(scope.buildScope);
+  if (!index) {
+    throw new KnowledgeGraphNotBuiltError(graphRegistry.getStatus(scope.buildScope));
+  }
+  return index;
+}
+
 async function restoreKnowledgeGraphSnapshot(scope: ResolvedGraphScope): Promise<void> {
   if (graphRegistry.getBuilt(scope.buildScope)) return;
 
@@ -221,6 +253,79 @@ async function resolveGraphScope(
   };
 }
 
+async function resolveChunkGraphScope(
+  requestedChunkIds: string[],
+): Promise<ResolvedGraphScope> {
+  const chunkIds = normalizeChunkIds(requestedChunkIds);
+  if (!chunkIds.length) {
+    return {
+      documentRows: [],
+      chunkRows: [],
+      buildScope: {
+        scopeKey: "chunks:empty",
+        documentIds: [],
+        documentCount: 0,
+        signature: chunkGraphSignature([]),
+        buildVersion: KNOWLEDGE_GRAPH_BUILD_VERSION,
+      },
+    };
+  }
+
+  const rows = await db
+    .select({
+      chunkId: document_chunks.id,
+      documentId: document_chunks.documentId,
+      sourcePath: documents.sourcePath,
+      sourceTitle: documents.title,
+      documentUpdatedAt: documents.updatedAt,
+      pageIndex: document_chunks.pageIndex,
+      chunkIndex: document_chunks.chunkIndex,
+      chunkType: document_chunks.chunkType,
+      content: document_chunks.content,
+    })
+    .from(document_chunks)
+    .innerJoin(documents, eq(documents.id, document_chunks.documentId))
+    .where(inArray(document_chunks.id, chunkIds));
+
+  const order = new Map(chunkIds.map((chunkId, index) => [chunkId, index]));
+  const chunkRows: IndexedChunk[] = rows
+    .map((row) => ({
+      chunkId: row.chunkId,
+      documentId: row.documentId,
+      sourcePath: row.sourcePath,
+      sourceTitle: row.sourceTitle,
+      pageIndex: Number(row.pageIndex),
+      chunkIndex: Number(row.chunkIndex),
+      chunkType: row.chunkType as IndexedChunk["chunkType"],
+      content: row.content,
+    }))
+    .sort((left, right) =>
+      (order.get(left.chunkId) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.chunkId) ?? Number.MAX_SAFE_INTEGER)
+    );
+  const documentRows = [...new Map(rows.map((row) => [
+    row.documentId,
+    {
+      id: row.documentId,
+      title: row.sourceTitle,
+      updatedAt: row.documentUpdatedAt,
+    },
+  ])).values()].sort((left, right) => left.id.localeCompare(right.id));
+  const resolvedChunkIds = chunkRows.map((chunk) => chunk.chunkId);
+
+  return {
+    documentRows,
+    chunkRows,
+    buildScope: {
+      scopeKey: chunkGraphScopeKey(resolvedChunkIds),
+      documentIds: documentRows.map((document) => document.id),
+      documentCount: documentRows.length,
+      signature: chunkGraphSignature(chunkRows),
+      buildVersion: KNOWLEDGE_GRAPH_BUILD_VERSION,
+    },
+  };
+}
+
 async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<KnowledgeGraphIndex> {
   const { documentRows } = scope;
 
@@ -237,7 +342,12 @@ async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<Knowl
     });
   }
 
-  if (selectedIds.length) {
+  if (scope.chunkRows) {
+    for (const chunk of scope.chunkRows) {
+      chunksById.set(chunk.chunkId, chunk);
+      await addChunkToGraph(graph, chunk);
+    }
+  } else if (selectedIds.length) {
     const chunkRows = await db
       .select({
         chunkId: document_chunks.id,
@@ -278,10 +388,33 @@ function normalizeDocumentIds(documentIds: readonly string[]): string[] {
   return unique(documentIds.map((id) => id.trim()).filter(Boolean)).sort();
 }
 
+function normalizeChunkIds(chunkIds: readonly string[]): string[] {
+  return unique(chunkIds.map((id) => id.trim()).filter(Boolean));
+}
+
 function graphScopeKey(documentIds: readonly string[]): string {
   if (!documentIds.length) return "*";
   const digest = createHash("sha256").update(documentIds.join("\u0000")).digest("hex");
   return `documents:${digest}`;
+}
+
+function chunkGraphScopeKey(chunkIds: readonly string[]): string {
+  const digest = createHash("sha256").update(chunkIds.join("\u0000")).digest("hex");
+  return `chunks:${digest}`;
+}
+
+function chunkGraphSignature(chunks: readonly IndexedChunk[]): string {
+  const hash = createHash("sha256");
+  hash.update(KNOWLEDGE_GRAPH_BUILD_VERSION);
+  for (const chunk of chunks) {
+    hash.update("\u0000");
+    hash.update(chunk.chunkId);
+    hash.update("\u0000");
+    hash.update(chunk.documentId);
+    hash.update("\u0000");
+    hash.update(chunk.content);
+  }
+  return hash.digest("hex");
 }
 
 function graphSignature(documentRows: readonly DocumentMetadata[]): string {

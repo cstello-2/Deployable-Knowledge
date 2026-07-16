@@ -11,6 +11,7 @@ export class AppState {
   activeNotebookId = $state<string | null>(null);
   activeNotebook = $state<NotebookWithPages | null>(null);
   activePage = $state<NotebookPage | null>(null);
+  notebookContextPageIds = $state<string[]>([]);
   activeProfileId = $state<string | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");

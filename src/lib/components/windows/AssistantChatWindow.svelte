@@ -5,6 +5,7 @@
   } from "$lib/requestTypes";
   import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import {
@@ -18,6 +19,12 @@
   } from "$lib/utils/knowledgeGraphState";
   import { renderMarkdown } from "$lib/utils/markdown";
   import { showWindow } from "$lib/utils/workspaceState";
+  import {
+    pageProvidesNotebookContext,
+    restoreNotebookContextPageIds,
+    toggleNotebookContextPage,
+  } from "$lib/utils/notebookContextSelection";
+  import { applyNotebookState } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type {
@@ -48,15 +55,33 @@
     retrievalMode?: string;
     query?: string;
     documentIds?: string[];
+    graphDocumentIds?: string[];
+    graphChunkIds?: string[];
     graphTopK?: number;
+    graphPrepared?: boolean;
+    notebookContext?: boolean;
+    notebookContextPages?: Array<{
+      notebookId: string;
+      notebookTitle: string;
+      pageId: string;
+      pageTitle: string;
+    }>;
   };
 
-  // dk:send-to-notebook carries fully-composed text — the notebook just
-  // appends it as plain text.
-  type SendToNotebookDetail = { text: string };
+  type QueryGraphContext = {
+    sessionId: string;
+    query: string;
+    documentIds: string[];
+    chunkIds: string[];
+    topK: number;
+  };
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
     return (message.metadata as AssistantMetadata | null)?.sources ?? [];
+  }
+
+  function getAssistantMetadata(message: SessionMessage): AssistantMetadata {
+    return (message.metadata as AssistantMetadata | null) ?? {};
   }
 
   let {
@@ -75,13 +100,30 @@
   let draft = $state("");
   let status = $state("");
   let busy = $state(false);
+  let loadingSession = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
-  let sendDisabled = $derived(busy || draft.trim().length === 0);
+  let hasSubmittedQuery = $derived(
+    messages.some((message) => message.role === "user"),
+  );
+  let hasNotebookContext = $derived(
+    appState.notebookContextPageIds.length > 0,
+  );
+  let sendDisabled = $derived(
+    busy || loadingSession || hasSubmittedQuery || draft.trim().length === 0,
+  );
   let loadedSessionId: string | undefined;
   let graphRequestId = 0;
+  let graphPreparationGeneration = 0;
+  let graphPreparationAbortController: AbortController | null = null;
+  let queryGraphContext = $state<QueryGraphContext | null>(null);
+  let graphPreparing = $state(false);
+  let graphReady = $state(false);
+  let graphPreparationError = $state("");
   let selectedResultChunkId = $state<string | null>(null);
   let galaxySelectedChunkId = $state<string | null>(null);
+  let notebookDestinationOpen = $state(false);
+  let pendingNotebookMessage = $state<SessionMessage | null>(null);
   let graphReadinessMessage = $derived(
     appState.retrievalMode === "graph" &&
       knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds) &&
@@ -91,54 +133,131 @@
       : "",
   );
 
-  // Notebook mode: RAG off, context = the entire open notebook (all its pages)
-  // instead of retrieved document chunks.
-  let notebookMode = $state(false);
-  function toggleNotebookMode() {
-    notebookMode = !notebookMode;
+  function toggleActivePageContext() {
+    const pageId = appState.activePage?.id;
+    if (!pageId || hasSubmittedQuery) return;
+    toggleNotebookContextPage(appState, pageId);
   }
 
-  // Fetch the currently open notebook fresh (rather than trusting appState,
-  // which can lag behind saves) and flatten all of its pages into one context blob.
+  // Read the pages explicitly marked "Use for Context" across notebooks.
   async function fetchNotebookContext(): Promise<string> {
     const res = await fetch("/notebooks");
     const data = (await res.json()) as {
       activeNotebookId: string | null;
       notebooks: NotebookWithPages[];
     };
-    const notebook = data.notebooks.find((nb) => nb.id === data.activeNotebookId);
-    if (!notebook) return "";
-    return notebook.pages.map((p) => p.content).filter(Boolean).join("\n\n");
+    const selectedPageIds = new Set(appState.notebookContextPageIds);
+    return data.notebooks.flatMap((notebook) =>
+      notebook.pages
+        .filter((page) => selectedPageIds.has(page.id) && page.content.trim())
+        .map((page) =>
+          `[Notebook: ${notebook.title} | Page: ${page.title}]\n${page.content.trim()}`,
+        )
+    ).join("\n\n");
   }
 
   // Send an assistant reply to the currently open notebook page (visible,
   // plain text), and separately attach the RAG chunks behind it to the
   // notebook server-side — hidden from the page text, but usable by
   // notebook-mode chat and viewable via the notebook's Sources panel.
-  async function sendToNotebook(message: SessionMessage) {
-    const detail: SendToNotebookDetail = { text: message.content };
-    window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail }));
+  function openSendToNotebook(message: SessionMessage) {
+    pendingNotebookMessage = message;
+    notebookDestinationOpen = true;
+  }
 
-    const chunkIds = getMessageSources(message)
-      .filter((s) => s.chunkId)
-      .map((s) => s.chunkId as string);
+  function closeSendToNotebook() {
+    notebookDestinationOpen = false;
+    pendingNotebookMessage = null;
+  }
 
-    if (chunkIds.length && appState.activeNotebookId) {
-      await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
+  function formatAssistantNotebookEntry(message: SessionMessage) {
+    const query =
+      messages.find((candidate) => candidate.role === "user")?.content ??
+      appState.lastQuery;
+    const entryId = `assistant-response:${message.sessionId}:${message.id}`;
+    const createdAt = message.createdAt ? new Date(message.createdAt) : null;
+    return {
+      entryId,
+      text: [
+        "[Assistant Response]",
+        query ? `Query: ${query}` : null,
+        `Session ID: ${message.sessionId}`,
+        `Assistant Message ID: ${message.id}`,
+        `Assistant Response ID: ${entryId}`,
+        `Chunk ID: ${entryId}`,
+        !createdAt || Number.isNaN(createdAt.getTime())
+          ? null
+          : `Generated: ${createdAt.toISOString()}`,
+        "",
+        message.content.trim(),
+      ].filter((line): line is string => line !== null).join("\n"),
+    };
+  }
+
+  async function saveAssistantToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
+    const message = pendingNotebookMessage;
+    if (!message) throw new Error("Choose an assistant response to save.");
+
+    const entry = formatAssistantNotebookEntry(message);
+    const response = await fetch(
+      `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chunk_ids: chunkIds,
-        } satisfies NotebookSourcesRequest),
-      });
-      window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+          chunkId: entry.entryId,
+          text: entry.text,
+        }),
+      },
+    );
+    const data = await response.json() as {
+      message?: string;
+      activeNotebookId: string | null;
+      notebooks: NotebookWithPages[];
+      duplicate?: boolean;
+    };
+    if (!response.ok) {
+      throw new Error(data.message || "The assistant response could not be saved.");
     }
 
+    applyNotebookState(appState, data);
+    const chunkIds = getMessageSources(message)
+      .map((source) => source.chunkId)
+      .filter((value): value is string => Boolean(value));
+    if (chunkIds.length) {
+      const sourcesResponse = await fetch(
+        `/notebooks/${destination.notebookId}/sources`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chunk_ids: chunkIds,
+          } satisfies NotebookSourcesRequest),
+        },
+      );
+      if (!sourcesResponse.ok) {
+        throw new Error(
+          "The response was saved, but its source links could not be attached.",
+        );
+      }
+    }
+
+    showWindow("notebook-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+    window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+    const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
     showToast(
-      chunkIds.length
-        ? `Sent to notebook (+${chunkIds.length} source${chunkIds.length === 1 ? "" : "s"})`
-        : "Sent to notebook",
+      data.duplicate
+        ? `Assistant response already exists in ${label}`
+        : `Assistant response saved to ${label}`,
     );
+    closeSendToNotebook();
   }
 
   // Reload when the current session changes (e.g. picked in Chat History).
@@ -146,21 +265,38 @@
     const sessionId = appState.currentSession?.id;
     if (busy || sessionId === loadedSessionId) return;
     loadedSessionId = sessionId;
+    loadingSession = Boolean(sessionId);
+    messages = [];
+    messageStream = "";
     status = "";
+    graphPreparationError = "";
+    graphPreparationAbortController?.abort();
+    graphPreparationGeneration += 1;
+    graphPreparing = false;
+    graphReady = false;
+    queryGraphContext = null;
     selectedResultChunkId = null;
     galaxySelectedChunkId = null;
+    clearGraphGalaxy();
     if (sessionId) {
       loadMessages(sessionId)
-        .then((loadedMessages) => {
+        .then(async (loadedMessages) => {
           if (sessionId !== appState.currentSession?.id) return;
           messages = loadedMessages;
-          void restoreQueryGraph(sessionId, loadedMessages);
+          rememberQueryGraph(sessionId, loadedMessages);
+          loadingSession = false;
+          await tick();
+          if (logElement) logElement.scrollTop = 0;
         })
-        .catch(() => {});
+        .catch(() => {
+          if (sessionId !== appState.currentSession?.id) return;
+          loadingSession = false;
+          status = "This historical chat could not be loaded.";
+        });
     } else {
       messages = [];
       messageStream = "";
-      clearGraphGalaxy();
+      loadingSession = false;
     }
   });
 
@@ -202,7 +338,71 @@
     return `Assistant request failed (${response.status})`;
   }
 
-  async function restoreQueryGraph(
+  function graphDocumentIdsFromMetadata(
+    metadata: AssistantMetadata | null | undefined,
+  ): string[] {
+    const storedGraphDocumentIds = Array.isArray(metadata?.graphDocumentIds)
+      ? metadata.graphDocumentIds.filter(Boolean)
+      : [];
+    if (storedGraphDocumentIds.length) return [...new Set(storedGraphDocumentIds)];
+
+    const requestedDocumentIds = Array.isArray(metadata?.documentIds)
+      ? metadata.documentIds.filter(Boolean)
+      : [];
+    if (requestedDocumentIds.length) return [...new Set(requestedDocumentIds)];
+
+    return [...new Set(
+      (metadata?.sources ?? [])
+        .map((source) => source.documentId)
+        .filter((value): value is string => Boolean(value)),
+    )];
+  }
+
+  function graphChunkIdsFromMetadata(
+    metadata: AssistantMetadata | null | undefined,
+  ): string[] {
+    const storedChunkIds = Array.isArray(metadata?.graphChunkIds)
+      ? metadata.graphChunkIds.filter(Boolean)
+      : [];
+    if (storedChunkIds.length) return [...new Set(storedChunkIds)];
+    return [...new Set(
+      (metadata?.sources ?? [])
+        .map((source) => source.chunkId)
+        .filter((value): value is string => Boolean(value)),
+    )];
+  }
+
+  function hasStoredQueryGraph(
+    sessionId: string,
+    query: string,
+    chunkIds: string[],
+  ): boolean {
+    try {
+      const raw = localStorage.getItem(`dk:query-graph:${sessionId}`);
+      if (!raw) return false;
+      const stored = JSON.parse(raw) as {
+        query?: unknown;
+        chunkIds?: unknown;
+        graph?: { nodes?: unknown; edges?: unknown };
+      };
+      const storedChunkIds = Array.isArray(stored.chunkIds)
+        ? stored.chunkIds.filter((value): value is string => typeof value === "string")
+        : [];
+      const matchesChunkScope = chunkIds.length === 0 ||
+        (
+          storedChunkIds.length === chunkIds.length &&
+          chunkIds.every((chunkId) => storedChunkIds.includes(chunkId))
+        );
+      return stored.query === query &&
+        matchesChunkScope &&
+        Array.isArray(stored.graph?.nodes) &&
+        Array.isArray(stored.graph?.edges);
+    } catch {
+      return false;
+    }
+  }
+
+  function rememberQueryGraph(
     sessionId: string,
     sessionMessages: SessionMessage[],
   ) {
@@ -211,48 +411,98 @@
       .reverse()
       .find((message) => message.role === "assistant");
     const metadata = assistantMessage?.metadata as AssistantMetadata | null;
-    if (!userMessage || metadata?.retrievalMode !== "graph") return;
+    if (!userMessage) return;
 
-    const documentIds = Array.isArray(metadata.documentIds)
-      ? metadata.documentIds
-      : [...new Set(
-          (metadata.sources ?? [])
-            .map((source) => source.documentId)
-            .filter((value): value is string => Boolean(value)),
-        )];
-    const requestId = ++graphRequestId;
-    appState.lastQuery = metadata.query?.trim() || userMessage.content;
-    showWindow("graph-galaxy-window");
-    await tick();
-    window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
-      detail: {
-        sessionId,
-        query: appState.lastQuery,
-        documentIds,
-        requestId,
-        topK: metadata.graphTopK,
-      },
-    }));
+    const documentIds = graphDocumentIdsFromMetadata(metadata);
+    const chunkIds = graphChunkIdsFromMetadata(metadata);
+    appState.lastQuery = metadata?.query?.trim() || userMessage.content;
+    const context = {
+      sessionId,
+      query: appState.lastQuery,
+      documentIds,
+      chunkIds,
+      topK: metadata?.graphTopK ?? appState.ragTopK,
+    };
+    queryGraphContext = context;
+    graphReady = hasStoredQueryGraph(sessionId, context.query, context.chunkIds);
+    if (!graphReady && assistantMessage) {
+      void prepareQueryGraph(
+        context.sessionId,
+        context.query,
+        context.documentIds,
+        context.chunkIds,
+        context.topK,
+      );
+    }
   }
 
-  async function updateGraphGalaxy(
+  async function prepareQueryGraph(
+    sessionId: string,
     query: string,
     documentIds: string[],
-    requestId: number,
-    phase: "loading" | "ready" | "error",
+    chunkIds: string[],
+    topK: number,
   ) {
-    showWindow("graph-galaxy-window");
-    await tick();
-    window.dispatchEvent(new CustomEvent("dk:visualize-graph", {
-      detail: {
+    graphPreparationAbortController?.abort();
+    const controller = new AbortController();
+    graphPreparationAbortController = controller;
+    const generation = ++graphPreparationGeneration;
+    graphPreparing = true;
+    graphReady = false;
+    graphPreparationError = "";
+    queryGraphContext = {
+      sessionId,
+      query,
+      documentIds: [...documentIds],
+      chunkIds: [...chunkIds],
+      topK,
+    };
+
+    try {
+      const params = new URLSearchParams({ query, topK: String(topK) });
+      for (const documentId of documentIds) params.append("documentIds", documentId);
+      for (const chunkId of chunkIds) params.append("chunkIds", chunkId);
+      const response = await fetch(`/knowledge-graph/visual?${params}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await assistantErrorMessage(response));
+      const graph = await response.json();
+      if (
+        controller.signal.aborted ||
+        generation !== graphPreparationGeneration ||
+        sessionId !== appState.currentSession?.id
+      ) {
+        return;
+      }
+      const snapshot = {
         query,
-        documentIds,
-        requestId,
-        phase,
-        sessionId: appState.currentSession?.id,
-        topK: appState.ragTopK,
-      },
-    }));
+        documentIds: [...documentIds],
+        chunkIds: [...chunkIds],
+        topK,
+        graph,
+        selectedNodeId: null,
+        inspectorExpanded: false,
+        yaw: 0.42,
+        pitch: -0.18,
+        zoom: 0.82,
+        panX: 0,
+        panY: 0,
+      };
+      try {
+        localStorage.setItem(`dk:query-graph:${sessionId}`, JSON.stringify(snapshot));
+      } catch {
+        // The Galaxy can still reuse the server-side graph if browser storage is full.
+      }
+      graphReady = true;
+    } catch (error) {
+      if (controller.signal.aborted || generation !== graphPreparationGeneration) return;
+      graphPreparationError =
+        error instanceof Error ? error.message : "The Knowledge Graph could not be prepared.";
+    } finally {
+      if (generation === graphPreparationGeneration) {
+        graphPreparing = false;
+      }
+    }
   }
 
   function clearGraphGalaxy() {
@@ -316,17 +566,33 @@
   }
 
   async function openGraphGalaxy() {
-    const visualQuery = draft.trim() || appState.lastQuery;
+    const context = queryGraphContext;
+    if (!context) {
+      status = "Ask a question before visualizing its Knowledge Graph.";
+      return;
+    }
     showWindow("graph-galaxy-window");
     await tick();
-    window.dispatchEvent(
-      new CustomEvent("dk:visualize-graph", { detail: { query: visualQuery } }),
-    );
+    window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
+      detail: {
+        sessionId: context.sessionId,
+        query: context.query,
+        documentIds: context.documentIds,
+        chunkIds: context.chunkIds,
+        requestId: ++graphRequestId,
+        topK: context.topK,
+      },
+    }));
   }
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || hasSubmittedQuery) {
+      if (hasSubmittedQuery) {
+        status = "This chat already has a question. Start a new chat to ask another one.";
+      }
+      return;
+    }
     const text = draft.trim();
     if (!text) return;
 
@@ -334,14 +600,22 @@
     busy = true;
     status = "";
     appState.lastQuery = text;
-    const graphMode = !notebookMode && appState.retrievalMode === "graph";
     const documentIds = getSelectedDocumentIds();
-    const requestId = graphMode ? ++graphRequestId : 0;
-    let graphReady = false;
-
-    if (graphMode) {
-      await updateGraphGalaxy(text, documentIds, requestId, "loading");
-    }
+    const useNotebookContext = hasNotebookContext;
+    const notebookContextPages = useNotebookContext
+      ? appState.notebooks.flatMap((notebook) =>
+          notebook.pages
+            .filter((page) =>
+              appState.notebookContextPageIds.includes(page.id)
+            )
+            .map((page) => ({
+              notebookId: notebook.id,
+              notebookTitle: notebook.title,
+              pageId: page.id,
+              pageTitle: page.title,
+            }))
+        )
+      : [];
 
     try {
       const session = appState.currentSession ?? (await createSession());
@@ -365,12 +639,15 @@
         top_k: appState.topK,
       };
 
-      const requestBody: ChatMessageRequest = notebookMode
+      const requestBody: ChatMessageRequest = useNotebookContext
         ? {
             ...requestBase,
             conversational: true,
             context: await fetchNotebookContext(),
-            notebook_id: appState.activeNotebookId,
+            notebook_id: null,
+            notebook_context_pages: notebookContextPages,
+            document_ids: documentIds,
+            rag_top_k: appState.ragTopK,
           }
         : {
             ...requestBase,
@@ -391,12 +668,7 @@
       );
       if (!response.ok) throw new Error(await assistantErrorMessage(response));
       if (!response.body) throw new Error("Assistant returned an empty response stream");
-
-      if (graphMode) {
-        void refreshKnowledgeGraphStatus(documentIds);
-        await updateGraphGalaxy(text, documentIds, requestId, "ready");
-        graphReady = true;
-      }
+      void refreshKnowledgeGraphStatus(documentIds);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -409,12 +681,10 @@
 
       messages = await loadMessages(session.id);
       loadedSessionId = session.id;
+      rememberQueryGraph(session.id, messages);
       await scrollToBottom();
     } catch (error) {
       status = error instanceof Error ? error.message : "Assistant request failed.";
-      if (graphMode && !graphReady) {
-        await updateGraphGalaxy(text, documentIds, requestId, "error");
-      }
     } finally {
       busy = false;
       messageStream = "";
@@ -426,11 +696,29 @@
     status = "";
     messages = [];
     messageStream = "";
+    graphPreparationAbortController?.abort();
+    graphPreparationGeneration += 1;
+    graphPreparing = false;
+    graphReady = false;
+    queryGraphContext = null;
+    graphPreparationError = "";
     clearGraphGalaxy();
     appState.currentSession = await createSession();
   }
 
   onMount(() => {
+    restoreNotebookContextPageIds(appState);
+    const handleSendToChat = async (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (!text) return;
+      if (busy) {
+        status = "Wait for the current response to finish before sending notebook text.";
+        return;
+      }
+      if (hasSubmittedQuery) await createNewChat();
+      draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+      showWindow("chat-window");
+    };
     const handleGalaxySelection = (event: Event) => {
       const detail = (event as CustomEvent<{
         sessionId?: string | null;
@@ -454,9 +742,11 @@
       }
     };
 
+    window.addEventListener("dk:send-to-chat", handleSendToChat);
     window.addEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
     window.addEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
     return () => {
+      window.removeEventListener("dk:send-to-chat", handleSendToChat);
       window.removeEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
       window.removeEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
     };
@@ -475,9 +765,9 @@
   contentLabel="Assistant chat"
 >
   {#snippet subtitle()}
-    {notebookMode
-      ? `Using ${appState.activeNotebook?.title ?? "Notebook"} for Context`
-      : "Using Documents for Context"}
+    {hasNotebookContext
+      ? `Using ${appState.notebookContextPageIds.length} notebook ${appState.notebookContextPageIds.length === 1 ? "page" : "pages"} for context`
+      : "Using documents for context"}
   {/snippet}
 
   <div class="chat-window">
@@ -489,6 +779,16 @@
         {graphReadinessMessage}
       </div>
     {/if}
+    {#if graphPreparationError}
+      <div class="chat-status li-subtle" role="status">
+        The response completed, but its Knowledge Graph could not be prepared: {graphPreparationError}
+      </div>
+    {/if}
+    {#if loadingSession}
+      <div class="chat-status li-subtle" role="status">
+        Loading historical chat...
+      </div>
+    {/if}
     <div class="chat-log" bind:this={logElement} aria-live="polite">
       {#each messages as message (message.id)}
         <div
@@ -497,7 +797,22 @@
           class:assistant={message.role === "assistant"}
         >
           {#if message.role === "assistant"}
+            {@const assistantMetadata = getAssistantMetadata(message)}
             <div class="msg-md">{@html renderMarkdown(message.content)}</div>
+            {#if assistantMetadata.notebookContext}
+              <div class="historical-notebook-context">
+                <strong>Notebook context used</strong>
+                {#if assistantMetadata.notebookContextPages?.length}
+                  <ul>
+                    {#each assistantMetadata.notebookContextPages as contextPage (`${contextPage.notebookId}:${contextPage.pageId}`)}
+                      <li>{contextPage.notebookTitle} → {contextPage.pageTitle}</li>
+                    {/each}
+                  </ul>
+                {:else}
+                  <span>Notebook context was included with this historical query.</span>
+                {/if}
+              </div>
+            {/if}
             {@const sources = getMessageSources(message)}
             <div class="msg-citations">
               <div class="msg-citations-header">
@@ -506,7 +821,7 @@
                 {:else}
                   <span></span>
                 {/if}
-                <button class="send-to-notebook-btn" type="button" onclick={() => sendToNotebook(message)}>
+                <button class="send-to-notebook-btn" type="button" onclick={() => openSendToNotebook(message)}>
                   Send to Notebook
                 </button>
               </div>
@@ -578,6 +893,12 @@
       {/if}
     </div>
 
+    {#if hasSubmittedQuery}
+      <div class="chat-query-complete" role="status">
+        This chat is complete. Start a new chat to ask another question.
+      </div>
+    {/if}
+
     <form
       class="chat-input inline-action-control"
       style="--inline-action-count: 4;"
@@ -587,27 +908,35 @@
         class="input"
         type="text"
         name="message"
-        placeholder="Type a message..."
+        placeholder={hasSubmittedQuery
+          ? "Start a new chat to ask another question."
+          : "Type a message..."}
         bind:value={draft}
         aria-label="Message"
-        disabled={busy}
+        disabled={busy || loadingSession || hasSubmittedQuery}
       />
       <button
         class="inline-action-button chat-mode-toggle"
-        class:active={notebookMode}
+        class:active={Boolean(
+          appState.activePage &&
+            pageProvidesNotebookContext(appState, appState.activePage.id),
+        )}
         type="button"
-        disabled={busy}
-        aria-label="Chat About Your Notebook"
-        aria-pressed={notebookMode}
-        title="Chat About Your Notebook"
-        onclick={toggleNotebookMode}
+        disabled={busy || loadingSession || hasSubmittedQuery || !appState.activePage}
+        aria-label="Use active notebook page for context"
+        aria-pressed={Boolean(
+          appState.activePage &&
+            pageProvidesNotebookContext(appState, appState.activePage.id),
+        )}
+        title="Use active notebook page for context"
+        onclick={toggleActivePageContext}
       >
         <Icon name="menu_book" size={16} />
       </button>
       <button
         class="inline-action-button chat-new-button"
         type="button"
-        disabled={busy}
+        disabled={busy || loadingSession}
         aria-label="Start a new chat"
         title="Start a new chat"
         onclick={createNewChat}
@@ -618,7 +947,10 @@
         class="inline-action-button chat-graph-button"
         type="button"
         aria-label="Visualize knowledge graph"
-        title="Visualize knowledge graph"
+        title={graphPreparing
+          ? "Knowledge Graph is still preparing"
+          : "Visualize knowledge graph"}
+        disabled={!queryGraphContext || !graphReady || graphPreparing}
         onclick={openGraphGalaxy}
       >
         <Icon name="hub" size={16} />
@@ -633,6 +965,16 @@
         <Icon name="send" size={16} />
       </button>
     </form>
+
+    <NotebookDestinationDialog
+      open={notebookDestinationOpen}
+      kindLabel="Send to Notebook"
+      itemTitle="Assistant-generated response"
+      actionLabel="Save Response"
+      ariaLabel="Save assistant response destination"
+      onClose={closeSendToNotebook}
+      onSave={saveAssistantToDestination}
+    />
   </div>
 </BaseWindow>
 
@@ -664,6 +1006,16 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .chat-query-complete {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in oklab, var(--accent) 34%, var(--border));
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .chat-log {
@@ -761,6 +1113,27 @@
   .msg-md :global(th),
   .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
+
+  .historical-notebook-context {
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .historical-notebook-context strong {
+    color: var(--text);
+  }
+
+  .historical-notebook-context ul {
+    margin: 0;
+    padding-left: 18px;
+  }
 
   .msg-pending {
     display: inline-flex;

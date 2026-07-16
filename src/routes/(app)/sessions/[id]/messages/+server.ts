@@ -23,6 +23,8 @@ import {
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
 import {
+  ensureKnowledgeGraph,
+  ensureKnowledgeGraphForChunks,
   KnowledgeGraphNoDocumentsError,
   KnowledgeGraphNotBuiltError,
 } from "$lib/server/knowledge-graph";
@@ -237,6 +239,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(session_messages.sessionId, params.id))
     .orderBy(asc(session_messages.id));
 
+  if (messages.some((existingMessage) => existingMessage.role === "user")) {
+    return json(
+      {
+        code: "SESSION_QUERY_LIMIT",
+        message: "This chat already has a question. Start a new chat to ask another one.",
+      },
+      { status: 409 },
+    );
+  }
+
   const provider = getProvider(providerId);
   const promptTemplateId = body.conversational
     ? null
@@ -257,10 +269,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const persona = body.conversational ? "" : body.persona;
   const pageContext = body.conversational ? body.context : "";
   const notebookId = body.conversational ? body.notebook_id : null;
-  const documentIds = body.conversational
-    ? []
-    : body.document_ids.map((value) => String(value).trim()).filter(Boolean);
-  const ragTopK = body.conversational ? undefined : body.rag_top_k;
+  const documentIds =
+    body.document_ids.map((value) => String(value).trim()).filter(Boolean);
+  const ragTopK = body.rag_top_k;
 
   let ragContext: RagContextResult;
   try {
@@ -288,6 +299,41 @@ export const POST: RequestHandler = async ({ params, request }) => {
     }
     throw error;
   }
+
+  // When the user did not explicitly select documents, scope this query's
+  // graph to the documents that retrieval actually matched. An empty graph
+  // scope means the entire corpus and can turn a small query graph into a
+  // multi-thousand-chunk rebuild.
+  const graphScopeContext = body.conversational
+    ? await retrieveRagContext({
+        question: message,
+        documentIds,
+        mode: retrievalMode === "graph" ? "hybrid" : retrievalMode,
+        topK: ragTopK,
+      })
+    : ragContext;
+  const graphDocumentIds = documentIds.length
+    ? [...new Set(documentIds)]
+    : [...new Set(
+        graphScopeContext.sources
+          .map((source) => source.documentId)
+          .filter(Boolean),
+      )];
+  const graphChunkIds = [...new Set(
+    graphScopeContext.sources
+      .map((source) => source.chunkId)
+      .filter(Boolean),
+  )];
+
+  // Retrieval has now established the exact graph scope. Start construction
+  // while the model is generating its answer; the client will request the
+  // query-focused visual data after the streamed response is stored.
+  const graphPreparation = graphChunkIds.length
+    ? ensureKnowledgeGraphForChunks(graphChunkIds)
+    : ensureKnowledgeGraph(graphDocumentIds);
+  void graphPreparation.catch((error) => {
+    console.error("Background Knowledge Graph preparation failed:", error);
+  });
 
   // Notebook-mode context = the visible page text + the notebook's attached
   // sources (hidden from the notebook page, invisible to the user, but the
@@ -334,15 +380,19 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: body.conversational
-              ? null
-              : {
-                  retrievalMode: ragContext.mode,
-                  sources: ragContext.sources,
-                  query: message,
-                  documentIds,
-                  graphTopK: ragTopK,
-                },
+            metadata: {
+              retrievalMode: body.conversational ? "notebook" : ragContext.mode,
+              sources: ragContext.sources,
+              query: message,
+              documentIds,
+              graphDocumentIds,
+              graphChunkIds,
+              graphTopK: ragTopK,
+              notebookContext: body.conversational,
+              notebookContextPages: body.conversational
+                ? body.notebook_context_pages ?? []
+                : [],
+            },
             createdAt: timestamp,
           },
         ]);

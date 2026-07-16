@@ -1,12 +1,13 @@
 <script lang="ts">
   import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
-  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type { AppState } from "$lib/state.svelte";
   import type { NotebookWithPages } from "$lib/server/database/schema";
   import { showWindow } from "$lib/utils/workspaceState";
+  import { applyNotebookState } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
 
   type VisualNode = {
@@ -50,6 +51,7 @@
   type StoredGraphState = {
     query: string;
     documentIds: string[];
+    chunkIds?: string[];
     topK: number;
     graph: GraphResponse;
     selectedNodeId: string | null;
@@ -116,14 +118,7 @@
   let inspectorExpanded = $state(false);
   let savingChunkId = $state<string | null>(null);
   let saveDialogOpen = $state(false);
-  let saveDialogLoading = $state(false);
-  let saveDialogError = $state("");
   let pendingChunk = $state<VisualNode | null>(null);
-  let destinationNotebookId = $state("");
-  let destinationPageId = $state("");
-  let existingNotebookNewPageTitle = $state("");
-  let newNotebookTitle = $state("");
-  let newPageTitle = $state("");
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
   let zoom = $state(DEFAULT_ZOOM);
@@ -138,17 +133,12 @@
   let loadGeneration = 0;
   let activeSessionId = $state<string | null>(null);
   let activeDocumentIds: string[] = [];
+  let activeChunkIds: string[] = [];
   let activeTopK = appState.ragTopK || 8;
   let cameraAnimation: CameraAnimation | null = null;
   let pendingFocusRequest: { chunkId?: string; nodeId?: string } | null = null;
 
   const nodeById = $derived(new Map(nodes.map((node) => [node.id, node])));
-  const destinationNotebook = $derived(
-    appState.notebooks.find((notebook) => notebook.id === destinationNotebookId) ?? null,
-  );
-  const destinationPage = $derived(
-    destinationNotebook?.pages.find((page) => page.id === destinationPageId) ?? null,
-  );
 
   onMount(() => {
     resizeObserver = new ResizeObserver(() => resizeCanvas());
@@ -159,6 +149,7 @@
       const detail = (event as CustomEvent<{
         query?: string;
         documentIds?: string[];
+        chunkIds?: string[];
         requestId?: number;
         sessionId?: string;
         topK?: number;
@@ -171,6 +162,7 @@
       latestRequestId = requestId;
       activeSessionId = detail?.sessionId ?? activeSessionId;
       activeDocumentIds = [...(detail?.documentIds ?? [])];
+      activeChunkIds = [...(detail?.chunkIds ?? [])];
       activeTopK = detail?.topK ?? appState.ragTopK ?? 8;
       query = nextQuery;
       if (detail?.phase === "loading") {
@@ -183,7 +175,12 @@
         status = `Unable to refresh the Galaxy for “${nextQuery}”.`;
         return;
       }
-      loadGraph(nextQuery, detail?.documentIds ?? [], requestId).catch(() => {});
+      loadGraph(
+        nextQuery,
+        detail?.documentIds ?? [],
+        detail?.chunkIds ?? [],
+        requestId,
+      ).catch(() => {});
     }
 
     function handleRestoreQuery(event: Event) {
@@ -191,6 +188,7 @@
         sessionId: string;
         query: string;
         documentIds: string[];
+        chunkIds?: string[];
         requestId: number;
         topK?: number;
       }>).detail;
@@ -198,6 +196,7 @@
       latestRequestId = detail.requestId;
       activeSessionId = detail.sessionId;
       activeDocumentIds = [...detail.documentIds];
+      activeChunkIds = [...(detail.chunkIds ?? [])];
       activeTopK = detail.topK ?? appState.ragTopK ?? 8;
       closeSaveDialog();
 
@@ -205,6 +204,7 @@
       if (stored && stored.query === detail.query) {
         graphAbortController?.abort();
         activeDocumentIds = [...(stored.documentIds ?? detail.documentIds)];
+        activeChunkIds = [...(stored.chunkIds ?? detail.chunkIds ?? [])];
         activeTopK = stored.topK ?? detail.topK ?? appState.ragTopK ?? 8;
         query = stored.query;
         graph = stored.graph;
@@ -223,7 +223,12 @@
         return;
       }
 
-      loadGraph(detail.query, detail.documentIds, detail.requestId).catch(() => {});
+      loadGraph(
+        detail.query,
+        detail.documentIds,
+        detail.chunkIds ?? [],
+        detail.requestId,
+      ).catch(() => {});
     }
 
     function handleFocusChunk(event: Event) {
@@ -249,6 +254,7 @@
       graph = null;
       nodes = [];
       query = "";
+      activeChunkIds = [];
       loading = false;
       status = "";
       selectedNode = null;
@@ -296,7 +302,12 @@
     status = `Building or updating the graph for “${nextQuery}”…`;
   }
 
-  async function loadGraph(nextQuery: string, documentIds: string[], requestId: number) {
+  async function loadGraph(
+    nextQuery: string,
+    documentIds: string[],
+    chunkIds: string[],
+    requestId: number,
+  ) {
     graphAbortController?.abort();
     const controller = new AbortController();
     graphAbortController = controller;
@@ -310,11 +321,9 @@
       const params = new URLSearchParams({
         topK: String(activeTopK),
       });
-      for (const documentId of getSelectedDocumentIds()) {
-        params.append("documentIds", documentId);
-      }
       if (nextQuery.trim()) params.set("query", nextQuery.trim());
       for (const documentId of documentIds) params.append("documentIds", documentId);
+      for (const chunkId of chunkIds) params.append("chunkIds", chunkId);
       const response = await fetch(`/knowledge-graph/visual?${params}`, {
         signal: controller.signal,
       });
@@ -706,6 +715,7 @@
     const snapshot: StoredGraphState = {
       query,
       documentIds: [...activeDocumentIds],
+      chunkIds: [...activeChunkIds],
       topK: activeTopK,
       graph,
       selectedNodeId: selectedNode?.id ?? null,
@@ -755,55 +765,6 @@
     ].join("\n");
   }
 
-  function applyNotebookState(data: {
-    activeNotebookId: string | null;
-    notebooks: NotebookWithPages[];
-  }) {
-    appState.notebooks = data.notebooks ?? [];
-    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
-    appState.activeNotebook =
-      appState.notebooks.find((notebook) => notebook.id === appState.activeNotebookId) ??
-      appState.notebooks[0] ??
-      null;
-    appState.activePage =
-      appState.activeNotebook?.pages.find(
-        (page) => page.id === appState.activeNotebook?.activePageId,
-      ) ?? appState.activeNotebook?.pages[0] ?? null;
-  }
-
-  function chooseDestinationNotebook(notebookId: string, preferredPageId?: string | null) {
-    destinationNotebookId = notebookId;
-    const notebook = appState.notebooks.find((candidate) => candidate.id === notebookId);
-    destinationPageId =
-      notebook?.pages.find((page) => page.id === preferredPageId)?.id ??
-      notebook?.pages.find((page) => page.id === notebook.activePageId)?.id ??
-      notebook?.pages[0]?.id ??
-      "";
-  }
-
-  async function loadSaveDestinations() {
-    saveDialogLoading = true;
-    saveDialogError = "";
-    try {
-      const response = await fetch("/notebooks");
-      if (!response.ok) throw new Error("Notebook destinations could not be loaded.");
-      const data = await response.json() as {
-        activeNotebookId: string | null;
-        notebooks: NotebookWithPages[];
-      };
-      applyNotebookState(data);
-      const notebookId =
-        data.notebooks.find((notebook) => notebook.id === data.activeNotebookId)?.id ??
-        data.notebooks[0]?.id ??
-        "";
-      chooseDestinationNotebook(notebookId);
-    } catch (error) {
-      saveDialogError = error instanceof Error ? error.message : "Notebook destinations could not be loaded.";
-    } finally {
-      saveDialogLoading = false;
-    }
-  }
-
   async function openSaveChunkDialog() {
     const node = selectedNode;
     if (node?.kind !== "chunk") return;
@@ -813,118 +774,33 @@
   async function openSaveChunkDialogFor(node: VisualNode) {
     pendingChunk = node;
     saveDialogOpen = true;
-    saveDialogError = "";
-    existingNotebookNewPageTitle = "";
-    newNotebookTitle = "";
-    newPageTitle = "";
-    await loadSaveDestinations();
   }
 
   function closeSaveDialog() {
     if (savingChunkId) return;
     saveDialogOpen = false;
-    saveDialogError = "";
     pendingChunk = null;
-    existingNotebookNewPageTitle = "";
-    newNotebookTitle = "";
-    newPageTitle = "";
   }
 
   function notifyNotebookChanged() {
     window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
   }
 
-  async function createPageInExistingNotebook() {
-    const notebookId = destinationNotebookId;
-    const pageTitle = existingNotebookNewPageTitle.trim();
-    if (saveDialogLoading) return;
-    if (!notebookId) {
-      saveDialogError = "Choose a notebook before creating a page.";
-      return;
-    }
-    if (!pageTitle) {
-      saveDialogError = "Enter a page name.";
-      return;
-    }
-
-    saveDialogLoading = true;
-    saveDialogError = "";
-    try {
-      const response = await fetch(`/notebooks/${notebookId}/pages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: pageTitle }),
-      });
-      const data = await response.json() as {
-        message?: string;
-        activeNotebookId: string | null;
-        notebooks: NotebookWithPages[];
-        createdPageId?: string;
-      };
-      if (!response.ok) throw new Error(data.message || "The page could not be created.");
-
-      applyNotebookState(data);
-      chooseDestinationNotebook(notebookId, data.createdPageId);
-      existingNotebookNewPageTitle = "";
-      notifyNotebookChanged();
-      showToast("Page created and selected");
-    } catch (error) {
-      saveDialogError = error instanceof Error ? error.message : "The page could not be created.";
-    } finally {
-      saveDialogLoading = false;
-    }
-  }
-
-  async function createDestination() {
-    const notebookTitle = newNotebookTitle.trim();
-    const pageTitle = newPageTitle.trim();
-    if (saveDialogLoading) return;
-    if (!notebookTitle || !pageTitle) {
-      saveDialogError = "Enter both a notebook name and a page name.";
-      return;
-    }
-    saveDialogLoading = true;
-    saveDialogError = "";
-    try {
-      const response = await fetch("/notebooks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: notebookTitle, pageTitle }),
-      });
-      const data = await response.json() as {
-        message?: string;
-        activeNotebookId: string | null;
-        notebooks: NotebookWithPages[];
-        createdNotebookId?: string;
-        createdPageId?: string;
-      };
-      if (!response.ok) throw new Error(data.message || "The destination could not be created.");
-      applyNotebookState(data);
-      chooseDestinationNotebook(
-        data.createdNotebookId ?? data.activeNotebookId ?? "",
-        data.createdPageId,
-      );
-      newNotebookTitle = "";
-      newPageTitle = "";
-      notifyNotebookChanged();
-    } catch (error) {
-      saveDialogError = error instanceof Error ? error.message : "The destination could not be created.";
-    } finally {
-      saveDialogLoading = false;
-    }
-  }
-
-  async function saveChunkToDestination() {
+  async function saveChunkToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
     const node = pendingChunk;
-    if (node?.kind !== "chunk" || !destinationNotebook || !destinationPage) return;
+    if (node?.kind !== "chunk") return;
     const saveKey = chunkSaveKey(node);
     if (savingChunkId) return;
 
     savingChunkId = saveKey;
-    saveDialogError = "";
     try {
       const response = await fetch(
-        `/notebooks/${destinationNotebook.id}/pages/${destinationPage.id}/chunks`,
+        `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -942,16 +818,22 @@
       };
       if (!response.ok) throw new Error(data.message || "The chunk could not be saved.");
 
-      applyNotebookState(data);
+      applyNotebookState(appState, data);
       showWindow("notebook-window");
       await tick();
       notifyNotebookChanged();
-      const destination = `${destinationNotebook.title} → ${destinationPage.title}`;
-      showToast(data.duplicate ? `Chunk already exists in ${destination}` : `Chunk saved to ${destination}`);
+      const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
+      showToast(
+        data.duplicate
+          ? `Chunk already exists in ${label}`
+          : `Chunk saved to ${label}`,
+      );
       saveDialogOpen = false;
       pendingChunk = null;
     } catch (error) {
-      saveDialogError = error instanceof Error ? error.message : "The chunk could not be saved.";
+      throw error instanceof Error
+        ? error
+        : new Error("The chunk could not be saved.");
     } finally {
       savingChunkId = null;
     }
@@ -1145,142 +1027,15 @@
       {/if}
     </div>
 
-    {#if saveDialogOpen}
-      <div class="save-dialog-backdrop">
-        <div
-          class="save-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Save chunk destination"
-        >
-          <header class="save-dialog-header">
-            <div>
-              <div class="kind">Save Chunk</div>
-              <h3>{pendingChunk?.label ?? "Selected chunk"}</h3>
-            </div>
-            <button
-              class="icon-action"
-              type="button"
-              aria-label="Close save destination"
-              disabled={Boolean(savingChunkId)}
-              onclick={closeSaveDialog}
-            >
-              <Icon name="close" size={17} />
-            </button>
-          </header>
-
-          {#if saveDialogLoading && !appState.notebooks.length}
-            <div class="save-dialog-loading" role="status">Loading notebook destinations...</div>
-          {:else}
-            <div class="destination-choice-label">1. Save to an existing notebook and page</div>
-            <div class="destination-grid">
-              <label>
-                <span>Notebook</span>
-                <select
-                  class="input"
-                  aria-label="Destination notebook"
-                  value={destinationNotebookId}
-                  onchange={(event) => chooseDestinationNotebook(event.currentTarget.value)}
-                >
-                  {#each appState.notebooks as notebook (notebook.id)}
-                    <option value={notebook.id}>{notebook.title}</option>
-                  {/each}
-                </select>
-              </label>
-
-              <label>
-                <span>Page</span>
-                <select
-                  class="input"
-                  aria-label="Destination page"
-                  bind:value={destinationPageId}
-                  disabled={!destinationNotebook?.pages.length}
-                >
-                  {#each destinationNotebook?.pages ?? [] as page (page.id)}
-                    <option value={page.id}>{page.title}</option>
-                  {/each}
-                </select>
-              </label>
-            </div>
-
-            <div class="destination-summary" role="status">
-              {#if destinationNotebook && destinationPage}
-                Destination: <strong>{destinationNotebook.title} → {destinationPage.title}</strong>
-              {:else}
-                Choose or create a notebook page before saving.
-              {/if}
-            </div>
-
-            <section class="destination-create-section">
-              <h4>2. Create a new page in the selected notebook</h4>
-              <div class="destination-create-page-row">
-                <input
-                  class="input"
-                  type="text"
-                  aria-label="New page name in selected notebook"
-                  placeholder="New page name"
-                  bind:value={existingNotebookNewPageTitle}
-                  disabled={!destinationNotebookId || saveDialogLoading}
-                />
-                <button
-                  class="btn btn-sm"
-                  type="button"
-                  disabled={!destinationNotebookId || !existingNotebookNewPageTitle.trim() || saveDialogLoading}
-                  onclick={createPageInExistingNotebook}
-                >Create page</button>
-              </div>
-            </section>
-
-            <section class="destination-create-section">
-              <h4>3. Create a new notebook and page</h4>
-              <div class="destination-create-fields">
-                <input
-                  class="input"
-                  type="text"
-                  aria-label="New notebook name"
-                  placeholder="New notebook name"
-                  bind:value={newNotebookTitle}
-                />
-                <input
-                  class="input"
-                  type="text"
-                  aria-label="New page name"
-                  placeholder="New page name"
-                  bind:value={newPageTitle}
-                />
-              </div>
-              <div class="destination-create-actions">
-                <button
-                  class="btn btn-sm"
-                  type="button"
-                  disabled={!newNotebookTitle.trim() || !newPageTitle.trim() || saveDialogLoading}
-                  onclick={createDestination}
-                >{saveDialogLoading ? "Creating..." : "Create notebook and page"}</button>
-              </div>
-            </section>
-          {/if}
-
-          {#if saveDialogError}
-            <div class="save-dialog-error" role="alert">{saveDialogError}</div>
-          {/if}
-
-          <footer class="save-dialog-footer">
-            <button
-              class="btn btn-sm"
-              type="button"
-              disabled={Boolean(savingChunkId)}
-              onclick={closeSaveDialog}
-            >Cancel</button>
-            <button
-              class="btn btn-sm save-dialog-primary"
-              type="button"
-              disabled={!destinationNotebook || !destinationPage || saveDialogLoading || Boolean(savingChunkId)}
-              onclick={saveChunkToDestination}
-            >{savingChunkId ? "Saving..." : "Save Chunk"}</button>
-          </footer>
-        </div>
-      </div>
-    {/if}
+    <NotebookDestinationDialog
+      open={saveDialogOpen}
+      kindLabel="Save Chunk"
+      itemTitle={pendingChunk?.label ?? "Selected chunk"}
+      actionLabel="Save Chunk"
+      ariaLabel="Save chunk destination"
+      onClose={closeSaveDialog}
+      onSave={saveChunkToDestination}
+    />
   </div>
 </BaseWindow>
 
@@ -1552,146 +1307,6 @@
     font-size: 11px;
   }
 
-  .save-dialog-backdrop {
-    position: absolute;
-    z-index: 20;
-    inset: 0;
-    display: grid;
-    overflow: auto;
-    padding: 18px;
-    background: rgb(2 6 23 / 72%);
-    place-items: center;
-    backdrop-filter: blur(5px);
-  }
-
-  .save-dialog {
-    display: grid;
-    width: min(620px, 100%);
-    max-height: 100%;
-    overflow: auto;
-    gap: 14px;
-    padding: 16px;
-    border: 1px solid color-mix(in oklab, var(--accent) 44%, var(--border));
-    border-radius: 16px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-    box-shadow: 0 24px 70px rgb(0 0 0 / 48%);
-  }
-
-  .save-dialog-header,
-  .save-dialog-footer {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .save-dialog-header {
-    justify-content: space-between;
-  }
-
-  .save-dialog-header h3,
-  .destination-create-section h4 {
-    margin: 2px 0 0;
-  }
-
-  .destination-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .destination-grid label {
-    display: grid;
-    min-width: 0;
-    gap: 5px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .destination-grid select {
-    width: 100%;
-  }
-
-  .destination-summary,
-  .save-dialog-loading,
-  .save-dialog-error {
-    padding: 9px 10px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .destination-summary strong {
-    color: var(--text);
-  }
-
-  .save-dialog-error {
-    border-color: color-mix(in oklab, #ef4444 50%, var(--border));
-    color: #fca5a5;
-  }
-
-  .destination-create-section {
-    display: grid;
-    gap: 8px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-  }
-
-  .destination-create-section h4 {
-    font-size: 12px;
-  }
-
-  .destination-choice-label {
-    color: var(--text);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .destination-create-page-row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .destination-create-page-row .input {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .destination-create-page-row .btn {
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
-
-  .destination-create-fields {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .destination-create-fields .input {
-    min-width: 0;
-  }
-
-  .destination-create-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .destination-create-actions .btn {
-    white-space: nowrap;
-  }
-
-  .save-dialog-footer {
-    justify-content: flex-end;
-  }
-
-  .save-dialog-primary {
-    border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
-    background: color-mix(in oklab, var(--accent) 20%, transparent);
-  }
-
   .kind,
   .score,
   .mono {
@@ -1721,17 +1336,5 @@
       grid-template-columns: 1fr;
     }
 
-    .destination-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .destination-create-fields {
-      grid-template-columns: 1fr;
-    }
-
-    .destination-create-page-row {
-      align-items: stretch;
-      flex-direction: column;
-    }
   }
 </style>

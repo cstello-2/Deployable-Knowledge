@@ -3,6 +3,7 @@ import type { RequestHandler } from "./$types";
 import {
   KnowledgeGraphNoDocumentsError,
   KnowledgeGraphNotBuiltError,
+  ensureKnowledgeGraphForChunks,
   ensureKnowledgeGraph,
   getBuiltKnowledgeGraph,
   searchKnowledgeGraph,
@@ -53,8 +54,35 @@ export const GET: RequestHandler = async ({ url }) => {
   const query = (url.searchParams.get("query") ?? "").trim();
   const topK = Math.max(1, Math.min(20, parseInt(url.searchParams.get("topK") ?? "8", 10)));
   const documentIds = url.searchParams.getAll("documentIds").filter(Boolean);
+  const chunkIds = url.searchParams.getAll("chunkIds").filter(Boolean);
   // No documentIds is the canonical request for the complete collection.
   try {
+    if (chunkIds.length) {
+      const index = await ensureKnowledgeGraphForChunks(chunkIds);
+      const matches = chunkIds.flatMap((chunkId, indexPosition) => {
+        const chunk = index.chunksById.get(chunkId);
+        if (!chunk) return [];
+        const neighbors = index.graph.neighbors(graphId("chunk", chunkId));
+        return [{
+          ...chunk,
+          score: Math.max(0.2, 1 - indexPosition / Math.max(1, chunkIds.length)),
+          graphScore: 0,
+          matchedEntities: neighbors
+            .filter((neighbor) => neighbor.node.kind === "entity")
+            .map((neighbor) => neighbor.node.label),
+          relations: neighbors.map((neighbor) => neighbor.edge.relation),
+          pathCount: 0,
+        } satisfies KnowledgeGraphMatch];
+      });
+      const visual = createQueryGraph(index, query, matches, []);
+      return json({
+        query,
+        mode: "query",
+        stats: index.graph.stats(),
+        ...visual,
+      });
+    }
+
     const index = await ensureKnowledgeGraph(documentIds);
 
     if (query) {
