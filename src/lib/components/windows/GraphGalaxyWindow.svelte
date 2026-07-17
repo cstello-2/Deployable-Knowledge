@@ -102,7 +102,6 @@
   const appState = getContext<AppState>("appState");
   const MIN_ZOOM = 0.18;
   const DEFAULT_ZOOM = 0.82;
-  const WIDE_ZOOM = 0.42;
   const MAX_ZOOM = 3;
   const FOCUS_ZOOM = 1.18;
   const FOCUS_DURATION_MS = 650;
@@ -115,6 +114,7 @@
   let loading = $state(false);
   let status = $state("");
   let selectedNode = $state<GalaxyNode | null>(null);
+  let selectedEdge = $state<VisualEdge | null>(null);
   let inspectorExpanded = $state(false);
   let savingChunkId = $state<string | null>(null);
   let saveDialogOpen = $state(false);
@@ -124,7 +124,9 @@
   let zoom = $state(DEFAULT_ZOOM);
   let panX = $state(0);
   let panY = $state(0);
+  let showEntityNodes = $state(true);
   let dragging = false;
+  let panning = false;
   let lastPointer = { x: 0, y: 0 };
   let frame = 0;
   let resizeObserver: ResizeObserver | null = null;
@@ -139,6 +141,14 @@
   let pendingFocusRequest: { chunkId?: string; nodeId?: string } | null = null;
 
   const nodeById = $derived(new Map(nodes.map((node) => [node.id, node])));
+  const renderedNodes = $derived(showEntityNodes ? nodes : nodes.filter((node) => node.kind !== "entity"));
+  const renderedNodeIds = $derived(new Set(renderedNodes.map((node) => node.id)));
+  const renderedEdges = $derived((graph?.edges ?? []).filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target)));
+  const selectedNodeEdges = $derived(
+    selectedNode
+      ? renderedEdges.filter((edge) => edge.source === selectedNode?.id || edge.target === selectedNode?.id)
+      : [],
+  );
 
   onMount(() => {
     resizeObserver = new ResizeObserver(() => resizeCanvas());
@@ -258,6 +268,7 @@
       loading = false;
       status = "";
       selectedNode = null;
+      selectedEdge = null;
       inspectorExpanded = false;
       cameraAnimation = null;
       pendingFocusRequest = null;
@@ -292,6 +303,7 @@
     graph = null;
     nodes = [];
     selectedNode = null;
+    selectedEdge = null;
     inspectorExpanded = false;
     cameraAnimation = null;
     pendingFocusRequest = null;
@@ -315,6 +327,7 @@
     loading = true;
     status = "";
     selectedNode = null;
+    selectedEdge = null;
     inspectorExpanded = false;
     cameraAnimation = null;
     try {
@@ -371,12 +384,12 @@
     persistGraphSnapshot();
   }
 
-  function setWideView() {
-    cameraAnimation = null;
-    zoom = WIDE_ZOOM;
-    pitch = -0.12;
-    panX = 0;
-    panY = 0;
+  function toggleEntityNodes() {
+    showEntityNodes = !showEntityNodes;
+    if (!showEntityNodes && selectedNode?.kind === "entity") selectedNode = null;
+    if (!showEntityNodes && selectedEdge && (!renderedNodeIds.has(selectedEdge.source) || !renderedNodeIds.has(selectedEdge.target))) {
+      selectedEdge = null;
+    }
     persistGraphSnapshot();
   }
 
@@ -444,7 +457,7 @@
     const centerY = height / 2 + panY;
     const camera = 620;
 
-    for (const node of nodes) {
+    for (const node of renderedNodes) {
       const rx = node.x * cy - node.z * sy;
       const rz = node.x * sy + node.z * cy;
       const ry = node.y * cp - rz * sp;
@@ -457,7 +470,7 @@
       node.depth = rzz;
     }
 
-    return [...nodes].sort((left, right) => left.depth - right.depth);
+    return [...renderedNodes].sort((left, right) => left.depth - right.depth);
   }
 
   function focusMatchingNode(request: { chunkId?: string; nodeId?: string }) {
@@ -478,6 +491,7 @@
     pendingFocusRequest = null;
     if (status === NO_MATCH_STATUS) status = graph?.summary ?? "";
     selectedNode = matchingNode;
+    selectedEdge = null;
     inspectorExpanded = matchingNode.kind === "chunk";
     emitChunkSelection();
     emitFocusResult(request, true);
@@ -592,18 +606,32 @@
 
   function drawEdges(context: CanvasRenderingContext2D, projected: GalaxyNode[]) {
     const visible = new Set(projected.map((node) => node.id));
-    for (const edge of graph?.edges ?? []) {
+    for (const edge of renderedEdges) {
       if (!visible.has(edge.source) || !visible.has(edge.target)) continue;
       const source = nodeById.get(edge.source);
       const target = nodeById.get(edge.target);
       if (!source || !target) continue;
-      const alpha = Math.min(0.48, 0.1 + edge.weight * 0.1);
+      const selected = isSelectedEdge(edge);
+      const alpha = selected ? 0.92 : Math.min(0.48, 0.1 + edge.weight * 0.1);
       context.strokeStyle = relationColor(edge.relation, alpha);
-      context.lineWidth = Math.max(0.6, Math.min(2.2, edge.weight * 0.65));
+      context.lineWidth = selected ? 3.2 : Math.max(0.6, Math.min(2.2, edge.weight * 0.65));
+      if (selected) {
+        context.shadowColor = "rgba(125, 211, 252, 0.75)";
+        context.shadowBlur = 12;
+      }
       context.beginPath();
       context.moveTo(source.sx, source.sy);
       context.lineTo(target.sx, target.sy);
       context.stroke();
+      context.shadowBlur = 0;
+
+      if (selected) {
+        const midX = (source.sx + target.sx) / 2;
+        const midY = (source.sy + target.sy) / 2;
+        context.font = "700 11px system-ui";
+        context.fillStyle = "rgba(238, 244, 255, 0.96)";
+        context.fillText(displayRelation(edge.relation), midX + 7, midY - 7);
+      }
     }
   }
 
@@ -635,6 +663,7 @@
   function handlePointerDown(event: PointerEvent) {
     cameraAnimation = null;
     dragging = true;
+    panning = event.ctrlKey || event.altKey || event.button === 1 || event.button === 2;
     lastPointer = { x: event.clientX, y: event.clientY };
     canvas?.setPointerCapture(event.pointerId);
   }
@@ -643,13 +672,19 @@
     if (!dragging) return;
     const dx = event.clientX - lastPointer.x;
     const dy = event.clientY - lastPointer.y;
-    yaw += dx * 0.006;
-    pitch = Math.max(-1.25, Math.min(1.25, pitch + dy * 0.006));
+    if (panning || event.ctrlKey || event.altKey) {
+      panX += dx;
+      panY += dy;
+    } else {
+      yaw += dx * 0.006;
+      pitch = Math.max(-1.25, Math.min(1.25, pitch + dy * 0.006));
+    }
     lastPointer = { x: event.clientX, y: event.clientY };
   }
 
   function handlePointerUp(event: PointerEvent) {
     dragging = false;
+    panning = false;
     canvas?.releasePointerCapture(event.pointerId);
     persistGraphSnapshot();
   }
@@ -657,7 +692,7 @@
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
     cameraAnimation = null;
-    zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.88 : 1.1)));
+    zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.94 : 1.06)));
     persistGraphSnapshot();
   }
 
@@ -668,16 +703,73 @@
     const y = event.clientY - rect.top;
     let best: GalaxyNode | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
-    for (const node of nodes) {
+    let bestEdge: VisualEdge | null = null;
+    let bestEdgeDistance = Number.POSITIVE_INFINITY;
+
+    for (const node of renderedNodes) {
       const distance = Math.hypot(node.sx - x, node.sy - y);
       if (distance < Math.max(14, node.sr + 8) && distance < bestDistance) {
         best = node;
         bestDistance = distance;
       }
     }
-    if (best?.id !== selectedNode?.id) inspectorExpanded = false;
-    selectedNode = best;
+
+    for (const edge of renderedEdges) {
+      const distance = edgeDistanceToPoint(edge, x, y);
+      if (distance !== null && distance < 8 && distance < bestEdgeDistance) {
+        bestEdge = edge;
+        bestEdgeDistance = distance;
+      }
+    }
+
+    if (best && bestDistance <= Math.max(12, bestEdgeDistance - 2)) {
+      if (best.id !== selectedNode?.id) inspectorExpanded = false;
+      selectedNode = best;
+      selectedEdge = null;
+      cameraAnimation = null;
+      emitChunkSelection();
+      persistGraphSnapshot();
+      return;
+    }
+
+    selectedNode = null;
+    selectedEdge = bestEdge;
     cameraAnimation = null;
+    emitChunkSelection();
+    persistGraphSnapshot();
+  }
+
+  function edgeDistanceToPoint(edge: VisualEdge, x: number, y: number): number | null {
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target) return null;
+
+    const dx = target.sx - source.sx;
+    const dy = target.sy - source.sy;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return null;
+
+    const position = Math.max(0, Math.min(1, ((x - source.sx) * dx + (y - source.sy) * dy) / lengthSquared));
+    const closestX = source.sx + position * dx;
+    const closestY = source.sy + position * dy;
+    return Math.hypot(x - closestX, y - closestY);
+  }
+
+  function focusEdge(edge: VisualEdge) {
+    selectedNode = null;
+    selectedEdge = edge;
+    inspectorExpanded = false;
+    cameraAnimation = null;
+
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!canvas || !source || !target) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const midX = (source.sx + target.sx) / 2;
+    const midY = (source.sy + target.sy) / 2;
+    panX += rect.width / 2 - midX;
+    panY += rect.height / 2 - midY;
     emitChunkSelection();
     persistGraphSnapshot();
   }
@@ -866,6 +958,30 @@
     return `rgba(226, 232, 240, ${alpha})`;
   }
 
+  function isSelectedEdge(edge: VisualEdge) {
+    return Boolean(
+      selectedEdge
+      && selectedEdge.source === edge.source
+      && selectedEdge.target === edge.target
+      && selectedEdge.relation === edge.relation
+    );
+  }
+
+  function nodeLabel(nodeId: string) {
+    return nodeById.get(nodeId)?.label ?? nodeId.replace(/^[^:]+:/, "");
+  }
+
+  function edgePartnerLabel(edge: VisualEdge, nodeId: string) {
+    return nodeLabel(edge.source === nodeId ? edge.target : edge.source);
+  }
+
+  function displayRelation(relation: string) {
+    return relation
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
   function hash(value: string) {
     let out = 2166136261;
     for (let i = 0; i < value.length; i += 1) {
@@ -895,14 +1011,12 @@
       <span class="toolbar-query" title={query}>
         {query ? `Query: ${query}` : "Ask a Knowledge Graph question in Chat to populate the Galaxy."}
       </span>
-      <button class="btn btn-sm" type="button" onclick={setWideView}>Wide view</button>
-      <button class="btn btn-sm" type="button" onclick={resetCamera}>Reset</button>
     </div>
 
     <div class="meta-row">
-      <span>{status || "The Galaxy refreshes automatically after each graph question."}</span>
+      <span>{status || "Drag to orbit. Ctrl/Alt+drag to pan. Scroll to zoom. Click a node or line to inspect."}</span>
       {#if graph}
-        <span>{graph.nodes.length} visible nodes · {graph.edges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
+        <span>{renderedNodes.length} visible nodes · {renderedEdges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
       {/if}
     </div>
 
@@ -928,6 +1042,37 @@
         <span><i class="chunk"></i>Chunk</span>
         <span><i class="entity"></i>Entity</span>
       </div>
+
+      <div class="zoom-panel" aria-label="Galaxy zoom controls">
+        <button type="button" onclick={() => zoom = Math.min(MAX_ZOOM, zoom * 1.07)} aria-label="Zoom in">+</button>
+        <input
+          type="range"
+          min={MIN_ZOOM}
+          max={MAX_ZOOM}
+          step="0.01"
+          bind:value={zoom}
+          aria-label="Galaxy zoom"
+        />
+        <button type="button" onclick={() => zoom = Math.max(MIN_ZOOM, zoom * 0.94)} aria-label="Zoom out">−</button>
+        <button type="button" onclick={resetCamera} title="Reset view" aria-label="Reset view">
+          <Icon name="restart_alt" size={14} />
+        </button>
+      </div>
+
+      <details class="layer-menu">
+        <summary>
+          <Icon name="tune" size={14} />
+          Layers
+        </summary>
+        <label>
+          <input
+            type="checkbox"
+            checked={showEntityNodes}
+            onchange={toggleEntityNodes}
+          />
+          <span>White entity nodes</span>
+        </label>
+      </details>
 
       {#if selectedNode}
         <aside
@@ -1033,6 +1178,31 @@
               <p class="mono">chunk: {selectedNode.chunkId.slice(0, 14)}…</p>
             {/if}
           {/if}
+          {#if selectedNodeEdges.length}
+            <div class="relationship-menu">
+              <div class="kind">connected relationships</div>
+              {#each selectedNodeEdges.slice(0, 12) as edge}
+                <button type="button" onclick={() => focusEdge(edge)}>
+                  <span>{displayRelation(edge.relation)}</span>
+                  <small>{edgePartnerLabel(edge, selectedNode.id)}</small>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </aside>
+      {:else if selectedEdge}
+        <aside class="inspector edge-inspector">
+          <div class="kind">relationship line</div>
+          <h3>{displayRelation(selectedEdge.relation)}</h3>
+          <div class="edge-path">
+            <span>{nodeLabel(selectedEdge.source)}</span>
+            <strong>→</strong>
+            <span>{nodeLabel(selectedEdge.target)}</span>
+          </div>
+          <p class="score">Weight: {selectedEdge.weight.toFixed(2)}</p>
+          {#if selectedEdge.evidence}
+            <p>{selectedEdge.evidence}</p>
+          {/if}
         </aside>
       {/if}
     </div>
@@ -1070,16 +1240,9 @@
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
     align-items: center;
-  }
-
-  .toolbar .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
   }
 
   .meta-row {
@@ -1178,6 +1341,105 @@
   .legend .doc { background: rgb(125 211 252); color: rgb(125 211 252); }
   .legend .chunk { background: rgb(167 139 250); color: rgb(167 139 250); }
   .legend .entity { background: rgb(226 232 240); color: rgb(226 232 240); }
+
+  .zoom-panel {
+    position: absolute;
+    z-index: 4;
+    top: 58px;
+    right: 10px;
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: 8px 6px;
+    border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    border-radius: 999px;
+    background: rgb(3 7 18 / 68%);
+    box-shadow: 0 14px 34px rgb(0 0 0 / 24%);
+    backdrop-filter: blur(8px);
+  }
+
+  .zoom-panel button {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid rgb(148 163 184 / 28%);
+    border-radius: 999px;
+    background: rgb(15 23 42 / 72%);
+    color: rgb(226 232 240 / 94%);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .zoom-panel button:hover {
+    border-color: rgb(125 211 252 / 52%);
+    background: rgb(30 41 59 / 86%);
+  }
+
+  .zoom-panel input[type="range"] {
+    width: 118px;
+    height: 26px;
+    margin: 46px -46px;
+    accent-color: rgb(125 211 252);
+    cursor: pointer;
+    transform: rotate(-90deg);
+    transform-origin: center;
+  }
+
+  .layer-menu {
+    position: absolute;
+    z-index: 5;
+    top: 10px;
+    right: 10px;
+    color: rgb(226 232 240 / 94%);
+    font-size: 11px;
+  }
+
+  .layer-menu summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 9px;
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 999px;
+    background: rgb(3 7 18 / 72%);
+    box-shadow: 0 10px 26px rgb(0 0 0 / 22%);
+    cursor: pointer;
+    list-style: none;
+    backdrop-filter: blur(8px);
+    user-select: none;
+  }
+
+  .layer-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .layer-menu[open] summary {
+    border-color: rgb(125 211 252 / 42%);
+    background: rgb(15 23 42 / 86%);
+  }
+
+  .layer-menu label {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    display: flex;
+    min-width: 170px;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+    border-radius: 12px;
+    background: rgb(8 13 28 / 92%);
+    box-shadow: 0 18px 44px rgb(0 0 0 / 32%);
+    backdrop-filter: blur(10px);
+  }
+
+  .layer-menu input {
+    accent-color: rgb(125 211 252);
+  }
 
   .inspector {
     position: absolute;
@@ -1328,9 +1590,79 @@
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   }
 
+  .relationship-menu {
+    display: grid;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgb(148 163 184 / 18%);
+  }
+
+  .relationship-menu button {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid rgb(148 163 184 / 20%);
+    border-radius: 10px;
+    background: rgb(15 23 42 / 58%);
+    color: rgb(226 232 240 / 94%);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .relationship-menu button:hover {
+    border-color: rgb(125 211 252 / 46%);
+    background: rgb(30 41 59 / 78%);
+  }
+
+  .relationship-menu span,
+  .relationship-menu small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .relationship-menu span {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .relationship-menu small {
+    color: rgb(148 163 184);
+    font-size: 11px;
+  }
+
+  .edge-inspector {
+    border-color: rgb(125 211 252 / 46%);
+  }
+
+  .edge-path {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid rgb(148 163 184 / 18%);
+    border-radius: 10px;
+    background: rgb(15 23 42 / 56%);
+    color: rgb(226 232 240 / 92%);
+    font-size: 12px;
+  }
+
+  .edge-path span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .edge-path strong {
+    color: rgb(125 211 252);
+  }
+
   @media (max-width: 760px) {
     .toolbar {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
     }
 
     .toolbar-query {

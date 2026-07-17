@@ -289,6 +289,48 @@ export const document_chunks = sqliteTable(
   ],
 );
 
+export const graph_nodes = sqliteTable(
+  "graph_nodes",
+  {
+    id: text("id").primaryKey(),
+    label: text("label").notNull(),
+    kind: text("kind", { enum: ["document", "chunk", "entity"] }).notNull(),
+    entityKind: text("entity_kind"),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    chunkIds: text("chunk_ids", { mode: "json" }).$type<string[] | null>(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("graph_nodes_kind_idx").on(table.kind),
+    index("graph_nodes_document_idx").on(table.documentId),
+    index("graph_nodes_chunk_idx").on(table.chunkId),
+  ],
+);
+
+export const graph_edges = sqliteTable(
+  "graph_edges",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    target: text("target").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull(),
+    weight: real("weight").notNull().default(1),
+    evidence: text("evidence").notNull().default(""),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("graph_edges_source_idx").on(table.source),
+    index("graph_edges_target_idx").on(table.target),
+    index("graph_edges_document_idx").on(table.documentId),
+    index("graph_edges_chunk_idx").on(table.chunkId),
+    uniqueIndex("graph_edges_unique_idx").on(table.source, table.target, table.relation, table.chunkId),
+  ],
+);
+
 export const synced_folders = sqliteTable(
   "synced_folders",
   {
@@ -385,6 +427,12 @@ export type NewDocumentTag = typeof document_tags.$inferInsert;
 
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
+
+export type GraphNodeRow = typeof graph_nodes.$inferSelect;
+export type NewGraphNodeRow = typeof graph_nodes.$inferInsert;
+
+export type GraphEdgeRow = typeof graph_edges.$inferSelect;
+export type NewGraphEdgeRow = typeof graph_edges.$inferInsert;
 
 export type SyncedFolder = typeof synced_folders.$inferSelect;
 

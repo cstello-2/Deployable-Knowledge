@@ -5,6 +5,7 @@ import { chunkPages } from "$lib/server/rag/chunk/chunker";
 import { assembleChunks } from "$lib/server/rag/chunk/assemble-chunks";
 import type { Source } from "$lib/server/rag/chunk/parse-shared";
 import { invalidateKnowledgeGraphCache } from "$lib/server/knowledge-graph/graph-index";
+import { rebuildDocumentTriplets } from "$lib/server/knowledge-graph/triplet-store";
 import { storeDocumentChunks } from "./embedding";
 
 export type IngestDocumentInput = {
@@ -64,6 +65,9 @@ export async function ingestDocument(
       report(50 + ratio * 50, `Embedding ${current} of ${total} chunks`);
     },
   );
+  report(100, "Building Knowledge Graph triplets");
+  await rebuildDocumentTriplets(stored.documentId, chunks);
+  invalidateKnowledgeGraphCache();
 
   return {
     documentId: stored.documentId,
