@@ -13,6 +13,7 @@ export class AppState {
   activePage = $state<NotebookPage | null>(null);
   notebookContextNotebookIds = $state<string[]>([]);
   notebookContextPageIds = $state<string[]>([]);
+  assistantRequestInFlight = $state(false);
   activeProfileId = $state<string | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");

@@ -3,7 +3,10 @@ import test from "node:test";
 import type { NotebookWithPages } from "$lib/server/database/schema";
 import type { AppState } from "$lib/state.svelte";
 import {
+  clearNotebookContext,
+  getNotebookContextSelectionSnapshot,
   getNotebookContextSummary,
+  notebookContextCoverage,
   pageProvidesNotebookContext,
   pruneNotebookContextPageIds,
   selectAllNotebookContext,
@@ -41,6 +44,7 @@ function state(notebooks: NotebookWithPages[]): AppState {
     notebooks,
     notebookContextNotebookIds: [],
     notebookContextPageIds: [],
+    assistantRequestInFlight: false,
   } as unknown as AppState;
 }
 
@@ -68,6 +72,20 @@ test("deselecting one page from a whole notebook keeps the remaining pages", () 
   assert.deepEqual(appState.notebookContextPageIds, ["page-2"]);
   assert.equal(pageProvidesNotebookContext(appState, "page-1"), false);
   assert.equal(pageProvidesNotebookContext(appState, "page-2"), true);
+});
+
+test("notebook coverage is active only when every page provides context", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1", "page-2"]);
+  const appState = state([first]);
+
+  toggleNotebookContextPage(appState, "page-1");
+  assert.equal(notebookContextCoverage(appState, first), "partial");
+
+  toggleNotebookContextPage(appState, "page-2");
+  assert.equal(notebookContextCoverage(appState, first), "all");
+
+  toggleNotebookContextPage(appState, "page-1");
+  assert.equal(notebookContextCoverage(appState, first), "partial");
 });
 
 test("mixed notebook and page selections retain distinct IDs and summary counts", () => {
@@ -121,4 +139,74 @@ test("deleted notebooks and pages are pruned from shared context state", () => {
 
   assert.deepEqual(appState.notebookContextNotebookIds, []);
   assert.deepEqual(appState.notebookContextPageIds, ["page-2"]);
+});
+
+test("request snapshots remain unchanged when live selection changes later", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1", "page-2"]);
+  const appState = state([first]);
+  setNotebookContextSelection(appState, {
+    notebookIds: [],
+    pageIds: ["page-1"],
+  });
+
+  const snapshot = getNotebookContextSelectionSnapshot(appState);
+  toggleNotebookContextPage(appState, "page-2");
+
+  assert.deepEqual(snapshot, {
+    notebookIds: [],
+    pageIds: ["page-1"],
+  });
+  assert.deepEqual(appState.notebookContextPageIds, ["page-1", "page-2"]);
+});
+
+test("shared context selection cannot change while an assistant request is active", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1", "page-2"]);
+  const appState = state([first]);
+  setNotebookContextSelection(appState, {
+    notebookIds: [],
+    pageIds: ["page-1"],
+  });
+  appState.assistantRequestInFlight = true;
+
+  toggleNotebookContextPage(appState, "page-2");
+  toggleNotebookContextNotebook(appState, first);
+  clearNotebookContext(appState);
+
+  assert.deepEqual(getNotebookContextSelectionSnapshot(appState), {
+    notebookIds: [],
+    pageIds: ["page-1"],
+  });
+});
+
+test("context selection changes normally after assistant processing ends", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1"]);
+  const appState = state([first]);
+  appState.assistantRequestInFlight = true;
+  toggleNotebookContextPage(appState, "page-1");
+  assert.deepEqual(appState.notebookContextPageIds, []);
+
+  appState.assistantRequestInFlight = false;
+  toggleNotebookContextPage(appState, "page-1");
+  assert.deepEqual(appState.notebookContextPageIds, ["page-1"]);
+});
+
+test("reading historical message metadata does not overwrite future context selection", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1", "page-2"]);
+  const appState = state([first]);
+  setNotebookContextSelection(appState, {
+    notebookIds: [],
+    pageIds: ["page-2"],
+  });
+  const historicalMetadata = {
+    notebookContextNotebookIds: ["notebook-1"],
+    notebookContextPageIds: [],
+  };
+
+  // Historical metadata is display-only; reading it must not be applied to the
+  // shared selection used by the next request.
+  assert.deepEqual(historicalMetadata.notebookContextNotebookIds, ["notebook-1"]);
+  assert.deepEqual(getNotebookContextSelectionSnapshot(appState), {
+    notebookIds: [],
+    pageIds: ["page-2"],
+  });
 });
