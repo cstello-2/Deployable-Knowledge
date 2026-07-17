@@ -11,6 +11,17 @@
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { renderMarkdown } from "$lib/utils/markdown";
   import {
+    NOTEBOOK_CONTEXT_CHANGED_EVENT,
+    type NotebookContextChangedDetail,
+    notebookContextCoverage,
+    notebookProvidesContext as notebookIsSelectedForContext,
+    pageProvidesNotebookContext,
+    restoreNotebookContextPageIds,
+    toggleNotebookContextNotebook,
+    toggleNotebookContextPage,
+  } from "$lib/utils/notebookContextSelection";
+  import { applyNotebookState } from "$lib/utils/notebookState";
+  import {
     NOTEBOOK_TEXT_CHARACTER_LIMIT,
     NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT,
   } from "$lib/utils/contextLimits";
@@ -24,8 +35,6 @@
   } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
-  // dk:send-to-notebook carries fully-composed text — just appended as plain text.
-  type SendToNotebookDetail = { text: string };
   type NotebookView = "notebooks" | "pages" | "editor";
 
   let {
@@ -55,6 +64,8 @@
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let selectedNotebookText = $state("");
+  let notebookSelectionButtonVisible = $state(false);
   let otherPageCharacterCount = $derived(
     appState.activeNotebook?.pages.reduce(
       (total, page) =>
@@ -113,12 +124,29 @@
   });
 
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
-    appState.notebooks = data.notebooks ?? [];
-    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
-    appState.activeNotebook = appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
-    appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+    applyNotebookState(appState, data);
     notes = appState.activePage?.content ?? "";
     loadSources();
+  }
+
+  function pageProvidesContext(pageId: string) {
+    return pageProvidesNotebookContext(appState, pageId);
+  }
+
+  function notebookProvidesContext(notebook: NotebookWithPages) {
+    return notebookIsSelectedForContext(appState, notebook);
+  }
+
+  function notebookContextState(notebook: NotebookWithPages) {
+    return notebookContextCoverage(appState, notebook);
+  }
+
+  function togglePageContext(pageId: string) {
+    toggleNotebookContextPage(appState, pageId);
+  }
+
+  function toggleNotebookContext(notebook: NotebookWithPages) {
+    toggleNotebookContextNotebook(appState, notebook);
   }
 
   async function loadSources() {
@@ -402,36 +430,53 @@
     return compact.length > 100 ? `${compact.slice(0, 100).trimEnd()}…` : compact;
   }
 
-  // Fired by the Send to Notebook button on an assistant reply the text is
-  // already fully composed (reply + hydrated source excerpts), so just append it.
-  async function appendTextFromChat(event: Event) {
-    const { text } = (event as CustomEvent<SendToNotebookDetail>).detail;
-    if (!text?.trim() || !appState.activePage) return;
-    const nextNotes = notes.trim()
-      ? `${notes.trimEnd()}\n\n${text.trim()}`
-      : text.trim();
+  async function handleNotebooksUpdated() {
+    await loadNotebooks();
+    notebookView = appState.activePage ? "editor" : "pages";
+  }
 
-    if (nextNotes.length > currentPageCharacterLimit) {
-      saveStatus = "Limit reached";
-      showToast(
-        `Not enough notebook space (${notebookCharactersRemaining.toLocaleString()} characters remaining)`,
-      );
-      return;
-    }
+  function handleNotebookSelection(event: Event) {
+    const textarea = event.currentTarget as HTMLTextAreaElement;
+    const selected = textarea.value
+      .slice(textarea.selectionStart, textarea.selectionEnd)
+      .trim();
+    selectedNotebookText = selected;
+    notebookSelectionButtonVisible = selected.length > 0;
+  }
 
-    notes = nextNotes;
-    await saveCurrentPage();
-    saveStatus = "Added from chat";
-    notebookView = "editor";
+  function sendSelectionToChat() {
+    const text = selectedNotebookText.trim();
+    if (!text) return;
+    window.dispatchEvent(new CustomEvent("dk:send-to-chat", {
+      detail: { text },
+    }));
+    notebookSelectionButtonVisible = false;
+    selectedNotebookText = "";
+    saveStatus = "Sent to chat";
   }
 
   onMount(() => {
-    loadNotebooks();
-    window.addEventListener("dk:send-to-notebook", appendTextFromChat);
+    restoreNotebookContextPageIds(appState);
+    void loadNotebooks();
+    const handleNotebookContextChanged = (event: Event) => {
+      const detail = (event as CustomEvent<NotebookContextChangedDetail>).detail;
+      if (!detail?.pageIds || !detail?.notebookIds) return;
+      appState.notebookContextNotebookIds = [...detail.notebookIds];
+      appState.notebookContextPageIds = [...detail.pageIds];
+    };
     window.addEventListener("notebook-sources:refresh", loadSources);
+    window.addEventListener("dk:notebooks-updated", handleNotebooksUpdated);
+    window.addEventListener(
+      NOTEBOOK_CONTEXT_CHANGED_EVENT,
+      handleNotebookContextChanged,
+    );
     return () => {
-      window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
       window.removeEventListener("notebook-sources:refresh", loadSources);
+      window.removeEventListener("dk:notebooks-updated", handleNotebooksUpdated);
+      window.removeEventListener(
+        NOTEBOOK_CONTEXT_CHANGED_EVENT,
+        handleNotebookContextChanged,
+      );
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -510,6 +555,23 @@
         </div>
       {:else}
         <div class="notebook-actions">
+          {#if appState.activePage}
+            <button
+              class="icon-action"
+              class:active={pageProvidesContext(appState.activePage.id)}
+              type="button"
+              title={pageProvidesContext(appState.activePage.id)
+                ? "Remove this page from context"
+                : "Use this page for context"}
+              aria-label={pageProvidesContext(appState.activePage.id)
+                ? "Remove this page from context"
+                : "Use this page for context"}
+              aria-pressed={pageProvidesContext(appState.activePage.id)}
+              onclick={() => togglePageContext(appState.activePage!.id)}
+            >
+              <Icon name="library_add_check" size={17} />
+            </button>
+          {/if}
           <Dropdown
             id="notebook_sources"
             bind:open={sourcesOpen}
@@ -630,6 +692,27 @@
                   </span>
                 </button>
                 <button
+                  class="inline-action-button navigation-row-action"
+                  class:active={notebookProvidesContext(notebook)}
+                  class:partial={notebookContextState(notebook) === "partial"}
+                  type="button"
+                  title={notebookProvidesContext(notebook)
+                    ? `Remove ${notebook.title} from context`
+                    : `Use ${notebook.title} for context`}
+                  aria-label={notebookProvidesContext(notebook)
+                    ? `Remove ${notebook.title} from context`
+                    : `Use ${notebook.title} for context`}
+                  aria-pressed={notebookProvidesContext(notebook)}
+                  onclick={() => toggleNotebookContext(notebook)}
+                >
+                  <Icon
+                    name={notebookContextState(notebook) === "partial"
+                      ? "indeterminate_check_box"
+                      : "library_add_check"}
+                    size={16}
+                  />
+                </button>
+                <button
                   class="inline-action-button navigation-row-action danger"
                   type="button"
                   title={`Delete ${notebook.title}`}
@@ -680,6 +763,21 @@
                   </span>
                 </button>
                 <button
+                  class="inline-action-button navigation-row-action"
+                  class:active={pageProvidesContext(page.id)}
+                  type="button"
+                  title={pageProvidesContext(page.id)
+                    ? `Remove ${page.title} from context`
+                    : `Use ${page.title} for context`}
+                  aria-label={pageProvidesContext(page.id)
+                    ? `Remove ${page.title} from context`
+                    : `Use ${page.title} for context`}
+                  aria-pressed={pageProvidesContext(page.id)}
+                  onclick={() => togglePageContext(page.id)}
+                >
+                  <Icon name="library_add_check" size={16} />
+                </button>
+                <button
                   class="inline-action-button navigation-row-action danger"
                   type="button"
                   title={`Delete ${page.title}`}
@@ -706,6 +804,15 @@
       </nav>
     {:else}
       <div class="notebook-editor-wrap">
+        {#if notebookSelectionButtonVisible && !previewMode}
+          <button
+            class="selection-action notebook-selection-action"
+            type="button"
+            onclick={sendSelectionToChat}
+          >
+            Send to Chat
+          </button>
+        {/if}
         {#if previewMode}
           <div class="notebook-preview" aria-label="Notebook preview">
             {#if notes.trim()}
@@ -720,6 +827,14 @@
             bind:value={notes}
             maxlength={currentPageCharacterLimit}
             oninput={queueSaveCurrentPage}
+            onselect={handleNotebookSelection}
+            onmouseup={handleNotebookSelection}
+            onkeyup={handleNotebookSelection}
+            onblur={() => {
+              window.setTimeout(() => {
+                notebookSelectionButtonVisible = false;
+              }, 180);
+            }}
             placeholder="Write notes here..."
             aria-label="Notebook notes"
           ></textarea>
@@ -877,6 +992,12 @@
     color: var(--text);
   }
 
+  .icon-action.active {
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklab, var(--accent) 28%, transparent);
+  }
+
   .source-count-badge {
     position: absolute;
     top: -6px;
@@ -1032,7 +1153,7 @@
     border-radius: 11px;
     background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%));
     color: var(--text);
-    grid-template-columns: minmax(0, 1fr) repeat(2, auto);
+    grid-template-columns: minmax(0, 1fr) repeat(3, auto);
     align-items: stretch;
   }
 
@@ -1072,6 +1193,12 @@
     height: auto;
     min-height: 56px;
     align-self: stretch;
+  }
+
+  .navigation-row-action.partial {
+    border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+    color: var(--text);
   }
 
   .navigation-item > .navigation-row-action:last-child {
@@ -1129,6 +1256,24 @@
     min-height: 0;
     flex-direction: column;
     flex: 1 1 auto;
+  }
+
+  .selection-action {
+    position: absolute;
+    z-index: 30;
+    top: 10px;
+    right: 14px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    box-shadow: var(--shadow);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .selection-action:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
   }
 
   .notebook-character-count {

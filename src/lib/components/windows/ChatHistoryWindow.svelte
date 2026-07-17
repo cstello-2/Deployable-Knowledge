@@ -6,6 +6,7 @@
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type { Session } from "$lib/server/database/schema";
+  import { showWindow } from "$lib/utils/workspaceState";
 
   let {
     id,
@@ -51,10 +52,16 @@
     await fetch(`/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+    try {
+      localStorage.removeItem(`dk:query-graph:${id}`);
+    } catch {
+      // Session deletion is complete even when browser storage is unavailable.
+    }
   }
 
   function handleSessionClick(session: Session) {
     appState.currentSession = session;
+    showWindow("chat-window");
   }
 
   async function handleSessionKeydown(event: KeyboardEvent, session: Session) {

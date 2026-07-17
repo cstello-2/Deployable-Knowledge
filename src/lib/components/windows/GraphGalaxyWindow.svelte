@@ -1,9 +1,13 @@
 <script lang="ts">
   import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
-  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
+  import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type { AppState } from "$lib/state.svelte";
+  import type { NotebookWithPages } from "$lib/server/database/schema";
+  import { showWindow } from "$lib/utils/workspaceState";
+  import { applyNotebookState } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
 
   type VisualNode = {
@@ -14,7 +18,17 @@
     documentId?: string;
     chunkId?: string;
     score?: number;
+    retrievalScore?: number;
+    hybridScore?: number;
+    graphScore?: number;
     preview?: string;
+    content?: string;
+    sourceTitle?: string;
+    pageIndex?: number;
+    chunkIndex?: number;
+    chunkType?: string;
+    matchedEntities?: string[];
+    relations?: string[];
   };
 
   type VisualEdge = {
@@ -34,6 +48,21 @@
     edges: VisualEdge[];
   };
 
+  type StoredGraphState = {
+    query: string;
+    documentIds: string[];
+    chunkIds?: string[];
+    topK: number;
+    graph: GraphResponse;
+    selectedNodeId: string | null;
+    inspectorExpanded: boolean;
+    yaw: number;
+    pitch: number;
+    zoom: number;
+    panX?: number;
+    panY?: number;
+  };
+
   type GalaxyNode = VisualNode & {
     x: number;
     y: number;
@@ -42,6 +71,22 @@
     sy: number;
     sr: number;
     depth: number;
+  };
+
+  type CameraAnimation = {
+    nodeId: string;
+    startedAt: number;
+    duration: number;
+    fromYaw: number;
+    toYaw: number;
+    fromPitch: number;
+    toPitch: number;
+    fromZoom: number;
+    toZoom: number;
+    fromPanX: number;
+    toPanX: number;
+    fromPanY: number;
+    toPanY: number;
   };
 
   let {
@@ -59,6 +104,9 @@
   const DEFAULT_ZOOM = 0.82;
   const WIDE_ZOOM = 0.42;
   const MAX_ZOOM = 3;
+  const FOCUS_ZOOM = 1.18;
+  const FOCUS_DURATION_MS = 650;
+  const NO_MATCH_STATUS = "This assistant result does not have a matching node in the current Galaxy.";
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let graph = $state<GraphResponse | null>(null);
@@ -67,77 +115,269 @@
   let loading = $state(false);
   let status = $state("");
   let selectedNode = $state<GalaxyNode | null>(null);
+  let inspectorExpanded = $state(false);
+  let savingChunkId = $state<string | null>(null);
+  let saveDialogOpen = $state(false);
+  let pendingChunk = $state<VisualNode | null>(null);
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
   let zoom = $state(DEFAULT_ZOOM);
+  let panX = $state(0);
+  let panY = $state(0);
   let dragging = false;
   let lastPointer = { x: 0, y: 0 };
   let frame = 0;
   let resizeObserver: ResizeObserver | null = null;
+  let graphAbortController: AbortController | null = null;
+  let latestRequestId = -1;
+  let loadGeneration = 0;
+  let activeSessionId = $state<string | null>(null);
+  let activeDocumentIds: string[] = [];
+  let activeChunkIds: string[] = [];
+  let activeTopK = appState.ragTopK || 8;
+  let cameraAnimation: CameraAnimation | null = null;
+  let pendingFocusRequest: { chunkId?: string; nodeId?: string } | null = null;
 
   const nodeById = $derived(new Map(nodes.map((node) => [node.id, node])));
 
   onMount(() => {
-    query = appState.lastQuery;
-    loadGraph(appState.lastQuery).catch(() => {});
     resizeObserver = new ResizeObserver(() => resizeCanvas());
     if (canvas?.parentElement) resizeObserver.observe(canvas.parentElement);
     frame = requestAnimationFrame(draw);
 
     function handleVisualize(event: Event) {
-      const nextQuery = (event as CustomEvent<{ query?: string }>).detail?.query ?? appState.lastQuery;
+      const detail = (event as CustomEvent<{
+        query?: string;
+        documentIds?: string[];
+        chunkIds?: string[];
+        requestId?: number;
+        sessionId?: string;
+        topK?: number;
+        phase?: "loading" | "ready" | "error";
+      }>).detail;
+      const nextQuery = detail?.query?.trim() ?? "";
+      const requestId = detail?.requestId ?? 0;
+      if (requestId < latestRequestId) return;
+
+      latestRequestId = requestId;
+      activeSessionId = detail?.sessionId ?? activeSessionId;
+      activeDocumentIds = [...(detail?.documentIds ?? [])];
+      activeChunkIds = [...(detail?.chunkIds ?? [])];
+      activeTopK = detail?.topK ?? appState.ragTopK ?? 8;
       query = nextQuery;
-      loadGraph(nextQuery).catch(() => {});
+      if (detail?.phase === "loading") {
+        beginGraphQuery(nextQuery);
+        return;
+      }
+      if (detail?.phase === "error") {
+        graphAbortController?.abort();
+        loading = false;
+        status = `Unable to refresh the Galaxy for “${nextQuery}”.`;
+        return;
+      }
+      loadGraph(
+        nextQuery,
+        detail?.documentIds ?? [],
+        detail?.chunkIds ?? [],
+        requestId,
+      ).catch(() => {});
+    }
+
+    function handleRestoreQuery(event: Event) {
+      const detail = (event as CustomEvent<{
+        sessionId: string;
+        query: string;
+        documentIds: string[];
+        chunkIds?: string[];
+        requestId: number;
+        topK?: number;
+      }>).detail;
+      if (!detail?.sessionId || detail.requestId < latestRequestId) return;
+      latestRequestId = detail.requestId;
+      activeSessionId = detail.sessionId;
+      activeDocumentIds = [...detail.documentIds];
+      activeChunkIds = [...(detail.chunkIds ?? [])];
+      activeTopK = detail.topK ?? appState.ragTopK ?? 8;
+      closeSaveDialog();
+
+      const stored = readGraphSnapshot(detail.sessionId);
+      if (stored && stored.query === detail.query) {
+        graphAbortController?.abort();
+        activeDocumentIds = [...(stored.documentIds ?? detail.documentIds)];
+        activeChunkIds = [...(stored.chunkIds ?? detail.chunkIds ?? [])];
+        activeTopK = stored.topK ?? detail.topK ?? appState.ragTopK ?? 8;
+        query = stored.query;
+        graph = stored.graph;
+        nodes = layoutNodes(stored.graph.nodes);
+        selectedNode = nodes.find((node) => node.id === stored.selectedNodeId) ?? null;
+        inspectorExpanded = Boolean(selectedNode && stored.inspectorExpanded);
+        yaw = stored.yaw;
+        pitch = stored.pitch;
+        zoom = stored.zoom;
+        panX = stored.panX ?? 0;
+        panY = stored.panY ?? 0;
+        status = stored.graph.summary;
+        loading = false;
+        emitChunkSelection();
+        void tick().then(resizeCanvas);
+        return;
+      }
+
+      loadGraph(
+        detail.query,
+        detail.documentIds,
+        detail.chunkIds ?? [],
+        detail.requestId,
+      ).catch(() => {});
+    }
+
+    function handleFocusChunk(event: Event) {
+      const detail = (event as CustomEvent<{ chunkId?: string; nodeId?: string }>).detail ?? {};
+      if (!detail.chunkId && !detail.nodeId) return;
+      pendingFocusRequest = detail;
+      focusMatchingNode(detail);
+    }
+
+    function handleSaveExternalChunk(event: Event) {
+      const detail = (event as CustomEvent<{ chunk?: VisualNode; query?: string }>).detail;
+      if (!detail?.chunk?.chunkId) return;
+      if (detail.query?.trim()) query = detail.query.trim();
+      void openSaveChunkDialogFor(detail.chunk);
+    }
+
+    function handleClearGraph(event: Event) {
+      const requestId = (event as CustomEvent<{ requestId?: number }>).detail?.requestId ?? 0;
+      if (requestId < latestRequestId) return;
+      latestRequestId = requestId;
+      graphAbortController?.abort();
+      loadGeneration += 1;
+      graph = null;
+      nodes = [];
+      query = "";
+      activeChunkIds = [];
+      loading = false;
+      status = "";
+      selectedNode = null;
+      inspectorExpanded = false;
+      cameraAnimation = null;
+      pendingFocusRequest = null;
+      panX = 0;
+      panY = 0;
+      savingChunkId = null;
+      closeSaveDialog();
+      emitChunkSelection();
     }
 
     window.addEventListener("dk:visualize-graph", handleVisualize);
+    window.addEventListener("dk:clear-graph", handleClearGraph);
+    window.addEventListener("dk:restore-query-graph", handleRestoreQuery);
+    window.addEventListener("dk:focus-galaxy-chunk", handleFocusChunk);
+    window.addEventListener("dk:save-result-chunk", handleSaveExternalChunk);
     return () => {
       cancelAnimationFrame(frame);
+      graphAbortController?.abort();
       resizeObserver?.disconnect();
       window.removeEventListener("dk:visualize-graph", handleVisualize);
+      window.removeEventListener("dk:clear-graph", handleClearGraph);
+      window.removeEventListener("dk:restore-query-graph", handleRestoreQuery);
+      window.removeEventListener("dk:focus-galaxy-chunk", handleFocusChunk);
+      window.removeEventListener("dk:save-result-chunk", handleSaveExternalChunk);
     };
   });
 
-  async function loadGraph(nextQuery = query) {
+  function beginGraphQuery(nextQuery: string) {
+    graphAbortController?.abort();
+    loadGeneration += 1;
+    loading = true;
+    graph = null;
+    nodes = [];
+    selectedNode = null;
+    inspectorExpanded = false;
+    cameraAnimation = null;
+    pendingFocusRequest = null;
+    panX = 0;
+    panY = 0;
+    savingChunkId = null;
+    closeSaveDialog();
+    status = `Building or updating the graph for “${nextQuery}”…`;
+  }
+
+  async function loadGraph(
+    nextQuery: string,
+    documentIds: string[],
+    chunkIds: string[],
+    requestId: number,
+  ) {
+    graphAbortController?.abort();
+    const controller = new AbortController();
+    graphAbortController = controller;
+    const generation = ++loadGeneration;
     loading = true;
     status = "";
     selectedNode = null;
+    inspectorExpanded = false;
+    cameraAnimation = null;
     try {
       const params = new URLSearchParams({
-        topK: String(appState.ragTopK || 8),
+        topK: String(activeTopK),
       });
-      for (const documentId of getSelectedDocumentIds()) {
-        params.append("documentIds", documentId);
-      }
       if (nextQuery.trim()) params.set("query", nextQuery.trim());
-      const response = await fetch(`/knowledge-graph/visual?${params}`);
-      if (!response.ok) throw new Error(`Graph request failed (${response.status})`);
-      graph = (await response.json()) as GraphResponse;
-      nodes = layoutNodes(graph.nodes);
+      for (const documentId of documentIds) params.append("documentIds", documentId);
+      for (const chunkId of chunkIds) params.append("chunkIds", chunkId);
+      const response = await fetch(`/knowledge-graph/visual?${params}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await graphRequestError(response));
+      const nextGraph = (await response.json()) as GraphResponse;
+      if (controller.signal.aborted || generation !== loadGeneration || requestId !== latestRequestId) {
+        return;
+      }
+      graph = nextGraph;
+      nodes = layoutNodes(nextGraph.nodes);
       await tick();
       resizeCanvas();
-      status = graph.summary;
+      status = nextGraph.summary;
+      if (pendingFocusRequest) focusMatchingNode(pendingFocusRequest);
+      persistGraphSnapshot();
     } catch (error) {
+      if (controller.signal.aborted || generation !== loadGeneration || requestId !== latestRequestId) {
+        return;
+      }
+      graph = null;
+      nodes = [];
       status = error instanceof Error ? error.message : "Unable to load graph galaxy.";
     } finally {
-      loading = false;
+      if (generation === loadGeneration && requestId === latestRequestId) loading = false;
     }
   }
 
-  function visualizeLastQuery() {
-    query = appState.lastQuery;
-    loadGraph(query).catch(() => {});
+  async function graphRequestError(response: Response): Promise<string> {
+    try {
+      const body = await response.json() as { message?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) return body.message;
+    } catch {
+      // Fall back to the HTTP status when the response is not JSON.
+    }
+    return `Graph request failed (${response.status})`;
   }
 
   function resetCamera() {
+    cameraAnimation = null;
     yaw = 0.42;
     pitch = -0.18;
     zoom = DEFAULT_ZOOM;
+    panX = 0;
+    panY = 0;
+    persistGraphSnapshot();
   }
 
   function setWideView() {
+    cameraAnimation = null;
     zoom = WIDE_ZOOM;
     pitch = -0.12;
+    panX = 0;
+    panY = 0;
+    persistGraphSnapshot();
   }
 
   function layoutNodes(input: VisualNode[]): GalaxyNode[] {
@@ -176,9 +416,10 @@
     canvas.style.height = `${rect.height}px`;
   }
 
-  function draw() {
+  function draw(timestamp = performance.now()) {
     frame = requestAnimationFrame(draw);
     if (!canvas) return;
+    updateCameraAnimation(timestamp);
     const context = canvas.getContext("2d");
     if (!context) return;
 
@@ -199,8 +440,8 @@
     const sy = Math.sin(yaw);
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
-    const centerX = width / 2;
-    const centerY = height / 2;
+    const centerX = width / 2 + panX;
+    const centerY = height / 2 + panY;
     const camera = 620;
 
     for (const node of nodes) {
@@ -217,6 +458,117 @@
     }
 
     return [...nodes].sort((left, right) => left.depth - right.depth);
+  }
+
+  function focusMatchingNode(request: { chunkId?: string; nodeId?: string }) {
+    const matchingNode =
+      (request.nodeId ? nodes.find((node) => node.id === request.nodeId) : null) ??
+      (request.chunkId
+        ? nodes.find((node) => node.kind === "chunk" && node.chunkId === request.chunkId)
+        : null);
+
+    if (!matchingNode) {
+      if (!graph) return;
+      pendingFocusRequest = null;
+      status = NO_MATCH_STATUS;
+      emitFocusResult(request, false);
+      return;
+    }
+
+    pendingFocusRequest = null;
+    if (status === NO_MATCH_STATUS) status = graph?.summary ?? "";
+    selectedNode = matchingNode;
+    inspectorExpanded = matchingNode.kind === "chunk";
+    emitChunkSelection();
+    emitFocusResult(request, true);
+    focusCameraOnNode(matchingNode);
+    persistGraphSnapshot();
+  }
+
+  function focusCameraOnNode(node: GalaxyNode) {
+    if (!canvas) return;
+    const width = canvas.getBoundingClientRect().width;
+    const horizontalRadius = Math.hypot(node.x, node.z);
+    const alignedYaw = Math.atan2(node.x, node.z);
+    const targetYaw = yaw + shortestAngle(alignedYaw - yaw);
+    const targetPitch = Math.atan2(node.y, Math.max(1, horizontalRadius));
+    const targetZoom = FOCUS_ZOOM;
+    const targetPanX = -Math.min(240, Math.max(64, width * 0.24));
+    const targetPanY = 0;
+
+    if (cameraAnimation?.nodeId === node.id) return;
+    const alreadyFocused =
+      selectedNode?.id === node.id &&
+      Math.abs(shortestAngle(targetYaw - yaw)) < 0.025 &&
+      Math.abs(targetPitch - pitch) < 0.025 &&
+      Math.abs(targetZoom - zoom) < 0.04 &&
+      Math.abs(targetPanX - panX) < 8 &&
+      Math.abs(targetPanY - panY) < 8;
+    if (alreadyFocused) {
+      persistGraphSnapshot();
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      yaw = targetYaw;
+      pitch = targetPitch;
+      zoom = targetZoom;
+      panX = targetPanX;
+      panY = targetPanY;
+      persistGraphSnapshot();
+      return;
+    }
+
+    cameraAnimation = {
+      nodeId: node.id,
+      startedAt: performance.now(),
+      duration: FOCUS_DURATION_MS,
+      fromYaw: yaw,
+      toYaw: targetYaw,
+      fromPitch: pitch,
+      toPitch: targetPitch,
+      fromZoom: zoom,
+      toZoom: targetZoom,
+      fromPanX: panX,
+      toPanX: targetPanX,
+      fromPanY: panY,
+      toPanY: targetPanY,
+    };
+  }
+
+  function updateCameraAnimation(timestamp: number) {
+    const animation = cameraAnimation;
+    if (!animation) return;
+    const progress = Math.min(1, Math.max(0, (timestamp - animation.startedAt) / animation.duration));
+    const eased = 1 - Math.pow(1 - progress, 3);
+    yaw = lerp(animation.fromYaw, animation.toYaw, eased);
+    pitch = lerp(animation.fromPitch, animation.toPitch, eased);
+    zoom = lerp(animation.fromZoom, animation.toZoom, eased);
+    panX = lerp(animation.fromPanX, animation.toPanX, eased);
+    panY = lerp(animation.fromPanY, animation.toPanY, eased);
+    if (progress < 1) return;
+    cameraAnimation = null;
+    persistGraphSnapshot();
+  }
+
+  function emitFocusResult(request: { chunkId?: string; nodeId?: string }, found: boolean) {
+    window.dispatchEvent(new CustomEvent("dk:galaxy-focus-result", {
+      detail: {
+        sessionId: activeSessionId,
+        chunkId: request.chunkId ?? null,
+        nodeId: request.nodeId ?? null,
+        found,
+      },
+    }));
+  }
+
+  function shortestAngle(angle: number) {
+    return Math.atan2(Math.sin(angle), Math.cos(angle));
+  }
+
+  function lerp(start: number, end: number, amount: number) {
+    return start + (end - start) * amount;
   }
 
   function drawBackdrop(context: CanvasRenderingContext2D, width: number, height: number) {
@@ -281,6 +633,7 @@
   }
 
   function handlePointerDown(event: PointerEvent) {
+    cameraAnimation = null;
     dragging = true;
     lastPointer = { x: event.clientX, y: event.clientY };
     canvas?.setPointerCapture(event.pointerId);
@@ -298,11 +651,14 @@
   function handlePointerUp(event: PointerEvent) {
     dragging = false;
     canvas?.releasePointerCapture(event.pointerId);
+    persistGraphSnapshot();
   }
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
+    cameraAnimation = null;
     zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (event.deltaY > 0 ? 0.88 : 1.1)));
+    persistGraphSnapshot();
   }
 
   function handleClick(event: MouseEvent) {
@@ -319,7 +675,168 @@
         bestDistance = distance;
       }
     }
+    if (best?.id !== selectedNode?.id) inspectorExpanded = false;
     selectedNode = best;
+    cameraAnimation = null;
+    emitChunkSelection();
+    persistGraphSnapshot();
+  }
+
+  function toggleInspectorExpanded() {
+    if (selectedNode?.kind !== "chunk") return;
+    inspectorExpanded = !inspectorExpanded;
+    persistGraphSnapshot();
+  }
+
+  function emitChunkSelection() {
+    window.dispatchEvent(new CustomEvent("dk:galaxy-chunk-selection", {
+      detail: {
+        sessionId: activeSessionId,
+        chunkId: selectedNode?.kind === "chunk" ? selectedNode.chunkId ?? null : null,
+      },
+    }));
+  }
+
+  function graphStorageKey(sessionId: string) {
+    return `dk:query-graph:${sessionId}`;
+  }
+
+  function readGraphSnapshot(sessionId: string): StoredGraphState | null {
+    try {
+      const raw = localStorage.getItem(graphStorageKey(sessionId));
+      return raw ? JSON.parse(raw) as StoredGraphState : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistGraphSnapshot() {
+    if (!activeSessionId || !graph || typeof localStorage === "undefined") return;
+    const snapshot: StoredGraphState = {
+      query,
+      documentIds: [...activeDocumentIds],
+      chunkIds: [...activeChunkIds],
+      topK: activeTopK,
+      graph,
+      selectedNodeId: selectedNode?.id ?? null,
+      inspectorExpanded,
+      yaw,
+      pitch,
+      zoom,
+      panX,
+      panY,
+    };
+    try {
+      localStorage.setItem(graphStorageKey(activeSessionId), JSON.stringify(snapshot));
+    } catch {
+      // Graph restoration remains available through deterministic rebuilding.
+    }
+  }
+
+  function chunkSaveKey(node: VisualNode) {
+    return node.chunkId || node.id;
+  }
+
+  function formatChunkNotebookEntry(node: VisualNode) {
+    const scoreLines = [
+      node.retrievalScore == null ? null : `Retrieval score: ${node.retrievalScore.toFixed(4)}`,
+      node.hybridScore == null ? null : `Hybrid score: ${node.hybridScore.toFixed(4)}`,
+      node.graphScore == null ? null : `Graph score: ${node.graphScore.toFixed(4)}`,
+      node.score == null ? null : `Galaxy score: ${node.score.toFixed(4)}`,
+    ].filter((line): line is string => Boolean(line));
+    const metadata = [
+      query ? `Query: ${query}` : null,
+      node.sourceTitle ? `Document: ${node.sourceTitle}` : null,
+      node.pageIndex == null ? null : `Page: ${node.pageIndex + 1}`,
+      node.chunkIndex == null ? null : `Chunk index: ${node.chunkIndex}`,
+      node.chunkType ? `Chunk type: ${node.chunkType}` : null,
+      node.documentId ? `Document ID: ${node.documentId}` : null,
+      node.chunkId ? `Chunk ID: ${node.chunkId}` : null,
+      node.matchedEntities?.length ? `Matched entities: ${node.matchedEntities.join(", ")}` : null,
+      node.relations?.length ? `Relations: ${node.relations.join(", ")}` : null,
+      ...scoreLines,
+    ].filter((line): line is string => Boolean(line));
+
+    return [
+      `[Knowledge Graph Chunk] ${node.label}`,
+      ...metadata,
+      "",
+      node.content || node.preview || "No chunk text is available.",
+    ].join("\n");
+  }
+
+  async function openSaveChunkDialog() {
+    const node = selectedNode;
+    if (node?.kind !== "chunk") return;
+    await openSaveChunkDialogFor(node);
+  }
+
+  async function openSaveChunkDialogFor(node: VisualNode) {
+    pendingChunk = node;
+    saveDialogOpen = true;
+  }
+
+  function closeSaveDialog() {
+    if (savingChunkId) return;
+    saveDialogOpen = false;
+    pendingChunk = null;
+  }
+
+  function notifyNotebookChanged() {
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+  }
+
+  async function saveChunkToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
+    const node = pendingChunk;
+    if (node?.kind !== "chunk") return;
+    const saveKey = chunkSaveKey(node);
+    if (savingChunkId) return;
+
+    savingChunkId = saveKey;
+    try {
+      const response = await fetch(
+        `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chunkId: saveKey,
+            text: formatChunkNotebookEntry(node),
+          }),
+        },
+      );
+      const data = await response.json() as {
+        message?: string;
+        activeNotebookId: string | null;
+        notebooks: NotebookWithPages[];
+        duplicate?: boolean;
+      };
+      if (!response.ok) throw new Error(data.message || "The chunk could not be saved.");
+
+      applyNotebookState(appState, data);
+      showWindow("notebook-window");
+      await tick();
+      notifyNotebookChanged();
+      const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
+      showToast(
+        data.duplicate
+          ? `Chunk already exists in ${label}`
+          : `Chunk saved to ${label}`,
+      );
+      saveDialogOpen = false;
+      pendingChunk = null;
+    } catch (error) {
+      throw error instanceof Error
+        ? error
+        : new Error("The chunk could not be saved.");
+    } finally {
+      savingChunkId = null;
+    }
   }
 
   function nodeColor(node: VisualNode) {
@@ -365,26 +882,15 @@
 >
   <div class="galaxy-window">
     <div class="toolbar">
-      <input
-        class="input"
-        bind:value={query}
-        placeholder="Use last query or type a graph focus..."
-        aria-label="Graph focus query"
-        onkeydown={(event) => event.key === "Enter" && loadGraph(query)}
-      />
-      <button class="btn btn-sm" type="button" onclick={visualizeLastQuery} title="Visualize latest chat query">
-        <Icon name="auto_awesome" size={15} />
-        Last query
-      </button>
-      <button class="btn btn-sm" type="button" onclick={() => loadGraph(query)} disabled={loading}>
-        {loading ? "Loading..." : "Visualize"}
-      </button>
+      <span class="toolbar-query" title={query}>
+        {query ? `Query: ${query}` : "Ask a Knowledge Graph question in Chat to populate the Galaxy."}
+      </span>
       <button class="btn btn-sm" type="button" onclick={setWideView}>Wide view</button>
       <button class="btn btn-sm" type="button" onclick={resetCamera}>Reset</button>
     </div>
 
     <div class="meta-row">
-      <span>{status || "Drag to orbit. Scroll to zoom. Click a node to inspect."}</span>
+      <span>{status || "The Galaxy refreshes automatically after each graph question."}</span>
       {#if graph}
         <span>{graph.nodes.length} visible nodes · {graph.edges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
       {/if}
@@ -414,24 +920,122 @@
       </div>
 
       {#if selectedNode}
-        <aside class="inspector">
-          <div class="kind">{selectedNode.kind}{selectedNode.entityKind ? ` · ${selectedNode.entityKind}` : ""}</div>
+        <aside
+          class="inspector"
+          class:expanded={selectedNode.kind === "chunk" && inspectorExpanded}
+        >
+          <div class="inspector-header">
+            <div class="kind">{selectedNode.kind}{selectedNode.entityKind ? ` · ${selectedNode.entityKind}` : ""}</div>
+            {#if selectedNode.kind === "chunk"}
+              <div class="inspector-actions">
+                {#if inspectorExpanded}
+                  <button
+                    class="btn btn-sm inspector-toggle"
+                    type="button"
+                    disabled={savingChunkId === chunkSaveKey(selectedNode)}
+                    onclick={openSaveChunkDialog}
+                  >
+                    <Icon name="bookmark_add" size={14} />
+                    Save Chunk
+                  </button>
+                {/if}
+                <button
+                  class="btn btn-sm inspector-toggle"
+                  type="button"
+                  aria-expanded={inspectorExpanded}
+                  onclick={toggleInspectorExpanded}
+                >
+                  <Icon name={inspectorExpanded ? "close_fullscreen" : "open_in_full"} size={14} />
+                  {inspectorExpanded ? "Collapse details" : "Expand details"}
+                </button>
+              </div>
+            {/if}
+          </div>
           <h3>{selectedNode.label}</h3>
-          {#if selectedNode.score}
-            <p class="score">Score: {selectedNode.score.toFixed(4)}</p>
-          {/if}
-          {#if selectedNode.preview}
-            <p>{selectedNode.preview}</p>
-          {/if}
-          {#if selectedNode.documentId}
-            <p class="mono">document: {selectedNode.documentId.slice(0, 14)}…</p>
-          {/if}
-          {#if selectedNode.chunkId}
-            <p class="mono">chunk: {selectedNode.chunkId.slice(0, 14)}…</p>
+
+          {#if selectedNode.kind === "chunk" && inspectorExpanded}
+            <dl class="chunk-metadata">
+              <div>
+                <dt>Retrieval score</dt>
+                <dd>{selectedNode.retrievalScore == null ? "Graph expansion" : selectedNode.retrievalScore.toFixed(4)}</dd>
+              </div>
+              {#if selectedNode.hybridScore != null}
+                <div><dt>Hybrid score</dt><dd>{selectedNode.hybridScore.toFixed(4)}</dd></div>
+              {/if}
+              {#if selectedNode.graphScore != null}
+                <div><dt>Graph score</dt><dd>{selectedNode.graphScore.toFixed(4)}</dd></div>
+              {/if}
+              {#if selectedNode.sourceTitle}
+                <div><dt>Document</dt><dd>{selectedNode.sourceTitle}</dd></div>
+              {/if}
+              {#if selectedNode.pageIndex != null}
+                <div><dt>Page</dt><dd>{selectedNode.pageIndex + 1}</dd></div>
+              {/if}
+              {#if selectedNode.chunkIndex != null}
+                <div><dt>Chunk index</dt><dd>{selectedNode.chunkIndex}</dd></div>
+              {/if}
+              {#if selectedNode.chunkType}
+                <div><dt>Chunk type</dt><dd>{selectedNode.chunkType}</dd></div>
+              {/if}
+            </dl>
+
+            {#if selectedNode.matchedEntities?.length}
+              <section class="chunk-detail-section">
+                <h4>Matched entities</h4>
+                <p>{selectedNode.matchedEntities.join(", ")}</p>
+              </section>
+            {/if}
+            {#if selectedNode.relations?.length}
+              <section class="chunk-detail-section">
+                <h4>Relations</h4>
+                <p>{selectedNode.relations.join(", ")}</p>
+              </section>
+            {/if}
+
+            <section class="chunk-detail-section chunk-content">
+              <h4>Chunk content</h4>
+              <p>{selectedNode.content || selectedNode.preview || "No chunk text is available."}</p>
+            </section>
+
+            {#if selectedNode.documentId}
+              <div class="identifier-row">
+                <span>Document ID</span>
+                <code>{selectedNode.documentId}</code>
+              </div>
+            {/if}
+            {#if selectedNode.chunkId}
+              <div class="identifier-row">
+                <span>Chunk ID</span>
+                <code>{selectedNode.chunkId}</code>
+              </div>
+            {/if}
+          {:else}
+            {#if selectedNode.score != null}
+              <p class="score">Score: {selectedNode.score.toFixed(4)}</p>
+            {/if}
+            {#if selectedNode.preview}
+              <p>{selectedNode.preview}</p>
+            {/if}
+            {#if selectedNode.documentId}
+              <p class="mono">document: {selectedNode.documentId.slice(0, 14)}…</p>
+            {/if}
+            {#if selectedNode.chunkId}
+              <p class="mono">chunk: {selectedNode.chunkId.slice(0, 14)}…</p>
+            {/if}
           {/if}
         </aside>
       {/if}
     </div>
+
+    <NotebookDestinationDialog
+      open={saveDialogOpen}
+      kindLabel="Save Chunk"
+      itemTitle={pendingChunk?.label ?? "Selected chunk"}
+      actionLabel="Save Chunk"
+      ariaLabel="Save chunk destination"
+      onClose={closeSaveDialog}
+      onSave={saveChunkToDestination}
+    />
   </div>
 </BaseWindow>
 
@@ -446,6 +1050,7 @@
   }
 
   .galaxy-window {
+    position: relative;
     display: grid;
     height: 100%;
     min-height: 0;
@@ -455,7 +1060,7 @@
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 6px;
     align-items: center;
   }
@@ -566,6 +1171,7 @@
 
   .inspector {
     position: absolute;
+    z-index: 5;
     right: 12px;
     bottom: 12px;
     display: grid;
@@ -582,6 +1188,50 @@
     backdrop-filter: blur(10px);
   }
 
+  .toolbar-query {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inspector.expanded {
+    top: 12px;
+    width: min(680px, max(320px, 52%));
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+    gap: 10px;
+    background: rgb(8 13 28 / 94%);
+  }
+
+  .inspector-header {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 4px;
+    background: linear-gradient(rgb(8 13 28 / 98%) 75%, transparent);
+  }
+
+  .inspector-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+  }
+
+  .inspector-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
   .inspector h3,
   .inspector p {
     margin: 0;
@@ -595,6 +1245,66 @@
     color: rgb(218 226 244 / 86%);
     font-size: 12px;
     line-height: 1.35;
+  }
+
+  .chunk-metadata {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+  }
+
+  .chunk-metadata div {
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid rgb(148 163 184 / 18%);
+    border-radius: 9px;
+    background: rgb(15 23 42 / 62%);
+  }
+
+  .chunk-metadata dt,
+  .identifier-row span,
+  .chunk-detail-section h4 {
+    margin: 0 0 3px;
+    color: rgb(148 163 184);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .chunk-metadata dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: rgb(238 244 255);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chunk-detail-section {
+    display: grid;
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgb(148 163 184 / 18%);
+  }
+
+  .chunk-detail-section h4 {
+    margin: 0;
+  }
+
+  .chunk-content p {
+    white-space: pre-wrap;
+  }
+
+  .identifier-row {
+    display: grid;
+    gap: 3px;
+  }
+
+  .identifier-row code {
+    overflow-wrap: anywhere;
+    color: rgb(203 213 225);
+    font-size: 11px;
   }
 
   .kind,
@@ -613,7 +1323,7 @@
       grid-template-columns: 1fr 1fr;
     }
 
-    .toolbar .input {
+    .toolbar-query {
       grid-column: 1 / -1;
     }
 
@@ -621,5 +1331,10 @@
       flex-direction: column;
       gap: 3px;
     }
+
+    .chunk-metadata {
+      grid-template-columns: 1fr;
+    }
+
   }
 </style>

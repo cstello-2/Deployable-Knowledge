@@ -103,8 +103,18 @@ type DocumentChatMessageRequest = ChatMessageBase & {
 
 type NotebookChatMessageRequest = ChatMessageBase & {
   conversational: true;
-  context: string;
+  context?: string;
   notebook_id: string | null;
+  notebook_context_notebook_ids?: string[];
+  notebook_context_page_ids?: string[];
+  notebook_context_pages?: Array<{
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }>;
+  document_ids: string[];
+  rag_top_k: number;
 };
 
 export type ChatMessageRequest =
