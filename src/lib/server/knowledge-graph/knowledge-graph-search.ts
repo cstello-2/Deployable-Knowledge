@@ -3,8 +3,7 @@
 
 import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
 import type { SearchChunkType } from "$lib/server/rag/search/search-shared";
-import {loadKnowledgeGraph, augmentGraphWithQueryLabels} from "./graph-index";
-import { extractQueryEntities } from "./gliner-extractor";
+import { loadKnowledgeGraph } from "./graph-index";
 import { lightRagSearch } from "./light-rag";
 import { pathRagSearch } from "./path-rag";
 import type {
@@ -39,9 +38,6 @@ export async function searchKnowledgeGraph(
   const topK = Math.max(0, Math.floor(options.topK ?? 5));
   if (!query || topK === 0) return { query, results: [], paths: [] };
 
-  const queryEntities = query ? await extractQueryEntities(query) : [];
-  const queryLabels = unique(queryEntities.map((entity) => entity.label));
-
   // The existing hybrid search supplies high-quality lexical/semantic starting chunks.
   const hybrid = await searchHybrid({
     query,
@@ -54,7 +50,7 @@ export async function searchKnowledgeGraph(
     score: 1 / (index + 1),
   }));
   const index = await loadKnowledgeGraph(options.documentIds);
-  const graph = await augmentGraphWithQueryLabels(index.graph, index.chunksById, queryLabels);
+  const graph = index.graph;
   const seedChunkIds = hybridSeeds.map((match) => match.chunkId);
   const lightEvidence = lightRagSearch(query, graph, seedChunkIds);
   const paths = pathRagSearch(

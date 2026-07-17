@@ -3,8 +3,8 @@
 
 import { eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
-import { document_chunks, documents } from "$lib/server/database/schema";
-import {extractChunkEntitiesAndRelations, resolveEntityLabels } from "./gliner-extractor";
+import { document_chunks, documents, graph_edges, graph_nodes } from "$lib/server/database/schema";
+import { extractChunkEntitiesAndRelations, resolveEntityLabels } from "./gliner-extractor";
 import { GraphStore } from "./graph-store";
 import type { IndexedChunk } from "./types";
 import { graphId, sanitizeEntityLabel, unique } from "./utils";
@@ -93,7 +93,12 @@ export async function loadKnowledgeGraph(
         content: row.content,
       };
       chunksById.set(chunk.chunkId, chunk);
-      await addChunkToGraph(graph, chunk);
+    }
+
+    if (!(await loadStoredGraph(graph, selectedIds))) {
+      for (const chunk of chunksById.values()) {
+        await addChunkToGraph(graph, chunk);
+      }
     }
   }
 
@@ -101,6 +106,46 @@ export async function loadKnowledgeGraph(
   if (graphCache.size >= MAX_CACHE_ENTRIES) graphCache.clear();
   graphCache.set(cacheKey, { index });
   return index;
+}
+
+async function loadStoredGraph(graph: GraphStore, documentIds: string[]): Promise<boolean> {
+  const nodeRows = await db
+    .select()
+    .from(graph_nodes)
+    .where(inArray(graph_nodes.documentId, documentIds));
+
+  if (nodeRows.length === 0) return false;
+
+  for (const node of nodeRows) {
+    graph.addNode({
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      entityKind: node.entityKind ?? undefined,
+      documentId: node.documentId ?? undefined,
+      chunkId: node.chunkId ?? undefined,
+      chunkIds: node.chunkIds ?? undefined,
+    });
+  }
+
+  const edgeRows = await db
+    .select()
+    .from(graph_edges)
+    .where(inArray(graph_edges.documentId, documentIds));
+
+  for (const edge of edgeRows) {
+    graph.addEdge({
+      source: edge.source,
+      target: edge.target,
+      relation: edge.relation,
+      weight: Number(edge.weight),
+      evidence: edge.evidence,
+      documentId: edge.documentId ?? undefined,
+      chunkId: edge.chunkId ?? undefined,
+    });
+  }
+
+  return true;
 }
 
 async function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): Promise<void> {

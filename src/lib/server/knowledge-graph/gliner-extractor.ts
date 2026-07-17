@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeLabel, sanitizeEntityLabel, unique } from "./utils";
+import { extractWithOllamaTriplets } from "./ollama-triplet-extractor";
+import { extractWithTypeScript } from "./typescript-extractor";
 
 export type GlinerEntity = {
   label: string;
@@ -19,22 +21,32 @@ export type GlinerRelation = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PYTHON_SCRIPT = resolve(__dirname, "gliner-extractor.py");
+const DEFAULT_EXTRACTOR = "ollama";
 
-function getPythonExecutable(): string {
-  if (process.env.PYTHON) return process.env.PYTHON;
+function configuredExtractor(): "ollama" | "typescript" | "python" {
+  const value = (process.env.KNOWLEDGE_GRAPH_EXTRACTOR ?? DEFAULT_EXTRACTOR).trim().toLowerCase();
+  if (value === "python" || value === "gliner") return "python";
+  if (value === "typescript" || value === "local") return "typescript";
+  return "ollama";
+}
+
+function getPythonExecutables(): string[] {
+  if (process.env.PYTHON) return [process.env.PYTHON];
 
   const workspaceRoot = resolve(__dirname, "..", "..", "..", "..");
   const venvPython = resolve(workspaceRoot, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
   if (existsSync(venvPython)) {
-    return venvPython;
+    return [venvPython];
   }
 
-  return "python";
+  return process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
 }
 
 function runPythonInference(text: string, labels: string[] = []): Promise<string> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const python = getPythonExecutable();
+  const candidates = getPythonExecutables();
+
+  const runCandidate = (index: number): Promise<string> => new Promise((resolvePromise, rejectPromise) => {
+    const python = candidates[index];
     const child = spawn(python, [PYTHON_SCRIPT], {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -51,6 +63,10 @@ function runPythonInference(text: string, labels: string[] = []): Promise<string
     });
 
     child.on("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && index < candidates.length - 1) {
+        runCandidate(index + 1).then(resolvePromise, rejectPromise);
+        return;
+      }
       rejectPromise(error);
     });
 
@@ -65,6 +81,8 @@ function runPythonInference(text: string, labels: string[] = []): Promise<string
     child.stdin.write(JSON.stringify({ text, labels }));
     child.stdin.end();
   });
+
+  return runCandidate(0);
 }
 
 export const BASE_ENTITY_LABELS = [
@@ -155,6 +173,14 @@ async function runGlinerInference(
   labels: string[] = [],
   chunkId?: string,
 ): Promise<{ entities: GlinerEntity[]; relations: GlinerRelation[] }> {
+  const extractor = configuredExtractor();
+  if (extractor === "ollama") {
+    return extractWithOllamaTriplets(text, labels, chunkId);
+  }
+  if (extractor === "typescript") {
+    return extractWithTypeScript(text, labels, chunkId);
+  }
+
   const payload = await runPythonInference(text, labels);
   const result = parseInferencePayload(payload);
   const entities = result.entities.map((entity) => ({

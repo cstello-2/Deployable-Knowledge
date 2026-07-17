@@ -32,6 +32,25 @@ npm run db:migrate # to be run if there were upstream database changes
 `.\.venv\Scripts\activate`
 `pip install -r requirements.txt`
 
+## For Knowledge Graph triplets
+
+The default Knowledge Graph extractor is TypeScript-based and prefers local Ollama
+JSON triplet extraction when Ollama is running. It falls back to the built-in
+TypeScript extractor if Ollama is unavailable.
+
+```bash
+# High-quality local LLM triplets, uses KNOWLEDGE_GRAPH_TRIPLET_MODEL or llama3.2:3b
+npm run graph:rebuild
+
+# Fast corpus-derived TypeScript fallback, no Python or Ollama required
+npm run graph:rebuild:fast
+```
+
+Optional environment variables:
+
+- `KNOWLEDGE_GRAPH_EXTRACTOR=ollama | typescript | python`
+- `KNOWLEDGE_GRAPH_TRIPLET_MODEL=llama3.2:3b`
+
 # After and every other startup run 
 ```bash
 npm run dev
