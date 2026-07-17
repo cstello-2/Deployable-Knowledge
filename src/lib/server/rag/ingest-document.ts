@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, extname } from "node:path";
 import type { DocumentIngestProgress } from "$lib/requestTypes";
 import { TextExtract } from "$lib/server/rag/chunk/text-extract";
 import { chunkPages } from "$lib/server/rag/chunk/chunker";
@@ -20,11 +20,19 @@ export type IngestDocumentResult = {
   chunkCount: number;
 };
 
+const SUPPORTED_EXTENSIONS = new Set([".pdf"]);
+
+export function isSupportedDocument(filePath: string): boolean {
+  return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
 // Shared ingest path for both terminal commands (testing) and UI routes
 export async function ingestDocument(
   { filePath, title }: IngestDocumentInput,
   onProgress?: (progress: DocumentIngestProgress) => void,
 ): Promise<IngestDocumentResult> {
+  if (!isSupportedDocument(filePath)) throw new Error("Unsupported document type.");
+
   const report = (percent: number, message: string) => {
     onProgress?.({ percent, label: "Ingesting PDF", message });
   };
