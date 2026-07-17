@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createNotebookContextMetadata,
   resolveNotebookContextRows,
   type NotebookContextRow,
 } from "./context";
+import { createConversationalPrompt } from "./prompt";
 
 const rows: NotebookContextRow[] = [
   {
@@ -112,4 +114,87 @@ test("unknown or deselected IDs do not contribute context", () => {
     pages: [],
   });
   assert.deepEqual(empty, unknown);
+});
+
+test("multiple selected pages keep database order and exclude unselected siblings", () => {
+  const result = resolveNotebookContextRows(
+    rows,
+    [],
+    ["page-2", "page-1"],
+  );
+
+  assert.deepEqual(result.pageIds, ["page-1", "page-2"]);
+  assert.deepEqual(
+    result.pages.map((page) => page.pageId),
+    ["page-1", "page-2"],
+  );
+  assert.ok(
+    result.context.indexOf("First notebook, first page.") <
+      result.context.indexOf("First notebook, second page."),
+  );
+  assert.doesNotMatch(result.context, /Second notebook/);
+});
+
+test("resolved selection flows into the prompt and stored metadata without duplicates", () => {
+  const result = resolveNotebookContextRows(
+    rows,
+    ["notebook-1"],
+    ["page-2", "page-3"],
+  );
+  const prompt = createConversationalPrompt([], "What matters?", result.context);
+  const metadata = createNotebookContextMetadata(true, result);
+
+  assert.match(prompt, /First notebook, first page/);
+  assert.match(prompt, /First notebook, second page/);
+  assert.match(prompt, /Second notebook, selected page/);
+  assert.doesNotMatch(prompt, /unselected page/);
+  assert.equal(
+    prompt.match(/First notebook, second page\./g)?.length,
+    1,
+  );
+  assert.deepEqual(metadata, {
+    notebookContext: true,
+    notebookContextPages: [
+      {
+        notebookId: "notebook-1",
+        notebookTitle: "Notebook 1",
+        pageId: "page-1",
+        pageTitle: "Page 1",
+      },
+      {
+        notebookId: "notebook-1",
+        notebookTitle: "Notebook 1",
+        pageId: "page-2",
+        pageTitle: "Page 2",
+      },
+      {
+        notebookId: "notebook-2",
+        notebookTitle: "Notebook 2",
+        pageId: "page-3",
+        pageTitle: "Page 3",
+      },
+    ],
+    notebookContextNotebookIds: ["notebook-1"],
+    notebookContextPageIds: ["page-3"],
+  });
+});
+
+test("removing all context produces an ungrounded prompt and empty stored metadata", () => {
+  const result = resolveNotebookContextRows(rows, [], []);
+  const prompt = createConversationalPrompt([], "Answer normally.", result.context);
+
+  assert.doesNotMatch(prompt, /Reference material/);
+  assert.match(prompt, /user: Answer normally\./);
+  assert.deepEqual(createNotebookContextMetadata(true, result), {
+    notebookContext: true,
+    notebookContextPages: [],
+    notebookContextNotebookIds: [],
+    notebookContextPageIds: [],
+  });
+  assert.deepEqual(createNotebookContextMetadata(false, result), {
+    notebookContext: false,
+    notebookContextPages: [],
+    notebookContextNotebookIds: [],
+    notebookContextPageIds: [],
+  });
 });

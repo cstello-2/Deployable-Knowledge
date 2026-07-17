@@ -16,6 +16,15 @@ export type NotebookContextSelection = {
 
 export type NotebookContextCoverage = "none" | "partial" | "all";
 
+export function getNotebookContextSelectionSnapshot(
+  appState: AppState,
+): NotebookContextSelection {
+  return {
+    notebookIds: [...appState.notebookContextNotebookIds],
+    pageIds: [...appState.notebookContextPageIds],
+  };
+}
+
 function normalizeIds(ids: readonly string[]): string[] {
   return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
 }
@@ -67,6 +76,10 @@ export function setNotebookContextSelection(
     pageIds?: readonly string[];
   },
 ): NotebookContextSelection {
+  if (appState.assistantRequestInFlight) {
+    return getNotebookContextSelectionSnapshot(appState);
+  }
+
   const next = canonicalizeSelection(appState, {
     notebookIds: [...(selection.notebookIds ?? [])],
     pageIds: [...(selection.pageIds ?? [])],

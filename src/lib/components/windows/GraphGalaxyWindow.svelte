@@ -697,6 +697,16 @@
     }));
   }
 
+  function closeGraphGalaxy() {
+    selectedNode = null;
+    inspectorExpanded = false;
+    cameraAnimation = null;
+    pendingFocusRequest = null;
+    emitChunkSelection();
+    persistGraphSnapshot();
+    onClose();
+  }
+
   function graphStorageKey(sessionId: string) {
     return `dk:query-graph:${sessionId}`;
   }
@@ -877,7 +887,7 @@
   {height}
   {collapsed}
   {onToggleCollapse}
-  {onClose}
+  onClose={closeGraphGalaxy}
   contentLabel="Knowledge graph galaxy"
 >
   <div class="galaxy-window">
