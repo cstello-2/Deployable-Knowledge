@@ -6,6 +6,7 @@
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type { AppState } from "$lib/state.svelte";
   import type { NotebookWithPages } from "$lib/server/database/schema";
+  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
   import { showWindow } from "$lib/utils/workspaceState";
   import { applyNotebookState } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
@@ -362,6 +363,28 @@
     } finally {
       if (generation === loadGeneration && requestId === latestRequestId) loading = false;
     }
+  }
+
+  async function visualizeManualQuery(nextQuery = query) {
+    const focus = nextQuery.trim() || appState.lastQuery.trim();
+    query = focus;
+    activeSessionId = activeSessionId ?? appState.currentSession?.id ?? null;
+    activeDocumentIds = activeDocumentIds.length ? [...activeDocumentIds] : getSelectedDocumentIds();
+    activeChunkIds = [];
+    activeTopK = appState.ragTopK || activeTopK || 8;
+    const requestId = ++latestRequestId;
+    beginGraphQuery(focus);
+    await loadGraph(focus, activeDocumentIds, activeChunkIds, requestId);
+  }
+
+  function visualizeLastQuery() {
+    void visualizeManualQuery(appState.lastQuery);
+  }
+
+  function handleQueryKeydown(event: KeyboardEvent) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    void visualizeManualQuery(query);
   }
 
   async function graphRequestError(response: Response): Promise<string> {
@@ -1008,9 +1031,20 @@
 >
   <div class="galaxy-window">
     <div class="toolbar">
-      <span class="toolbar-query" title={query}>
-        {query ? `Query: ${query}` : "Ask a Knowledge Graph question in Chat to populate the Galaxy."}
-      </span>
+      <input
+        class="input"
+        bind:value={query}
+        placeholder="Use last query or type a graph focus..."
+        aria-label="Graph focus query"
+        onkeydown={handleQueryKeydown}
+      />
+      <button class="btn btn-sm" type="button" onclick={visualizeLastQuery} title="Visualize latest chat query">
+        <Icon name="auto_awesome" size={15} />
+        Last query
+      </button>
+      <button class="btn btn-sm" type="button" onclick={() => void visualizeManualQuery(query)} disabled={loading}>
+        {loading ? "Loading..." : "Visualize"}
+      </button>
     </div>
 
     <div class="meta-row">
@@ -1240,9 +1274,16 @@
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 6px;
     align-items: center;
+  }
+
+  .toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
   }
 
   .meta-row {
@@ -1460,15 +1501,6 @@
     backdrop-filter: blur(10px);
   }
 
-  .toolbar-query {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--muted);
-    font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .inspector.expanded {
     top: 12px;
     width: min(680px, max(320px, 52%));
@@ -1662,10 +1694,10 @@
 
   @media (max-width: 760px) {
     .toolbar {
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr 1fr;
     }
 
-    .toolbar-query {
+    .toolbar .input {
       grid-column: 1 / -1;
     }
 

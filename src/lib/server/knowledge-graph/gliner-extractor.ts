@@ -21,7 +21,7 @@ export type GlinerRelation = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PYTHON_SCRIPT = resolve(__dirname, "gliner-extractor.py");
-const DEFAULT_EXTRACTOR = "ollama";
+const DEFAULT_EXTRACTOR = "typescript";
 
 function configuredExtractor(): "ollama" | "typescript" | "python" {
   const value = (process.env.KNOWLEDGE_GRAPH_EXTRACTOR ?? DEFAULT_EXTRACTOR).trim().toLowerCase();
