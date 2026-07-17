@@ -1,8 +1,7 @@
-# Deployable-Knowledge: Advanced Offline Multi-Modal RAG Stack
+# Deployable Knowledge: Advanced Offline Multi-Modal RAG Stack
 
 **Version vA0.6.7**
 
-Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
 Deployable Knowledge is an edge-first, comprehensive knowledge retrieval and generation tool. Built in TypeScript, it is designed for disconnected or bandwidth-constrained environments, providing high-precision multi-hop reasoning through a unique triple-engine search architecture.
 
 ## Overview
