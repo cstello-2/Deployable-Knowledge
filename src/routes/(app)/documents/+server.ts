@@ -1,34 +1,111 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
+import { count, eq } from "drizzle-orm";
 import { error } from "@sveltejs/kit";
-import type { DocumentIngestEvent } from "$lib/requestTypes";
+import type {
+  DocumentIngestEvent,
+  DocumentIngestProgress,
+  DocumentIngestResult,
+} from "$lib/requestTypes";
+import { db } from "$lib/server/database/database";
+import { document_chunks, documents, synced_files } from "$lib/server/database/schema";
+import { containsPath } from "$lib/server/documents/remove-document";
 import { ingestDocument } from "$lib/server/rag/ingest-document";
 import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
 
-export const POST: RequestHandler = async ({ request }) => {
-  const form = await request.formData();
-  const upload = form.get("file");
-
-  if (!(upload instanceof File)) {
-    throw error(400, "Upload a PDF file.");
-  }
-
-  const originalName = upload.name || "document.pdf";
+async function ingestBuffer(
+  originalName: string,
+  buffer: Buffer,
+  onProgress: (progress: DocumentIngestProgress) => void,
+): Promise<DocumentIngestResult> {
   const isPdfName = originalName.toLowerCase().endsWith(".pdf");
-  const buffer = Buffer.from(await upload.arrayBuffer());
   const isPdfContent = buffer.subarray(0, 5).toString() === "%PDF-";
 
   if (!isPdfName || !isPdfContent) {
-    throw error(400, "Only PDF uploads are supported.");
+    throw new Error("Only PDF uploads are supported.");
   }
 
   const contentHash = createHash("sha256").update(buffer).digest("hex");
   const savedName = `${contentHash.slice(0, 16)}.pdf`;
   const savedPath = join(DOCUMENTS_DIR, savedName);
+  const [existing] = await db
+    .select({
+      documentId: documents.id,
+      title: documents.title,
+      sourcePath: documents.sourcePath,
+      chunkCount: count(document_chunks.id),
+    })
+    .from(documents)
+    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
+    .where(eq(documents.sourcePath, savedPath))
+    .groupBy(documents.id)
+    .limit(1);
 
+  if (existing) {
+    return { ...existing, pageCount: 0, chunkCount: Number(existing.chunkCount ?? 0) };
+  }
+
+  await writeFile(savedPath, buffer);
+
+  const result = await ingestDocument(
+    {
+      filePath: savedPath,
+      title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+    },
+    onProgress,
+  );
+
+  return result;
+}
+
+async function ingestPath(
+  filePath: string,
+  onProgress: (progress: DocumentIngestProgress) => void,
+): Promise<DocumentIngestResult> {
+  const root = await realpath(homedir());
+  const path = await realpath(resolve(filePath));
+  const fileStats = await stat(path);
+
+  if (!containsPath(root, path) || !fileStats.isFile()) {
+    throw new Error("Select a PDF file inside your home folder.");
+  }
+
+  const [tracked] = await db
+    .select({
+      documentId: documents.id,
+      title: documents.title,
+      sourcePath: documents.sourcePath,
+      chunkCount: count(document_chunks.id),
+    })
+    .from(synced_files)
+    .innerJoin(documents, eq(documents.id, synced_files.documentId))
+    .leftJoin(document_chunks, eq(document_chunks.documentId, documents.id))
+    .where(eq(synced_files.sourcePath, path))
+    .groupBy(documents.id)
+    .limit(1);
+
+  if (tracked) {
+    return { ...tracked, pageCount: 0, chunkCount: Number(tracked.chunkCount ?? 0) };
+  }
+
+  return ingestBuffer(basename(path), await readFile(path), onProgress);
+}
+
+export const POST: RequestHandler = async ({ request }) => {
+  const { paths } = (await request.json()) as { paths?: unknown };
+  const selectedPaths = Array.isArray(paths)
+    ? paths.filter((path): path is string => typeof path === "string")
+    : [];
+
+  if (selectedPaths.length !== 1) {
+    throw error(400, "Upload one PDF file per request.");
+  }
+
+  await mkdir(DOCUMENTS_DIR, { recursive: true });
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -36,45 +113,15 @@ export const POST: RequestHandler = async ({ request }) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
 
-      void (async () => {
-        try {
-          send({
-            status: "progress",
-            percent: 0,
-            label: "Ingesting PDF",
-            message: "Preparing OCR",
-          });
-          await mkdir(DOCUMENTS_DIR, { recursive: true });
-          await writeFile(savedPath, buffer);
-
-          const result = await ingestDocument(
-            {
-              filePath: savedPath,
-              title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
-            },
-            (progress) => send({ status: "progress", ...progress }),
-          );
-
-          send({
-            status: "progress",
-            percent: 100,
-            label: "Ingesting PDF",
-            message: "Complete",
-          });
-          send({ status: "complete", result });
-        } catch (cause) {
-          console.error("Document ingestion failed", cause);
+      void ingestPath(selectedPaths[0], (progress) => send({ status: "progress", ...progress }))
+        .then((result) => send({ status: "complete", result }))
+        .catch((cause) => {
           send({
             status: "error",
-            message:
-              cause instanceof Error
-                ? cause.message
-                : "Document ingestion failed",
+            message: cause instanceof Error ? cause.message : "Document ingestion failed",
           });
-        } finally {
-          controller.close();
-        }
-      })();
+        })
+        .finally(() => controller.close());
     },
   });
 
@@ -82,7 +129,6 @@ export const POST: RequestHandler = async ({ request }) => {
     headers: {
       "Cache-Control": "no-cache",
       "Content-Type": "application/x-ndjson; charset=utf-8",
-      "X-Accel-Buffering": "no",
     },
   });
 };
