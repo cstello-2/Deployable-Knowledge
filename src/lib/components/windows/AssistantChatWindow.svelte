@@ -926,10 +926,12 @@
         class="inline-action-button chat-graph-button"
         type="button"
         aria-label="Visualize knowledge graph"
-        title={graphPreparing
+        title={graphPreparationError
+          ? `Open Galaxy and retry: ${graphPreparationError}`
+          : graphPreparing
           ? "Knowledge Graph is still preparing"
           : "Visualize knowledge graph"}
-        disabled={!queryGraphContext || !graphReady || graphPreparing}
+        disabled={!queryGraphContext || graphPreparing}
         onclick={openGraphGalaxy}
       >
         <Icon name="hub" size={16} />
