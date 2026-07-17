@@ -27,9 +27,8 @@
   });
   let modelSetupError = $state("");
 
-  initWorkspaceStateStorage();
-
   onMount(() => {
+    initWorkspaceStateStorage();
     checkEmbeddingModel();
   });
 

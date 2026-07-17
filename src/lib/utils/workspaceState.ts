@@ -112,6 +112,12 @@ export function showWindow(id: string) {
   );
 }
 
+export function isWindowVisible(id: string) {
+  return get(windowPlacements).some(
+    (placement) => placement.id === id && placement.visible,
+  );
+}
+
 export function closeWindow(id: string) {
   windowPlacements.update((placements) =>
     placements.map((placement) =>

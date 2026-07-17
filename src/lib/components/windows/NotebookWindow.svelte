@@ -11,6 +11,16 @@
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { renderMarkdown } from "$lib/utils/markdown";
   import {
+    NOTEBOOK_CONTEXT_CHANGED_EVENT,
+    type NotebookContextChangedDetail,
+    notebookProvidesContext as notebookIsSelectedForContext,
+    pageProvidesNotebookContext,
+    restoreNotebookContextPageIds,
+    toggleNotebookContextNotebook,
+    toggleNotebookContextPage,
+  } from "$lib/utils/notebookContextSelection";
+  import { applyNotebookState } from "$lib/utils/notebookState";
+  import {
     NOTEBOOK_TEXT_CHARACTER_LIMIT,
     NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT,
   } from "$lib/utils/contextLimits";
@@ -24,8 +34,6 @@
   } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
-  // dk:send-to-notebook carries fully-composed text — just appended as plain text.
-  type SendToNotebookDetail = { text: string };
   type NotebookView = "notebooks" | "pages" | "editor";
 
   let {
@@ -55,6 +63,9 @@
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let selectedNotebookText = $state("");
+  let notebookSelectionButtonVisible = $state(false);
+  let notebookLocked = $derived(appState.assistantRequestInFlight);
   let otherPageCharacterCount = $derived(
     appState.activeNotebook?.pages.reduce(
       (total, page) =>
@@ -87,20 +98,24 @@
   let sourcesLoading = $state(false);
 
   function toggleSources() {
+    if (notebookLocked) return;
     sourcesOpen = !sourcesOpen;
   }
 
   function showNotebooks() {
+    if (notebookLocked) return;
     sourcesOpen = false;
     notebookView = "notebooks";
   }
 
   function showPages() {
+    if (notebookLocked) return;
     sourcesOpen = false;
     notebookView = appState.activeNotebook ? "pages" : "notebooks";
   }
 
   function navigateBack() {
+    if (notebookLocked) return;
     if (notebookView === "editor") {
       showPages();
     } else if (notebookView === "pages") {
@@ -112,13 +127,35 @@
     if (collapsed) sourcesOpen = false;
   });
 
+  $effect(() => {
+    if (!notebookLocked) return;
+    sourcesOpen = false;
+    notebookSelectionButtonVisible = false;
+    selectedNotebookText = "";
+  });
+
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
-    appState.notebooks = data.notebooks ?? [];
-    appState.activeNotebookId = data.activeNotebookId ?? appState.notebooks[0]?.id ?? null;
-    appState.activeNotebook = appState.notebooks.find((nb) => nb.id === appState.activeNotebookId) ?? appState.notebooks[0] ?? null;
-    appState.activePage = appState.activeNotebook?.pages.find((p) => p.id === appState.activeNotebook?.activePageId) ?? appState.activeNotebook?.pages[0] ?? null;
+    applyNotebookState(appState, data);
     notes = appState.activePage?.content ?? "";
     loadSources();
+  }
+
+  function pageProvidesContext(pageId: string) {
+    return pageProvidesNotebookContext(appState, pageId);
+  }
+
+  function notebookProvidesContext(notebook: NotebookWithPages) {
+    return notebookIsSelectedForContext(appState, notebook);
+  }
+
+  function togglePageContext(pageId: string) {
+    if (notebookLocked) return;
+    toggleNotebookContextPage(appState, pageId);
+  }
+
+  function toggleNotebookContext(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
+    toggleNotebookContextNotebook(appState, notebook);
   }
 
   async function loadSources() {
@@ -136,6 +173,7 @@
   }
 
   async function removeSource(sourceId: string) {
+    if (notebookLocked) return;
     const notebookId = appState.activeNotebookId;
     if (!notebookId) return;
     await fetch(`/notebooks/${notebookId}/sources/${sourceId}`, { method: "DELETE" });
@@ -143,6 +181,7 @@
   }
 
   async function clearAllSources() {
+    if (notebookLocked) return;
     const notebookId = appState.activeNotebookId;
     if (!notebookId || !sources.length) return;
     if (!window.confirm("Remove all sources attached to this notebook?")) return;
@@ -193,6 +232,7 @@
   }
 
   function queueSaveCurrentPage() {
+    if (notebookLocked) return;
     saveStatus = "Saving…";
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -209,6 +249,7 @@
   }
 
   async function selectNotebook(notebookId: string): Promise<boolean> {
+    if (notebookLocked) return false;
     await flushPendingSave();
     const res = await fetch(`/notebooks/${notebookId}/select`, { method: "POST" });
     if (!res.ok) { showToast("Failed to select notebook"); return false; }
@@ -217,6 +258,7 @@
   }
 
   async function selectPage(page: NotebookPage): Promise<boolean> {
+    if (notebookLocked) return false;
     const nb = appState.activeNotebook;
     if (!nb) return false;
     await flushPendingSave();
@@ -227,6 +269,7 @@
   }
 
   async function openNotebookPages(notebookId: string) {
+    if (notebookLocked) return;
     const selected =
       notebookId === appState.activeNotebookId ||
       (await selectNotebook(notebookId));
@@ -235,6 +278,7 @@
   }
 
   async function navigateToPage(page: NotebookPage) {
+    if (notebookLocked) return;
     const selected =
       page.id === appState.activePage?.id || (await selectPage(page));
 
@@ -245,6 +289,7 @@
   }
 
   async function createNotebook() {
+    if (notebookLocked) return;
     const requestedTitle = window.prompt("Notebook name", "New Notebook");
     if (requestedTitle === null) return;
     await flushPendingSave();
@@ -268,6 +313,7 @@
   }
 
   async function createPage() {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -295,6 +341,7 @@
   }
 
   async function renameNotebook(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
     const requestedTitle = window.prompt("Rename notebook", notebook.title);
     const nextTitle = requestedTitle?.trim();
     if (!nextTitle || nextTitle === notebook.title) return;
@@ -318,6 +365,7 @@
   }
 
   async function renamePage(page: NotebookPage) {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -344,6 +392,7 @@
   }
 
   async function deleteNotebook(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
     const pageLabel = notebook.pages.length === 1 ? "page" : "pages";
     if (
       !window.confirm(
@@ -369,6 +418,7 @@
   }
 
   async function deletePage(page: NotebookPage) {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -402,36 +452,61 @@
     return compact.length > 100 ? `${compact.slice(0, 100).trimEnd()}…` : compact;
   }
 
-  // Fired by the Send to Notebook button on an assistant reply the text is
-  // already fully composed (reply + hydrated source excerpts), so just append it.
-  async function appendTextFromChat(event: Event) {
-    const { text } = (event as CustomEvent<SendToNotebookDetail>).detail;
-    if (!text?.trim() || !appState.activePage) return;
-    const nextNotes = notes.trim()
-      ? `${notes.trimEnd()}\n\n${text.trim()}`
-      : text.trim();
+  async function handleNotebooksUpdated() {
+    await loadNotebooks();
+    notebookView = appState.activePage ? "editor" : "pages";
+  }
 
-    if (nextNotes.length > currentPageCharacterLimit) {
-      saveStatus = "Limit reached";
-      showToast(
-        `Not enough notebook space (${notebookCharactersRemaining.toLocaleString()} characters remaining)`,
-      );
-      return;
-    }
+  function handleNotebookSelection(event: Event) {
+    if (notebookLocked) return;
+    const textarea = event.currentTarget as HTMLTextAreaElement;
+    const selected = textarea.value
+      .slice(textarea.selectionStart, textarea.selectionEnd)
+      .trim();
+    selectedNotebookText = selected;
+    notebookSelectionButtonVisible = selected.length > 0;
+  }
 
-    notes = nextNotes;
-    await saveCurrentPage();
-    saveStatus = "Added from chat";
-    notebookView = "editor";
+  function sendSelectionToChat() {
+    if (notebookLocked) return;
+    const text = selectedNotebookText.trim();
+    if (!text) return;
+    window.dispatchEvent(new CustomEvent("dk:send-to-chat", {
+      detail: { text },
+    }));
+    notebookSelectionButtonVisible = false;
+    selectedNotebookText = "";
+    saveStatus = "Sent to chat";
+  }
+
+  function togglePreviewMode() {
+    if (notebookLocked) return;
+    previewMode = !previewMode;
   }
 
   onMount(() => {
-    loadNotebooks();
-    window.addEventListener("dk:send-to-notebook", appendTextFromChat);
+    restoreNotebookContextPageIds(appState);
+    void loadNotebooks();
+    const handleNotebookContextChanged = (event: Event) => {
+      if (notebookLocked) return;
+      const detail = (event as CustomEvent<NotebookContextChangedDetail>).detail;
+      if (!detail?.pageIds || !detail?.notebookIds) return;
+      appState.notebookContextNotebookIds = [...detail.notebookIds];
+      appState.notebookContextPageIds = [...detail.pageIds];
+    };
     window.addEventListener("notebook-sources:refresh", loadSources);
+    window.addEventListener("dk:notebooks-updated", handleNotebooksUpdated);
+    window.addEventListener(
+      NOTEBOOK_CONTEXT_CHANGED_EVENT,
+      handleNotebookContextChanged,
+    );
     return () => {
-      window.removeEventListener("dk:send-to-notebook", appendTextFromChat);
       window.removeEventListener("notebook-sources:refresh", loadSources);
+      window.removeEventListener("dk:notebooks-updated", handleNotebooksUpdated);
+      window.removeEventListener(
+        NOTEBOOK_CONTEXT_CHANGED_EVENT,
+        handleNotebookContextChanged,
+      );
       if (saveTimer) clearTimeout(saveTimer);
     };
   });
@@ -443,11 +518,16 @@
   {closable}
   {height}
   {collapsed}
+  controlsDisabled={notebookLocked}
   {onToggleCollapse}
   {onClose}
   contentLabel="Notebook content"
 >
-  <section class="notebook-main">
+  <fieldset
+    class="notebook-main"
+    disabled={notebookLocked}
+    aria-busy={notebookLocked}
+  >
     <header class="notebook-header">
       <div class="notebook-heading-row">
         {#if notebookView !== "notebooks"}
@@ -510,6 +590,23 @@
         </div>
       {:else}
         <div class="notebook-actions">
+          {#if appState.activePage}
+            <button
+              class="icon-action context-toggle"
+              class:active={pageProvidesContext(appState.activePage.id)}
+              type="button"
+              title={pageProvidesContext(appState.activePage.id)
+                ? "Remove this page from context"
+                : "Use this page for context"}
+              aria-label={pageProvidesContext(appState.activePage.id)
+                ? "Remove this page from context"
+                : "Use this page for context"}
+              aria-pressed={pageProvidesContext(appState.activePage.id)}
+              onclick={() => togglePageContext(appState.activePage!.id)}
+            >
+              <Icon name="library_add_check" size={17} />
+            </button>
+          {/if}
           <Dropdown
             id="notebook_sources"
             bind:open={sourcesOpen}
@@ -531,6 +628,7 @@
                 aria-controls={menuId}
                 aria-expanded={open}
                 data-window-action
+                disabled={notebookLocked}
                 onclick={toggleSources}
               >
                 <Icon name="description" size={17} />
@@ -546,7 +644,7 @@
                 <button
                   class="btn btn-sm btn-danger"
                   type="button"
-                  disabled={!sources.length}
+                  disabled={notebookLocked || !sources.length}
                   onclick={clearAllSources}
                 >
                   Clear All
@@ -569,6 +667,7 @@
                         type="button"
                         title="Remove source"
                         aria-label="Remove source"
+                        disabled={notebookLocked}
                         onclick={() => removeSource(source.id)}
                       >
                         <Icon name="close" size={14} />
@@ -593,7 +692,7 @@
             aria-label={previewMode ? "Edit notes" : "Preview markdown"}
             aria-pressed={previewMode}
             data-window-action
-            onclick={() => (previewMode = !previewMode)}
+            onclick={togglePreviewMode}
           >
             <Icon name={previewMode ? "edit" : "visibility"} size={17} />
           </button>
@@ -628,6 +727,21 @@
                       {notebook.pages.length === 1 ? "page" : "pages"}
                     </small>
                   </span>
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action context-toggle"
+                  class:active={notebookProvidesContext(notebook)}
+                  type="button"
+                  title={notebookProvidesContext(notebook)
+                    ? `Remove ${notebook.title} from context`
+                    : `Use ${notebook.title} for context`}
+                  aria-label={notebookProvidesContext(notebook)
+                    ? `Remove ${notebook.title} from context`
+                    : `Use ${notebook.title} for context`}
+                  aria-pressed={notebookProvidesContext(notebook)}
+                  onclick={() => toggleNotebookContext(notebook)}
+                >
+                  <Icon name="library_add_check" size={16} />
                 </button>
                 <button
                   class="inline-action-button navigation-row-action danger"
@@ -680,6 +794,21 @@
                   </span>
                 </button>
                 <button
+                  class="inline-action-button navigation-row-action context-toggle"
+                  class:active={pageProvidesContext(page.id)}
+                  type="button"
+                  title={pageProvidesContext(page.id)
+                    ? `Remove ${page.title} from context`
+                    : `Use ${page.title} for context`}
+                  aria-label={pageProvidesContext(page.id)
+                    ? `Remove ${page.title} from context`
+                    : `Use ${page.title} for context`}
+                  aria-pressed={pageProvidesContext(page.id)}
+                  onclick={() => togglePageContext(page.id)}
+                >
+                  <Icon name="library_add_check" size={16} />
+                </button>
+                <button
                   class="inline-action-button navigation-row-action danger"
                   type="button"
                   title={`Delete ${page.title}`}
@@ -706,6 +835,15 @@
       </nav>
     {:else}
       <div class="notebook-editor-wrap">
+        {#if notebookSelectionButtonVisible && !previewMode}
+          <button
+            class="selection-action notebook-selection-action"
+            type="button"
+            onclick={sendSelectionToChat}
+          >
+            Send to Chat
+          </button>
+        {/if}
         {#if previewMode}
           <div class="notebook-preview" aria-label="Notebook preview">
             {#if notes.trim()}
@@ -720,6 +858,14 @@
             bind:value={notes}
             maxlength={currentPageCharacterLimit}
             oninput={queueSaveCurrentPage}
+            onselect={handleNotebookSelection}
+            onmouseup={handleNotebookSelection}
+            onkeyup={handleNotebookSelection}
+            onblur={() => {
+              window.setTimeout(() => {
+                notebookSelectionButtonVisible = false;
+              }, 180);
+            }}
             placeholder="Write notes here..."
             aria-label="Notebook notes"
           ></textarea>
@@ -744,7 +890,7 @@
         </div>
       </div>
     {/if}
-  </section>
+  </fieldset>
 
 </BaseWindow>
 
@@ -766,6 +912,9 @@
     width: 100%;
     min-width: 0;
     min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
     flex: 1 1 auto;
     flex-direction: column;
   }
@@ -875,6 +1024,12 @@
   .icon-action.active {
     border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
     color: var(--text);
+  }
+
+  .icon-action.active:not(.context-toggle) {
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in oklab, var(--accent) 28%, transparent);
   }
 
   .source-count-badge {
@@ -1032,7 +1187,7 @@
     border-radius: 11px;
     background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 1%));
     color: var(--text);
-    grid-template-columns: minmax(0, 1fr) repeat(2, auto);
+    grid-template-columns: minmax(0, 1fr) repeat(3, auto);
     align-items: stretch;
   }
 
@@ -1129,6 +1284,24 @@
     min-height: 0;
     flex-direction: column;
     flex: 1 1 auto;
+  }
+
+  .selection-action {
+    position: absolute;
+    z-index: 30;
+    top: 10px;
+    right: 14px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    box-shadow: var(--shadow);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .selection-action:hover {
+    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
   }
 
   .notebook-character-count {

@@ -349,6 +349,12 @@ textarea:disabled {
 	color: var(--text);
 }
 
+.context-toggle.active,
+.context-toggle.active:hover {
+	background: color-mix(in oklab, var(--accent) 18%, transparent);
+	color: var(--text);
+}
+
 .inline-action-button.danger:hover {
 	background: color-mix(in oklab, var(--danger) 12%, transparent);
 	color: var(--danger);

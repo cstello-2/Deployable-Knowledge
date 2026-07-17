@@ -1,12 +1,20 @@
 import { json } from "@sveltejs/kit";
-import { desc, inArray, sql } from "drizzle-orm";
 import type { RequestHandler } from "./$types";
-import { db } from "$lib/server/database/database";
-import { document_chunks, documents, graph_edges, graph_nodes } from "$lib/server/database/schema";
-import { extractWithTypeScript } from "$lib/server/knowledge-graph/typescript-extractor";
-import type { GraphNode, RelationType } from "$lib/server/knowledge-graph/types";
-import { graphId, sanitizeEntityLabel } from "$lib/server/knowledge-graph/utils";
-import { searchHybrid } from "$lib/server/rag/search/hybrid-search";
+import {
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+  ensureKnowledgeGraphForChunks,
+  ensureKnowledgeGraph,
+  getBuiltKnowledgeGraph,
+  searchKnowledgeGraph,
+} from "$lib/server/knowledge-graph";
+import type {
+  GraphEdge,
+  GraphNode,
+  KnowledgeGraphMatch,
+  RelationType,
+} from "$lib/server/knowledge-graph/types";
+import { graphId } from "$lib/server/knowledge-graph/utils";
 
 type VisualNode = {
   id: string;
@@ -16,7 +24,17 @@ type VisualNode = {
   documentId?: string;
   chunkId?: string;
   score?: number;
+  retrievalScore?: number;
+  hybridScore?: number;
+  graphScore?: number;
   preview?: string;
+  content?: string;
+  sourceTitle?: string;
+  pageIndex?: number;
+  chunkIndex?: number;
+  chunkType?: string;
+  matchedEntities?: string[];
+  relations?: RelationType[];
 };
 
 type VisualEdge = {
@@ -27,285 +45,230 @@ type VisualEdge = {
   evidence?: string;
 };
 
-type VisualChunk = {
-  chunkId: string;
-  documentId: string;
-  sourceTitle: string;
-  pageIndex: number;
-  chunkIndex: number;
-  content: string;
-  score?: number;
-};
-
-const MAX_QUERY_CHUNKS = 10;
-const MAX_OVERVIEW_DOCUMENTS = 40;
-const MAX_OVERVIEW_CHUNKS = 60;
-const MAX_ENTITIES_PER_CHUNK = 10;
-const MAX_VISIBLE_NODES = 120;
-const MAX_VISIBLE_EDGES = 220;
+const MAX_QUERY_NEIGHBORS_PER_CHUNK = 10;
+const MAX_OVERVIEW_NODES = 120;
+const MAX_OVERVIEW_EDGES = 220;
 const MAX_EVIDENCE_CHARS = 220;
 
 export const GET: RequestHandler = async ({ url }) => {
   const query = (url.searchParams.get("query") ?? "").trim();
   const topK = Math.max(1, Math.min(20, parseInt(url.searchParams.get("topK") ?? "8", 10)));
   const documentIds = url.searchParams.getAll("documentIds").filter(Boolean);
+  const chunkIds = url.searchParams.getAll("chunkIds").filter(Boolean);
+  // No documentIds is the canonical request for the complete collection.
+  try {
+    if (chunkIds.length) {
+      const index = await ensureKnowledgeGraphForChunks(chunkIds);
+      const matches = chunkIds.flatMap((chunkId, indexPosition) => {
+        const chunk = index.chunksById.get(chunkId);
+        if (!chunk) return [];
+        const neighbors = index.graph.neighbors(graphId("chunk", chunkId));
+        return [{
+          ...chunk,
+          score: Math.max(0.2, 1 - indexPosition / Math.max(1, chunkIds.length)),
+          graphScore: 0,
+          matchedEntities: neighbors
+            .filter((neighbor) => neighbor.node.kind === "entity")
+            .map((neighbor) => neighbor.node.label),
+          relations: neighbors.map((neighbor) => neighbor.edge.relation),
+          pathCount: 0,
+        } satisfies KnowledgeGraphMatch];
+      });
+      const visual = createQueryGraph(index, query, matches, []);
+      return json({
+        query,
+        mode: "query",
+        stats: index.graph.stats(),
+        ...visual,
+      });
+    }
 
-  if (query) {
-    return json(await createQueryVisual(query, topK, documentIds));
+    const index = await ensureKnowledgeGraph(documentIds);
+
+    if (query) {
+      const search = await searchKnowledgeGraph({
+        query,
+        topK,
+        documentIds,
+      });
+      const visual = createQueryGraph(index, query, search.results, search.paths);
+      return json({
+        query,
+        mode: "query",
+        stats: index.graph.stats(),
+        ...visual,
+      });
+    }
+
+    return json({
+      query,
+      mode: "overview",
+      stats: index.graph.stats(),
+      ...createOverviewGraph(index.graph),
+    });
+  } catch (error) {
+    return visualGraphError(error);
   }
-
-  return json(await createOverviewVisual(documentIds));
 };
 
-async function createQueryVisual(
-  query: string,
-  topK: number,
-  documentIds: string[],
-) {
-  const search = await searchHybrid({
-    query,
-    topK: Math.min(MAX_QUERY_CHUNKS, Math.max(topK * 2, 6)),
-    documentIds: documentIds.length ? documentIds : undefined,
-  });
-  const chunks = search.results.slice(0, MAX_QUERY_CHUNKS).map((match, index) => ({
-    chunkId: match.chunkId,
-    documentId: match.documentId,
-    sourceTitle: match.sourceTitle,
-    pageIndex: match.pageIndex,
-    chunkIndex: match.chunkIndex,
-    content: match.content,
-    score: 1 / (index + 1),
-  }));
-  const visual = await buildVisualFromChunks(chunks);
-
-  return {
-    query,
-    mode: "query",
-    stats: { nodes: visual.nodes.length, edges: visual.edges.length },
-    ...visual,
-    summary: `Focused graph built from the top retrieved chunks for "${query}"`,
-  };
-}
-
-async function createOverviewVisual(documentIds: string[]) {
-  const storedVisual = await createStoredOverviewVisual(documentIds);
-  if (storedVisual) {
-    return storedVisual;
+function visualGraphError(error: unknown): Response {
+  if (error instanceof KnowledgeGraphNotBuiltError) {
+    return json(
+      { code: error.code, message: error.message, graphStatus: error.graphStatus },
+      { status: 409 },
+    );
+  }
+  if (error instanceof KnowledgeGraphNoDocumentsError) {
+    return json(
+      { code: error.code, message: error.message, graphStatus: error.graphStatus },
+      { status: 404 },
+    );
   }
 
-  const documentRows = documentIds.length
-    ? await db
-        .select({ id: documents.id, title: documents.title })
-        .from(documents)
-        .where(inArray(documents.id, documentIds))
-        .limit(MAX_OVERVIEW_DOCUMENTS)
-    : await db
-        .select({ id: documents.id, title: documents.title })
-        .from(documents)
-        .orderBy(desc(documents.updatedAt))
-        .limit(MAX_OVERVIEW_DOCUMENTS);
-  const selectedDocumentIds = documentRows.map((document) => document.id);
-
-  const chunkRows = selectedDocumentIds.length
-    ? await db
-        .select({
-          chunkId: document_chunks.id,
-          documentId: document_chunks.documentId,
-          sourceTitle: documents.title,
-          pageIndex: document_chunks.pageIndex,
-          chunkIndex: document_chunks.chunkIndex,
-          content: document_chunks.content,
-        })
-        .from(document_chunks)
-        .innerJoin(documents, sql`${documents.id} = ${document_chunks.documentId}`)
-        .where(inArray(document_chunks.documentId, selectedDocumentIds))
-        .orderBy(desc(document_chunks.createdAt))
-        .limit(MAX_OVERVIEW_CHUNKS)
-    : [];
-  const visual = await buildVisualFromChunks(
-    chunkRows.map((chunk, index) => ({
-      ...chunk,
-      pageIndex: Number(chunk.pageIndex),
-      chunkIndex: Number(chunk.chunkIndex),
-      score: 1 / (index + 1),
-    })),
-    documentRows,
+  console.error("Knowledge Graph visualization error:", error);
+  return json(
+    { code: "KNOWLEDGE_GRAPH_VISUAL_ERROR", message: "Knowledge Graph visualization failed." },
+    { status: 500 },
   );
-
-  return {
-    query: "",
-    mode: "overview",
-    stats: { nodes: visual.nodes.length, edges: visual.edges.length },
-    ...visual,
-    summary: "Fast overview sample of documents, chunks, and extracted entity nodes",
-  };
 }
 
-async function createStoredOverviewVisual(documentIds: string[]) {
-  const nodeRows = documentIds.length
-    ? await db
-        .select()
-        .from(graph_nodes)
-        .where(inArray(graph_nodes.documentId, documentIds))
-        .limit(MAX_VISIBLE_NODES)
-    : await db
-        .select()
-        .from(graph_nodes)
-        .orderBy(desc(graph_nodes.updatedAt))
-        .limit(MAX_VISIBLE_NODES);
-
-  if (nodeRows.length === 0) return null;
-
-  const selected = new Set(nodeRows.map((node) => node.id));
-  const edgeRows = documentIds.length
-    ? await db
-        .select()
-        .from(graph_edges)
-        .where(inArray(graph_edges.documentId, documentIds))
-        .limit(MAX_VISIBLE_EDGES)
-    : await db.select().from(graph_edges).limit(MAX_VISIBLE_EDGES);
-
-  return {
-    query: "",
-    mode: "overview",
-    stats: { nodes: nodeRows.length, edges: edgeRows.length },
-    nodes: nodeRows.map((node) => ({
-      id: node.id,
-      label: node.label,
-      kind: node.kind,
-      entityKind: node.entityKind ?? undefined,
-      documentId: node.documentId ?? undefined,
-      chunkId: node.chunkId ?? undefined,
-    })),
-    edges: edgeRows
-      .filter((edge) => selected.has(edge.source) && selected.has(edge.target))
-      .map((edge) => ({
-        source: edge.source,
-        target: edge.target,
-        relation: edge.relation,
-        weight: Number(edge.weight),
-        evidence: truncate(edge.evidence),
-      })),
-    summary: "Stored Knowledge Graph triplets from ingested chunks",
-  };
-}
-
-async function buildVisualFromChunks(
-  chunks: VisualChunk[],
-  documentRows: Array<{ id: string; title: string }> = [],
+function createQueryGraph(
+  index: Awaited<ReturnType<typeof getBuiltKnowledgeGraph>>,
+  query: string,
+  results: KnowledgeGraphMatch[],
+  paths: Array<{ nodes: GraphNode[]; edges: GraphEdge[] }>,
 ) {
+  const { graph, chunksById } = index;
   const nodes = new Map<string, VisualNode>();
   const edges = new Map<string, VisualEdge>();
 
-  const addNode = (node: VisualNode) => {
+  const addNode = (node: GraphNode, score?: number, result?: KnowledgeGraphMatch) => {
     const existing = nodes.get(node.id);
+    const chunk = node.kind === "chunk" && node.chunkId
+      ? chunksById.get(node.chunkId)
+      : undefined;
+    const content = result?.content ?? chunk?.content ?? existing?.content;
     nodes.set(node.id, {
-      ...existing,
-      ...node,
-      entityKind: preferEntityKind(existing?.entityKind, node.entityKind),
-      score: Math.max(existing?.score ?? 0, node.score ?? 0) || undefined,
-      preview: node.preview ?? existing?.preview,
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      entityKind: node.entityKind,
+      documentId: node.documentId,
+      chunkId: node.chunkId,
+      score: Math.max(existing?.score ?? 0, score ?? 0) || undefined,
+      retrievalScore: result?.score ?? existing?.retrievalScore,
+      hybridScore: result?.hybridScore ?? existing?.hybridScore,
+      graphScore: result?.graphScore ?? existing?.graphScore,
+      preview: content ? truncate(content) : existing?.preview,
+      content,
+      sourceTitle: result?.sourceTitle ?? chunk?.sourceTitle ?? existing?.sourceTitle,
+      pageIndex: result?.pageIndex ?? chunk?.pageIndex ?? existing?.pageIndex,
+      chunkIndex: result?.chunkIndex ?? chunk?.chunkIndex ?? existing?.chunkIndex,
+      chunkType: result?.chunkType ?? chunk?.chunkType ?? existing?.chunkType,
+      matchedEntities: uniqueStrings([
+        ...(existing?.matchedEntities ?? []),
+        ...(result?.matchedEntities ?? []),
+      ]),
+      relations: uniqueRelations([
+        ...(existing?.relations ?? []),
+        ...(result?.relations ?? []),
+      ]),
     });
   };
-  const addEdge = (edge: VisualEdge) => {
-    if (edge.source === edge.target) return;
+  const addEdge = (edge: GraphEdge) => {
     const key = `${edge.source}\u0000${edge.target}\u0000${edge.relation}`;
     const existing = edges.get(key);
     edges.set(key, {
-      ...edge,
+      source: edge.source,
+      target: edge.target,
+      relation: edge.relation,
       weight: Math.max(existing?.weight ?? 0, edge.weight),
-      evidence: truncate(edge.evidence ?? existing?.evidence),
+      evidence: truncate(edge.evidence),
     });
   };
 
-  for (const document of documentRows) {
-    addNode({
-      id: graphId("document", document.id),
-      label: document.title,
-      kind: "document",
-      documentId: document.id,
-      score: 1,
-    });
-  }
+  for (const result of results) {
+    const documentNode = graph.getNode(graphId("document", result.documentId));
+    const chunkNode = graph.getNode(graphId("chunk", result.chunkId));
+    if (documentNode) addNode(documentNode, result.score);
+    if (chunkNode) addNode(chunkNode, result.score, result);
 
-  for (const chunk of chunks) {
-    const documentNodeId = graphId("document", chunk.documentId);
-    const chunkNodeId = graphId("chunk", chunk.chunkId);
-    addNode({
-      id: documentNodeId,
-      label: chunk.sourceTitle,
-      kind: "document",
-      documentId: chunk.documentId,
-      score: chunk.score,
-    });
-    addNode({
-      id: chunkNodeId,
-      label: `${chunk.sourceTitle} page ${chunk.pageIndex + 1}`,
-      kind: "chunk",
-      documentId: chunk.documentId,
-      chunkId: chunk.chunkId,
-      score: chunk.score,
-      preview: truncate(chunk.content),
-    });
-    addEdge({
-      source: documentNodeId,
-      target: chunkNodeId,
-      relation: "CONTAINS",
-      weight: 0.5,
-      evidence: chunk.content,
-    });
-
-    const { entities, relations } = extractWithTypeScript(chunk.content, [], chunk.chunkId);
-    const kindByLabel = new Map(
-      entities.map((entity) => [sanitizeEntityLabel(entity.label).toLowerCase(), entity.kind]),
-    );
-    for (const entity of entities.slice(0, MAX_ENTITIES_PER_CHUNK)) {
-      const label = sanitizeEntityLabel(entity.label);
-      if (!label) continue;
-      const entityNodeId = graphId("entity", label);
-      addNode({
-        id: entityNodeId,
-        label,
-        kind: "entity",
-        entityKind: entity.kind,
-        score: chunk.score,
-      });
-      addEdge({
-        source: chunkNodeId,
-        target: entityNodeId,
-        relation: "MENTIONS",
-        weight: 1,
-        evidence: chunk.content,
-      });
-    }
-
-    for (const relation of relations) {
-      const sourceLabel = sanitizeEntityLabel(relation.source);
-      const targetLabel = sanitizeEntityLabel(relation.target);
-      if (!sourceLabel || !targetLabel) continue;
-      const source = graphId("entity", sourceLabel);
-      const target = graphId("entity", targetLabel);
-      addNode({ id: source, label: sourceLabel, kind: "entity", entityKind: kindByLabel.get(sourceLabel.toLowerCase()) ?? "concept", score: chunk.score });
-      addNode({ id: target, label: targetLabel, kind: "entity", entityKind: kindByLabel.get(targetLabel.toLowerCase()) ?? "concept", score: chunk.score });
-      addEdge({
-        source,
-        target,
-        relation: relation.relation || "RELATED_TO",
-        weight: 1,
-        evidence: relation.evidence ?? chunk.content,
-      });
+    for (const neighbor of graph.neighbors(graphId("chunk", result.chunkId)).slice(0, MAX_QUERY_NEIGHBORS_PER_CHUNK)) {
+      addNode(neighbor.node, result.score * Math.max(0.2, neighbor.edge.weight));
+      addEdge(neighbor.edge);
     }
   }
 
-  const selectedNodes = [...nodes.values()].slice(0, MAX_VISIBLE_NODES);
-  const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
-  const selectedEdges = [...edges.values()]
-    .filter((edge) => selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target))
-    .slice(0, MAX_VISIBLE_EDGES);
+  for (const path of paths.slice(0, 12)) {
+    for (const node of path.nodes) addNode(node, 0.25);
+    for (const edge of path.edges) addEdge(edge);
+  }
+
+  // Make sure selected edges only reference selected nodes.
+  const selectedEdges = [...edges.values()].filter((edge) =>
+    nodes.has(edge.source) && nodes.has(edge.target),
+  );
 
   return {
-    nodes: selectedNodes,
+    nodes: [...nodes.values()],
     edges: selectedEdges,
+    summary: `Graph focused around "${query}"`,
+  };
+}
+
+function uniqueStrings(values: readonly string[]): string[] | undefined {
+  const unique = [...new Set(values.filter(Boolean))];
+  return unique.length ? unique : undefined;
+}
+
+function uniqueRelations(values: readonly RelationType[]): RelationType[] | undefined {
+  const unique = [...new Set(values)];
+  return unique.length ? unique : undefined;
+}
+
+function createOverviewGraph(graph: Awaited<ReturnType<typeof getBuiltKnowledgeGraph>>["graph"]) {
+  const degree = new Map<string, number>();
+  for (const edge of graph.edges) {
+    degree.set(edge.source, (degree.get(edge.source) ?? 0) + edge.weight);
+    degree.set(edge.target, (degree.get(edge.target) ?? 0) + edge.weight);
+  }
+
+  const allNodes = [...graph.nodes.values()];
+  const documents = allNodes.filter((node) => node.kind === "document");
+  const topEntities = allNodes
+    .filter((node) => node.kind === "entity")
+    .sort((left, right) => (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0))
+    .slice(0, Math.max(0, MAX_OVERVIEW_NODES - documents.length));
+  const selected = new Map<string, VisualNode>();
+
+  for (const node of [...documents, ...topEntities].slice(0, MAX_OVERVIEW_NODES)) {
+    selected.set(node.id, {
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      entityKind: node.entityKind,
+      documentId: node.documentId,
+      chunkId: node.chunkId,
+      score: degree.get(node.id),
+    });
+  }
+
+  const edges = graph.edges
+    .filter((edge) => selected.has(edge.source) && selected.has(edge.target))
+    .sort((left, right) => right.weight - left.weight)
+    .slice(0, MAX_OVERVIEW_EDGES)
+    .map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      relation: edge.relation,
+      weight: edge.weight,
+      evidence: truncate(edge.evidence),
+    }));
+
+  return {
+    nodes: [...selected.values()],
+    edges,
+    summary: "Overview of the strongest document/entity graph clusters",
   };
 }
 
@@ -314,10 +277,4 @@ function truncate(value = "") {
   return compact.length > MAX_EVIDENCE_CHARS
     ? `${compact.slice(0, MAX_EVIDENCE_CHARS).trimEnd()}...`
     : compact;
-}
-
-function preferEntityKind(existing?: string, next?: string): string | undefined {
-  if (!existing || existing === "unknown" || existing === "concept") return next ?? existing;
-  if (!next || next === "unknown" || next === "concept") return existing;
-  return existing;
 }

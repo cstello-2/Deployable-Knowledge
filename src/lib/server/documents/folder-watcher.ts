@@ -1,8 +1,9 @@
-import { extname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { watch, type FSWatcher } from "chokidar";
 import { db } from "$lib/server/database/database";
 import { synced_folders, type SyncedFolder } from "$lib/server/database/schema";
+import { isSupportedDocument } from "$lib/server/rag/ingest-document";
 import {
   syncFolder,
   type SyncFileProgress,
@@ -26,12 +27,8 @@ const globalState = globalThis as typeof globalThis & {
 };
 const folders = (globalState.folderWatchers ??= new Map());
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function recordError(folderId: string, error: unknown) {
-  const text = message(error);
+  const text = String(error);
   console.error(`[Folder Watcher] ${folderId}: ${text}`);
   await db.update(synced_folders).set({ lastError: text }).where(eq(synced_folders.id, folderId));
 }
@@ -77,8 +74,7 @@ export const folderWatcherManager = {
       ignoreInitial: true,
       atomic: true,
       awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 250 },
-      ignored: (path, stats) =>
-        Boolean(stats?.isFile() && extname(path).toLowerCase() !== ".pdf"),
+      ignored: (path, stats) => Boolean(stats?.isFile() && !isSupportedDocument(path)),
     });
     const state: WatchedFolder = {
       watcher,
@@ -93,7 +89,7 @@ export const folderWatcherManager = {
       if (
         event === "addDir" ||
         event === "unlinkDir" ||
-        (["add", "change", "unlink"].includes(event) && extname(path).toLowerCase() === ".pdf")
+        (["add", "change", "unlink"].includes(event) && isSupportedDocument(path))
       ) {
         this.scheduleSync(folder.id);
       }

@@ -33,6 +33,9 @@ export class Github extends Provider {
     });
 
     const resp = await fetch(req);
+    if (!resp.ok) {
+      throw new Error(`GitHub Models request failed (${resp.status}): ${await resp.text()}`);
+    }
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
