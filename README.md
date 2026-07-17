@@ -1,8 +1,8 @@
-# Deployable-Knowledge
+# Deployable Knowledge: Advanced Offline Multi-Modal RAG Stack
 
 **Version vA0.3.0**
 
-Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
+Deployable Knowledge is an edge-first, comprehensive knowledge retrieval and generation tool. Built in TypeScript, it is designed for disconnected or bandwidth-constrained environments, providing high-precision multi-hop reasoning through a unique triple-engine search architecture.
 
 ## Overview
 
@@ -11,7 +11,7 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 ## Features
 
 - **Document ingestion** for PDF and plaintext sources
-- **ChromaDB** vector store with sentence‑transformer embeddings
+- **SQLite** vector store with sentence‑transformer embeddings
 - **Chat and search** endpoints with optional streaming responses
 - **Configurable prompts** and persona editing
 - **Authentication middleware** with session and CSRF protection
