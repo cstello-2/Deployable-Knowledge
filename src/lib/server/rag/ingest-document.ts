@@ -1,6 +1,7 @@
 import { basename, extname } from "node:path";
 import type { DocumentIngestProgress } from "$lib/requestTypes";
 import { TextExtract } from "$lib/server/rag/chunk/text-extract";
+import { DocxExtract } from "$lib/server/rag/chunk/docx-extract";
 import { chunkPages } from "$lib/server/rag/chunk/chunker";
 import { assembleChunks } from "$lib/server/rag/chunk/assemble-chunks";
 import type { Source } from "$lib/server/rag/chunk/parse-shared";
@@ -22,7 +23,7 @@ export type IngestDocumentResult = {
   chunkCount: number;
 };
 
-const SUPPORTED_EXTENSIONS = new Set([".pdf"]);
+const SUPPORTED_EXTENSIONS = new Set([".pdf", ".docx"]);
 
 export function isSupportedDocument(filePath: string): boolean {
   return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -36,22 +37,25 @@ export async function ingestDocument(
   if (!isSupportedDocument(filePath)) throw new Error("Unsupported document type.");
 
   const report = (percent: number, message: string) => {
-    onProgress?.({ percent, label: "Ingesting PDF", message });
+    onProgress?.({ percent, label: "Ingesting document", message });
   };
 
   // Keep source info together so every downstream chunk can carry the same document identity
+  const ext = extname(filePath).toLowerCase();
   const source: Source = {
     title: title?.trim() || basename(filePath),
-    type: "PDF", // NOTE: PDF support for now, .docx later
+    type: ext === ".docx" ? "DOCX" : "PDF",
     path: filePath,
   };
 
   // Updated linear ingest path: extract pages/tables, chunk text, assemble final chunks, then store
-  report(0, "Starting OCR");
+  report(0, "Starting extraction");
 
-  const extraction = await TextExtract(source, (current, total) => {
-    report((current / total) * 50, `OCR page ${current} of ${total}`);
-  });
+  const extraction = source.type === "DOCX"
+    ? await DocxExtract(source)
+    : await TextExtract(source, (current, total) => {
+        report((current / total) * 50, `OCR page ${current} of ${total}`);
+      });
 
   const rawChunks = chunkPages(extraction.chunks);
   const chunks = assembleChunks(extraction.chunks, rawChunks);
@@ -70,6 +74,8 @@ export async function ingestDocument(
   await rebuildDocumentTriplets(stored.documentId, chunks);
   invalidateKnowledgeGraphCache();
 
+  // Invalidate this document's cached graph so it picks up the new chunks
+  invalidateKnowledgeGraphCache([stored.documentId]);
 
   return {
     documentId: stored.documentId,
