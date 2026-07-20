@@ -4,6 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
+		"predev": "drizzle-kit push --force",
 		"dev": "vite dev",
 		"build": "vite build",
 		"db:generate": "drizzle-kit generate",
@@ -12,12 +13,18 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test:knowledge-graph": "tsx --test src/lib/server/knowledge-graph/*.test.ts",
+		"embeddings:rebuild": "tsx scripts/rebuild-embeddings.ts",
+		"graph:rebuild": "tsx scripts/rebuild-knowledge-graph.ts",
+		"graph:rebuild:fast": "tsx scripts/rebuild-knowledge-graph.ts --extractor=typescript"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@types/dompurify": "^3.0.5",
+		"@types/markdown-it": "^14.1.2",
 		"@types/node": "^25.9.2",
 		"@types/stemmer": "^1.0.2",
 		"@types/stopword": "^2.0.3",
@@ -31,13 +38,19 @@
 	"dependencies": {
 		"@huggingface/transformers": "^4.2.0",
 		"@libsql/client": "^0.17.3",
+		"chokidar": "^5.0.0",
+		"dompurify": "^3.4.11",
 		"dotenv": "^17.4.2",
 		"drizzle-orm": "^0.45.2",
+		"markdown-it": "^14.3.0",
 		"material-symbols": "^0.44.12",
-		"scribe.js-ocr": "^0.12.6",
+		"officeparser": "^7.3.0",
+		"onnxruntime-node": "^1.24.3",
+		"pdf-parse": "^2.4.5",
 		"sharp": "^0.34.5",
 		"stemmer": "^2.0.1",
 		"stopword": "^3.1.5",
+		"tesseract.js": "^7.0.0",
 		"wink-bm25-text-search": "^3.1.2"
 	},
 	"allowScripts": {

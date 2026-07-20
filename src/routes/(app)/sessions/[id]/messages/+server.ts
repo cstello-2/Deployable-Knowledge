@@ -1,12 +1,19 @@
-import { and, asc, eq } from "drizzle-orm";
+import { json } from "@sveltejs/kit";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import type { ChatMessageRequest } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
+  document_chunks,
+  notebook_sources,
+  notebooks,
+  profiles,
   promptTemplates,
+  settings,
   type SessionMessage,
   sessions,
   session_messages,
-  settings,
 } from "$lib/server/database/schema";
+import { seedLocalUser } from "$lib/server/database/seed";
 import { getProvider } from "$lib/server/providers/registry";
 import type {
   Provider,
@@ -14,11 +21,30 @@ import type {
 } from "$lib/server/providers/provider";
 import {
   retrieveRagContext,
+  resolveRagRetrievalMode,
+  type RagContextResult,
+
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
+import {
+  ensureKnowledgeGraph,
+  ensureKnowledgeGraphForChunks,
+  KnowledgeGraphNoDocumentsError,
+  KnowledgeGraphNotBuiltError,
+} from "$lib/server/knowledge-graph";
+import {
+  NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
+  RAG_CHUNK_CHARACTER_LIMIT,
+} from "$lib/utils/contextLimits";
+import {
+  createNotebookContextMetadata,
+  resolveNotebookContext,
+} from "$lib/server/notebooks/context";
+import { createConversationalPrompt } from "$lib/server/notebooks/prompt";
 import type { RequestHandler } from "./$types";
 
-// This is where we construct the final prompt
+const NOTEBOOK_USER_ID = "default";
+
 function createPrompt(
   messages: SessionMessage[],
   userMessage: string,
@@ -27,19 +53,15 @@ function createPrompt(
   ragContext = "",
 ) {
   const lines = [];
-  const retrievalInstruction = ragContext
-    ? [
-        "Use the retrieved document context when it is relevant.",
-        "If the context does not contain the answer, say that clearly.",
-        "",
-        ragContext,
-      ].join("\n")
+  const ragInstruction = ragContext
+    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say 'I do not know the answer to that based off the context provided'."
     : "";
-  const systemParts = [systemPrompt, persona, retrievalInstruction]
+  const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : "";
+  const systemParts = [systemPrompt, ragInstruction, personaBlock, ragContext]
     .map((part) => part.trim())
     .filter(Boolean);
 
-  if (systemParts.length) lines.push(`system: ${systemParts.join("\n\n")}`);
+  if (systemParts.length) lines.push(systemParts.join("\n\n"));
 
   // Only take top 20 messages
   for (const message of messages.slice(-20)) {
@@ -49,6 +71,53 @@ function createPrompt(
   // Push in prompt
   lines.push(`user: ${userMessage}`, "assistant:");
   return lines.join("\n\n");
+}
+
+// Chunks attached to a notebook via "Send to Notebook" — never shown in the
+// notebook page text, but pulled in here so notebook-mode chat can use them.
+async function getNotebookSourceExcerpts(
+  notebookIds: readonly string[],
+): Promise<string> {
+  if (!notebookIds.length) return "";
+  const rows = await db
+    .select({ content: document_chunks.content })
+    .from(notebook_sources)
+    .innerJoin(
+      document_chunks,
+      eq(document_chunks.id, notebook_sources.chunkId),
+    )
+    .innerJoin(notebooks, eq(notebooks.id, notebook_sources.notebookId))
+    .where(
+      and(
+        eq(notebooks.userId, NOTEBOOK_USER_ID),
+        inArray(notebook_sources.notebookId, [...notebookIds]),
+      ),
+    );
+
+  if (!rows.length) return "";
+
+  const excerpts: string[] = [];
+  let remaining = NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT;
+
+  for (const [index, row] of rows.entries()) {
+    const prefix = `[${index + 1}] `;
+    const separatorLength = excerpts.length ? 2 : 0;
+    const available = remaining - prefix.length - separatorLength;
+    if (available <= 0) break;
+
+    const text = row.content
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, Math.min(RAG_CHUNK_CHARACTER_LIMIT, available));
+
+    if (!text) continue;
+
+    const excerpt = `${prefix}${text}`;
+    excerpts.push(excerpt);
+    remaining -= excerpt.length + separatorLength;
+  }
+
+  return excerpts.join("\n\n");
 }
 
 async function createTitle(
@@ -75,29 +144,55 @@ async function createTitle(
 }
 
 export const POST: RequestHandler = async ({ params, request }) => {
-  const body = await request.json();
-  const userSettings = (await db
-    .select()
-    .from(settings)
-    .where(eq(settings.id, "local_user"))
-    .get())!;
+  const body = (await request.json()) as ChatMessageRequest;
 
-  const message = String(body.message).trim();
-  const modelId = body.model_id || userSettings.model;
-  const providerId = body.provider_id || userSettings.provider;
-  const persona = body.persona || userSettings.persona || "";
-  const documentIds = Array.isArray(body.document_ids)
-    ? body.document_ids.map((value: unknown) => String(value).trim()).filter(Boolean)
-    : [];
-  const retrievalMode = (body.retrieval_mode || userSettings.retrievalMode) as RagRetrievalMode;
-  const promptTemplateId =
-    body.prompt_template_id ||
-    body.promptTemplateId ||
-    userSettings.promptTemplateId;
-  const options = {
-    temperature: body.temperature ?? userSettings.temperature,
-    topK: body.top_k ?? userSettings.topK,
-    maxTokens: body.max_tokens ?? userSettings.maxTokens,
+  if (
+    !body.message.trim() ||
+    !body.model_id.trim() ||
+    !body.provider_id.trim()
+  ) {
+    return json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  const user = await seedLocalUser();
+
+  const profile = user.activeProfileId
+    ? await db
+        .select()
+        .from(profiles)
+        .where(
+          and(
+            eq(profiles.id, user.activeProfileId),
+            eq(profiles.userId, user.id),
+          ),
+        )
+        .get()
+    : null;
+
+  // Older installs can have settings without any assistant profiles. The
+  // request carries the mode shown in the UI; persisted values remain as
+  // fallbacks for older clients.
+  const fallbackSettings = profile
+    ? null
+    : await db
+        .select()
+        .from(settings)
+        .where(eq(settings.userId, user.id))
+        .get();
+
+  const message = body.message.trim();
+  const modelId = body.model_id.trim();
+  const providerId = body.provider_id.trim();
+  const retrievalMode: RagRetrievalMode = resolveRagRetrievalMode(
+    body.retrieval_mode,
+    profile?.retrievalMode,
+    fallbackSettings?.retrievalMode,
+  );
+
+  const options: ProviderChatOptions = {
+    temperature: body.temperature,
+    topK: body.top_k,
+    maxTokens: body.max_tokens,
   };
 
   const [existing] = await db
@@ -123,34 +218,143 @@ export const POST: RequestHandler = async ({ params, request }) => {
     .where(eq(session_messages.sessionId, params.id))
     .orderBy(asc(session_messages.id));
 
+  if (messages.some((existingMessage) => existingMessage.role === "user")) {
+    return json(
+      {
+        code: "SESSION_QUERY_LIMIT",
+        message: "This chat already has a question. Start a new chat to ask another one.",
+      },
+      { status: 409 },
+    );
+  }
+
   const provider = getProvider(providerId);
+  const promptTemplateId = body.conversational
+    ? null
+    : body.prompt_template_id;
   const promptTemplate =
-    typeof promptTemplateId === "string" && promptTemplateId.trim()
+    promptTemplateId
       ? await db
           .select()
           .from(promptTemplates)
           .where(
             and(
-              eq(promptTemplates.id, promptTemplateId.trim()),
-              eq(promptTemplates.userId, userSettings.userId),
+              eq(promptTemplates.id, promptTemplateId),
+              eq(promptTemplates.userId, user.id),
             ),
           )
           .get()
       : null;
-  const ragContext = await retrieveRagContext({
-    question: message,
-    documentIds,
-    mode: retrievalMode,
-    topK: body.rag_top_k ?? userSettings.ragTopK,
-  });
-  const prompt = createPrompt(
-    messages,
-    message,
-    promptTemplate?.systemPrompt || "",
-    persona,
-    ragContext.contextBlock,
-  );
+  const persona = body.conversational ? "" : body.persona;
+  const notebookId = body.conversational ? body.notebook_id : null;
+  const hasNotebookIdSelection = body.conversational &&
+    (
+      Boolean(notebookId) ||
+      Boolean(body.notebook_context_notebook_ids?.length) ||
+      Boolean(body.notebook_context_page_ids?.length)
+    );
+  const resolvedNotebookContext = body.conversational
+    ? await resolveNotebookContext(
+        body.notebook_context_notebook_ids,
+        body.notebook_context_page_ids,
+        notebookId,
+      )
+    : {
+        context: "",
+        notebookIds: [],
+        pageIds: [],
+        pages: [],
+      };
+  const pageContext = body.conversational
+    ? hasNotebookIdSelection
+      ? resolvedNotebookContext.context
+      : body.context ?? ""
+    : "";
+  const documentIds =
+    body.document_ids.map((value) => String(value).trim()).filter(Boolean);
+  const ragTopK = body.rag_top_k;
 
+  let ragContext: RagContextResult;
+  try {
+    ragContext = body.conversational
+      ? { mode: retrievalMode, contextBlock: "", sources: [] }
+      : await retrieveRagContext({
+          question: message,
+          documentIds,
+          mode: retrievalMode,
+          topK: ragTopK,
+        });
+  } catch (error) {
+    if (
+      error instanceof KnowledgeGraphNotBuiltError ||
+      error instanceof KnowledgeGraphNoDocumentsError
+    ) {
+      return json(
+        {
+          code: error.code,
+          message: error.message,
+          graphStatus: error.graphStatus,
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
+
+  // When the user did not explicitly select documents, scope this query's
+  // graph to the documents that retrieval actually matched. An empty graph
+  // scope means the entire corpus and can turn a small query graph into a
+  // multi-thousand-chunk rebuild.
+  const graphScopeContext = body.conversational
+    ? await retrieveRagContext({
+        question: message,
+        documentIds,
+        mode: retrievalMode === "graph" ? "hybrid" : retrievalMode,
+        topK: ragTopK,
+      })
+    : ragContext;
+  const graphDocumentIds = documentIds.length
+    ? [...new Set(documentIds)]
+    : [...new Set(
+        graphScopeContext.sources
+          .map((source) => source.documentId)
+          .filter(Boolean),
+      )];
+  const graphChunkIds = [...new Set(
+    graphScopeContext.sources
+      .map((source) => source.chunkId)
+      .filter(Boolean),
+  )];
+
+  // Retrieval has now established the exact graph scope. Start construction
+  // while the model is generating its answer; the client will request the
+  // query-focused visual data after the streamed response is stored.
+  const graphPreparation = graphChunkIds.length
+    ? ensureKnowledgeGraphForChunks(graphChunkIds)
+    : ensureKnowledgeGraph(graphDocumentIds);
+  void graphPreparation.catch((error) => {
+    console.error("Background Knowledge Graph preparation failed:", error);
+  });
+
+  // Notebook-mode context = the visible page text + the notebook's attached
+  // sources (hidden from the notebook page, invisible to the user, but the
+  // model sees the full excerpts).
+  const sourceExcerpts =
+    body.conversational && resolvedNotebookContext.notebookIds.length
+      ? await getNotebookSourceExcerpts(resolvedNotebookContext.notebookIds)
+      : "";
+
+  const context = [pageContext, sourceExcerpts].filter(Boolean).join("\n\n");
+
+  const prompt = body.conversational
+    ? createConversationalPrompt(messages, message, context)
+    : createPrompt(
+        messages,
+        message,
+        promptTemplate?.systemPrompt || "",
+        persona,
+        ragContext.contextBlock,
+      );
   const timestamp = new Date();
 
   const stream = new ReadableStream({
@@ -176,12 +380,19 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: ragContext.sources.length
-              ? {
-                  retrievalMode: ragContext.mode,
-                  sources: ragContext.sources,
-                }
-              : null,
+            metadata: {
+              retrievalMode: body.conversational ? "notebook" : ragContext.mode,
+              sources: ragContext.sources,
+              query: message,
+              documentIds,
+              graphDocumentIds,
+              graphChunkIds,
+              graphTopK: ragTopK,
+              ...createNotebookContextMetadata(
+                body.conversational,
+                resolvedNotebookContext,
+              ),
+            },
             createdAt: timestamp,
           },
         ]);
@@ -210,3 +421,4 @@ export const POST: RequestHandler = async ({ params, request }) => {
     },
   });
 };
+

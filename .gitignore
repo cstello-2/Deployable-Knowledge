@@ -9,6 +9,7 @@ node_modules
 *.env.*
 .envrc
 .direnv/
+__pycache__/
 
 # operating systems
 .DS_Store
@@ -24,11 +25,11 @@ app.db-*
 drizzle/
 .claude
 
+
 # --- Model cache or sentence-transformers ---
 models/
 tmp_model/ 
 .cache/
 
 
-documents/
-drizzle/
+/documents/

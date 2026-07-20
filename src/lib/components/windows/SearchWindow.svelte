@@ -1,13 +1,23 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext } from "svelte";
 
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
-  import { showToast } from "$lib/components/utils/ToastHost.svelte";
+  import Icon from "$lib/components/utils/Icon.svelte";
+  import { selectedDocumentIds } from "$lib/utils/documentSelection";
   import type { AppState } from "$lib/state.svelte";
   import type { UserSettings } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
-  type RetrievalMode = UserSettings["retrievalMode"];
+  type RetrievalMode = "semantic" | "bm25" | "hybrid";
+  type SearchMatch = {
+    chunkId: string;
+    documentId: string;
+    sourceTitle: string;
+    sourceType: "PDF" | "DOCX";
+    pageIndex: number;
+    content: string;
+  };
+  type SearchResults = Record<RetrievalMode, SearchMatch[]>;
 
   let {
     id,
@@ -26,129 +36,74 @@
     { id: "hybrid", label: "Hybrid" },
   ];
 
-  let retrievalMode = $state<RetrievalMode>(
-    readRetrievalMode(appState.retrievalMode),
-  );
-  let ragTopK = $state<number | undefined>(appState.ragTopK);
-  let busy = $state(false);
-  let popupOpen = $state(false);
-  let searchQuery = $state("");
-  let searchLoading = $state(false);
-
-  type SearchMatch = {
-    chunkId: string;
-    sourceTitle: string;
-    pageIndex: number;
-    content: string;
-    score: number;
-  };
-
-  let bm25Results = $state<SearchMatch[]>([]);
-  let semanticResults = $state<SearchMatch[]>([]);
-  let hybridResults = $state<SearchMatch[]>([]);
-
-  onMount(() => {
-    loadSettings();
+  let query = $state(appState.lastQuery);
+  let retrievalMode = $state<RetrievalMode>("hybrid");
+  let ragTopK = $state(appState.ragTopK);
+  let results = $state<SearchResults>({
+    semantic: [],
+    bm25: [],
+    hybrid: [],
   });
+  let loading = $state(false);
+  let error = $state("");
+  const activeResults = $derived(results[retrievalMode] ?? []);
 
-  function readRetrievalMode(value: unknown): RetrievalMode {
-    if (value === "semantic" || value === "bm25" || value === "hybrid") {
-      return value;
-    }
-
-    return "hybrid";
+  function pdfHref(result: SearchMatch) {
+    return `/document-files/${encodeURIComponent(result.documentId)}#page=${result.pageIndex + 1}`;
   }
 
-  function syncSettingsFields() {
-    retrievalMode = readRetrievalMode(appState.retrievalMode);
-    ragTopK = appState.ragTopK;
-  }
-
-  async function loadSettings() {
-    const resp = await fetch("/settings", {
-      method: "GET",
-    });
-
-    const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
-  }
-
-  async function saveRuntimeSettings(message = "Search settings updated") {
-    busy = true;
-    appState.retrievalMode = retrievalMode;
-    appState.ragTopK = ragTopK ?? 5;
-
-    const resp = await fetch("/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(appState.settings),
-    });
-
-    if (!resp.ok) {
-      busy = false;
-      showToast("Search settings save failed");
-      return;
-    }
-
-    const settings = (await resp.json()) as UserSettings;
-    appState.applySettings(settings);
-    syncSettingsFields();
-    busy = false;
-    showToast(message);
-  }
-
-  async function handleRetrievalModeChange(mode: RetrievalMode) {
-    if (busy || retrievalMode === mode) return;
-
+  function handleRetrievalModeChange(mode: RetrievalMode) {
+    if (retrievalMode === mode) return;
     retrievalMode = mode;
-    await saveRuntimeSettings();
   }
 
-  async function handleRuntimeSettingsChange() {
-    if (busy) return;
-
-    await saveRuntimeSettings();
-  }
-
-  function myFunction() {
-    popupOpen = !popupOpen;
-    if (popupOpen) {
-      searchQuery = appState.lastQuery;
-    } else {
-      bm25Results = [];
-      semanticResults = [];
-      hybridResults = [];
-    }
+  function handleChunkCountChange() {
+    ragTopK = Math.max(1, Math.floor(ragTopK || 1));
   }
 
   async function runSearch() {
-    if (!searchQuery.trim()) return;
-    searchLoading = true;
-    bm25Results = [];
-    semanticResults = [];
-    hybridResults = [];
+    const searchQuery = query.trim();
+    if (!searchQuery) {
+      results = { semantic: [], bm25: [], hybrid: [] };
+      return;
+    }
+
+    loading = true;
+    error = "";
+    appState.lastQuery = searchQuery;
 
     const params = new URLSearchParams({
       query: searchQuery,
-      topK: String(appState.topK),
+      topK: String(Math.max(1, Math.floor(ragTopK || appState.ragTopK || 1))),
     });
 
-    const resp = await fetch(`/search?${params}`);
-    const data = await resp.json();
-    bm25Results = data.bm25;
-    semanticResults = data.semantic;
-    hybridResults = data.hybrid;
-    searchLoading = false;
+    for (const documentId of $selectedDocumentIds) {
+      params.append("documentIds", documentId);
+    }
+
+    try {
+      const resp = await fetch(`/search?${params}`);
+      if (!resp.ok) throw new Error(await resp.text());
+
+      const data = (await resp.json()) as Partial<SearchResults>;
+      results = {
+        semantic: data.semantic ?? [],
+        bm25: data.bm25 ?? [],
+        hybrid: data.hybrid ?? [],
+      };
+    } catch (searchError) {
+      error = searchError instanceof Error ? searchError.message : "Search failed";
+      results = { semantic: [], bm25: [], hybrid: [] };
+    } finally {
+      loading = false;
+    }
   }
 
-  function sendResultToNotebook(result: SearchMatch) {
-    const text = `${result.sourceTitle} (page ${result.pageIndex + 1})\n${result.content}`;
-    window.dispatchEvent(
-      new CustomEvent("dk:send-to-notebook", { detail: { text } }),
-    );
-    showToast("Sent to notebook");
+  async function handleSubmit(event: SubmitEvent) {
+    event.preventDefault();
+    await runSearch();
   }
+
 </script>
 
 <BaseWindow
@@ -159,122 +114,90 @@
   {collapsed}
   {onToggleCollapse}
   {onClose}
-  contentLabel="Search settings window"
->
-  <div class="form search-settings-form">
-    <div class="retrieval-row" aria-label="Retrieval mode">
-      <span class="retrieval-label">Search Method</span>
-      <div class="retrieval-toggle" role="group" aria-label="Retrieval mode">
-        {#each retrievalModes as mode}
-          <button
-            class:active={retrievalMode === mode.id}
-            type="button"
-            disabled={busy}
-            aria-pressed={retrievalMode === mode.id}
-            onclick={() => handleRetrievalModeChange(mode.id)}
-          >
-            {mode.label}
-          </button>
-        {/each}
-      </div>
-    </div>
-
-    <div class="search-field">
-      <label for="search_rag_top_k">Top k Chunks</label>
+  contentLabel="Search context window"
+  >
+  <div class="search-context-window">
+    <form class="search-bar" onsubmit={handleSubmit}>
       <input
-        id="search_rag_top_k"
         class="input"
-        type="number"
-        min="0"
-        step="1"
-        placeholder="5"
-        bind:value={ragTopK}
-        disabled={busy}
-        onchange={handleRuntimeSettingsChange}
+        type="text"
+        placeholder="Enter search text..."
+        bind:value={query}
+        aria-label="Search text"
       />
+
+      <input
+        class="input chunk-count"
+        type="number"
+        min="1"
+        step="1"
+        bind:value={ragTopK}
+        aria-label="Number of chunks"
+        onchange={handleChunkCountChange}
+      />
+
+      <button class="btn search-button" type="submit" disabled={loading}>
+        <Icon name="search" size={16} />
+        <span>{loading ? "Searching..." : "Search"}</span>
+      </button>
+    </form>
+
+    <div class="retrieval-toggle" role="group" aria-label="Search method">
+      {#each retrievalModes as mode}
+        <button
+          class:active={retrievalMode === mode.id}
+          type="button"
+          aria-pressed={retrievalMode === mode.id}
+          onclick={() => handleRetrievalModeChange(mode.id)}
+        >
+          {mode.label}
+        </button>
+      {/each}
     </div>
 
-    <button class="popup-trigger" type="button" onclick={myFunction}>Compare Search Results</button>
-
-    {#if popupOpen}
-      <div class="popup-overlay" role="presentation" onclick={myFunction}></div>
-      <div class="popup-window search-compare-popup" role="dialog" aria-label="Search comparison">
-        <div class="popup-header">
-          <span class="popup-title">Search Comparison</span>
-          <button class="btn btn-icon" type="button" onclick={myFunction}>✕</button>
-        </div>
-
-        <div class="popup-search-bar">
-          <input
-            class="input"
-            type="text"
-            placeholder="Enter query…"
-            bind:value={searchQuery}
-            onkeydown={(e) => e.key === "Enter" && runSearch()}
-          />
-          <button class="btn" type="button" onclick={runSearch} disabled={searchLoading}>
-            {searchLoading ? "Searching…" : "Search"}
-          </button>
-        </div>
-
-        <div class="search-panes">
-          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }] as pane}
-            <div class="search-pane">
-              <div class="pane-label">{pane.label}</div>
-              {#each pane.results as result, i (result.chunkId)}
-                <div class="result-card">
-                  <div class="result-meta">
-                    <span class="result-rank">#{i + 1}</span>
-                    <span class="result-title">{result.sourceTitle}</span>
-                    <span>Page {result.pageIndex + 1}</span>
-                    <span>Score: {result.score.toFixed(4)}</span>
-                  </div>
-                  <p class="result-content">{result.content}</p>
-                  <button
-                    class="btn send-to-notebook-btn"
-                    type="button"
-                    onclick={() => sendResultToNotebook(result)}
-                  >
-                    Send to Notebook
-                  </button>
-                </div>
-              {:else}
-                {#if !searchLoading}
-                  <p class="no-results">No results</p>
-                {/if}
-              {/each}
-            </div>
-          {/each}
-        </div>
-      </div>
+    {#if error}
+      <div class="search-message error">{error}</div>
     {/if}
 
+    <div class="results-list" aria-live="polite">
+      {#if loading}
+        <p class="search-message">Searching...</p>
+      {:else if activeResults.length}
+        {#each activeResults as result, index (result.chunkId)}
+          <div class="result-card">
+            <div class="result-meta">
+              <span class="result-rank">#{index + 1}</span>
+              <span class="result-title">{result.sourceTitle}</span>
+              {#if result.sourceType !== "DOCX"}
+                <span>Page {result.pageIndex + 1}</span>
+              {/if}
+            </div>
+            <p class="result-content">{result.content}</p>
+            <div class="result-actions">
+              <a
+                class="btn btn-sm"
+                href={pdfHref(result)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Show in PDF
+              </a>
+            </div>
+          </div>
+        {/each}
+      {:else}
+        <p class="search-message">No context</p>
+      {/if}
+    </div>
+
   </div>
+
 </BaseWindow>
 
 <style>
-  .search-settings-form {
-    display: grid;
-    width: fit-content;
-    max-width: 100%;
-    gap: 10px;
-  }
-
-  .retrieval-row {
-    display: grid;
-    grid-template-columns: auto 210px;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .retrieval-label {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-  }
-
   .retrieval-toggle {
     display: grid;
+    width: min(260px, 100%);
     min-width: 0;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     overflow: hidden;
@@ -305,188 +228,85 @@
     color: var(--text);
   }
 
-  .search-field {
-    display: inline-grid;
-    width: fit-content;
-    grid-template-columns: max-content 75px;
-    gap: 8px;
-    align-items: center;
-    justify-content: start;
-  }
-
-  .search-field label {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .search-field input {
-    width: 80%;
-    box-sizing: border-box;
-  }
-
-  .popup-trigger {
-    padding: 6px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .popup-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 200;
-  }
-
-  .popup-window {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 201;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    padding: 20px;
-    min-width: 300px;
+  .results-list {
     display: grid;
-    gap: 14px;
-  }
-
-  .search-compare-popup {
-    width: min(92vw, 960px);
-    height: 82vh;
-    grid-template-rows: auto auto 1fr;
-    overflow: hidden;
-  }
-
-  .popup-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .popup-title {
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .popup-search-bar {
-    display: flex;
-    gap: 8px;
-  }
-
-  .popup-search-bar .input {
-    flex: 1;
-  }
-
-  .search-panes {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 12px;
     min-height: 0;
-    overflow: hidden;
-  }
-
-  .search-pane {
-    display: flex;
-    flex-direction: column;
     gap: 8px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    min-height: 0;
-    min-width: 0;
-  }
-
-  .pane-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted);
-    position: sticky;
-    top: 0;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-    padding-bottom: 4px;
   }
 
   .result-card {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    flex-direction: column;
+    overflow: hidden;
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
-    display: flex;
-    flex-direction: column;
     gap: 6px;
-    flex-shrink: 0;
-    width: 100%;
-    box-sizing: border-box;
-    min-width: 0;
-    overflow: hidden;
   }
 
   .result-meta {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 11px;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
     color: var(--muted);
+    font-size: 11px;
+    gap: 6px;
   }
 
   .result-rank {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 10%));
+    color: var(--text);
     font-size: 10px;
     font-weight: 700;
-    color: var(--text);
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 10%));
-    border-radius: 4px;
-    padding: 1px 5px;
-    align-self: flex-start;
   }
 
   .result-title {
-    font-weight: 600;
-    color: var(--text);
+    max-width: 100%;
     overflow: hidden;
+    color: var(--text);
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .result-content {
-    font-size: 12px;
-    margin: 0;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    word-break: break-word;
     min-width: 0;
     max-width: 100%;
-  }
-
-  .send-to-notebook-btn {
-    align-self: flex-start;
-    padding: 4px 10px;
-    font-size: 11px;
-  }
-
-  .no-results {
-    font-size: 12px;
-    color: var(--muted);
-    font-style: italic;
     margin: 0;
+    overflow-wrap: break-word;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
-  @media (max-width: 420px) {
-    .retrieval-row {
-      grid-template-columns: 1fr;
-    }
+  .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
 
-    .retrieval-toggle {
-      width: min(210px, 100%);
+  .search-message {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .search-message.error {
+    color: var(--danger, #dc2626);
+  }
+
+  @media (max-width: 720px) {
+    .search-bar {
+      grid-template-columns: 1fr;
     }
   }
 </style>

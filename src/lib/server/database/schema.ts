@@ -14,6 +14,7 @@ export const users = sqliteTable("users", {
   username: text({ length: 255 }).notNull(),
   password: text({ length: 128 }),
   salt: text({ length: 128 }),
+  activeProfileId: text("active_profile_id"),
   lastLogin: integer("last_login", { mode: "timestamp" }),
 });
 
@@ -45,9 +46,7 @@ export const apiKeys = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
   },
-  (table) => [
-    uniqueIndex("api_keys_provider_idx").on(table.providerId),
-  ],
+  (table) => [uniqueIndex("api_keys_provider_idx").on(table.providerId)],
 );
 
 export const sessions = sqliteTable(
@@ -125,6 +124,30 @@ export const notebook_pages = sqliteTable(
   ],
 );
 
+// Chunks attached to a notebook via "Send to Notebook" — hidden from the
+// notebook page text itself, but available server-side so notebook-mode chat
+// can use them as context without exposing raw source excerpts to the user.
+export const notebook_sources = sqliteTable(
+  "notebook_sources",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id")
+      .notNull()
+      .references(() => document_chunks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("notebook_sources_notebook_idx").on(table.notebookId),
+    uniqueIndex("notebook_sources_unique_idx").on(
+      table.notebookId,
+      table.chunkId,
+    ),
+  ],
+);
+
 export const provider_records = sqliteTable("providers", {
   id: text("id").primaryKey(),
   apiKey: text("api_key").notNull().default(""),
@@ -151,7 +174,11 @@ export const settings = sqliteTable(
     maxTokens: integer("max_tokens").notNull().default(512),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
-    retrievalMode: text("retrieval_mode", {enum: ["semantic", "bm25", "hybrid"],}).notNull().default("hybrid"),
+    retrievalMode: text("retrieval_mode", {
+      enum: ["semantic", "bm25", "hybrid", "graph"],
+    })
+      .notNull()
+      .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
@@ -164,7 +191,38 @@ export const settings = sqliteTable(
   (table) => [index("settings_user_idx").on(table.userId)],
 );
 
-export const profiles = settings;
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name", { length: 255 }).notNull(),
+    provider: text({ length: 128 }).notNull().default("ollama"),
+    model: text({ length: 128 }).notNull().default("granite4:350m"),
+    maxTokens: integer("max_tokens").notNull().default(512),
+    temperature: real().notNull().default(0.2),
+    topK: integer("top_k").notNull().default(8),
+    retrievalMode: text("retrieval_mode", {
+      enum: ["semantic", "bm25", "hybrid", "graph"],
+    })
+      .notNull()
+      .default("hybrid"),
+    ragTopK: integer("rag_top_k").notNull().default(5),
+    promptTemplateId: text("prompt_template_id").references(
+      () => promptTemplates.id,
+      { onDelete: "set null" },
+    ),
+    persona: text({ length: 1024 }),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("profiles_user_idx").on(table.userId),
+    index("profiles_updated_idx").on(table.updatedAt),
+  ],
+);
 
 export const documents = sqliteTable(
   "documents",
@@ -172,13 +230,35 @@ export const documents = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
-    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PDF", "DOCX"] }).notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
     index("documents_source_path_idx").on(table.sourcePath),
     index("documents_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+export const tags = sqliteTable("tags", {
+  name: text("name", { length: 40 }).primaryKey(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const document_tags = sqliteTable(
+  "document_tags",
+  {
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    tag: text("tag", { length: 40 })
+      .notNull()
+      .references(() => tags.name, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("document_tags_unique_idx").on(table.documentId, table.tag),
+    index("document_tags_document_idx").on(table.documentId),
+    index("document_tags_tag_idx").on(table.tag),
   ],
 );
 
@@ -189,7 +269,9 @@ export const document_chunks = sqliteTable(
     documentId: text("document_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
-    chunkType: text("chunk_type", { enum: ["TEXT", "IMAGE", "TABLE"] }).notNull(),
+    chunkType: text("chunk_type", {
+      enum: ["TEXT", "IMAGE", "TABLE"],
+    }).notNull(),
     pageIndex: integer("page_index").notNull(),
     chunkIndex: integer("chunk_index").notNull(),
     content: text("content").notNull(),
@@ -200,9 +282,103 @@ export const document_chunks = sqliteTable(
     index("document_chunks_document_id_idx").on(table.documentId),
     index("document_chunks_chunk_type_idx").on(table.chunkType),
     index("document_chunks_page_idx").on(table.pageIndex),
-    index("document_chunks_document_chunk_idx").on(table.documentId, table.chunkIndex),
+    index("document_chunks_document_chunk_idx").on(
+      table.documentId,
+      table.chunkIndex,
+    ),
   ],
 );
+
+export const graph_nodes = sqliteTable(
+  "graph_nodes",
+  {
+    id: text("id").primaryKey(),
+    label: text("label").notNull(),
+    kind: text("kind", { enum: ["document", "chunk", "entity"] }).notNull(),
+    entityKind: text("entity_kind"),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    chunkIds: text("chunk_ids", { mode: "json" }).$type<string[] | null>(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("graph_nodes_kind_idx").on(table.kind),
+    index("graph_nodes_document_idx").on(table.documentId),
+    index("graph_nodes_chunk_idx").on(table.chunkId),
+  ],
+);
+
+export const graph_edges = sqliteTable(
+  "graph_edges",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    target: text("target").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull(),
+    weight: real("weight").notNull().default(1),
+    evidence: text("evidence").notNull().default(""),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("graph_edges_source_idx").on(table.source),
+    index("graph_edges_target_idx").on(table.target),
+    index("graph_edges_document_idx").on(table.documentId),
+    index("graph_edges_chunk_idx").on(table.chunkId),
+    uniqueIndex("graph_edges_unique_idx").on(table.source, table.target, table.relation, table.chunkId),
+  ],
+);
+
+export const synced_folders = sqliteTable(
+  "synced_folders",
+  {
+    id: text("id").primaryKey(),
+    path: text("path").notNull(),
+    createdAt: text("created_at").notNull(),
+    lastError: text("last_error"),
+  },
+  (table) => [uniqueIndex("synced_folders_path_idx").on(table.path)],
+);
+
+export const synced_files = sqliteTable(
+  "synced_files",
+  {
+    sourcePath: text("source_path").primaryKey(),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => synced_folders.id, { onDelete: "cascade" }),
+    managedPath: text("managed_path").notNull(),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+    mtimeMs: integer("mtime_ms").notNull(),
+    size: integer("size").notNull(),
+    ignored: integer("ignored", { mode: "boolean" }).notNull().default(false),
+  },
+  (table) => [
+    index("synced_files_folder_idx").on(table.folderId),
+    uniqueIndex("synced_files_managed_path_idx").on(table.managedPath),
+    uniqueIndex("synced_files_document_idx").on(table.documentId),
+  ],
+);
+
+// Compressed, versioned Knowledge Graph snapshots let a valid graph survive
+// application/server restarts without rebuilding entity and relationship data.
+export const knowledge_graph_snapshots = sqliteTable("knowledge_graph_snapshots", {
+  scopeKey: text("scope_key").primaryKey(),
+  documentIds: text("document_ids", { mode: "json" }).$type<string[]>().notNull(),
+  signature: text("signature").notNull(),
+  buildVersion: text("build_version").notNull(),
+  payload: blob("payload", { mode: "buffer" }).notNull(),
+  stats: text("stats", { mode: "json" }).$type<{
+    documents: number;
+    chunks: number;
+    nodes: number;
+    edges: number;
+  }>().notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
@@ -220,6 +396,9 @@ export type NotebookPage = typeof notebook_pages.$inferSelect;
 export type NewNotebookPage = typeof notebook_pages.$inferInsert;
 
 export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
+
+export type NotebookSource = typeof notebook_sources.$inferSelect;
+export type NewNotebookSource = typeof notebook_sources.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -240,5 +419,59 @@ export type NewUserSettings = typeof settings.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 
+export type Tag = typeof tags.$inferSelect;
+export type NewTag = typeof tags.$inferInsert;
+
+export type DocumentTag = typeof document_tags.$inferSelect;
+export type NewDocumentTag = typeof document_tags.$inferInsert;
+
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
+
+export type GraphNodeRow = typeof graph_nodes.$inferSelect;
+export type NewGraphNodeRow = typeof graph_nodes.$inferInsert;
+
+export type GraphEdgeRow = typeof graph_edges.$inferSelect;
+export type NewGraphEdgeRow = typeof graph_edges.$inferInsert;
+
+export type SyncedFolder = typeof synced_folders.$inferSelect;
+
+export type AssistantProfile = typeof profiles.$inferSelect;
+export type NewAssistantProfile = typeof profiles.$inferInsert;
+
+// Helper types
+export type AssistantProfileValues = Pick<
+  AssistantProfile,
+  | "provider"
+  | "model"
+  | "maxTokens"
+  | "temperature"
+  | "topK"
+  | "retrievalMode"
+  | "ragTopK"
+  | "promptTemplateId"
+  | "persona"
+>;
+
+export type ActiveAssistantProfile = AssistantProfile | null;
+export type AssistantProfileCreateValues = AssistantProfileValues &
+  Pick<AssistantProfile, "name">;
+
+export type AssistantProfileUpdateValues = AssistantProfileValues &
+  Partial<Pick<AssistantProfile, "name">>;
+
+export type AssistantProfileListResponse = {
+  profiles: AssistantProfile[];
+  activeProfileId: User["activeProfileId"];
+};
+
+export type AssistantProfileActivationResponse = {
+  profile: AssistantProfile;
+  activeProfileId: AssistantProfile["id"];
+};
+
+export type PromptTemplateFormValue = Pick<
+  PromptTemplate,
+  "name" | "description" | "systemPrompt"
+> &
+  Partial<Pick<PromptTemplate, "id">>;

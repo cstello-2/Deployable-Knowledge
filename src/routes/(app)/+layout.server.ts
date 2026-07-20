@@ -1,6 +1,5 @@
 import type { LayoutServerLoad } from "./$types";
 import { validateSessionToken, getUserById } from "$lib/server/auth/utils";
-import { seedLocalUser } from "$lib/server/database/seed";
 import { redirect } from "@sveltejs/kit";
 
 // Runs on page load for anything under `(app)`
@@ -18,10 +17,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
     throw redirect(307, "/auth/login");
   }
 
-  const seeded = await seedLocalUser();
-
   return {
     user: await getUserById(session.userId!),
-    settings: seeded.settings,
   };
 };

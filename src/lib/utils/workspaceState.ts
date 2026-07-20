@@ -112,6 +112,12 @@ export function showWindow(id: string) {
   );
 }
 
+export function isWindowVisible(id: string) {
+  return get(windowPlacements).some(
+    (placement) => placement.id === id && placement.visible,
+  );
+}
+
 export function closeWindow(id: string) {
   windowPlacements.update((placements) =>
     placements.map((placement) =>
@@ -315,7 +321,7 @@ function defaultWindowPlacements(): WindowPlacement[] {
   return windowDefinitions.map((definition) => ({
     id: definition.id,
     column: definition.column,
-    visible: true,
+    visible: definition.defaultVisible ?? true,
     collapsed: false,
     height: DEFAULT_WINDOW_HEIGHT,
   }));

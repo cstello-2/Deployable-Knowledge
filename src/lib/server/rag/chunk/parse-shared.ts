@@ -46,7 +46,7 @@ export function buildChunkId(
   return createHash("sha256")
     .update(page.source.path)
     .update("\n")
-    .update(String(Number(page.pageIndex)))
+    .update(String(page.pageIndex))
     .update("\n")
     .update(String(chunkIndex))
     .update("\n")

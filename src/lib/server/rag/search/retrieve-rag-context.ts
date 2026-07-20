@@ -1,26 +1,43 @@
-import {
-  searchSemantic,
-  type SemanticSearchMatch,
-} from "./semantic-search";
+import { searchSemantic } from "./semantic-search";
 import {
   searchHybrid,
-  type HybridSearchMatch,
 } from "./hybrid-search";
+import { searchBm25 } from "./bm25-search";
+import type {
+  SearchChunkType,
+  SearchMatchBase,
+} from "./search-shared";
 import {
-  searchBm25,
-  type Bm25SearchMatch,
-} from "./bm25-search";
-import type { SearchChunkType } from "./search-shared";
+  searchKnowledgeGraph,
+  type KnowledgeGraphPath,
+} from "$lib/server/knowledge-graph";
 
-const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Search Window Settings
+const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Assistant Settings
 const MAX_CONTEXT_CHARS = 1200; // Same as max chunk size for now
 const MAX_PREVIEW_CHARS = 200;
 const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "bm25" ? "bm25" :
-  process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" : "hybrid"; // Now adjustable in Search Window Settings
+  process.env.RAG_RETRIEVAL_MODE === "semantic" ? "semantic" :
+  process.env.RAG_RETRIEVAL_MODE === "graph" ? "graph" : "hybrid";
 
-export type RagRetrievalMode = "semantic" | "bm25" | "hybrid";
-type RagMatch = SemanticSearchMatch | Bm25SearchMatch | HybridSearchMatch;
+export type RagRetrievalMode = "semantic" | "bm25" | "hybrid" | "graph";
+
+export function resolveRagRetrievalMode(
+  ...candidates: unknown[]
+): RagRetrievalMode {
+  for (const candidate of candidates) {
+    if (
+      candidate === "semantic" ||
+      candidate === "bm25" ||
+      candidate === "hybrid" ||
+      candidate === "graph"
+    ) {
+      return candidate;
+    }
+  }
+  return "hybrid";
+}
+type RagMatch = SearchMatchBase & { score?: number };
 
 export type RagSource = {
   title: string;
@@ -30,6 +47,10 @@ export type RagSource = {
   pageIndex: number;
   chunkIndex: number;
   score: number;
+  rawScore?: number;
+  content: string;
+  sourceTitle: string;
+  chunkType: SearchChunkType;
 };
 
 export type RagContextResult = {
@@ -45,48 +66,84 @@ function compactText(text: string, limit: number) {
   return `${compact.slice(0, limit).trimEnd()}...`;
 }
 
-// Format retrieved chunks as numbered context blocks so answers can cite the matching source
+// Format retrieved chunks in the old RAG prompt style
 function formatContext(matches: RagMatch[]) {
   if (matches.length === 0) return "";
 
-  const sections = matches.map((match, index) => {
+  const items = matches.map((match) => {
     const content = compactText(match.content, MAX_CONTEXT_CHARS);
+    const source = match.sourceTitle || match.sourcePath || "unknown";
 
-    return [
-      `[${index + 1}] Title: ${match.sourceTitle}`,
-      `Page: ${match.pageIndex + 1}`,
-      `Chunk: ${match.chunkIndex}`,
-      "Content:",
-      content,
-    ].join("\n");
+    return `- ${content} (source: ${source})`;
   });
 
-  return [
-    "Retrieved document context:",
-    "",
-    ...sections.flatMap((section) => [section, ""]),
-  ].join("\n").trim();
+  return ["Relevant context:", ...items].join("\n");
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-function buildSources(matches: RagMatch[]): RagSource[] {
-  return matches.map((match) => ({
+function buildSources(matches: RagMatch[], mode: RagRetrievalMode): RagSource[] {
+  const hasExplicitScores = matches.some((match) => Number.isFinite(match.score));
+  const rawScores = matches.map((match, index) =>
+    Number.isFinite(match.score)
+      ? match.score!
+      : hasExplicitScores
+        ? 0
+        : matches.length === 1
+          ? 1
+          : 1 - index / Math.max(1, matches.length - 1),
+  );
+  const maximumBm25Score = Math.max(0, ...rawScores);
+
+  return matches.map((match, index) => ({
     title: match.sourceTitle,
-    description: `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
+    // DOCX pageIndex is a volume-based approximation, not a real page number
+    description: match.sourceType === "DOCX"
+      ? compactText(match.content, MAX_PREVIEW_CHARS)
+      : `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
     documentId: match.documentId,
     chunkId: match.chunkId,
     pageIndex: match.pageIndex,
     chunkIndex: match.chunkIndex,
-    score: match.score,
+    // Citation scores always use a [0, 1] UI contract. BM25 is unbounded, so
+    // it is normalized relative to the strongest returned result.
+    score: mode === "bm25"
+      ? maximumBm25Score > 0
+        ? clamp01(rawScores[index] / maximumBm25Score)
+        : 0
+      : clamp01(rawScores[index]),
+    rawScore: mode === "bm25" ? rawScores[index] : undefined,
+    content: match.content,
+    sourceTitle: match.sourceTitle,
+    chunkType: match.chunkType,
   }));
 }
 
-// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 to force one path
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+
+function formatGraphPaths(paths: KnowledgeGraphPath[]): string {
+  if (!paths.length) return "";
+
+  const lines = paths.slice(0, 5).map((path, index) => {
+    const chain = path.nodes.map((node, nodeIndex) => {
+      if (nodeIndex === 0) return node.label;
+      const relation = path.edges[nodeIndex - 1]?.relation ?? "RELATED_TO";
+      return `--${relation}--> ${node.label}`;
+    }).join(" ");
+
+    return `[Path ${index + 1}] ${chain}`;
+  });
+
+  return ["Retrieved knowledge-graph paths:", "", ...lines].join("\n");
+}
+
+// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 / graph to force one path
 // May want to switch to hybrid only in the future, kept for now to test/validate
 export async function retrieveRagContext({
   question,
   documentIds = [],
-  chunkTypes = ["TEXT", "TABLE"],
+  chunkTypes = ["TEXT", "TABLE", "IMAGE"],
   topK = DEFAULT_RAG_TOP_K,
   mode = DEFAULT_RETRIEVAL_MODE,
 }: {
@@ -108,7 +165,7 @@ export async function retrieveRagContext({
     return {
       mode,
       contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
+      sources: buildSources(search.results, mode),
     };
   }
 
@@ -123,7 +180,25 @@ export async function retrieveRagContext({
     return {
       mode,
       contextBlock: formatContext(search.results),
-      sources: buildSources(search.results),
+      sources: buildSources(search.results, mode),
+    };
+  }
+
+  if (mode === "graph") {
+    const search = await searchKnowledgeGraph({
+      query: question,
+      topK,
+      documentIds,
+      chunkTypes,
+    });
+
+    return {
+      mode,
+      contextBlock: [
+        formatContext(search.results),
+        formatGraphPaths(search.paths),
+      ].filter(Boolean).join("\n\n"),
+      sources: buildSources(search.results, mode),
     };
   }
 
@@ -137,6 +212,6 @@ export async function retrieveRagContext({
   return {
     mode,
     contextBlock: formatContext(search.results),
-    sources: buildSources(search.results),
+    sources: buildSources(search.results, mode),
   };
 }

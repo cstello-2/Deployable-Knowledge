@@ -1,12 +1,17 @@
 <script lang="ts">
+  import type { ProviderApiKeyRequest } from "$lib/requestTypes";
   import Popup from "$lib/components/popups/Popup.svelte";
+  import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
 
   type ApiKeyProvider = {
     id: string;
     name: string;
     apiKeyRequired: boolean;
+    hasApiKey: boolean;
   };
+
+  const MASKED_API_KEY = "••••••••••••••••";
 
   type Props = {
     open: boolean;
@@ -46,17 +51,17 @@
   }
 
   async function saveProviderApiKey(provider: ApiKeyProvider) {
-    const apiKey = (apiKeyInputs[provider.id] || "").trim();
+    const apiKey = (apiKeyInputs[provider.id] ?? "").trim();
 
     if (!apiKey) {
-      showToast("Enter an API key to save");
+      showToast(provider.hasApiKey ? "API key already saved" : "Enter an API key to save");
       return;
     }
 
     await fetch(`/providers/${encodeURIComponent(provider.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ apiKey } satisfies ProviderApiKeyRequest),
     });
 
     await onChanged();
@@ -80,9 +85,14 @@
     <div class="api-key-provider-main">
       <div class="api-key-provider-name">{provider.name}</div>
 
-      <div class="api-key-provider-status" class:connected={!provider.apiKeyRequired}>
+      <div
+        class="api-key-provider-status"
+        class:connected={!provider.apiKeyRequired || provider.hasApiKey}
+      >
         {#if !provider.apiKeyRequired}
           No API key required
+        {:else if provider.hasApiKey}
+          API key saved
         {:else}
           API key required
         {/if}
@@ -90,34 +100,44 @@
     </div>
 
     {#if provider.apiKeyRequired}
-      <div class="api-key-provider-controls">
+      <div
+        class="api-key-provider-controls inline-action-control"
+        style="--inline-action-count: 2;"
+      >
         <input
           class="input api-key-input"
           type="password"
           autocomplete="off"
           placeholder="API key"
-          value={apiKeyInputs[provider.id] || ""}
+          value={apiKeyInputs[provider.id] ?? (provider.hasApiKey ? MASKED_API_KEY : "")}
+          onfocus={() => {
+            if (provider.hasApiKey && apiKeyInputs[provider.id] == null) {
+              setApiKeyInput(provider.id, "");
+            }
+          }}
           oninput={(event) =>
             setApiKeyInput(provider.id, event.currentTarget.value)}
         />
 
-        <div class="api-key-provider-actions">
-          <button
-            type="button"
-            class="btn btn-primary"
-            onclick={() => saveProviderApiKey(provider)}
-          >
-            Save
-          </button>
+        <button
+          type="button"
+          class="inline-action-button"
+          aria-label="Save API key"
+          title="Save API key"
+          onclick={() => saveProviderApiKey(provider)}
+        >
+          <Icon name="save" size={16} />
+        </button>
 
-          <button
-            type="button"
-            class="btn"
-            onclick={() => clearProviderApiKey(provider)}
-          >
-            Clear
-          </button>
-        </div>
+        <button
+          type="button"
+          class="inline-action-button danger"
+          aria-label="Clear API key"
+          title="Clear API key"
+          onclick={() => clearProviderApiKey(provider)}
+        >
+          <Icon name="delete" size={16} />
+        </button>
       </div>
     {:else}
       <div class="api-key-provider-note">Local provider</div>
@@ -167,8 +187,6 @@
     grid-template-columns: minmax(160px, 1fr) minmax(260px, 2fr);
     gap: 12px;
     align-items: center;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 10px;
   }
 
@@ -192,16 +210,7 @@
   }
 
   .api-key-provider-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .api-key-provider-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
+    min-width: 0;
   }
 
   .api-key-manager-empty {
@@ -211,14 +220,6 @@
   @media (max-width: 720px) {
     .api-key-provider-row {
       grid-template-columns: 1fr;
-    }
-
-    .api-key-provider-controls {
-      grid-template-columns: 1fr;
-    }
-
-    .api-key-provider-actions {
-      justify-content: flex-start;
     }
 
     .api-key-provider-note {

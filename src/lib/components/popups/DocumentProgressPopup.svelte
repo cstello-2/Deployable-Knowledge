@@ -3,8 +3,6 @@
 
   type ProgressResponse = {
     percent?: number;
-    total?: number;
-    current?: number;
     label?: string;
     message?: string;
   };
@@ -13,61 +11,63 @@
     open: boolean;
     title?: string;
     progress?: ProgressResponse | null;
+    files?: Array<{ path: string; name: string; status: string; message?: string }>;
   };
 
-  let { open, title = "Working", progress = null }: Props = $props();
+  let {
+    open,
+    title = "Working",
+    progress = null,
+    files = [],
+  }: Props = $props();
 
-  function formatBytes(bytes: number | undefined) {
-    const value = Number(bytes || 0);
-
-    if (!Number.isFinite(value) || value <= 0) return "0 B";
-
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let size = value;
-    let index = 0;
-
-    while (size >= 1024 && index < units.length - 1) {
-      size /= 1024;
-      index += 1;
-    }
-
-    const decimals = size >= 10 || index === 0 ? 0 : 1;
-    return `${size.toFixed(decimals)} ${units[index]}`;
-  }
-
-  let percent = $derived(Math.max(0, Math.min(100, Number(progress?.percent || 0))));
-  let total = $derived(Number(progress?.total || 0));
-  let current = $derived(Number(progress?.current || 0));
-  let hasTotal = $derived(total > 0);
-  let label = $derived(progress?.label || title);
+  let percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
+  let finishedFiles = $derived(
+    files.filter((file) => file.status !== "queued" && file.status !== "ingesting").length,
+  );
   let message = $derived(progress?.message || "Please wait.");
+
+  function statusLabel(status: string) {
+    return status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
+  }
 </script>
 
 <Popup
   {open}
   id="document-progress"
-  title={hasTotal ? `${label}: ${percent.toFixed(1)}%` : label}
+  title={files.length ? `${title}: ${finishedFiles}/${files.length}` : title}
   contentLabel="Document progress"
   closeOnBackdrop={false}
-  closable={false}
 >
   <div class="progress-body" aria-live="polite" aria-busy={open}>
-    <div class="progress-wrap" aria-hidden="true">
-      <div class="progress-track">
-        <div
-          class:indeterminate={!hasTotal}
-          class="progress-fill"
-          style:width={hasTotal ? `${percent}%` : undefined}
-        ></div>
+    <div class="progress-wrap">
+      <div
+        class="progress-track"
+        role="progressbar"
+        aria-label={title}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={Math.round(percent)}
+      >
+        <div class="progress-fill" style:width={`${percent}%`}></div>
       </div>
+      <strong class="progress-percent">{Math.round(percent)}%</strong>
     </div>
-    <div class="progress-message">
-      {#if hasTotal}
-        {message} - {formatBytes(current)} / {formatBytes(total)}
-      {:else}
-        {message}
-      {/if}
-    </div>
+    <div class="progress-message">{message}</div>
+
+    {#if files.length}
+      <div class="progress-files">
+        {#each files as file (file.path)}
+          <div class="progress-file" title={file.path}>
+            <div class="progress-file-name">{file.name}</div>
+            <div class:failed={file.status === "failed" || file.status === "error"} class="progress-file-status">
+              {statusLabel(file.status)}
+            </div>
+            {#if file.message}<div class="progress-file-error">{file.message}</div>{/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 </Popup>
 
@@ -79,7 +79,10 @@
   }
 
   .progress-wrap {
-    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 10px;
+    align-items: center;
   }
 
   .progress-track {
@@ -95,11 +98,7 @@
     height: 100%;
     border-radius: 999px;
     background: var(--accent);
-  }
-
-  .progress-fill.indeterminate {
-    width: 35%;
-    animation: progress-slide 1.1s ease-in-out infinite;
+    transition: width 180ms ease;
   }
 
   .progress-message {
@@ -107,17 +106,52 @@
     font-size: 13px;
   }
 
-  @keyframes progress-slide {
-    0% {
-      transform: translateX(-120%);
-    }
-
-    50% {
-      transform: translateX(95%);
-    }
-
-    100% {
-      transform: translateX(260%);
-    }
+  .progress-percent {
+    color: var(--text);
+    font-size: 13px;
+    text-align: right;
   }
+
+  .progress-files {
+    display: grid;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .progress-file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .progress-file:last-child {
+    border-bottom: 0;
+  }
+
+  .progress-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .progress-file-status {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .progress-file-status.failed,
+  .progress-file-error {
+    color: var(--danger, #d45b5b);
+  }
+
+  .progress-file-error {
+    grid-column: 1 / -1;
+    font-size: 11px;
+  }
+
 </style>

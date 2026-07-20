@@ -11,8 +11,11 @@
     collapsible?: boolean;
     height?: number | null;
     collapsed?: boolean;
+    controlsDisabled?: boolean;
     onToggleCollapse?: () => void;
     onClose?: () => void;
+    headerActions?: Snippet;
+    subtitle?: Snippet;
     children?: Snippet;
   };
 
@@ -25,8 +28,11 @@
     collapsible = true,
     height = null,
     collapsed = false,
+    controlsDisabled = false,
     onToggleCollapse = () => {},
     onClose = () => {},
+    headerActions,
+    subtitle,
     children,
   }: Props = $props();
 
@@ -45,13 +51,24 @@
   tabindex="-1"
   aria-label={title}
 >
-  <header class="titlebar" data-window-handle>
-    <div class="title-row">
-      <Icon name="drag_indicator" size={16} />
-      <div class="title">{title}</div>
+  <header
+    class="titlebar"
+    data-window-handle={controlsDisabled ? undefined : ""}
+  >
+    <div class="title-block">
+      <div class="title-row">
+        <Icon name="drag_indicator" size={16} />
+        <div class="title">{title}</div>
+        {#if subtitle}
+          <div class="subtitle">{@render subtitle()}</div>
+        {/if}
+      </div>
     </div>
-    {#if closable || collapsible}
+    {#if headerActions || closable || collapsible}
       <div class="actions">
+        {#if headerActions}
+          {@render headerActions()}
+        {/if}
         {#if collapsible}
           <button
             class="icon-btn"
@@ -60,7 +77,10 @@
             aria-label={collapsed ? "Expand" : "Collapse"}
             aria-pressed={collapsed}
             data-window-action
-            onclick={onToggleCollapse}
+            disabled={controlsDisabled}
+            onclick={() => {
+              if (!controlsDisabled) onToggleCollapse();
+            }}
           >
             <Icon
               name={collapsed ? "keyboard_arrow_down" : "keyboard_arrow_up"}
@@ -74,7 +94,10 @@
             title="Close"
             aria-label="Close"
             data-window-action
-            onclick={onClose}
+            disabled={controlsDisabled}
+            onclick={() => {
+              if (!controlsDisabled) onClose();
+            }}
           >
             <Icon name="close" />
           </button>
@@ -130,11 +153,19 @@
     user-select: none;
   }
 
+  .title-block {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
   .title {
     display: flex;
     min-width: 0;
     align-items: center;
     overflow: hidden;
+    flex: 0 1 auto;
     font-size: 14px;
     font-weight: 600;
     line-height: 1;
@@ -145,7 +176,9 @@
 
   .title-row {
     display: flex;
+    width: 100%;
     min-width: 0;
+    flex: 1 1 auto;
     align-items: center;
     gap: 7px;
     line-height: 1;
@@ -153,6 +186,23 @@
 
   .title-row :global(.dk-icon) {
     color: var(--muted);
+    flex: 0 0 auto;
+  }
+
+  .subtitle {
+    min-width: 0;
+    overflow: hidden;
+    margin-left: 2px;
+    padding-left: 9px;
+    border-left: 1px solid var(--border);
+    color: var(--muted);
+    flex: 1 1 auto;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .actions {

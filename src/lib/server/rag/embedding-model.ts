@@ -1,54 +1,124 @@
 import { resolve } from "node:path";
-import { env, pipeline } from "@huggingface/transformers";
+import {
+  env,
+  ModelRegistry,
+  pipeline,
+  type DataType,
+  type ProgressCallback,
+} from "@huggingface/transformers";
 
-export const EMBEDDING_MODEL =
-  process.env.SEMANTIC_EMBED_MODEL ?? "Xenova/all-MiniLM-L6-v2";
-// TODO: Explore alternative embedding models at some point
-const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
-const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "32");
+export const EMBEDDING_MODEL = process.env.SEMANTIC_EMBED_MODEL ?? "nomic-ai/nomic-embed-text-v1.5";
+export const EMBEDDING_DTYPE = (process.env.SEMANTIC_EMBED_DTYPE ?? "q8") as DataType;
+export const EMBEDDING_DIMENSION = 768;
+export const LEGACY_EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
+export const LEGACY_EMBEDDING_DIMENSION = 384;
+
+const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "16");
+const LEGACY_EMBEDDING_BATCH_SIZE = 32;
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
-const EMBEDDING_CACHE_DIR =
-  process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), ".cache", "transformersjs");
+const EMBEDDING_CACHE_DIR = process.env.SEMANTIC_EMBED_CACHE_DIR ?? resolve(process.cwd(), ".cache", "transformersjs");
 
-// Keep model files inside the repo by default so setup is portable across machines
+export type EmbeddingType = "search_document" | "search_query";
+
+// Keep model files inside the repo so setup works the same across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
-// Remote downloads are opt-in; normal runs should use the configured local cache
+env.localModelPath = EMBEDDING_CACHE_DIR;
 env.allowRemoteModels = ALLOW_REMOTE_MODELS;
 
-let embeddingPipelinePromise: Promise<any> | null = null;
+let embeddingPipeline: Promise<any> | undefined;
+let legacyEmbeddingPipeline: Promise<any> | undefined;
 
-// Load the transformer once and reuse it across ingest/search calls
-async function getEmbeddingPipeline() {
-  if (!embeddingPipelinePromise) {
-    // Clear the cached promise on failure so a transient/missing-cache error doesn't
-    // permanently wedge the pipeline for the rest of the process's lifetime.
-    embeddingPipelinePromise = pipeline("feature-extraction", EMBEDDING_MODEL, {
-      dtype: EMBEDDING_DTYPE as "q8" | "q4" | "fp32" | "fp16",
-    }).catch((err) => {
-      embeddingPipelinePromise = null;
-      throw err;
-    });
-  }
-
-  return embeddingPipelinePromise;
+export function isEmbeddingModelInstalled() {
+  return ModelRegistry.is_pipeline_cached(
+    "feature-extraction",
+    EMBEDDING_MODEL,
+    {
+      cache_dir: EMBEDDING_CACHE_DIR,
+      dtype: EMBEDDING_DTYPE,
+    },
+  );
 }
 
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export function installEmbeddingModel(onProgress: ProgressCallback) {
+  return getEmbeddingPipeline(onProgress);
+}
+
+// Load the transformer once and reuse it across ingest/search calls
+async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
+  embeddingPipeline ??= pipeline("feature-extraction", EMBEDDING_MODEL, {
+    dtype: EMBEDDING_DTYPE,
+    cache_dir: EMBEDDING_CACHE_DIR,
+    progress_callback: onProgress,
+  });
+
+  return embeddingPipeline;
+}
+
+async function getLegacyEmbeddingPipeline() {
+  legacyEmbeddingPipeline ??= pipeline(
+    "feature-extraction",
+    LEGACY_EMBEDDING_MODEL,
+    {
+      dtype: EMBEDDING_DTYPE,
+      cache_dir: EMBEDDING_CACHE_DIR,
+    },
+  );
+
+  return legacyEmbeddingPipeline;
+}
+
+export async function embedTexts(
+  texts: string[],
+  type: EmbeddingType,
+  onProgress?: (current: number, total: number) => void,
+): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   const extractor: any = await getEmbeddingPipeline();
   const embeddings: number[][] = [];
 
-  // Batch calls keep ingest faster without changing the embedding contract
   for (let index = 0; index < texts.length; index += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(index, index + EMBEDDING_BATCH_SIZE);
-    const output = await extractor(batch, {
-      // Mean pooling + normalize gives one cosine ready vector per chunk/query
-      // Allows semantic search to use dot product as the cosine score
-      pooling: "mean",
-      normalize: true,
-    });
+    const batch = texts
+      .slice(index, index + EMBEDDING_BATCH_SIZE)
+      .map((text) => `${type}: ${text}`);
 
+    const output = await extractor(batch, { pooling: "mean", normalize: true });
+    embeddings.push(...(output.tolist() as number[][]));
+
+    onProgress?.(
+      Math.min(index + EMBEDDING_BATCH_SIZE, texts.length),
+      texts.length,
+    );
+  }
+
+  return embeddings;
+}
+
+// Documents embedded before the Nomic upgrade retain 384-dimensional MiniLM
+// vectors. Query them with the model that created them instead of mixing vector
+// spaces or forcing users to reingest every existing document.
+export async function embedTextsForStoredDimension(
+  texts: string[],
+  type: EmbeddingType,
+  dimension: number,
+): Promise<number[][]> {
+  if (dimension === EMBEDDING_DIMENSION) {
+    return embedTexts(texts, type);
+  }
+  if (dimension !== LEGACY_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Stored embeddings use unsupported dimension ${dimension}. ` +
+        'Run "npm run embeddings:rebuild" before using Semantic or Hybrid search.',
+    );
+  }
+  if (texts.length === 0) return [];
+
+  const extractor: any = await getLegacyEmbeddingPipeline();
+  const embeddings: number[][] = [];
+
+  for (let index = 0; index < texts.length; index += LEGACY_EMBEDDING_BATCH_SIZE) {
+    const batch = texts.slice(index, index + LEGACY_EMBEDDING_BATCH_SIZE);
+    const output = await extractor(batch, { pooling: "mean", normalize: true });
     embeddings.push(...(output.tolist() as number[][]));
   }
 
