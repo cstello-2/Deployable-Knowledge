@@ -889,7 +889,7 @@
   }
 
   .docs-group {
-    overflow: hidden;
+    min-width: 0;
   }
 
   .docs-group-header {

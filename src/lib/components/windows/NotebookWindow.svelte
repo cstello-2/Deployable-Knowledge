@@ -13,7 +13,6 @@
   import {
     NOTEBOOK_CONTEXT_CHANGED_EVENT,
     type NotebookContextChangedDetail,
-    notebookContextCoverage,
     notebookProvidesContext as notebookIsSelectedForContext,
     pageProvidesNotebookContext,
     restoreNotebookContextPageIds,
@@ -66,6 +65,7 @@
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
+  let notebookLocked = $derived(appState.assistantRequestInFlight);
   let otherPageCharacterCount = $derived(
     appState.activeNotebook?.pages.reduce(
       (total, page) =>
@@ -98,20 +98,24 @@
   let sourcesLoading = $state(false);
 
   function toggleSources() {
+    if (notebookLocked) return;
     sourcesOpen = !sourcesOpen;
   }
 
   function showNotebooks() {
+    if (notebookLocked) return;
     sourcesOpen = false;
     notebookView = "notebooks";
   }
 
   function showPages() {
+    if (notebookLocked) return;
     sourcesOpen = false;
     notebookView = appState.activeNotebook ? "pages" : "notebooks";
   }
 
   function navigateBack() {
+    if (notebookLocked) return;
     if (notebookView === "editor") {
       showPages();
     } else if (notebookView === "pages") {
@@ -121,6 +125,13 @@
 
   $effect(() => {
     if (collapsed) sourcesOpen = false;
+  });
+
+  $effect(() => {
+    if (!notebookLocked) return;
+    sourcesOpen = false;
+    notebookSelectionButtonVisible = false;
+    selectedNotebookText = "";
   });
 
   function applyState(data: { activeNotebookId: string | null; notebooks: NotebookWithPages[] }) {
@@ -137,15 +148,13 @@
     return notebookIsSelectedForContext(appState, notebook);
   }
 
-  function notebookContextState(notebook: NotebookWithPages) {
-    return notebookContextCoverage(appState, notebook);
-  }
-
   function togglePageContext(pageId: string) {
+    if (notebookLocked) return;
     toggleNotebookContextPage(appState, pageId);
   }
 
   function toggleNotebookContext(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
     toggleNotebookContextNotebook(appState, notebook);
   }
 
@@ -164,6 +173,7 @@
   }
 
   async function removeSource(sourceId: string) {
+    if (notebookLocked) return;
     const notebookId = appState.activeNotebookId;
     if (!notebookId) return;
     await fetch(`/notebooks/${notebookId}/sources/${sourceId}`, { method: "DELETE" });
@@ -171,6 +181,7 @@
   }
 
   async function clearAllSources() {
+    if (notebookLocked) return;
     const notebookId = appState.activeNotebookId;
     if (!notebookId || !sources.length) return;
     if (!window.confirm("Remove all sources attached to this notebook?")) return;
@@ -221,6 +232,7 @@
   }
 
   function queueSaveCurrentPage() {
+    if (notebookLocked) return;
     saveStatus = "Saving…";
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -237,6 +249,7 @@
   }
 
   async function selectNotebook(notebookId: string): Promise<boolean> {
+    if (notebookLocked) return false;
     await flushPendingSave();
     const res = await fetch(`/notebooks/${notebookId}/select`, { method: "POST" });
     if (!res.ok) { showToast("Failed to select notebook"); return false; }
@@ -245,6 +258,7 @@
   }
 
   async function selectPage(page: NotebookPage): Promise<boolean> {
+    if (notebookLocked) return false;
     const nb = appState.activeNotebook;
     if (!nb) return false;
     await flushPendingSave();
@@ -255,6 +269,7 @@
   }
 
   async function openNotebookPages(notebookId: string) {
+    if (notebookLocked) return;
     const selected =
       notebookId === appState.activeNotebookId ||
       (await selectNotebook(notebookId));
@@ -263,6 +278,7 @@
   }
 
   async function navigateToPage(page: NotebookPage) {
+    if (notebookLocked) return;
     const selected =
       page.id === appState.activePage?.id || (await selectPage(page));
 
@@ -273,6 +289,7 @@
   }
 
   async function createNotebook() {
+    if (notebookLocked) return;
     const requestedTitle = window.prompt("Notebook name", "New Notebook");
     if (requestedTitle === null) return;
     await flushPendingSave();
@@ -296,6 +313,7 @@
   }
 
   async function createPage() {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -323,6 +341,7 @@
   }
 
   async function renameNotebook(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
     const requestedTitle = window.prompt("Rename notebook", notebook.title);
     const nextTitle = requestedTitle?.trim();
     if (!nextTitle || nextTitle === notebook.title) return;
@@ -346,6 +365,7 @@
   }
 
   async function renamePage(page: NotebookPage) {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -372,6 +392,7 @@
   }
 
   async function deleteNotebook(notebook: NotebookWithPages) {
+    if (notebookLocked) return;
     const pageLabel = notebook.pages.length === 1 ? "page" : "pages";
     if (
       !window.confirm(
@@ -397,6 +418,7 @@
   }
 
   async function deletePage(page: NotebookPage) {
+    if (notebookLocked) return;
     const notebook = appState.activeNotebook;
     if (!notebook) return;
 
@@ -436,6 +458,7 @@
   }
 
   function handleNotebookSelection(event: Event) {
+    if (notebookLocked) return;
     const textarea = event.currentTarget as HTMLTextAreaElement;
     const selected = textarea.value
       .slice(textarea.selectionStart, textarea.selectionEnd)
@@ -445,6 +468,7 @@
   }
 
   function sendSelectionToChat() {
+    if (notebookLocked) return;
     const text = selectedNotebookText.trim();
     if (!text) return;
     window.dispatchEvent(new CustomEvent("dk:send-to-chat", {
@@ -455,10 +479,16 @@
     saveStatus = "Sent to chat";
   }
 
+  function togglePreviewMode() {
+    if (notebookLocked) return;
+    previewMode = !previewMode;
+  }
+
   onMount(() => {
     restoreNotebookContextPageIds(appState);
     void loadNotebooks();
     const handleNotebookContextChanged = (event: Event) => {
+      if (notebookLocked) return;
       const detail = (event as CustomEvent<NotebookContextChangedDetail>).detail;
       if (!detail?.pageIds || !detail?.notebookIds) return;
       appState.notebookContextNotebookIds = [...detail.notebookIds];
@@ -488,11 +518,16 @@
   {closable}
   {height}
   {collapsed}
+  controlsDisabled={notebookLocked}
   {onToggleCollapse}
   {onClose}
   contentLabel="Notebook content"
 >
-  <section class="notebook-main">
+  <fieldset
+    class="notebook-main"
+    disabled={notebookLocked}
+    aria-busy={notebookLocked}
+  >
     <header class="notebook-header">
       <div class="notebook-heading-row">
         {#if notebookView !== "notebooks"}
@@ -557,7 +592,7 @@
         <div class="notebook-actions">
           {#if appState.activePage}
             <button
-              class="icon-action"
+              class="icon-action context-toggle"
               class:active={pageProvidesContext(appState.activePage.id)}
               type="button"
               title={pageProvidesContext(appState.activePage.id)
@@ -593,6 +628,7 @@
                 aria-controls={menuId}
                 aria-expanded={open}
                 data-window-action
+                disabled={notebookLocked}
                 onclick={toggleSources}
               >
                 <Icon name="description" size={17} />
@@ -608,7 +644,7 @@
                 <button
                   class="btn btn-sm btn-danger"
                   type="button"
-                  disabled={!sources.length}
+                  disabled={notebookLocked || !sources.length}
                   onclick={clearAllSources}
                 >
                   Clear All
@@ -631,6 +667,7 @@
                         type="button"
                         title="Remove source"
                         aria-label="Remove source"
+                        disabled={notebookLocked}
                         onclick={() => removeSource(source.id)}
                       >
                         <Icon name="close" size={14} />
@@ -655,7 +692,7 @@
             aria-label={previewMode ? "Edit notes" : "Preview markdown"}
             aria-pressed={previewMode}
             data-window-action
-            onclick={() => (previewMode = !previewMode)}
+            onclick={togglePreviewMode}
           >
             <Icon name={previewMode ? "edit" : "visibility"} size={17} />
           </button>
@@ -692,9 +729,8 @@
                   </span>
                 </button>
                 <button
-                  class="inline-action-button navigation-row-action"
+                  class="inline-action-button navigation-row-action context-toggle"
                   class:active={notebookProvidesContext(notebook)}
-                  class:partial={notebookContextState(notebook) === "partial"}
                   type="button"
                   title={notebookProvidesContext(notebook)
                     ? `Remove ${notebook.title} from context`
@@ -705,12 +741,7 @@
                   aria-pressed={notebookProvidesContext(notebook)}
                   onclick={() => toggleNotebookContext(notebook)}
                 >
-                  <Icon
-                    name={notebookContextState(notebook) === "partial"
-                      ? "indeterminate_check_box"
-                      : "library_add_check"}
-                    size={16}
-                  />
+                  <Icon name="library_add_check" size={16} />
                 </button>
                 <button
                   class="inline-action-button navigation-row-action danger"
@@ -763,7 +794,7 @@
                   </span>
                 </button>
                 <button
-                  class="inline-action-button navigation-row-action"
+                  class="inline-action-button navigation-row-action context-toggle"
                   class:active={pageProvidesContext(page.id)}
                   type="button"
                   title={pageProvidesContext(page.id)
@@ -859,7 +890,7 @@
         </div>
       </div>
     {/if}
-  </section>
+  </fieldset>
 
 </BaseWindow>
 
@@ -881,6 +912,9 @@
     width: 100%;
     min-width: 0;
     min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
     flex: 1 1 auto;
     flex-direction: column;
   }
@@ -992,7 +1026,7 @@
     color: var(--text);
   }
 
-  .icon-action.active {
+  .icon-action.active:not(.context-toggle) {
     background: color-mix(in oklab, var(--accent) 18%, transparent);
     box-shadow: inset 0 0 0 1px
       color-mix(in oklab, var(--accent) 28%, transparent);
@@ -1193,12 +1227,6 @@
     height: auto;
     min-height: 56px;
     align-self: stretch;
-  }
-
-  .navigation-row-action.partial {
-    border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
-    background: color-mix(in oklab, var(--accent) 10%, transparent);
-    color: var(--text);
   }
 
   .navigation-item > .navigation-row-action:last-child {

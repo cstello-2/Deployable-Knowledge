@@ -34,59 +34,14 @@ import {
   NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
   RAG_CHUNK_CHARACTER_LIMIT,
 } from "$lib/utils/contextLimits";
-import { resolveNotebookContext } from "$lib/server/notebooks/context";
+import {
+  createNotebookContextMetadata,
+  resolveNotebookContext,
+} from "$lib/server/notebooks/context";
+import { createConversationalPrompt } from "$lib/server/notebooks/prompt";
 import type { RequestHandler } from "./$types";
 
 const NOTEBOOK_USER_ID = "default";
-
-// Notebook mode (RAG off) uses this conversational prompt instead of the strict
-// "answer only from context" instruction the user supplies their own context
-// (their open notebook's content) rather than us retrieving it.
-const CONVERSATIONAL_SYSTEM_PROMPT = `You are a helpful assistant that answers questions and completes tasks for the user.
-
-The user may load reference material. Treat it as background knowledge — facts to draw on — not as a ready-made answer. Never copy, reprint, or restate the reference material or your earlier answers back to the user.
-- If the user asks a question, answer it in your own words, adding explanation and detail beyond what the material literally says.
-- If the user asks you to write, draft, summarize, or analyze something, do the task fully and originally.
-- If the user asks you to expand, elaborate, explain further, or "go deeper" on a point, provide NEW detail, examples, and reasoning about that specific point. Do not repeat the point itself or reprint sentences already shown — assume the user has already read them and wants more.
-
-If you notice you are about to repeat text that already appears above, stop and instead explain it, give an example, or add specifics. Always give a direct, helpful answer, and respond only to the user's most recent message.`;
-
-function createConversationalPrompt(
-  messages: SessionMessage[],
-  userMessage: string,
-  context = "",
-): string {
-  const lines = [`system: ${CONVERSATIONAL_SYSTEM_PROMPT}`];
-
-  // We take the last 20 messages to feed into context, we may need to
-  // expand upon this to avoid hitting the token limit ceiling
-  for (const message of messages.slice(-20)) {
-    lines.push(`${message.role}: ${message.content}`);
-  }
-
-  if (context) {
-    // Reference material goes immediately before the request, and the grounding
-    // instruction is co-located with it small models attend most strongly to
-    // text right at the point of generation. The instruction is deliberately
-    // balanced: use the material as source data, but still perform the task
-    // rather than copying the material back.
-    lines.push(
-      `Reference material (background knowledge — do not reprint it):\n\n${context}`,
-    );
-    lines.push(
-      `user: Use the reference material above as background knowledge. Then respond to the request below in your own words:\n` +
-        `- Answer or complete the request, adding explanation, detail, and reasoning that go beyond what the material literally says.\n` +
-        `- If the request asks you to expand, elaborate, or "go deeper" on a point, give NEW information, examples, and specifics about it — do not restate the point or repeat sentences already shown above.\n` +
-        `- Never copy or reprint the material or earlier answers. If you catch yourself repeating the source, stop and instead explain it, give an example, or add detail.\n\n` +
-        `Request: ${userMessage}`,
-    );
-  } else {
-    lines.push(`user: ${userMessage}`);
-  }
-
-  lines.push("assistant:");
-  return lines.join("\n\n");
-}
 
 function createPrompt(
   messages: SessionMessage[],
@@ -423,16 +378,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
               graphDocumentIds,
               graphChunkIds,
               graphTopK: ragTopK,
-              notebookContext: body.conversational,
-              notebookContextPages: body.conversational
-                ? resolvedNotebookContext.pages
-                : [],
-              notebookContextNotebookIds: body.conversational
-                ? resolvedNotebookContext.notebookIds
-                : [],
-              notebookContextPageIds: body.conversational
-                ? resolvedNotebookContext.pageIds
-                : [],
+              ...createNotebookContextMetadata(
+                body.conversational,
+                resolvedNotebookContext,
+              ),
             },
             createdAt: timestamp,
           },

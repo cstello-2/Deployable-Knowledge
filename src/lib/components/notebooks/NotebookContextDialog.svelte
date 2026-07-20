@@ -117,13 +117,10 @@
         <div class="context-list" aria-label="Available notebook context">
           {#each appState.notebooks as notebook (notebook.id)}
             {@const coverage = notebookContextCoverage(appState, notebook)}
-            <section
-              class="notebook-option"
-              class:selected={coverage === "all"}
-              class:partial={coverage === "partial"}
-            >
+            <section class="notebook-option">
               <button
-                class="notebook-toggle"
+                class="notebook-toggle context-toggle"
+                class:active={coverage === "all"}
                 type="button"
                 aria-pressed={coverage === "all"}
                 aria-label={`${coverage === "all" ? "Remove" : "Use"} entire notebook ${notebook.title} for context`}
@@ -132,9 +129,7 @@
                 <Icon
                   name={coverage === "all"
                     ? "check_box"
-                    : coverage === "partial"
-                      ? "indeterminate_check_box"
-                      : "check_box_outline_blank"}
+                    : "check_box_outline_blank"}
                   size={19}
                 />
                 <span>
@@ -151,8 +146,8 @@
                   {#each notebook.pages as page (page.id)}
                     {@const pageSelected = pageProvidesNotebookContext(appState, page.id)}
                     <button
-                      class="page-toggle"
-                      class:selected={pageSelected}
+                      class="page-toggle context-toggle"
+                      class:active={pageSelected}
                       type="button"
                       aria-pressed={pageSelected}
                       aria-label={`${pageSelected ? "Remove" : "Use"} page ${page.title} for context`}
@@ -306,22 +301,12 @@
     background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
   }
 
-  .notebook-option.selected,
-  .notebook-option.partial {
-    border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-    box-shadow: inset 3px 0 0 color-mix(in oklab, var(--accent) 78%, white);
-  }
-
   .notebook-toggle {
     width: 100%;
     gap: 9px;
     padding: 10px 12px;
     background: transparent;
     font: inherit;
-  }
-
-  .notebook-option.selected .notebook-toggle {
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
   }
 
   .notebook-toggle span {
@@ -360,13 +345,11 @@
     font-size: 12px;
   }
 
-  .page-toggle:hover,
-  .page-toggle.selected {
+  .page-toggle:hover {
     background: color-mix(in oklab, var(--accent) 12%, transparent);
   }
 
-  .page-toggle.selected {
-    color: color-mix(in oklab, var(--accent) 65%, var(--text));
+  .page-toggle.active {
     font-weight: 700;
   }
 

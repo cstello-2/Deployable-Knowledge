@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { basename, extname, join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import type { DocumentIngestProgress } from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import { documents, synced_files, synced_folders } from "$lib/server/database/schema";
-import { ingestDocument } from "$lib/server/rag/ingest-document";
+import { ingestDocument, isSupportedDocument } from "$lib/server/rag/ingest-document";
 import { removeDocument, removeManagedDocumentFile } from "./remove-document";
 
 export type SyncFolderResult = {
@@ -16,18 +16,9 @@ export type SyncFolderResult = {
   failed: number;
 };
 
-export type SyncFileStatus =
-  | "queued"
-  | "ingesting"
-  | "added"
-  | "updated"
-  | "unchanged"
-  | "removed"
-  | "failed";
-
 export type SyncFileProgress = {
   sourcePath: string;
-  status: SyncFileStatus;
+  status: "queued" | "ingesting" | "added" | "updated" | "unchanged" | "removed" | "failed";
   percent?: number;
   label?: string;
   message?: string;
@@ -35,49 +26,25 @@ export type SyncFileProgress = {
 
 export type SyncProgressCallback = (progress: SyncFileProgress) => void;
 
-type PdfFile = {
+type SyncFile = {
   sourcePath: string;
   mtimeMs: number;
   size: number;
 };
 
-async function findPdfFiles(directory: string): Promise<PdfFile[]> {
-  const files: PdfFile[] = [];
-  const entries = await readdir(directory, { withFileTypes: true });
+async function findFiles(directory: string): Promise<SyncFile[]> {
+  const entries = await readdir(directory, { withFileTypes: true, recursive: true });
+  const files = entries.filter(
+    (entry) => entry.isFile() && isSupportedDocument(entry.name),
+  );
 
-  entries.sort((left, right) => left.name.localeCompare(right.name));
-
-  for (const entry of entries) {
-    const entryPath = join(directory, entry.name);
-
-    if (entry.isDirectory()) {
-      files.push(...(await findPdfFiles(entryPath)));
-      continue;
-    }
-
-    if (!entry.isFile() || extname(entry.name).toLowerCase() !== ".pdf") continue;
-
-    const fileStats = await stat(entryPath);
-    files.push({
-      sourcePath: resolve(entryPath),
-      mtimeMs: Math.trunc(fileStats.mtimeMs),
-      size: fileStats.size,
-    });
-  }
-
-  return files;
-}
-
-async function hasPdfHeader(filePath: string): Promise<boolean> {
-  const file = await open(filePath, "r");
-
-  try {
-    const header = Buffer.alloc(5);
-    const { bytesRead } = await file.read(header, 0, header.length, 0);
-    return bytesRead === header.length && header.toString() === "%PDF-";
-  } finally {
-    await file.close();
-  }
+  return Promise.all(
+    files.map(async (file) => {
+      const sourcePath = resolve(file.parentPath, file.name);
+      const { mtimeMs, size } = await stat(sourcePath);
+      return { sourcePath, mtimeMs: Math.trunc(mtimeMs), size };
+    }),
+  );
 }
 
 async function ingestManagedCopy(
@@ -87,7 +54,8 @@ async function ingestManagedCopy(
 ) {
   await copyFile(sourcePath, managedPath);
   try {
-    return await ingestDocument({ filePath: managedPath, title: pdfTitle(sourcePath) }, onProgress);
+    const title = basename(sourcePath, extname(sourcePath)).trim() || basename(sourcePath);
+    return await ingestDocument({ filePath: managedPath, title }, onProgress);
   } catch (error) {
     await removeManagedDocumentFile(managedPath);
     throw error;
@@ -96,25 +64,7 @@ async function ingestManagedCopy(
 
 async function managedPathFor(sourcePath: string): Promise<string> {
   const contentHash = createHash("sha256").update(await readFile(sourcePath)).digest("hex");
-  return join("documents", `${contentHash.slice(0, 16)}.pdf`);
-}
-
-function pdfTitle(sourcePath: string): string {
-  const name = basename(sourcePath);
-  return name.replace(/\.pdf$/i, "").trim() || name;
-}
-
-function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  const cause = (error as Error & { cause?: unknown }).cause;
-  return cause ? `${error.message}: ${errorMessage(cause)}` : error.message;
-}
-
-async function recordFolderError(folderId: string, error: unknown) {
-  await db
-    .update(synced_folders)
-    .set({ lastError: errorMessage(error) })
-    .where(eq(synced_folders.id, folderId));
+  return join("documents", contentHash.slice(0, 16) + extname(sourcePath).toLowerCase());
 }
 
 export async function syncFolder(
@@ -125,29 +75,19 @@ export async function syncFolder(
   const [folder] = await db
     .select()
     .from(synced_folders)
-    .where(eq(synced_folders.id, folderId))
-    .limit(1);
+    .where(eq(synced_folders.id, folderId));
 
   if (!folder) throw new Error(`Synced folder not found: ${folderId}`);
 
   const folderPath = resolve(folder.path);
-  let pdfFiles: PdfFile[];
-
-  try {
-    const rootStats = await stat(folderPath);
-    if (!rootStats.isDirectory()) throw new Error(`Synced folder is not a directory: ${folderPath}`);
-    pdfFiles = await findPdfFiles(folderPath);
-  } catch (error) {
-    await recordFolderError(folderId, error);
-    throw error;
-  }
+  const sourceFiles = await findFiles(folderPath);
 
   const trackedFiles = await db
     .select()
     .from(synced_files)
     .where(eq(synced_files.folderId, folderId));
   const trackedByPath = new Map(trackedFiles.map((file) => [file.sourcePath, file]));
-  const currentPaths = new Set(pdfFiles.map((file) => file.sourcePath));
+  const currentPaths = new Set(sourceFiles.map((file) => file.sourcePath));
   const result: SyncFolderResult = {
     added: 0,
     updated: 0,
@@ -156,7 +96,7 @@ export async function syncFolder(
     failed: 0,
   };
 
-  for (const file of pdfFiles) {
+  for (const file of sourceFiles) {
     if (!trackedByPath.get(file.sourcePath)?.ignored) {
       onProgress?.({ sourcePath: file.sourcePath, status: "queued" });
     }
@@ -165,7 +105,7 @@ export async function syncFolder(
   await mkdir("documents", { recursive: true });
 
   // Intentionally sequential until the Scribe lifecycle is made concurrency-safe and benchmarked.
-  for (const file of pdfFiles) {
+  for (const file of sourceFiles) {
     if (shouldStop?.()) return result;
     const tracked = trackedByPath.get(file.sourcePath);
 
@@ -176,8 +116,7 @@ export async function syncFolder(
     const unchanged =
       tracked?.documentId &&
       tracked.mtimeMs === file.mtimeMs &&
-      tracked.size === file.size &&
-      !resolve(tracked.managedPath).includes(`${sep}documents${sep}synced${sep}`);
+      tracked.size === file.size;
 
     if (unchanged) {
       result.unchanged += 1;
@@ -191,10 +130,6 @@ export async function syncFolder(
 
     try {
       onProgress?.({ sourcePath: file.sourcePath, status: "ingesting" });
-
-      if (!(await hasPdfHeader(file.sourcePath))) {
-        throw new Error("File has a .pdf extension but no PDF header.");
-      }
 
       managedPath = await managedPathFor(file.sourcePath);
       const [existingDocument] = await db
@@ -225,7 +160,6 @@ export async function syncFolder(
           onProgress?.({
             sourcePath: file.sourcePath,
             status: "unchanged",
-            message: "This PDF is already managed by another folder.",
           });
           continue;
         }
@@ -273,7 +207,7 @@ export async function syncFolder(
       result[status] += 1;
       onProgress?.({ sourcePath: file.sourcePath, status });
     } catch (error) {
-      const message = errorMessage(error);
+      const message = String(error);
       result.failed += 1;
       onProgress?.({ sourcePath: file.sourcePath, status: "failed", message });
       console.error(`[Folder Sync] ${file.sourcePath}: ${message}`);
@@ -286,7 +220,7 @@ export async function syncFolder(
             await removeManagedDocumentFile(managedPath);
           }
         } catch (cleanupError) {
-          console.error(`[Folder Sync] Cleanup failed for ${file.sourcePath}: ${errorMessage(cleanupError)}`);
+          console.error(`[Folder Sync] Cleanup failed for ${file.sourcePath}: ${cleanupError}`);
         }
       }
     }
@@ -310,7 +244,7 @@ export async function syncFolder(
     onProgress?.({ sourcePath: tracked.sourcePath, status: "removed" });
   }
 
-  const lastError = result.failed > 0 ? `${result.failed} PDF file(s) failed to sync.` : null;
+  const lastError = result.failed > 0 ? `${result.failed} file(s) failed to sync.` : null;
   await db
     .update(synced_folders)
     .set({ lastError })

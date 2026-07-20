@@ -29,6 +29,25 @@ export type ResolvedNotebookContext = {
   pages: ResolvedNotebookContextPage[];
 };
 
+export type NotebookContextMetadata = {
+  notebookContext: boolean;
+  notebookContextPages: ResolvedNotebookContextPage[];
+  notebookContextNotebookIds: string[];
+  notebookContextPageIds: string[];
+};
+
+export function createNotebookContextMetadata(
+  enabled: boolean,
+  resolved: ResolvedNotebookContext,
+): NotebookContextMetadata {
+  return {
+    notebookContext: enabled,
+    notebookContextPages: enabled ? [...resolved.pages] : [],
+    notebookContextNotebookIds: enabled ? [...resolved.notebookIds] : [],
+    notebookContextPageIds: enabled ? [...resolved.pageIds] : [],
+  };
+}
+
 function normalizeIds(ids: readonly unknown[] | undefined): string[] {
   return [...new Set(
     (ids ?? [])

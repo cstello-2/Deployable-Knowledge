@@ -19,8 +19,10 @@
     refreshKnowledgeGraphStatus,
   } from "$lib/utils/knowledgeGraphState";
   import { renderMarkdown } from "$lib/utils/markdown";
-  import { showWindow } from "$lib/utils/workspaceState";
+  import { withAssistantRequestLock } from "$lib/utils/assistantRequestState";
+  import { isWindowVisible, showWindow } from "$lib/utils/workspaceState";
   import {
+    getNotebookContextSelectionSnapshot,
     getNotebookContextSummary,
     hasNotebookContextSelection,
     restoreNotebookContextPageIds,
@@ -100,7 +102,7 @@
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
   let status = $state("");
-  let busy = $state(false);
+  let busy = $derived(appState.assistantRequestInFlight);
   let loadingSession = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
@@ -499,7 +501,7 @@
   async function selectResultChunk(source: ChatSource) {
     if (!source.chunkId && !source.nodeId) return;
     selectedResultChunkId = source.chunkId ?? source.nodeId ?? null;
-    showWindow("graph-galaxy-window");
+    if (!isWindowVisible("graph-galaxy-window")) return;
     await tick();
     window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
       detail: { chunkId: source.chunkId, nodeId: source.nodeId },
@@ -581,87 +583,97 @@
     const text = draft.trim();
     if (!text) return;
 
-    draft = "";
-    busy = true;
-    status = "";
-    appState.lastQuery = text;
-    const documentIds = getSelectedDocumentIds();
-    const useNotebookContext = hasNotebookContext;
+    await withAssistantRequestLock(appState, async () => {
+      const notebookContextSnapshot =
+        getNotebookContextSelectionSnapshot(appState);
+      const useNotebookContext =
+        notebookContextSnapshot.notebookIds.length > 0 ||
+        notebookContextSnapshot.pageIds.length > 0;
 
-    try {
-      const session = appState.currentSession ?? (await createSession());
+      draft = "";
+      status = "";
+      appState.lastQuery = text;
+      const documentIds = getSelectedDocumentIds();
 
-      messages = [...messages, {
-        id: (messages.at(-1)?.id ?? 0) + 1,
-        role: "user",
-        content: text,
-        createdAt: new Date(),
-        sessionId: session.id,
-        metadata: null,
-      }];
-      await scrollToBottom();
+      try {
+        const session = appState.currentSession ?? (await createSession());
 
-      const requestBase = {
-        message: text,
-        model_id: appState.currentModelId,
-        provider_id: appState.currentProviderId,
-        max_tokens: appState.maxTokens,
-        temperature: appState.temperature,
-        top_k: appState.topK,
-      };
-
-      const requestBody: ChatMessageRequest = useNotebookContext
-        ? {
-            ...requestBase,
-            conversational: true,
-            notebook_id: null,
-            notebook_context_notebook_ids: [
-              ...appState.notebookContextNotebookIds,
-            ],
-            notebook_context_page_ids: [...appState.notebookContextPageIds],
-            document_ids: documentIds,
-            rag_top_k: appState.ragTopK,
-          }
-        : {
-            ...requestBase,
-            conversational: false,
-            prompt_template_id: appState.promptTemplateId || null,
-            persona: appState.persona,
-            document_ids: documentIds,
-            rag_top_k: appState.ragTopK,
-          };
-
-      const response = await fetch(
-        `/sessions/${encodeURIComponent(session.id)}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        },
-      );
-      if (!response.ok) throw new Error(await assistantErrorMessage(response));
-      if (!response.body) throw new Error("Assistant returned an empty response stream");
-      void refreshKnowledgeGraphStatus(documentIds);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        messageStream += decoder.decode(value, { stream: true });
+        messages = [...messages, {
+          id: (messages.at(-1)?.id ?? 0) + 1,
+          role: "user",
+          content: text,
+          createdAt: new Date(),
+          sessionId: session.id,
+          metadata: null,
+        }];
         await scrollToBottom();
-      }
 
-      messages = await loadMessages(session.id);
-      loadedSessionId = session.id;
-      rememberQueryGraph(session.id, messages);
-      await scrollToBottom();
-    } catch (error) {
-      status = error instanceof Error ? error.message : "Assistant request failed.";
-    } finally {
-      busy = false;
-      messageStream = "";
-    }
+        const requestBase = {
+          message: text,
+          model_id: appState.currentModelId,
+          provider_id: appState.currentProviderId,
+          max_tokens: appState.maxTokens,
+          temperature: appState.temperature,
+          top_k: appState.topK,
+        };
+
+        const requestBody: ChatMessageRequest = useNotebookContext
+          ? {
+              ...requestBase,
+              conversational: true,
+              notebook_id: null,
+              notebook_context_notebook_ids: [
+                ...notebookContextSnapshot.notebookIds,
+              ],
+              notebook_context_page_ids: [
+                ...notebookContextSnapshot.pageIds,
+              ],
+              document_ids: documentIds,
+              rag_top_k: appState.ragTopK,
+            }
+          : {
+              ...requestBase,
+              conversational: false,
+              prompt_template_id: appState.promptTemplateId || null,
+              persona: appState.persona,
+              document_ids: documentIds,
+              rag_top_k: appState.ragTopK,
+            };
+
+        const response = await fetch(
+          `/sessions/${encodeURIComponent(session.id)}/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          },
+        );
+        if (!response.ok) throw new Error(await assistantErrorMessage(response));
+        if (!response.body) {
+          throw new Error("Assistant returned an empty response stream");
+        }
+        void refreshKnowledgeGraphStatus(documentIds);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          messageStream += decoder.decode(value, { stream: true });
+          await scrollToBottom();
+        }
+
+        messages = await loadMessages(session.id);
+        loadedSessionId = session.id;
+        rememberQueryGraph(session.id, messages);
+        await scrollToBottom();
+      } catch (error) {
+        status =
+          error instanceof Error ? error.message : "Assistant request failed.";
+      } finally {
+        messageStream = "";
+      }
+    });
   }
 
   async function createNewChat() {
@@ -887,7 +899,7 @@
         disabled={busy || loadingSession || hasSubmittedQuery}
       />
       <button
-        class="inline-action-button chat-mode-toggle"
+        class="inline-action-button chat-mode-toggle context-toggle"
         class:active={hasNotebookContext}
         type="button"
         disabled={busy || loadingSession || hasSubmittedQuery}
@@ -914,10 +926,12 @@
         class="inline-action-button chat-graph-button"
         type="button"
         aria-label="Visualize knowledge graph"
-        title={graphPreparing
+        title={graphPreparationError
+          ? `Open Galaxy and retry: ${graphPreparationError}`
+          : graphPreparing
           ? "Knowledge Graph is still preparing"
           : "Visualize knowledge graph"}
-        disabled={!queryGraphContext || !graphReady || graphPreparing}
+        disabled={!queryGraphContext || graphPreparing}
         onclick={openGraphGalaxy}
       >
         <Icon name="hub" size={16} />
@@ -1257,12 +1271,6 @@
   .chat-input {
     flex-shrink: 0;
     margin-top: 10px;
-  }
-
-  .chat-mode-toggle.active,
-  .chat-mode-toggle.active:hover {
-    background: color-mix(in oklab, var(--accent) 18%, transparent);
-    color: var(--text);
   }
 
   @media (max-width: 680px) {

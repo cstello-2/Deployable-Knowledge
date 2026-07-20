@@ -11,6 +11,7 @@
     collapsible?: boolean;
     height?: number | null;
     collapsed?: boolean;
+    controlsDisabled?: boolean;
     onToggleCollapse?: () => void;
     onClose?: () => void;
     headerActions?: Snippet;
@@ -27,6 +28,7 @@
     collapsible = true,
     height = null,
     collapsed = false,
+    controlsDisabled = false,
     onToggleCollapse = () => {},
     onClose = () => {},
     headerActions,
@@ -49,7 +51,10 @@
   tabindex="-1"
   aria-label={title}
 >
-  <header class="titlebar" data-window-handle>
+  <header
+    class="titlebar"
+    data-window-handle={controlsDisabled ? undefined : ""}
+  >
     <div class="title-block">
       <div class="title-row">
         <Icon name="drag_indicator" size={16} />
@@ -72,7 +77,10 @@
             aria-label={collapsed ? "Expand" : "Collapse"}
             aria-pressed={collapsed}
             data-window-action
-            onclick={onToggleCollapse}
+            disabled={controlsDisabled}
+            onclick={() => {
+              if (!controlsDisabled) onToggleCollapse();
+            }}
           >
             <Icon
               name={collapsed ? "keyboard_arrow_down" : "keyboard_arrow_up"}
@@ -86,7 +94,10 @@
             title="Close"
             aria-label="Close"
             data-window-action
-            onclick={onClose}
+            disabled={controlsDisabled}
+            onclick={() => {
+              if (!controlsDisabled) onClose();
+            }}
           >
             <Icon name="close" />
           </button>
