@@ -8,6 +8,7 @@ import {
   notebooks,
   profiles,
   promptTemplates,
+  settings,
   type SessionMessage,
   sessions,
   session_messages,
@@ -20,6 +21,7 @@ import type {
 } from "$lib/server/providers/provider";
 import {
   retrieveRagContext,
+  resolveRagRetrievalMode,
   type RagContextResult,
   type RagRetrievalMode,
 } from "$lib/server/rag/search/retrieve-rag-context";
@@ -166,17 +168,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
         .get()
     : null;
 
+  // Older installs can have settings without any assistant profiles. The
+  // request carries the mode shown in the UI; persisted values remain as
+  // fallbacks for older clients.
+  const fallbackSettings = profile
+    ? null
+    : await db
+        .select()
+        .from(settings)
+        .where(eq(settings.userId, user.id))
+        .get();
+
   const message = body.message.trim();
   const modelId = body.model_id.trim();
   const providerId = body.provider_id.trim();
-  const storedRetrievalMode = profile?.retrievalMode;
-  const retrievalMode: RagRetrievalMode =
-    storedRetrievalMode === "semantic" ||
-    storedRetrievalMode === "bm25" ||
-    storedRetrievalMode === "hybrid" ||
-    storedRetrievalMode === "graph"
-      ? storedRetrievalMode
-      : "hybrid";
+  const retrievalMode: RagRetrievalMode = resolveRagRetrievalMode(
+    body.retrieval_mode,
+    profile?.retrievalMode,
+    fallbackSettings?.retrievalMode,
+  );
 
   const options: ProviderChatOptions = {
     temperature: body.temperature,

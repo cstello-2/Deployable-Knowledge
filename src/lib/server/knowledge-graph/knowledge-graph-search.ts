@@ -118,7 +118,7 @@ export async function searchKnowledgeGraph(
   return { query, results: results.slice(0, topK), paths };
 }
 
-function acronymDefinitionBoost(query: string, content: string): number {
+export function acronymDefinitionBoost(query: string, content: string): number {
   const match = query.match(/\b(?:what\s+does|define)\s+([A-Z][A-Z0-9/-]{1,12})\s+(?:stand\s+for|mean)\b/i);
   const acronym = match?.[1]?.toUpperCase();
   if (!acronym) return 0;
@@ -126,11 +126,14 @@ function acronymDefinitionBoost(query: string, content: string): number {
   const normalized = content.replace(/\s+/g, " ");
   const escaped = acronym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const definesAcronym =
-    new RegExp(`\\b${escaped}\\b\\s*\\(`, "i").test(normalized) ||
+    new RegExp(`\\b${escaped}\\b\\s*\\(`).test(normalized) ||
+    new RegExp(`\\b${escaped}\\b\\s+(?:stands\\s+for|means)\\b`, "i").test(normalized) ||
     new RegExp(`\\b${escaped}\\b\\s+acronym\\b`, "i").test(normalized) ||
     new RegExp(`\\bacronym\\s+${escaped}\\b`, "i").test(normalized);
 
-  return definesAcronym ? 0.2 : 0;
+  // Definition questions need the defining graph evidence to outrank incidental
+  // lexical matches such as calendar dates returned by the hybrid seed search.
+  return definesAcronym ? 1 : 0;
 }
 
 function collectScores(

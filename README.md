@@ -89,21 +89,21 @@ npm run db:migrate # to be run if there were upstream database changes
 
 ## For Knowledge Graph triplets
 
-The default Knowledge Graph extractor is TypeScript-based and prefers local Ollama
-JSON triplet extraction when Ollama is running. It falls back to the built-in
-TypeScript extractor if Ollama is unavailable.
+The default Knowledge Graph extractor is Austin's built-in rule-based TypeScript
+implementation. The optional Ollama extractor is also invoked through TypeScript;
+the project does not require Python.
 
 ```bash
-# High-quality local LLM triplets, uses KNOWLEDGE_GRAPH_TRIPLET_MODEL or llama3.2:3b
+# Rebuild with the default rule-based TypeScript extractor
 npm run graph:rebuild
 
-# Fast corpus-derived TypeScript fallback, no Python or Ollama required
+# Explicitly select the rule-based TypeScript extractor
 npm run graph:rebuild:fast
 ```
 
 Optional environment variables:
 
-- `KNOWLEDGE_GRAPH_EXTRACTOR=ollama | typescript | python`
+- `KNOWLEDGE_GRAPH_EXTRACTOR=typescript | ollama`
 - `KNOWLEDGE_GRAPH_TRIPLET_MODEL=llama3.2:3b`
 
 # After and every other startup run 

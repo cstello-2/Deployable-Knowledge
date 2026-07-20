@@ -136,6 +136,10 @@
 
     if (!profile) return;
 
+    applyProfileValues(profile);
+  }
+
+  function applyProfileValues(profile: AssistantProfileValues) {
     appState.currentProviderId = profile.provider;
     appState.currentModelId = profile.model;
     appState.maxTokens = profile.maxTokens;
@@ -168,7 +172,14 @@
     });
     const profile = (await resp.json()) as ActiveAssistantProfile;
 
-    applyProfile(profile);
+    if (profile) {
+      applyProfile(profile);
+    } else {
+      appState.activeProfileId = null;
+      const settingsResponse = await fetch("/settings", { method: "GET" });
+      const settings = (await settingsResponse.json()) as AssistantProfileValues;
+      applyProfileValues(settings);
+    }
     syncProfileFields();
   }
 
@@ -430,10 +441,9 @@
     applyProfileFieldsToState();
     appState.ragTopK = ragTopK ?? 5;
 
-    if (!currentProfile) return;
-
     busy = true;
-    const resp = await fetch("/profiles/active", {
+    const hasActiveProfile = Boolean(currentProfile);
+    const resp = await fetch(hasActiveProfile ? "/profiles/active" : "/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(getProfileValues()),
@@ -446,7 +456,12 @@
     }
 
     const profile = (await resp.json()) as AssistantProfile;
-    applyProfile(profile);
+    if (hasActiveProfile) {
+      applyProfile(profile);
+    } else {
+      appState.activeProfileId = null;
+      applyProfileValues(profile);
+    }
     syncProfileFields();
     busy = false;
     showToast(message);
@@ -468,6 +483,7 @@
     if (busy || retrievalMode === mode) return;
 
     retrievalMode = mode;
+    appState.retrievalMode = mode;
     await saveActiveProfile("Search settings updated");
   }
 

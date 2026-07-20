@@ -62,7 +62,7 @@ export type SettingsUpdateRequest = {
   maxTokens: number;
   temperature: number;
   topK: number;
-  retrievalMode: "semantic" | "bm25" | "hybrid";
+  retrievalMode: "semantic" | "bm25" | "hybrid" | "graph";
   ragTopK: number;
   promptTemplateId: string | null;
   persona: string;
@@ -88,6 +88,7 @@ type ChatMessageBase = {
   message: string;
   model_id: string;
   provider_id: string;
+  retrieval_mode: "semantic" | "bm25" | "hybrid" | "graph";
   max_tokens: number;
   temperature: number;
   top_k: number;

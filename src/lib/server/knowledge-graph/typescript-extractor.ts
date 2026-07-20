@@ -77,6 +77,9 @@ const STOP_WORDS = new Set([
   "where",
   "which",
   "while",
+  "who",
+  "why",
+  "what",
   "with",
   "within",
   "without",
@@ -103,6 +106,18 @@ const CLASSIFICATION_LABELS = new Set([
 
 const LOW_VALUE_LABELS = new Set([
   ...CLASSIFICATION_LABELS,
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
   "appendix",
   "article",
   "author",
@@ -195,6 +210,7 @@ function rankEntities(text: string, queryLabels: string[] = []): Candidate[] {
 
   for (const label of queryLabels) {
     if (isClassificationLabel(label)) continue;
+    if (!containsQueryLabel(text, label)) continue;
     add(label, 6, inferKind(label));
   }
 
@@ -217,6 +233,18 @@ function rankEntities(text: string, queryLabels: string[] = []): Candidate[] {
 
   return [...candidates.values()]
     .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label));
+}
+
+function containsQueryLabel(text: string, label: string): boolean {
+  const normalized = normalizeLabel(label);
+  if (!normalized) return false;
+
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const isAcronym = /^[A-Z0-9./-]{2,}$/.test(normalized);
+  return new RegExp(
+    `(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`,
+    isAcronym ? "" : "i",
+  ).test(text);
 }
 
 function properNounPhrases(text: string): string[] {
@@ -321,15 +349,19 @@ function inferKind(label: string): string {
 
 function isUsefulEntity(label: string): boolean {
   if (!label) return false;
+  const words = label.split(/\s+/);
   if (label.length < 3) return false;
   if (label.length > 90) return false;
   if (/^\W+$/.test(label)) return false;
   if (/^\d+(?:\.\d+)*$/.test(label)) return false;
   if (/^[A-Z]{4,}$/.test(label) && UPPERCASE_HEADING_WORDS.has(label)) return false;
-  if (/^[a-z]+$/.test(label) && LOW_VALUE_LABELS.has(label.toLowerCase())) return false;
+  if (
+    words.length === 1 &&
+    LOW_VALUE_LABELS.has(label.toLowerCase()) &&
+    !/^[A-Z0-9./-]{2,}$/.test(label)
+  ) return false;
   if (/^(?:the\s+)?(?:following|these|those|this|that)\b/i.test(label)) return false;
   if (/[.!?:;,]$/.test(label)) return false;
-  const words = label.split(/\s+/);
   if (words.length > MAX_ENTITY_WORDS) return false;
   if (words.every((word) => STOP_WORDS.has(word.toLowerCase()))) return false;
   if (hasBadBoundaryWord(words)) return false;

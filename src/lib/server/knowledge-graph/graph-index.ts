@@ -30,7 +30,7 @@ export type {
 
 // Bump this when entity extraction, relation extraction, or graph construction changes.
 // Query-only settings such as topK and maxDepth do not require a rebuild.
-export const KNOWLEDGE_GRAPH_BUILD_VERSION = "1";
+export const KNOWLEDGE_GRAPH_BUILD_VERSION = "2";
 
 export type KnowledgeGraphIndex = {
   graph: GraphStore;
