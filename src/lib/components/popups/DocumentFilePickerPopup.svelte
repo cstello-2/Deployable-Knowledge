@@ -4,7 +4,7 @@
   type Props = {
     open: boolean;
     pathLabel: string;
-    items: Array<{ name: string; path: string; kind: "folder" | "pdf" }>;
+    items: Array<{ name: string; path: string; kind: "folder" | "pdf" | "docx" }>;
     busy?: boolean;
     canGoBack?: boolean;
     selectedPdfPaths: string[];
@@ -47,7 +47,7 @@
         {busy
           ? "Adding..."
           : selectedPdfPaths.length
-            ? `Add ${selectedPdfPaths.length} PDF${selectedPdfPaths.length === 1 ? "" : "s"}`
+            ? `Add ${selectedPdfPaths.length} document${selectedPdfPaths.length === 1 ? "" : "s"}`
             : "Select Current Folder"}
       </button>
     </div>

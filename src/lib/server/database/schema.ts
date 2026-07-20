@@ -230,7 +230,7 @@ export const documents = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
-    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PDF", "DOCX"] }).notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -394,8 +394,6 @@ export type NewNotebookState = typeof notebook_state.$inferInsert;
 
 export type NotebookPage = typeof notebook_pages.$inferSelect;
 export type NewNotebookPage = typeof notebook_pages.$inferInsert;
-
-export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
 
 export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
 

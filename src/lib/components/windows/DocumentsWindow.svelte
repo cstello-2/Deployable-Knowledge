@@ -65,7 +65,7 @@
     watching: boolean;
   };
 
-  type DirectoryItem = { name: string; path: string; kind: "folder" | "pdf" };
+  type DirectoryItem = { name: string; path: string; kind: "folder" | "pdf" | "docx" };
   type DirectoryResponse = {
     path: string;
     parentPath: string | null;
@@ -502,7 +502,7 @@
     pickerOpen = false;
     working = "upload";
     openProgress(
-      `Ingesting ${paths.length} PDF${paths.length === 1 ? "" : "s"}`,
+      `Ingesting ${paths.length} document${paths.length === 1 ? "" : "s"}`,
       `Ingesting ${shortFolderName(paths[0])}`,
       paths.map((path) => ({ path, name: shortFolderName(path), status: "queued" })),
     );
@@ -837,7 +837,7 @@
 
 <DocumentProgressPopup
   open={progressOpen}
-  title="Ingesting PDFs"
+  title="Ingesting documents"
   {progress}
   files={progressFiles}
 />
@@ -886,11 +886,35 @@
     overflow: auto;
     padding-right: 2px;
     flex: 1 1 auto;
+    scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
+      hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    scrollbar-width: thin;
   }
 
   .docs-group {
     min-width: 0;
   }
+
+  .docs-list::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  .docs-list::-webkit-scrollbar-track {
+    border-left: 1px solid var(--border);
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .docs-list::-webkit-scrollbar-thumb {
+    border: 3px solid hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    border-radius: 10px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-border) + 2%));
+  }
+
+  .docs-list::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%));
+  }
+
 
   .docs-group-header {
     display: grid;

@@ -9,7 +9,7 @@ import type { RequestHandler } from "./$types";
 type DirectoryItem = {
   name: string;
   path: string;
-  kind: "folder" | "pdf";
+  kind: "folder" | "pdf" | "docx";
 };
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -38,8 +38,10 @@ export const GET: RequestHandler = async ({ url }) => {
 
     const path = join(directory, entry.name);
     if (entry.isDirectory()) items.push({ name: entry.name, path, kind: "folder" });
-    if (entry.isFile() && extname(entry.name).toLowerCase() === ".pdf") {
-      items.push({ name: entry.name, path, kind: "pdf" });
+    if (entry.isFile()) {
+      const ext = extname(entry.name).toLowerCase();
+      if (ext === ".pdf") items.push({ name: entry.name, path, kind: "pdf" });
+      if (ext === ".docx") items.push({ name: entry.name, path, kind: "docx" });
     }
   }
 

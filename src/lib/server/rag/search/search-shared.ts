@@ -1,6 +1,6 @@
 // Shared helpers for search modules
 
-import type { DocumentChunk } from "../../database/schema";
+import type { Document, DocumentChunk } from "../../database/schema";
 
 // Same chunk type values used by stored chunks and every search mode
 export type SearchChunkType = DocumentChunk["chunkType"];
@@ -20,6 +20,7 @@ export type SearchMatchBase = {
   documentId: string;
   sourcePath: string;
   sourceTitle: string;
+  sourceType: Document["sourceType"];
   pageIndex: number;
   chunkIndex: number;
   chunkType: SearchChunkType;

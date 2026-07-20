@@ -277,6 +277,7 @@ async function resolveChunkGraphScope(
       documentId: document_chunks.documentId,
       sourcePath: documents.sourcePath,
       sourceTitle: documents.title,
+      sourceType: documents.sourceType,
       documentUpdatedAt: documents.updatedAt,
       pageIndex: document_chunks.pageIndex,
       chunkIndex: document_chunks.chunkIndex,
@@ -294,6 +295,7 @@ async function resolveChunkGraphScope(
       documentId: row.documentId,
       sourcePath: row.sourcePath,
       sourceTitle: row.sourceTitle,
+      sourceType: row.sourceType,
       pageIndex: Number(row.pageIndex),
       chunkIndex: Number(row.chunkIndex),
       chunkType: row.chunkType as IndexedChunk["chunkType"],
@@ -354,6 +356,7 @@ async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<Knowl
         documentId: document_chunks.documentId,
         sourcePath: documents.sourcePath,
         sourceTitle: documents.title,
+        sourceType: documents.sourceType,
         pageIndex: document_chunks.pageIndex,
         chunkIndex: document_chunks.chunkIndex,
         chunkType: document_chunks.chunkType,
@@ -371,6 +374,7 @@ async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<Knowl
         documentId: row.documentId,
         sourcePath: row.sourcePath,
         sourceTitle: row.sourceTitle,
+        sourceType: row.sourceType,
         pageIndex: Number(row.pageIndex),
         chunkIndex: Number(row.chunkIndex),
         chunkType: row.chunkType as IndexedChunk["chunkType"],
@@ -453,9 +457,14 @@ async function addChunkToGraph(graph: GraphStore, chunk: IndexedChunk): Promise<
   const documentNodeId = graphId("document", chunk.documentId);
   const chunkNodeId = graphId("chunk", chunk.chunkId);
 
+  // DOCX pageIndex is a volume-based approximation, not a real page number
+  const chunkLabel = chunk.sourceType === "DOCX"
+    ? `${chunk.sourceTitle} chunk ${chunk.chunkIndex}`
+    : `${chunk.sourceTitle} page ${chunk.pageIndex + 1} chunk ${chunk.chunkIndex}`;
+
   graph.addNode({
     id: chunkNodeId,
-    label: `${chunk.sourceTitle} page ${chunk.pageIndex + 1} chunk ${chunk.chunkIndex}`,
+    label: chunkLabel,
     kind: "chunk",
     documentId: chunk.documentId,
     chunkId: chunk.chunkId,

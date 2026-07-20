@@ -3,11 +3,12 @@ import {
   env,
   ModelRegistry,
   pipeline,
+  type DataType,
   type ProgressCallback,
 } from "@huggingface/transformers";
 
 export const EMBEDDING_MODEL = process.env.SEMANTIC_EMBED_MODEL ?? "nomic-ai/nomic-embed-text-v1.5";
-export const EMBEDDING_DTYPE = process.env.SEMANTIC_EMBED_DTYPE ?? "q8";
+export const EMBEDDING_DTYPE = (process.env.SEMANTIC_EMBED_DTYPE ?? "q8") as DataType;
 
 const EMBEDDING_BATCH_SIZE = Number(process.env.SEMANTIC_EMBED_BATCH_SIZE ?? "16");
 const ALLOW_REMOTE_MODELS = process.env.SEMANTIC_EMBED_ALLOW_REMOTE === "1";
@@ -31,23 +32,6 @@ export function isEmbeddingModelInstalled() {
       dtype: EMBEDDING_DTYPE,
     },
   );
-}
-
-// Load the transformer once and reuse it across ingest/search calls 
-async function getEmbeddingPipeline() {
-  if (!embeddingPipeline) {
-    // Clear the cached promise on failure so a transient/missing-cache error doesn't
-    // permanently wedge the pipeline for the rest of the process's lifetime.
-    embeddingPipeline = pipeline("feature-extraction", EMBEDDING_MODEL, {
-      dtype: EMBEDDING_DTYPE as "q8" | "q4" | "fp32" | "fp16",
-    }).catch((err) => {
-      embeddingPipeline = undefined;
-      throw err;
-    });
-  }
-
-  return embeddingPipeline;
-}
 }
 
 export function installEmbeddingModel(onProgress: ProgressCallback) {

@@ -54,6 +54,7 @@
   type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
     Pick<DocumentChunk, "pageIndex"> & {
       documentTitle: Document["title"];
+      sourceType: Document["sourceType"];
       preview: string;
     };
 
@@ -674,7 +675,9 @@
                       </button>
                       <div class="source-row-main">
                         <span class="source-doc-title">{source.documentTitle}</span>
-                        <span class="source-page">Page {source.pageIndex + 1}</span>
+                        {#if source.sourceType !== "DOCX"}
+                          <span class="source-page">Page {source.pageIndex + 1}</span>
+                        {/if}
                       </div>
                       <p class="source-preview">{source.preview}</p>
                     </div>

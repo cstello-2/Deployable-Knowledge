@@ -38,6 +38,7 @@
   type SearchMatch = {
     chunkId: string;
     sourceTitle: string;
+    sourceType: "PDF" | "DOCX";
     pageIndex: number;
     content: string;
   };
@@ -923,7 +924,9 @@
                   <div class="result-meta">
                     <span class="result-rank">#{i + 1}</span>
                     <span class="result-title">{result.sourceTitle}</span>
-                    <span>Page {result.pageIndex + 1}</span>
+                    {#if result.sourceType !== "DOCX"}
+                      <span>Page {result.pageIndex + 1}</span>
+                    {/if}
                   </div>
                   <p class="result-content">{result.content}</p>
                 </div>

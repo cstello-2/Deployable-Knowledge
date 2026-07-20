@@ -24,6 +24,7 @@ function preview(text: string, limit = PREVIEW_CHARS): string {
 export type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
   Pick<DocumentChunk, "pageIndex"> & {
     documentTitle: Document["title"];
+    sourceType: Document["sourceType"];
     preview: string;
   };
 
@@ -38,6 +39,7 @@ export const GET: RequestHandler = async ({ params }) => {
       id: notebook_sources.id,
       chunkId: notebook_sources.chunkId,
       documentTitle: documents.title,
+      sourceType: documents.sourceType,
       pageIndex: document_chunks.pageIndex,
       content: document_chunks.content,
       createdAt: notebook_sources.createdAt,
@@ -54,6 +56,7 @@ export const GET: RequestHandler = async ({ params }) => {
         id: row.id,
         chunkId: row.chunkId,
         documentTitle: row.documentTitle,
+        sourceType: row.sourceType,
         pageIndex: row.pageIndex,
         preview: preview(row.content),
         createdAt: row.createdAt,

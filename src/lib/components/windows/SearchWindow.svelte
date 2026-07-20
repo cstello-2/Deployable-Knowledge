@@ -14,6 +14,7 @@
     chunkId: string;
     documentId: string;
     sourceTitle: string;
+    sourceType: "PDF" | "DOCX";
     pageIndex: number;
     content: string;
   };
@@ -167,7 +168,9 @@
             <div class="result-meta">
               <span class="result-rank">#{index + 1}</span>
               <span class="result-title">{result.sourceTitle}</span>
-              <span>Page {result.pageIndex + 1}</span>
+              {#if result.sourceType !== "DOCX"}
+                <span>Page {result.pageIndex + 1}</span>
+              {/if}
             </div>
             <p class="result-content">{result.content}</p>
             <div class="result-actions">
@@ -189,8 +192,8 @@
   </div>
 
 </BaseWindow>
-  }
 
+<style>
   .retrieval-toggle {
     display: grid;
     width: min(260px, 100%);
@@ -303,9 +306,6 @@
   @media (max-width: 720px) {
     .search-bar {
       grid-template-columns: 1fr;
-    }
-  }
-</style>
     }
   }
 </style>

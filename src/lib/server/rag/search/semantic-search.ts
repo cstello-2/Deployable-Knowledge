@@ -3,7 +3,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { db } from "../../database/database";
-import { document_chunks, documents } from "../../database/schema";
+import { document_chunks, documents, type Document } from "../../database/schema";
 import { embedTexts } from "../embedding-model";
 import {
   cleanFilterValues,
@@ -21,6 +21,7 @@ type CandidateRow = {
   documentId: string;
   sourcePath: string;
   sourceTitle: string;
+  sourceType: Document["sourceType"];
   pageIndex: number;
   chunkIndex: number;
   chunkType: SearchChunkType;
@@ -70,6 +71,7 @@ export async function searchSemantic(
       documentId: document_chunks.documentId,
       sourcePath: documents.sourcePath,
       sourceTitle: documents.title,
+      sourceType: documents.sourceType,
       pageIndex: document_chunks.pageIndex,
       chunkIndex: document_chunks.chunkIndex,
       chunkType: document_chunks.chunkType,
@@ -110,9 +112,16 @@ export async function searchSemantic(
   });
 
   const scoredRows: SemanticSearchMatch[] = [];
+  let skippedDimensionMismatches = 0;
 
   for (const candidate of decodedCandidates) {
     const { row, vector } = candidate;
+
+    // Skip chunks embedded under a different model - mismatched lengths poison the dot product to NaN
+    if (vector.length !== queryEmbedding.length) {
+      skippedDimensionMismatches += 1;
+      continue;
+    }
 
     let score = 0;
 
@@ -125,12 +134,21 @@ export async function searchSemantic(
       documentId: row.documentId,
       sourcePath: row.sourcePath,
       sourceTitle: row.sourceTitle,
+      sourceType: row.sourceType,
       pageIndex: row.pageIndex,
       chunkIndex: row.chunkIndex,
       chunkType: row.chunkType,
       content: row.content,
       score,
     });
+  }
+
+  if (skippedDimensionMismatches > 0) {
+    console.warn(
+      `[semantic-search] Skipped ${skippedDimensionMismatches} chunk(s) embedded with a different ` +
+      `vector size than the current model (${queryEmbedding.length}-dim). Re-ingest their source ` +
+      `document(s) to make them searchable again.`,
+    );
   }
 
   scoredRows.sort((left, right) => right.score - left.score);

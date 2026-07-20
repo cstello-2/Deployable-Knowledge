@@ -17,20 +17,39 @@ import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
 
+function detectKind(name: string, buffer: Buffer): "pdf" | "docx" | null {
+  const lower = name.toLowerCase();
+
+  if (lower.endsWith(".pdf")) {
+    const isPdf = buffer.subarray(0, 5).toString() === "%PDF-";
+    return isPdf ? "pdf" : null;
+  }
+
+  if (lower.endsWith(".docx")) {
+    // DOCX is a ZIP archive; its first bytes are "PK\x03\x04"
+    const isZip =
+      buffer[0] === 0x50 &&
+      buffer[1] === 0x4b &&
+      buffer[2] === 0x03 &&
+      buffer[3] === 0x04;
+    return isZip ? "docx" : null;
+  }
+
+  return null;
+}
+
 async function ingestBuffer(
   originalName: string,
   buffer: Buffer,
   onProgress: (progress: DocumentIngestProgress) => void,
 ): Promise<DocumentIngestResult> {
-  const isPdfName = originalName.toLowerCase().endsWith(".pdf");
-  const isPdfContent = buffer.subarray(0, 5).toString() === "%PDF-";
-
-  if (!isPdfName || !isPdfContent) {
-    throw new Error("Only PDF uploads are supported.");
+  const kind = detectKind(originalName, buffer);
+  if (!kind) {
+    throw new Error("Only PDF and DOCX uploads are supported.");
   }
 
   const contentHash = createHash("sha256").update(buffer).digest("hex");
-  const savedName = `${contentHash.slice(0, 16)}.pdf`;
+  const savedName = `${contentHash.slice(0, 16)}.${kind}`;
   const savedPath = join(DOCUMENTS_DIR, savedName);
   const [existing] = await db
     .select({
@@ -54,7 +73,7 @@ async function ingestBuffer(
   const result = await ingestDocument(
     {
       filePath: savedPath,
-      title: originalName.replace(/\.pdf$/i, "").trim() || originalName,
+      title: originalName.replace(/\.(pdf|docx)$/i, "").trim() || originalName,
     },
     onProgress,
   );
@@ -71,7 +90,7 @@ async function ingestPath(
   const fileStats = await stat(path);
 
   if (!containsPath(root, path) || !fileStats.isFile()) {
-    throw new Error("Select a PDF file inside your home folder.");
+    throw new Error("Select a PDF or DOCX file inside your home folder.");
   }
 
   const [tracked] = await db
@@ -102,7 +121,7 @@ export const POST: RequestHandler = async ({ request }) => {
     : [];
 
   if (selectedPaths.length !== 1) {
-    throw error(400, "Upload one PDF file per request.");
+    throw error(400, "Upload one PDF or DOCX file per request.");
   }
 
   await mkdir(DOCUMENTS_DIR, { recursive: true });
