@@ -33,8 +33,12 @@ export function assembleChunks(
       const content = chunk.content.trim();
       const wordCount = countWords(content);
       const tooShort = chunk.chunkType === "TEXT" && wordCount < MIN_TEXT_CHUNK_WORDS;
+      const contained = (chunksByPage.get(pageIndex) ?? []).some((other) => {
+        const otherContent = other.content.trim(); // Dedupe chunks
+        return other !== chunk && otherContent.length > content.length && otherContent.includes(content);
+      });
 
-      if (!content || seenContent.has(content) || tooShort) continue;
+      if (!content || seenContent.has(content) || tooShort || contained) continue;
 
       seenContent.add(content);
       // Rebuild ids after filtering so chunkIndex and chunkId match final page order
