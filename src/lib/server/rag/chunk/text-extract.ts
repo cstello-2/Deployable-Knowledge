@@ -46,7 +46,7 @@ async function ocrEmbeddedImages(
           await worker.setParameters({
             tessedit_pageseg_mode: PSM.SPARSE_TEXT,
             user_defined_dpi: "300",
-            debug_file: "/dev/null",
+            debug_file: process.platform === "win32" ? "NUL" : "/dev/null",
           });
         }
 

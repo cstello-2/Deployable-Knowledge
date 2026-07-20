@@ -98,7 +98,7 @@ function buildSources(matches: RagMatch[], mode: RagRetrievalMode): RagSource[] 
     title: match.sourceTitle,
     // DOCX pageIndex is a volume-based approximation, not a real page number
     description: match.sourceType === "DOCX"
-      ? compactText(match.content, MAX_PREVIEW_CHARS)
+      ? `Word Doc: ${compactText(match.content, MAX_PREVIEW_CHARS)}`
       : `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
     documentId: match.documentId,
     chunkId: match.chunkId,

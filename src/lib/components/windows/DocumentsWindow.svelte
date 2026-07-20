@@ -22,7 +22,7 @@
   import type { Document } from "$lib/server/database/schema";
   import type { WindowInstanceProps } from "./index";
 
-  type DocumentRow = Pick<Document, "id" | "title" | "updatedAt"> & {
+  type DocumentRow = Pick<Document, "id" | "title" | "updatedAt" | "sourceType"> & {
     chunkCount: number;
     folderId: string | null;
     tags: string[];
@@ -729,7 +729,16 @@
                   onclick={(event) => handleDocumentClick(event, document.id)}
                   onkeydown={(event) => handleDocumentKeydown(event, document.id)}
                 >
-                  <div class="docs-icon" aria-hidden="true"><Icon name="description" size={18} /></div>
+                  <div
+                    class="docs-icon"
+                    aria-hidden="true"
+                    title={document.sourceType === "DOCX" ? "Word document" : "PDF"}
+                  >
+                    <Icon
+                      name={document.sourceType === "DOCX" ? "description" : "picture_as_pdf"}
+                      size={18}
+                    />
+                  </div>
                   <div class="docs-main">
                     <div class="docs-title" title={document.title}>{document.title}</div>
                     <div class="tag-row docs-tags">

@@ -54,11 +54,13 @@ export async function DocxExtract(file: Source): Promise<TextExtractionResult>
 
     // Keyed by content hash, not filename - repeated logos get re-embedded under new names
     const ocrCache = new Map<string, string>();
+    const pushedImageHashes = new Set<string>();
+    const attachments = ast.attachments ?? [];
 
     type OcrResult = { text: string; hash: string };
 
     async function ocrAttachment(attachmentName: string): Promise<OcrResult | undefined> {
-        const attachment = ast.attachments.find((a) => a.name === attachmentName);
+        const attachment = attachments.find((a) => a.name === attachmentName);
         if (!attachment) return undefined;
 
         const buffer = Buffer.from(attachment.data, "base64");
@@ -67,52 +69,86 @@ export async function DocxExtract(file: Source): Promise<TextExtractionResult>
         const cached = ocrCache.get(hash);
         if (cached !== undefined) return { text: cached, hash };
 
-        const { data } = await ocrWorker.recognize(buffer);
-        const text = data.confidence >= OCR_CONFIDENCE_THRESHOLD ? data.text : "";
+        let text = "";
+
+        try {
+            const { data } = await ocrWorker.recognize(buffer);
+            const confidence = Number(data?.confidence ?? 0);
+            text = confidence >= OCR_CONFIDENCE_THRESHOLD ? data?.text ?? "" : "";
+        } catch (error) {
+            console.warn(`[DOCX OCR] Failed to recognize image "${attachmentName}".`, error);
+        }
+
         ocrCache.set(hash, text);
         return { text, hash };
     }
 
-    // Avoids pushing a duplicate chunk for the same image embedded more than once
-    const pushedImageHashes = new Set<string>();
+    async function processImageNode(imageNode: OfficeContentNode): Promise<void> {
+        const attachmentName = imageNode.metadata?.attachmentName;
+        if (!attachmentName) return;
 
-    for (const node of ast.content)
-    {
-        if (node.type === 'table')
-        {
+        const result = await ocrAttachment(attachmentName);
+        if (!result || pushedImageHashes.has(result.hash)) return;
+        pushedImageHashes.add(result.hash);
+
+        const content = normalizeWhitespace(result.text);
+        if (content) {
+            pushChunk("IMAGE", content);
+        }
+    }
+
+    async function processContentNode(node: OfficeContentNode): Promise<void> {
+        if (node.type === "table") {
             const content = tableNodeToText(node);
             if (content) {
                 pushChunk("TABLE", content);
             }
+
+            for (const imageNode of collectImageNodes(node)) {
+                if (imageNode.type === "image") {
+                    await processImageNode(imageNode);
+                }
+            }
+
+            return;
         }
-        else if (node.type === "paragraph" || node.type === "heading" || node.type === "list")
-        {
+
+        if (node.type === "paragraph" || node.type === "heading" || node.type === "list" || node.type === "text") {
             const rawText = normalizeWhitespace(node.text ?? "");
             const content = node.type === "list" ? formatListItem(node, rawText) : rawText;
 
             if (content) {
                 pushChunk("TEXT", content);
             }
-        }
-        // Images are nested inside paragraphs/cells, not top-level siblings
-        for (const imageNode of collectImageNodes(node)) {
-            if (imageNode.type !== "image") continue;
-            const attachmentName = imageNode.metadata?.attachmentName;
-            if (!attachmentName) continue;
 
-            const result = await ocrAttachment(attachmentName);
-            if (!result || pushedImageHashes.has(result.hash)) continue;
-            pushedImageHashes.add(result.hash);
-
-            const content = normalizeWhitespace(result.text);
-            if (content) {
-                pushChunk("IMAGE", content);
+            for (const imageNode of collectImageNodes(node)) {
+                if (imageNode.type === "image") {
+                    await processImageNode(imageNode);
+                }
             }
+
+            return;
+        }
+
+        if (node.type === "image") {
+            await processImageNode(node);
+            return;
+        }
+
+        for (const child of node.children ?? []) {
+            await processContentNode(child);
         }
     }
 
-    flushTextBuffer();
-    await ocrWorker.terminate();
+    try {
+        for (const node of ast.content ?? []) {
+            await processContentNode(node);
+        }
+
+        flushTextBuffer();
+    } finally {
+        await ocrWorker.terminate();
+    }
 
     return { chunks, pageCount: pageIndex + 1 };
 }
