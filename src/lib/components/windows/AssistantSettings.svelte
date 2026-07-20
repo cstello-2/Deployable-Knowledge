@@ -264,7 +264,12 @@
       (provider) => provider.id === appState.currentProviderId,
     );
 
-    if (selectedProvider?.models.includes(appState.currentModelId)) return;
+    if (
+      appState.currentModelId &&
+      selectedProvider?.models.includes(appState.currentModelId)
+    ) {
+      return;
+    }
 
     const firstProviderWithModels = providerModelGroups.find(
       (provider) => provider.models.length > 0,
@@ -273,11 +278,10 @@
     if (firstProviderWithModels) {
       appState.currentProviderId = firstProviderWithModels.id;
       appState.currentModelId = firstProviderWithModels.models[0];
-      return;
     }
 
-    appState.currentProviderId = providerModelGroups[0]?.id ?? "";
-    appState.currentModelId = "";
+    // No provider reported any models (e.g. Ollama offline) — keep the
+    // saved selection instead of wiping it.
   }
 
   function getSelectedProviderModelLabel() {
