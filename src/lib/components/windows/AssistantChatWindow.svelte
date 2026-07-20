@@ -1,14 +1,18 @@
 <script lang="ts">
   import type {
+    AgentProgressEvent,
     ChatMessageRequest,
+    ChatMessageStreamEvent,
     NotebookSourcesRequest,
   } from "$lib/requestTypes";
   import { getContext, tick } from "svelte";
+  import AssistantMessageContext from "$lib/components/windows/AssistantMessageContext.svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import { legacyToolCallTrace } from "$lib/agentTrace";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type {
@@ -16,21 +20,35 @@
     Session,
     SessionMessage,
   } from "$lib/server/database/schema";
-
-  // Shape of a citation stored on an assistant message's metadata.
-  type ChatSource = {
-    url?: string;
-    title?: string;
-    description?: string;
-    chunkId?: string;
-  };
+  import type {
+    AgentTraceItem,
+    AssistantMessageMetadata,
+    StoredAgentRun,
+  } from "$lib/agentTypes";
 
   // dk:send-to-notebook carries fully-composed text — the notebook just
   // appends it as plain text.
   type SendToNotebookDetail = { text: string };
+  function getMessageMetadata(message: SessionMessage): AssistantMessageMetadata {
+    if (!message.metadata || typeof message.metadata !== "object") return {};
+    return message.metadata as AssistantMessageMetadata;
+  }
 
-  function getMessageSources(message: SessionMessage): ChatSource[] {
-    return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
+  function getSourceChunkIds(message: SessionMessage): string[] {
+    return (getMessageMetadata(message).outputs ?? []).flatMap((output) =>
+      output.type === "source" && output.data.chunkId
+        ? [output.data.chunkId]
+        : [],
+    );
+  }
+
+  function getAgentTrace(agent: StoredAgentRun | undefined): AgentTraceItem[] {
+    if (agent?.trace?.length) return agent.trace;
+    return (agent?.toolCalls ?? []).map(legacyToolCallTrace);
+  }
+
+  function countToolCalls(trace: AgentTraceItem[]): number {
+    return trace.filter((item) => item.kind === "tool").length;
   }
 
   let {
@@ -50,6 +68,9 @@
   let busy = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
+  let agentStatus = $state("Thinking…");
+  let liveTrace = $state<AgentTraceItem[]>([]);
+  let agentStreamError = $state("");
   let sendDisabled = $derived(busy || draft.trim().length === 0);
   let loadedSessionId: string | undefined;
 
@@ -81,9 +102,7 @@
     const detail: SendToNotebookDetail = { text: message.content };
     window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail }));
 
-    const chunkIds = getMessageSources(message)
-      .filter((s) => s.chunkId)
-      .map((s) => s.chunkId as string);
+    const chunkIds = getSourceChunkIds(message);
 
     if (chunkIds.length && appState.activeNotebookId) {
       await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
@@ -140,6 +159,83 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
+  function resetAgentActivity() {
+    agentStatus = "Thinking…";
+    liveTrace = [];
+    agentStreamError = "";
+  }
+
+  function upsertLiveTrace(item: AgentTraceItem) {
+    const existing = liveTrace.findIndex((entry) => entry.id === item.id);
+    liveTrace = existing === -1
+      ? [...liveTrace, item]
+      : liveTrace.map((entry, index) => index === existing ? item : entry);
+  }
+
+  function applyAgentProgress(progress: AgentProgressEvent) {
+    if (progress.kind === "model") {
+      if (progress.trace) upsertLiveTrace(progress.trace);
+      if (progress.status === "started") {
+        agentStatus = "Thinking…";
+      } else if (progress.requestedTools?.length) {
+        agentStatus = "Starting tools…";
+      } else {
+        agentStatus = "Writing response…";
+      }
+      return;
+    }
+    upsertLiveTrace(progress.trace);
+  }
+
+  function applyStreamEvent(event: ChatMessageStreamEvent) {
+    if (event.type === "agent") {
+      applyAgentProgress(event.progress);
+    } else if (event.type === "text") {
+      messageStream += event.delta;
+      agentStatus = "Writing final response";
+    } else if (event.type === "complete") {
+      agentStatus = `Finished · ${event.modelTurns} model turn${event.modelTurns === 1 ? "" : "s"}, ${event.toolCalls} tool call${event.toolCalls === 1 ? "" : "s"}`;
+    } else {
+      agentStreamError = event.message;
+      agentStatus = "Agent run failed";
+      throw new Error(event.message);
+    }
+  }
+
+  function parseStreamLine(line: string) {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    applyStreamEvent(JSON.parse(trimmed) as ChatMessageStreamEvent);
+  }
+
+  async function consumeChatStream(response: Response) {
+    if (!response.ok) {
+      throw new Error((await response.text()) || `Chat failed (${response.status})`);
+    }
+    if (!response.body) throw new Error("Chat response body is unavailable");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        parseStreamLine(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf("\n");
+      }
+
+      await scrollToBottom();
+      if (done) break;
+    }
+
+    parseStreamLine(buffer);
+  }
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
@@ -148,74 +244,77 @@
 
     draft = "";
     busy = true;
+    messageStream = "";
+    resetAgentActivity();
     appState.lastQuery = text;
 
-    const session = appState.currentSession ?? (await createSession());
+    try {
+      const session = appState.currentSession ?? (await createSession());
 
-    messages = [...messages, {
-      id: (messages.at(-1)?.id ?? 0) + 1,
-      role: "user",
-      content: text,
-      createdAt: new Date(),
-      sessionId: session.id,
-      metadata: null,
-    }];
-    await scrollToBottom();
+      messages = [...messages, {
+        id: (messages.at(-1)?.id ?? 0) + 1,
+        role: "user",
+        content: text,
+        createdAt: new Date(),
+        sessionId: session.id,
+        metadata: null,
+      }];
+      await scrollToBottom();
 
-    const requestBase = {
-      message: text,
-      model_id: appState.currentModelId,
-      provider_id: appState.currentProviderId,
-      max_tokens: appState.maxTokens,
-      temperature: appState.temperature,
-      top_k: appState.topK,
-    };
+      const requestBase = {
+        message: text,
+        model_id: appState.currentModelId,
+        provider_id: appState.currentProviderId,
+        max_tokens: appState.maxTokens,
+        temperature: appState.temperature,
+        top_k: appState.topK,
+        agent_max_turns: appState.agentMaxTurns,
+      };
 
-    const requestBody: ChatMessageRequest = notebookMode
-      ? {
-          ...requestBase,
-          conversational: true,
-          context: await fetchNotebookContext(),
-          notebook_id: appState.activeNotebookId,
-        }
-      : {
-          ...requestBase,
-          conversational: false,
-          prompt_template_id: appState.promptTemplateId || null,
-          persona: appState.persona,
-          document_ids: getSelectedDocumentIds(),
-          rag_top_k: appState.ragTopK,
-        };
+      const requestBody: ChatMessageRequest = notebookMode
+        ? {
+            ...requestBase,
+            conversational: true,
+            context: await fetchNotebookContext(),
+            notebook_id: appState.activeNotebookId,
+          }
+        : {
+            ...requestBase,
+            conversational: false,
+            prompt_template_id: appState.promptTemplateId || null,
+            persona: appState.persona,
+            document_ids: getSelectedDocumentIds(),
+            rag_top_k: appState.ragTopK,
+          };
 
-    const res = await fetch(
-      `/sessions/${encodeURIComponent(session.id)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      },
-    );
+      const response = await fetch(
+        `/sessions/${encodeURIComponent(session.id)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        },
+      );
 
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      messageStream += decoder.decode(value, { stream: true });
+      await consumeChatStream(response);
+      messages = await loadMessages(session.id);
+      loadedSessionId = session.id;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      agentStreamError = message;
+      showToast(`Chat failed: ${message}`);
+    } finally {
+      busy = false;
+      messageStream = "";
       await scrollToBottom();
     }
-
-    messages = await loadMessages(session.id);
-    loadedSessionId = session.id;
-    busy = false;
-    messageStream = "";
-    await scrollToBottom();
   }
 
   async function createNewChat() {
     if (busy) return;
     messages = [];
     messageStream = "";
+    resetAgentActivity();
     appState.currentSession = await createSession();
   }
 
@@ -244,44 +343,41 @@
           class="msg"
           class:user={message.role === "user"}
           class:assistant={message.role === "assistant"}
+          class:with-toolbar={message.role === "assistant"}
         >
           {#if message.role === "assistant"}
+            {@const metadata = getMessageMetadata(message)}
+            {@const agentRun = metadata.agent}
+            {@const trace = getAgentTrace(agentRun)}
+            {@const toolCallCount = countToolCalls(trace)}
+            {@const outputs = metadata.outputs ?? []}
+            <AssistantMessageContext {trace} />
             <div class="msg-md">{@html renderMarkdown(message.content)}</div>
-            {@const sources = getMessageSources(message)}
-            <div class="msg-citations">
-              <div class="msg-citations-header">
-                {#if sources.length}
-                  <span class="msg-citations-label">Sources</span>
-                {:else}
-                  <span></span>
-                {/if}
-                <button class="send-to-notebook-btn" type="button" onclick={() => sendToNotebook(message)}>
-                  Send to Notebook
-                </button>
-              </div>
-
-              {#if sources.length}
-                <ol class="chat-source-list">
-                  {#each sources as source, index (index)}
-                    <li class="chat-source-row">
-                      <div class="chat-source-main">
-                        <div class="chat-source-text-block">
-                          <span class="chat-source-num">{index + 1}.</span>
-                          <span class="chat-source-text">{source.description ?? source.title ?? ""}</span>
-                        </div>
-                        <div class="chat-source-action-line">
-                          <div class="chat-source-action-left">
-                            {#if source.url}
-                              <a class="btn btn-sm chat-source-btn" href={source.url} target="_blank" rel="noopener noreferrer">
-                                {source.title ?? source.url}
-                              </a>
-                            {/if}
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  {/each}
-                </ol>
+            <AssistantMessageContext {outputs} />
+            <div class="msg-response-toolbar" aria-label="Response actions">
+              <button
+                class="send-to-notebook-btn"
+                type="button"
+                aria-label="Send to notebook"
+                title="Send to notebook"
+                onclick={() => sendToNotebook(message)}
+              >
+                <Icon name="menu_book" size={13} filled={false} />
+              </button>
+              {#if agentRun}
+                <span class="toolbar-divider" aria-hidden="true"></span>
+                <span class="run-stat" title="Tool calls">
+                  <Icon name="build" size={12} filled={false} />
+                  {toolCallCount} tool{toolCallCount === 1 ? "" : "s"}
+                </span>
+                <span class="run-stat" title="Context items">
+                  <Icon name="layers" size={12} filled={false} />
+                  {outputs.length} context
+                </span>
+                <span class="run-stat" title="Model turns">
+                  <Icon name="sync_alt" size={12} filled={false} />
+                  {agentRun.modelTurns ?? 0} turn{agentRun.modelTurns === 1 ? "" : "s"}
+                </span>
               {/if}
             </div>
           {:else}
@@ -290,18 +386,27 @@
         </div>
       {/each}
 
-      {#if busy && messageStream.length === 0}
-        <div class="msg assistant">
-          <div class="msg-md msg-pending" role="status" aria-live="polite">
-            <span class="typing-indicator" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </span>
-            <span class="typing-text">Generating response...</span>
+      {#if busy}
+        <div class="msg assistant msg-live-agent">
+          <div role="status" aria-live="polite">
+            <AssistantMessageContext trace={liveTrace} />
+            {#if !messageStream.length && !liveTrace.some((item) => item.status === "running")}
+              <div class="agent-inline-status">
+              <span class="typing-indicator" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </span>
+                <span>{agentStatus}</span>
+              </div>
+            {/if}
+            {#if agentStreamError}
+              <div class="agent-stream-error">{agentStreamError}</div>
+            {/if}
           </div>
-        </div>
-      {:else if messageStream.length !== 0}
-        <div class="msg assistant">
-          <div class="msg-md">{@html renderMarkdown(messageStream)}</div>
+          {#if messageStream.length}
+            <div class="msg-md agent-live-response">
+              {@html renderMarkdown(messageStream)}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -356,11 +461,9 @@
 </BaseWindow>
 
 <style>
-  :global(.miniwin[data-window-id="chat-window"]:not(.collapsed)) {
-    min-height: 420px;
-  }
-
   :global(.miniwin[data-window-id="chat-window"] .content-inner) {
+    min-width: 0;
+    min-height: 0;
     height: 100%;
     overflow: hidden;
   }
@@ -368,8 +471,10 @@
   .chat-window {
     position: relative;
     display: flex;
+    width: 100%;
     height: 100%;
     min-height: 0;
+    overflow: hidden;
     flex-direction: column;
   }
 
@@ -380,7 +485,8 @@
     flex: 1 1 auto;
     flex-direction: column;
     gap: 8px;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     padding: 8px;
     border-radius: 12px;
     scrollbar-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 6%))
@@ -410,6 +516,8 @@
 
   .msg {
     max-width: 92%;
+    box-sizing: border-box;
+    flex: 0 0 auto;
     padding: 8px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -424,7 +532,9 @@
   }
 
   .msg.assistant {
+    width: fit-content;
     min-width: 0;
+    max-width: 92%;
     align-self: flex-start;
     background: hsl(var(--h) var(--sat) calc(var(--l-bg)));
     overflow-wrap: anywhere;
@@ -469,11 +579,29 @@
   .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
-  .msg-pending {
-    display: inline-flex;
+  .agent-stream-error {
+    color: var(--danger-bor, #d65c5c);
+  }
+
+  .msg-live-agent {
+    width: fit-content;
+    max-width: 92%;
+  }
+
+  .agent-inline-status {
+    display: flex;
     align-items: center;
     gap: 8px;
     color: var(--muted);
+    font-size: 11px;
+  }
+
+  .agent-stream-error {
+    font-size: 11px;
+  }
+
+  .agent-live-response {
+    margin-top: 0;
   }
 
   .typing-indicator {
@@ -493,8 +621,6 @@
 
   .typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
   .typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
-  .typing-text { font-size: 12px; }
-
   @keyframes typing-dot {
     0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
     40% { opacity: 1; transform: translateY(-3px); }
@@ -504,91 +630,70 @@
     .typing-indicator span { animation: none; }
   }
 
-  .msg-citations {
-    display: grid;
-    gap: 6px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
-  }
-
-  .msg-citations-header {
+  .msg-response-toolbar {
     display: flex;
+    min-width: 0;
+    min-height: 24px;
+    box-sizing: border-box;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .msg-citations-label {
+    gap: 7px;
+    margin: 8px -10px -8px;
+    padding: 3px 7px;
+    overflow-x: auto;
+    border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    border-radius: 0 0 9px 9px;
+    background: color-mix(in oklab, var(--text) 2%, transparent);
     color: var(--muted);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    scrollbar-width: none;
   }
-
-  .chat-source-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-
-  .chat-source-row {
-    display: block;
-    overflow: hidden;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) var(--l-panel));
-  }
-
-  .chat-source-main { display: grid; min-width: 0; gap: 6px; }
-
-  .chat-source-text-block {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px;
-    align-items: start;
-  }
-
-  .chat-source-num { color: var(--text); font-size: 13px; font-weight: 700; }
-
-  .chat-source-text {
-    display: -webkit-box;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.35;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-  }
-
-  .chat-source-action-line {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    padding-left: 20px;
-  }
-
-  .chat-source-action-left { display: flex; min-width: 0; align-items: center; }
-
-  .chat-source-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .send-to-notebook-btn {
-    padding: 3px 9px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
-    color: var(--text);
+    display: grid;
+    width: 18px;
+    height: 18px;
+    box-sizing: border-box;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    place-items: center;
+    background: transparent;
+    color: var(--muted);
     cursor: pointer;
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
+    appearance: none;
+    flex: 0 0 18px;
+    font: inherit;
+  }
+
+  .msg-response-toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .send-to-notebook-btn:hover {
-    border-color: hsl(var(--h) var(--sat) calc(var(--l-border) + 8%));
-    background: color-mix(in oklab, var(--accent) 10%, transparent);
+    background: color-mix(in oklab, var(--text) 8%, transparent);
+    color: var(--text);
+  }
+
+  .send-to-notebook-btn:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 12px;
+    flex: 0 0 1px;
+    background: color-mix(in oklab, var(--border) 82%, transparent);
+  }
+
+  .run-stat {
+    display: inline-flex;
+    height: 18px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    line-height: 1;
+    white-space: nowrap;
   }
 
   .chat-input {

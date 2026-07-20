@@ -1,6 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { and, asc, eq } from "drizzle-orm";
-import type { ChatMessageRequest } from "$lib/requestTypes";
+import type {
+  ChatMessageRequest,
+  ChatMessageStreamEvent,
+} from "$lib/requestTypes";
 import { db } from "$lib/server/database/database";
 import {
   document_chunks,
@@ -15,13 +18,12 @@ import { seedLocalUser } from "$lib/server/database/seed";
 import { getProvider } from "$lib/server/providers/registry";
 import type {
   Provider,
+  ProviderChatMessage,
   ProviderChatOptions,
 } from "$lib/server/providers/provider";
-import {
-  retrieveRagContext,
-  type RagContextResult,
-  type RagRetrievalMode,
-} from "$lib/server/rag/search/retrieve-rag-context";
+import { runAgent } from "$lib/server/agent/runner";
+import type { RagRetrievalMode } from "$lib/server/rag/search/retrieve-rag-context";
+import { toolRegistry } from "$lib/server/tools";
 import {
   NOTEBOOK_SOURCE_CONTEXT_CHARACTER_LIMIT,
   RAG_CHUNK_CHARACTER_LIMIT,
@@ -40,17 +42,42 @@ The user may load reference material. Treat it as background knowledge — facts
 
 If you notice you are about to repeat text that already appears above, stop and instead explain it, give an example, or add specifics. Always give a direct, helpful answer, and respond only to the user's most recent message.`;
 
-function createConversationalPrompt(
+const AGENT_SYSTEM_PROMPT = `TOOL-USE POLICY (follow this even if another instruction says to guess or answer "I don't know"):
+1. Before answering, decide whether you already have enough reliable information in the conversation.
+2. If required information is missing or uncertain and an available tool can retrieve it, call the tool. Do not guess, assume, or finalize an uncertainty answer first.
+3. Use structured tool calls only. Never imitate a tool call in normal text and never invent a tool result.
+4. After every tool result, decide whether it is sufficient. If it failed or is insufficient, correct the arguments and make a focused follow-up tool call while turns remain.
+5. Use the python tool for exact calculations, data transformations, statistics, or requested visualizations instead of doing substantial arithmetic manually. Python runs in the backend through Pyodide and includes NumPy and Matplotlib.
+6. You can create visualizations with normal Pyodide/Matplotlib code. Any open Matplotlib figures are automatically sent to the user as images. A request for a chart, plot, graph, or data visualization is incomplete until you successfully create it with the python tool; do not substitute an ASCII chart or text-only table unless the user asks for one.
+7. Do not narrate this decision process. Once the evidence is sufficient, stop using tools and give a direct, self-contained final answer.`;
+
+const DOCUMENT_SEARCH_SYSTEM_PROMPT = `DOCUMENT SEARCH POLICY:
+- The search tool is how document context is obtained; no search context exists until you call it.
+- For any factual question that may relate to the user's documents, files, or knowledge base, call search in the current turn before answering.
+- Never treat the initially empty context as proof that the documents lack an answer.
+- Use a focused standalone query. If the first results are empty or insufficient, try a shorter query, different keywords, or a more specific query before giving up while turns remain.
+- Base document-specific claims only on search results. Only after searching may you say that the available documents do not answer the question.
+- Do not use search for synthetic data, creative work, calculations, time, or visualization requests unless the user also asks for facts from their documents. Use the tool that directly matches the task.
+- Never use search as generic recovery for uncertainty or another tool's failure.`;
+
+function createConversationalMessages(
   messages: SessionMessage[],
   userMessage: string,
   context = "",
-): string {
-  const lines = [`system: ${CONVERSATIONAL_SYSTEM_PROMPT}`];
+): ProviderChatMessage[] {
+  const chatMessages: ProviderChatMessage[] = [
+    {
+      role: "system",
+      content: `${CONVERSATIONAL_SYSTEM_PROMPT}\n\n${AGENT_SYSTEM_PROMPT}`,
+    },
+  ];
 
   // We take the last 20 messages to feed into context, we may need to
   // expand upon this to avoid hitting the token limit ceiling
   for (const message of messages.slice(-20)) {
-    lines.push(`${message.role}: ${message.content}`);
+    if (message.role === "user" || message.role === "assistant") {
+      chatMessages.push({ role: message.role, content: message.content });
+    }
   }
 
   if (context) {
@@ -59,50 +86,53 @@ function createConversationalPrompt(
     // text right at the point of generation. The instruction is deliberately
     // balanced: use the material as source data, but still perform the task
     // rather than copying the material back.
-    lines.push(
-      `Reference material (background knowledge — do not reprint it):\n\n${context}`,
-    );
-    lines.push(
-      `user: Use the reference material above as background knowledge. Then respond to the request below in your own words:\n` +
+    chatMessages.push({
+      role: "user",
+      content:
+        `Reference material (background knowledge — do not reprint it):\n\n${context}\n\n` +
+        `Use the reference material above as background knowledge. Then respond to the request below in your own words:\n` +
         `- Answer or complete the request, adding explanation, detail, and reasoning that go beyond what the material literally says.\n` +
         `- If the request asks you to expand, elaborate, or "go deeper" on a point, give NEW information, examples, and specifics about it — do not restate the point or repeat sentences already shown above.\n` +
         `- Never copy or reprint the material or earlier answers. If you catch yourself repeating the source, stop and instead explain it, give an example, or add detail.\n\n` +
         `Request: ${userMessage}`,
-    );
+    });
   } else {
-    lines.push(`user: ${userMessage}`);
+    chatMessages.push({ role: "user", content: userMessage });
   }
 
-  lines.push("assistant:");
-  return lines.join("\n\n");
+  return chatMessages;
 }
 
-function createPrompt(
+function createDocumentMessages(
   messages: SessionMessage[],
   userMessage: string,
   systemPrompt = "",
   persona = "",
-  ragContext = "",
-) {
-  const lines = [];
-  const ragInstruction = ragContext
-    ? "You are a RAG helper. Only answer using the provided context. Do not add information that is not in context. If the answer is not in context, say 'I do not know the answer to that based off the context provided'."
-    : "";
+): ProviderChatMessage[] {
   const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : "";
-  const systemParts = [systemPrompt, ragInstruction, personaBlock, ragContext]
+  const systemParts = [
+    systemPrompt,
+    personaBlock,
+    AGENT_SYSTEM_PROMPT,
+    DOCUMENT_SEARCH_SYSTEM_PROMPT,
+  ]
     .map((part) => part.trim())
     .filter(Boolean);
+  const chatMessages: ProviderChatMessage[] = [];
 
-  if (systemParts.length) lines.push(systemParts.join("\n\n"));
+  if (systemParts.length) {
+    chatMessages.push({ role: "system", content: systemParts.join("\n\n") });
+  }
 
   // Only take top 20 messages
   for (const message of messages.slice(-20)) {
-    lines.push(`${message.role}: ${message.content}`);
+    if (message.role === "user" || message.role === "assistant") {
+      chatMessages.push({ role: message.role, content: message.content });
+    }
   }
 
-  // Push in prompt
-  lines.push(`user: ${userMessage}`, "assistant:");
-  return lines.join("\n\n");
+  chatMessages.push({ role: "user", content: userMessage });
+  return chatMessages;
 }
 
 // Chunks attached to a notebook via "Send to Notebook" — never shown in the
@@ -253,15 +283,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const pageContext = body.conversational ? body.context : "";
   const notebookId = body.conversational ? body.notebook_id : null;
 
-  const ragContext: RagContextResult = body.conversational
-    ? { mode: retrievalMode, contextBlock: "", sources: [] }
-    : await retrieveRagContext({
-        question: message,
-        documentIds: body.document_ids,
-        mode: retrievalMode,
-        topK: body.rag_top_k,
-      });
-
   // Notebook-mode context = the visible page text + the notebook's attached
   // sources (hidden from the notebook page, invisible to the user, but the
   // model sees the full excerpts).
@@ -272,15 +293,21 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   const context = [pageContext, sourceExcerpts].filter(Boolean).join("\n\n");
 
-  const prompt = body.conversational
-    ? createConversationalPrompt(messages, message, context)
-    : createPrompt(
+  const chatMessages = body.conversational
+    ? createConversationalMessages(messages, message, context)
+    : createDocumentMessages(
         messages,
         message,
         promptTemplate?.systemPrompt || "",
         persona,
-        ragContext.contextBlock,
       );
+  const toolNames = body.conversational
+    ? ["get_datetime", "python"]
+    : ["get_datetime", "search", "python"];
+  const ragTopK = body.conversational
+    ? (profile?.ragTopK ?? 5)
+    : body.rag_top_k;
+  const documentIds = body.conversational ? undefined : body.document_ids;
 
   const timestamp = new Date();
 
@@ -288,12 +315,34 @@ export const POST: RequestHandler = async ({ params, request }) => {
     async start(controller) {
       const encoder = new TextEncoder();
       let fullResponse = "";
+      let closed = false;
+      const send = (event: ChatMessageStreamEvent) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
 
       try {
-        for await (const chunk of provider.chat(prompt, modelId, options)) {
-          fullResponse += chunk;
-          controller.enqueue(encoder.encode(chunk));
-        }
+        const agentResult = await runAgent({
+          provider,
+          model: modelId,
+          messages: chatMessages,
+          chatOptions: options,
+          registry: toolRegistry,
+          toolNames,
+          maxToolTurns: body.agent_max_turns,
+          toolContext: {
+            documentIds,
+            retrievalMode,
+            ragTopK,
+          },
+          onProgress(progress) {
+            send({ type: "agent", progress });
+          },
+          onFinalText(chunk) {
+            fullResponse += chunk;
+            send({ type: "text", delta: chunk });
+          },
+        });
 
         await db.insert(session_messages).values([
           {
@@ -307,35 +356,53 @@ export const POST: RequestHandler = async ({ params, request }) => {
             sessionId: params.id,
             role: "assistant",
             content: fullResponse,
-            metadata: ragContext.sources.length
-              ? {
-                  retrievalMode: ragContext.mode,
-                  sources: ragContext.sources,
-                }
-              : null,
+            metadata: {
+              agent: {
+                providerId,
+                modelId,
+                modelTurns: agentResult.modelTurns,
+                toolTurns: agentResult.toolTurns,
+                trace: agentResult.trace,
+              },
+              ...(agentResult.outputs.length
+                ? { outputs: agentResult.outputs }
+                : {}),
+            },
             createdAt: timestamp,
           },
         ]);
 
-        await db
-          .update(sessions)
-          .set({
-            title: await createTitle(message, provider, modelId, options),
-            updatedAt: new Date(),
-          })
-          .where(eq(sessions.id, params.id));
+        send({
+          type: "complete",
+          modelTurns: agentResult.modelTurns,
+          toolTurns: agentResult.toolTurns,
+          toolCalls: agentResult.toolExecutions.length,
+          contextItems: agentResult.outputs.length,
+        });
+        controller.close();
+        closed = true;
+
+        void createTitle(message, provider, modelId, options)
+          .then((title) =>
+            db
+              .update(sessions)
+              .set({ title, updatedAt: new Date() })
+              .where(eq(sessions.id, params.id)),
+          )
+          .catch((error) => console.error("Title generation error:", error));
       } catch (error) {
         console.error("Streaming error:", error);
-        controller.error(error);
+        const message = error instanceof Error ? error.message : String(error);
+        send({ type: "error", message });
       } finally {
-        controller.close();
+        if (!closed) controller.close();
       }
     },
   });
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     },

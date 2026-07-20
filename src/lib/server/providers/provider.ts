@@ -7,6 +7,53 @@ export type ProviderChatOptions = {
   temperature?: number;
   topK?: number;
   maxTokens?: number;
+  tools?: ProviderToolDefinition[];
+  toolChoice?: "auto" | "none";
+  parallelToolCalls?: boolean;
+};
+
+export type ProviderToolDefinition = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+export type ProviderToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    // Provider wire protocols usually use a JSON string here. Some local
+    // servers return an object, so providers normalize it before the agent.
+    arguments: string;
+  };
+};
+
+export type ProviderChatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  reasoningContent?: string;
+  toolCalls?: ProviderToolCall[];
+  toolCallId?: string;
+  name?: string;
+};
+
+export type ProviderToolCallDelta = {
+  index: number;
+  id?: string;
+  nameDelta?: string;
+  nameSnapshot?: string;
+  argumentsDelta?: string;
+  argumentsSnapshot?: unknown;
+};
+
+export type ProviderChatChunk = {
+  content?: string;
+  reasoningContent?: string;
+  toolCalls?: ProviderToolCallDelta[];
 };
 
 export abstract class Provider {
@@ -26,11 +73,25 @@ export abstract class Provider {
     return key?.apiKey ?? null;
   }
 
-  abstract chat(
+  async *chat(
     prompt: string,
     model: string,
+    options: ProviderChatOptions = {},
+  ): AsyncGenerator<string> {
+    for await (const chunk of this.streamChat(
+      [{ role: "user", content: prompt }],
+      model,
+      options,
+    )) {
+      if (chunk.content) yield chunk.content;
+    }
+  }
+
+  abstract streamChat(
+    messages: ProviderChatMessage[],
+    model: string,
     options?: ProviderChatOptions,
-  ): AsyncGenerator<string>;
+  ): AsyncGenerator<ProviderChatChunk>;
 
   abstract listModels(): Promise<string[]>;
 }

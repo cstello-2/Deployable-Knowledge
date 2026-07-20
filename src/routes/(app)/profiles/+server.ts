@@ -50,6 +50,7 @@ export const POST: RequestHandler = async ({ request }) => {
       topK: body.topK,
       retrievalMode: body.retrievalMode,
       ragTopK: body.ragTopK,
+      agentMaxTurns: body.agentMaxTurns,
       promptTemplateId: body.promptTemplateId,
       persona: body.persona,
       createdAt: timestamp,

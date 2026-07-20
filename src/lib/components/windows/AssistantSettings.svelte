@@ -61,6 +61,7 @@
   let persona = $state(appState.persona);
   let retrievalMode = $state<RetrievalMode>("hybrid");
   let ragTopK = $state<number | undefined>(appState.ragTopK);
+  let agentMaxTurns = $state<number | undefined>(appState.agentMaxTurns);
   let profileMenuOpen = $state(false);
   let busy = $state(false);
   let searchCompareOpen = $state(false);
@@ -104,13 +105,15 @@
     temperature = appState.temperature;
     topK = appState.topK;
     maxTokens = appState.maxTokens;
+    agentMaxTurns = appState.agentMaxTurns;
     persona = appState.persona;
   }
 
   function applyProfileFieldsToState() {
     appState.temperature = temperature ?? 0.2;
     appState.topK = topK ?? 8;
-    appState.maxTokens = maxTokens ?? 512;
+    appState.maxTokens = maxTokens ?? 1024;
+    appState.agentMaxTurns = agentMaxTurns ?? 4;
     appState.persona = persona;
   }
 
@@ -126,6 +129,7 @@
     appState.topK = profile.topK;
     retrievalMode = profile.retrievalMode;
     appState.ragTopK = profile.ragTopK;
+    appState.agentMaxTurns = profile.agentMaxTurns ?? 4;
     appState.promptTemplateId = profile.promptTemplateId || "";
     appState.persona = profile.persona || "";
   }
@@ -139,6 +143,7 @@
       topK: appState.topK,
       retrievalMode,
       ragTopK: appState.ragTopK,
+      agentMaxTurns: appState.agentMaxTurns,
       promptTemplateId: appState.promptTemplateId || null,
       persona: appState.persona,
     };
@@ -304,10 +309,14 @@
           `/providers/${providerId}?available=true`,
           { method: "GET" },
         );
+        const responseValue = await modelsResp.json();
 
         return {
           ...provider,
-          models: (await modelsResp.json()) as string[],
+          models:
+            modelsResp.ok && Array.isArray(responseValue)
+              ? (responseValue as string[])
+              : [],
         };
       }),
     );
@@ -411,6 +420,10 @@
   async function saveActiveProfile(message = "Active profile updated") {
     applyProfileFieldsToState();
     appState.ragTopK = ragTopK ?? 5;
+    appState.agentMaxTurns = Math.max(
+      1,
+      Math.min(10, Math.floor(agentMaxTurns ?? 4)),
+    );
 
     if (!currentProfile) return;
 
@@ -731,7 +744,7 @@
             type="number"
             min="1"
             step="1"
-            placeholder="512"
+            placeholder="1024"
             style="width: 100%; box-sizing: border-box;"
             bind:value={maxTokens}
             onchange={handleActiveProfileChange}
@@ -796,6 +809,23 @@
           step="1"
           placeholder="5"
           bind:value={ragTopK}
+          disabled={busy}
+          onchange={handleRuntimeSettingsChange}
+        />
+      </div>
+
+      <div class="search-field">
+        <label for="assistant_agent_max_turns">Max Agent Turns</label>
+        <input
+          id="assistant_agent_max_turns"
+          class="input"
+          type="number"
+          min="1"
+          max="10"
+          step="1"
+          placeholder="4"
+          title="Maximum model/tool iterations before a final answer is generated"
+          bind:value={agentMaxTurns}
           disabled={busy}
           onchange={handleRuntimeSettingsChange}
         />

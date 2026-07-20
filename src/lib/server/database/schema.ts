@@ -171,7 +171,7 @@ export const settings = sqliteTable(
     userId: integer("user_id").notNull(),
     provider: text({ length: 128 }).notNull().default("ollama"),
     model: text({ length: 128 }).notNull().default("granite4:350m"),
-    maxTokens: integer("max_tokens").notNull().default(512),
+    maxTokens: integer("max_tokens").notNull().default(1024),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
     retrievalMode: text("retrieval_mode", {
@@ -180,6 +180,7 @@ export const settings = sqliteTable(
       .notNull()
       .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
+    agentMaxTurns: integer("agent_max_turns").notNull().default(4),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },
@@ -201,7 +202,7 @@ export const profiles = sqliteTable(
     name: text("name", { length: 255 }).notNull(),
     provider: text({ length: 128 }).notNull().default("ollama"),
     model: text({ length: 128 }).notNull().default("granite4:350m"),
-    maxTokens: integer("max_tokens").notNull().default(512),
+    maxTokens: integer("max_tokens").notNull().default(1024),
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
     retrievalMode: text("retrieval_mode", {
@@ -210,6 +211,7 @@ export const profiles = sqliteTable(
       .notNull()
       .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
+    agentMaxTurns: integer("agent_max_turns").notNull().default(4),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },
@@ -383,6 +385,7 @@ export type AssistantProfileValues = Pick<
   | "topK"
   | "retrievalMode"
   | "ragTopK"
+  | "agentMaxTurns"
   | "promptTemplateId"
   | "persona"
 >;

@@ -14,12 +14,13 @@ export class AppState {
   activeProfileId = $state<string | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");
-  maxTokens = $state(512);
+  maxTokens = $state(1024);
   temperature = $state(0.2);
   topK = $state(8);
   promptTemplateId = $state("");
   promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
   ragTopK = $state(5);
+  agentMaxTurns = $state(4);
   lastQuery = $state("");
 }

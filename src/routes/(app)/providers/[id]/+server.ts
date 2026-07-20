@@ -19,7 +19,14 @@ export const GET: RequestHandler = async ({ params, url }) => {
     return json([]);
   }
 
-  return json(await provider.listModels());
+  try {
+    return json(await provider.listModels());
+  } catch (cause) {
+    if (availableOnly) return json([]);
+
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw error(502, message);
+  }
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {

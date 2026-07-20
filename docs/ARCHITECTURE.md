@@ -1,26 +1,41 @@
-# Architecture Overview
+# Architecture overview
 
-The project is organised into three layers:
+Deployable Knowledge is a SvelteKit application with three main server-side
+layers:
 
-1. **core/** – Headless library that owns retrieval, prompt rendering, LLM providers and the chat pipeline.  It exposes
-   Pydantic models (`ChatRequest`, `ChatResponse`, etc.) and helpers to build prompts or stream responses.
-2. **api/** – Thin FastAPI adapters that translate HTTP requests into core calls.  These routers handle auth, request
-   validation and markdown→HTML conversion.  Streaming uses Server‑Sent Events with `meta`, `delta`, `done` and `error`
-   chunks.
-3. **ui/** – Browser side ES module SDK (`DKClient`) and vanilla controllers.  Controllers never call `fetch` directly;
-   instead they use `DKClient` for chat, streaming and settings.
+1. Route handlers under `src/routes/(app)` authenticate HTTP requests and map
+   request/profile values into chat, search, document, and notebook operations.
+2. Server libraries under `src/lib/server` own providers, the agent loop, the
+   tool registry, retrieval/ingestion, and Drizzle database access.
+3. Svelte components under `src/lib/components` render the browser workspace
+   and consume the route APIs.
 
-The separation allows the core library to be reused in other apps while this repo provides a full FastAPI + JS
-implementation.  A minimal example of using the browser SDK:
-
-```js
-import { DKClient } from "./static/js/ui/sdk/sdk.js";
-const dk = new DKClient();
-const resp = await dk.chat({ message: "hello" });
-```
+Document chat now follows this flow:
 
 ```text
-Browser UI ──HTTP──► api/ routers ──calls──► core/ pipeline ──► LLM & ChromaDB
+Chat UI -> session message route -> agent runner -> provider stream
+                                      |                 |
+                                      | tool call       | structured messages
+                                      v                 |
+                                  tool registry <-------+
+                                      |
+                                  search tool -> hybrid / semantic / BM25 retrieval
+                                      |
+                                  tool result -> next model turn -> final answer
 ```
+
+Providers normalize Ollama and GitHub Models streams into content, reasoning,
+and tool-call deltas. The agent assembles those deltas, preserves
+assistant/tool messages between turns, executes registered tools, and buffers
+intermediate model content. The session route streams model-turn and tool-call
+lifecycle events while the run is active, followed by final-answer text. It
+persists one ordered title/output trace for provider reasoning and complete
+tool results, plus one ordered, typed context-output list on the final assistant
+message. The runner never synthesizes a specific tool call from an uncertainty
+phrase.
+
+The same registered `search` implementation serves interactive `/search`
+requests, so direct search and model-initiated retrieval share validation and
+execution behavior.
 
 Return to [README](../README.md) or browse the [API reference](API_REFERENCE.md).

@@ -64,6 +64,7 @@ export type SettingsUpdateRequest = {
   topK: number;
   retrievalMode: "semantic" | "bm25" | "hybrid";
   ragTopK: number;
+  agentMaxTurns: number;
   promptTemplateId: string | null;
   persona: string;
 };
@@ -91,6 +92,7 @@ type ChatMessageBase = {
   max_tokens: number;
   temperature: number;
   top_k: number;
+  agent_max_turns: number;
 };
 
 type DocumentChatMessageRequest = ChatMessageBase & {
@@ -110,3 +112,37 @@ type NotebookChatMessageRequest = ChatMessageBase & {
 export type ChatMessageRequest =
   | DocumentChatMessageRequest
   | NotebookChatMessageRequest;
+
+export type AgentProgressEvent =
+  | {
+      kind: "model";
+      status: "started" | "completed";
+      modelTurn: number;
+      toolTurn: number;
+      requestedTools?: string[];
+      trace?: AgentTraceItem;
+    }
+  | {
+      kind: "tool";
+      status: "started" | "completed";
+      modelTurn: number;
+      toolTurn: number;
+      callId: string;
+      name: string;
+      trace: AgentTraceItem;
+      isError?: boolean;
+      error?: string;
+    };
+
+export type ChatMessageStreamEvent =
+  | { type: "agent"; progress: AgentProgressEvent }
+  | { type: "text"; delta: string }
+  | {
+      type: "complete";
+      modelTurns: number;
+      toolTurns: number;
+      toolCalls: number;
+      contextItems: number;
+    }
+  | { type: "error"; message: string };
+import type { AgentTraceItem } from "$lib/agentTypes";

@@ -15,7 +15,7 @@ export const PROMPT_TEMPLATE_PRESETS: readonly PromptTemplatePreset[] = [
     description:
       "General-purpose assistant mode with no special retrieval behavior. Good for normal questions, explanations, and quick help.",
     systemPrompt:
-      "You are a helpful, clear, and practical assistant. Answer the user's request directly. Use simple wording unless the user asks for technical depth. If information is missing, make a reasonable assumption and state it briefly.",
+      "You are a helpful, clear, and practical assistant. Answer the user's request directly. Use simple wording unless the user asks for technical depth. If information is missing, use an available tool that can retrieve it before making an assumption.",
   },
   {
     id: "rag_chat",
@@ -23,7 +23,7 @@ export const PROMPT_TEMPLATE_PRESETS: readonly PromptTemplatePreset[] = [
     description:
       "Context-first assistant for answering questions using uploaded documents, synced folders, retrieved chunks, and project files. Best default mode for asking questions about your knowledge base.",
     systemPrompt:
-      "You are a RAG helper. ONLY reference text that is provided in context. DO NOT provide text this is not in context. If you do not know the answer, say I do not know it.",
+      "You are a RAG helper. Search the knowledge base before answering factual questions or saying that you do not know. Treat search-tool results as the provided context. Ground document-specific claims only in that context; if a focused search and a refined follow-up search still do not provide the answer, say that the available documents do not answer it.",
   },
   {
     id: "tech_helper",

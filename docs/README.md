@@ -6,3 +6,4 @@
 - [Backend services](BACKEND_SERVICES.md)
 - [Configuration guide](CONFIGURATION.md)
 - [Prompt & LLM integration](PROMPTS_LLM.md)
+- [Agent tools](TOOLS.md)

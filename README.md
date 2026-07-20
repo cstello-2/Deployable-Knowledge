@@ -12,7 +12,10 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 
 - **Document ingestion** for PDF and plaintext sources
 - **ChromaDB** vector store with sentence‑transformer embeddings
-- **Chat and search** endpoints with optional streaming responses
+- **Agentic chat** with Ollama and GitHub Models providers plus configurable multi-turn tool execution
+- **Shared tool registry** with local document `search` and timezone-aware `get_datetime` tools
+- **Backend Python analysis** through Pyodide with NumPy, Matplotlib, and image output
+- **Chat and search** endpoints backed by the same search tool implementation
 - **Configurable prompts** and persona editing
 - **Authentication middleware** with session and CSRF protection
 
@@ -42,6 +45,7 @@ Additional guides live in the [`docs/`](docs) folder:
 - [Backend services](docs/BACKEND_SERVICES.md)
 - [Configuration guide](docs/CONFIGURATION.md)
 - [Prompt & LLM integration](docs/PROMPTS_LLM.md)
+- [Agent tools](docs/TOOLS.md)
 
 ## Contributing
 

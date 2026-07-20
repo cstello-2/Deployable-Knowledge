@@ -6,6 +6,7 @@ import type {
   SearchMatchBase,
 } from "./search-shared";
 import { RAG_CHUNK_CHARACTER_LIMIT } from "$lib/utils/contextLimits";
+import { compactText } from "$lib/server/utils/values";
 
 const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Search Window Settings
 const MAX_PREVIEW_CHARS = 200;
@@ -29,13 +30,6 @@ export type RagContextResult = {
   contextBlock: string;
   sources: RagSource[];
 };
-
-// The prompt gets compact text only. Full chunk content stays in storage/search results
-function compactText(text: string, limit: number) {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (compact.length <= limit) return compact;
-  return `${compact.slice(0, limit).trimEnd()}...`;
-}
 
 // Format retrieved chunks in the old RAG prompt style
 function formatContext(matches: SearchMatchBase[]) {

@@ -33,6 +33,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
       topK: body.topK,
       retrievalMode: body.retrievalMode,
       ragTopK: body.ragTopK,
+      agentMaxTurns: body.agentMaxTurns,
       promptTemplateId: body.promptTemplateId,
       persona: body.persona,
       updatedAt: new Date(),

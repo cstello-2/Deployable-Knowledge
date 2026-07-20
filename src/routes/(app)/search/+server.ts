@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { searchAllMethods } from "$lib/server/rag/search/hybrid-search";
+import { toolRegistry } from "$lib/server/tools";
 
 export const GET: RequestHandler = async ({ url }) => {
   const query = url.searchParams.get("query") ?? "";
@@ -12,12 +12,15 @@ export const GET: RequestHandler = async ({ url }) => {
     return json({ bm25: [], semantic: [], hybrid: [] });
   }
 
-  const opts = { query, topK, documentIds: docs };
+  const result = await toolRegistry.execute(
+    "search",
+    { query, top_k: topK, mode: "all" },
+    { documentIds: docs, maxSearchTopK: 100 },
+  );
 
-  const results = await searchAllMethods(opts);
-  return json({
-    bm25: results.bm25,
-    semantic: results.semantic,
-    hybrid: results.hybrid,
-  });
+  if (result.isError) {
+    return json(JSON.parse(result.content), { status: 400 });
+  }
+
+  return json(result.data);
 };
