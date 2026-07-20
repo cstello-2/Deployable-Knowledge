@@ -3,8 +3,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { db } from "../../database/database";
-import { document_chunks, documents, type Document } from "../../database/schema";
-import { embedTexts } from "../embedding-model";
+import { document_chunks, documents } from "../../database/schema";
+import { embedTextsForStoredDimension } from "../embedding-model";
 import {
   cleanFilterValues,
   type ScoredSearchMatch,
@@ -48,8 +48,6 @@ export async function searchSemantic(
     };
   }
 
-  // Same embedding path as chunking/storage so query vectors stay in sync with the corpus
-  const queryEmbedding = (await embedTexts([query], "search_query"))[0] ?? [];
   const filters: SQL[] = [];
 
   if (documentIds.length > 0) {
@@ -99,6 +97,10 @@ export async function searchSemantic(
       throw new Error(`Chunk ${row.chunkId} returned an unsupported embedding shape.`);
     }
 
+    if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+      throw new Error(`Chunk ${row.chunkId} has invalid embedding bytes.`);
+    }
+
     const vector = new Float32Array(
       bytes.buffer,
       bytes.byteOffset,
@@ -111,11 +113,31 @@ export async function searchSemantic(
     };
   });
 
+  const storedDimensions = [
+    ...new Set(decodedCandidates.map((candidate) => candidate.vector.length)),
+  ];
+  const queryEmbeddings = new Map<number, number[]>();
+  await Promise.all(storedDimensions.map(async (dimension) => {
+    const vector = (
+      await embedTextsForStoredDimension([query], "search_query", dimension)
+    )[0];
+    if (!vector || vector.length !== dimension) {
+      throw new Error(
+        `The query embedding has ${vector?.length ?? 0} dimensions; expected ${dimension}.`,
+      );
+    }
+    queryEmbeddings.set(dimension, vector);
+  }));
+
   const scoredRows: SemanticSearchMatch[] = [];
   let skippedDimensionMismatches = 0;
 
   for (const candidate of decodedCandidates) {
     const { row, vector } = candidate;
+    const queryEmbedding = queryEmbeddings.get(vector.length);
+    if (!queryEmbedding) {
+      throw new Error(`No query embedding is available for ${vector.length} dimensions.`);
+    }
 
     // Skip chunks embedded under a different model - mismatched lengths poison the dot product to NaN
     if (vector.length !== queryEmbedding.length) {
@@ -128,6 +150,9 @@ export async function searchSemantic(
     // Embeddings are normalized, so dot product is the cosine score
     for (let index = 0; index < queryEmbedding.length; index += 1) {
       score += queryEmbedding[index] * vector[index]; // dot product
+    }
+    if (!Number.isFinite(score)) {
+      throw new Error(`Chunk ${row.chunkId} produced an invalid semantic score.`);
     }
     scoredRows.push({
       chunkId: row.chunkId,

@@ -21,6 +21,22 @@ const DEFAULT_RETRIEVAL_MODE =
   process.env.RAG_RETRIEVAL_MODE === "graph" ? "graph" : "hybrid";
 
 export type RagRetrievalMode = "semantic" | "bm25" | "hybrid" | "graph";
+
+export function resolveRagRetrievalMode(
+  ...candidates: unknown[]
+): RagRetrievalMode {
+  for (const candidate of candidates) {
+    if (
+      candidate === "semantic" ||
+      candidate === "bm25" ||
+      candidate === "hybrid" ||
+      candidate === "graph"
+    ) {
+      return candidate;
+    }
+  }
+  return "hybrid";
+}
 type RagMatch = SearchMatchBase & { score?: number };
 
 export type RagSource = {

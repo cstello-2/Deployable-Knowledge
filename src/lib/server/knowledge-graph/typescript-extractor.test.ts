@@ -39,3 +39,49 @@ test("TypeScript extractor filters document-heading uppercase noise", () => {
   assert.equal(labels.includes("care"), false);
   assert.equal(labels.includes("handbook"), false);
 });
+
+test("query labels are added only to chunks that actually contain them", () => {
+  const unrelated = extractWithTypeScript(
+    "This paragraph discusses airway management without naming the requested protocol.",
+    ["MARCH"],
+    "chunk-unrelated",
+  );
+  assert.equal(
+    unrelated.entities.some((entity) => entity.label === "MARCH"),
+    false,
+  );
+
+  const matching = extractWithTypeScript(
+    "The MARCH acronym begins with massive hemorrhage.",
+    ["MARCH"],
+    "chunk-matching",
+  );
+  assert.equal(
+    matching.entities.some((entity) => entity.label === "MARCH"),
+    true,
+  );
+});
+
+test("uppercase acronym labels do not match title-case month names", () => {
+  const result = extractWithTypeScript(
+    "The publication date is 1 March 2009.",
+    ["MARCH"],
+    "chunk-date",
+  );
+
+  assert.equal(
+    result.entities.some((entity) => entity.label.toLowerCase() === "march"),
+    false,
+  );
+});
+
+test("question words are not promoted into graph entities", () => {
+  const result = extractWithTypeScript(
+    "What does MARCH stand for?",
+    BASE_ENTITY_LABELS,
+  );
+  const labels = result.entities.map((entity) => entity.label);
+
+  assert.ok(labels.includes("MARCH"));
+  assert.equal(labels.includes("What"), false);
+});

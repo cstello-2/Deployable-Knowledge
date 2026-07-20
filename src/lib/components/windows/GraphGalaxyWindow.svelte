@@ -101,6 +101,9 @@
   }: WindowInstanceProps = $props();
 
   const appState = getContext<AppState>("appState");
+  const graphEnabled = $derived(appState.retrievalMode === "graph");
+  const GRAPH_DISABLED_MESSAGE =
+    "Graph Galaxy is available only when KG search is enabled in Settings.";
   const MIN_ZOOM = 0.18;
   const DEFAULT_ZOOM = 0.82;
   const MAX_ZOOM = 3;
@@ -151,12 +154,19 @@
       : [],
   );
 
+  $effect(() => {
+    if (appState.retrievalMode === "graph") return;
+    graphAbortController?.abort();
+    loading = false;
+  });
+
   onMount(() => {
     resizeObserver = new ResizeObserver(() => resizeCanvas());
     if (canvas?.parentElement) resizeObserver.observe(canvas.parentElement);
     frame = requestAnimationFrame(draw);
 
     function handleVisualize(event: Event) {
+      if (!graphEnabled) return;
       const detail = (event as CustomEvent<{
         query?: string;
         documentIds?: string[];
@@ -167,8 +177,10 @@
         phase?: "loading" | "ready" | "error";
       }>).detail;
       const nextQuery = detail?.query?.trim() ?? "";
-      const requestId = detail?.requestId ?? 0;
-      if (requestId < latestRequestId) return;
+      const requestId = Math.max(
+        detail?.requestId ?? 0,
+        latestRequestId + 1,
+      );
 
       latestRequestId = requestId;
       activeSessionId = detail?.sessionId ?? activeSessionId;
@@ -195,6 +207,7 @@
     }
 
     function handleRestoreQuery(event: Event) {
+      if (!graphEnabled) return;
       const detail = (event as CustomEvent<{
         sessionId: string;
         query: string;
@@ -243,6 +256,7 @@
     }
 
     function handleFocusChunk(event: Event) {
+      if (!graphEnabled) return;
       const detail = (event as CustomEvent<{ chunkId?: string; nodeId?: string }>).detail ?? {};
       if (!detail.chunkId && !detail.nodeId) return;
       pendingFocusRequest = detail;
@@ -250,6 +264,7 @@
     }
 
     function handleSaveExternalChunk(event: Event) {
+      if (!graphEnabled) return;
       const detail = (event as CustomEvent<{ chunk?: VisualNode; query?: string }>).detail;
       if (!detail?.chunk?.chunkId) return;
       if (detail.query?.trim()) query = detail.query.trim();
@@ -257,8 +272,9 @@
     }
 
     function handleClearGraph(event: Event) {
-      const requestId = (event as CustomEvent<{ requestId?: number }>).detail?.requestId ?? 0;
-      if (requestId < latestRequestId) return;
+      const requestedId =
+        (event as CustomEvent<{ requestId?: number }>).detail?.requestId ?? 0;
+      const requestId = Math.max(requestedId, latestRequestId + 1);
       latestRequestId = requestId;
       graphAbortController?.abort();
       loadGeneration += 1;
@@ -321,6 +337,7 @@
     chunkIds: string[],
     requestId: number,
   ) {
+    if (!graphEnabled) return;
     graphAbortController?.abort();
     const controller = new AbortController();
     graphAbortController = controller;
@@ -366,10 +383,14 @@
   }
 
   async function visualizeManualQuery(nextQuery = query) {
+    if (!graphEnabled) return;
     const focus = nextQuery.trim() || appState.lastQuery.trim();
     query = focus;
     activeSessionId = activeSessionId ?? appState.currentSession?.id ?? null;
-    activeDocumentIds = activeDocumentIds.length ? [...activeDocumentIds] : getSelectedDocumentIds();
+    // Re-read the current selection on every manual visualization. An empty
+    // selection is intentionally sent as an empty array, which the server
+    // interprets as the complete document collection.
+    activeDocumentIds = getSelectedDocumentIds();
     activeChunkIds = [];
     activeTopK = appState.ragTopK || activeTopK || 8;
     const requestId = ++latestRequestId;
@@ -1029,32 +1050,58 @@
   onClose={closeGraphGalaxy}
   contentLabel="Knowledge graph galaxy"
 >
-  <div class="galaxy-window">
+  <div class="galaxy-window" class:locked={!graphEnabled}>
     <div class="toolbar">
       <input
         class="input"
         bind:value={query}
         placeholder="Use last query or type a graph focus..."
         aria-label="Graph focus query"
+        disabled={!graphEnabled}
         onkeydown={handleQueryKeydown}
       />
-      <button class="btn btn-sm" type="button" onclick={visualizeLastQuery} title="Visualize latest chat query">
+      <button
+        class="btn btn-sm"
+        type="button"
+        onclick={visualizeLastQuery}
+        disabled={!graphEnabled}
+        title={graphEnabled
+          ? "Visualize latest chat query"
+          : "Enable KG search in Settings to use Graph Galaxy"}
+      >
         <Icon name="auto_awesome" size={15} />
         Last query
       </button>
-      <button class="btn btn-sm" type="button" onclick={() => void visualizeManualQuery(query)} disabled={loading}>
+      <button
+        class="btn btn-sm"
+        type="button"
+        onclick={() => void visualizeManualQuery(query)}
+        disabled={!graphEnabled || loading}
+        title={graphEnabled
+          ? "Visualize the graph"
+          : "Enable KG search in Settings to use Graph Galaxy"}
+      >
         {loading ? "Loading..." : "Visualize"}
       </button>
     </div>
 
     <div class="meta-row">
-      <span>{status || "Drag to orbit. Ctrl/Alt+drag to pan. Scroll to zoom. Click a node or line to inspect."}</span>
-      {#if graph}
+      <span>{graphEnabled
+        ? status || "Drag to orbit. Ctrl/Alt+drag to pan. Scroll to zoom. Click a node or line to inspect."
+        : GRAPH_DISABLED_MESSAGE}</span>
+      {#if graphEnabled && graph}
         <span>{renderedNodes.length} visible nodes · {renderedEdges.length} visible edges · {graph.stats.nodes} total graph nodes · {Math.round(zoom * 100)}% zoom</span>
       {/if}
     </div>
 
     <div class="stage">
+      {#if !graphEnabled}
+        <div class="graph-disabled-overlay" role="status">
+          <Icon name="lock" size={24} />
+          <strong>Graph Galaxy requires KG search</strong>
+          <span>Open Settings and select KG to enable visualization.</span>
+        </div>
+      {/if}
       <div class="usaf-mark" aria-label="USAF visual marker">
         <img src="/usaf-symbol.png" alt="" aria-hidden="true" />
         <span class="usaf-side-text">USAF</span>
@@ -1301,6 +1348,42 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     background: #050816;
+  }
+
+  .toolbar :disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .locked .stage > :not(.graph-disabled-overlay) {
+    opacity: 0.22;
+    filter: grayscale(1);
+    pointer-events: none;
+  }
+
+  .graph-disabled-overlay {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    display: flex;
+    padding: 24px;
+    background: rgb(5 8 22 / 78%);
+    color: rgb(226 232 240);
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .graph-disabled-overlay strong {
+    font-size: 14px;
+  }
+
+  .graph-disabled-overlay span {
+    max-width: 320px;
+    color: rgb(148 163 184);
+    font-size: 12px;
   }
 
   canvas {

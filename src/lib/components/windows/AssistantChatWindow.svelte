@@ -74,9 +74,12 @@
   type QueryGraphContext = {
     sessionId: string;
     query: string;
-    documentIds: string[];
-    chunkIds: string[];
     topK: number;
+  };
+
+  type PendingResultChunk = {
+    source: ChatSource;
+    queryText: string;
   };
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
@@ -118,17 +121,14 @@
   );
   let loadedSessionId: string | undefined;
   let graphRequestId = 0;
-  let graphPreparationGeneration = 0;
-  let graphPreparationAbortController: AbortController | null = null;
   let queryGraphContext = $state<QueryGraphContext | null>(null);
-  let graphPreparing = $state(false);
-  let graphReady = $state(false);
-  let graphPreparationError = $state("");
   let selectedResultChunkId = $state<string | null>(null);
   let galaxySelectedChunkId = $state<string | null>(null);
   let notebookDestinationOpen = $state(false);
+  let chunkDestinationOpen = $state(false);
   let notebookContextOpen = $state(false);
   let pendingNotebookMessage = $state<SessionMessage | null>(null);
+  let pendingResultChunk = $state<PendingResultChunk | null>(null);
   let graphReadinessMessage = $derived(
     appState.retrievalMode === "graph" &&
       knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds) &&
@@ -256,11 +256,6 @@
     messages = [];
     messageStream = "";
     status = "";
-    graphPreparationError = "";
-    graphPreparationAbortController?.abort();
-    graphPreparationGeneration += 1;
-    graphPreparing = false;
-    graphReady = false;
     queryGraphContext = null;
     selectedResultChunkId = null;
     galaxySelectedChunkId = null;
@@ -325,70 +320,6 @@
     return `Assistant request failed (${response.status})`;
   }
 
-  function graphDocumentIdsFromMetadata(
-    metadata: AssistantMetadata | null | undefined,
-  ): string[] {
-    const storedGraphDocumentIds = Array.isArray(metadata?.graphDocumentIds)
-      ? metadata.graphDocumentIds.filter(Boolean)
-      : [];
-    if (storedGraphDocumentIds.length) return [...new Set(storedGraphDocumentIds)];
-
-    const requestedDocumentIds = Array.isArray(metadata?.documentIds)
-      ? metadata.documentIds.filter(Boolean)
-      : [];
-    if (requestedDocumentIds.length) return [...new Set(requestedDocumentIds)];
-
-    return [...new Set(
-      (metadata?.sources ?? [])
-        .map((source) => source.documentId)
-        .filter((value): value is string => Boolean(value)),
-    )];
-  }
-
-  function graphChunkIdsFromMetadata(
-    metadata: AssistantMetadata | null | undefined,
-  ): string[] {
-    const storedChunkIds = Array.isArray(metadata?.graphChunkIds)
-      ? metadata.graphChunkIds.filter(Boolean)
-      : [];
-    if (storedChunkIds.length) return [...new Set(storedChunkIds)];
-    return [...new Set(
-      (metadata?.sources ?? [])
-        .map((source) => source.chunkId)
-        .filter((value): value is string => Boolean(value)),
-    )];
-  }
-
-  function hasStoredQueryGraph(
-    sessionId: string,
-    query: string,
-    chunkIds: string[],
-  ): boolean {
-    try {
-      const raw = localStorage.getItem(`dk:query-graph:${sessionId}`);
-      if (!raw) return false;
-      const stored = JSON.parse(raw) as {
-        query?: unknown;
-        chunkIds?: unknown;
-        graph?: { nodes?: unknown; edges?: unknown };
-      };
-      const storedChunkIds = Array.isArray(stored.chunkIds)
-        ? stored.chunkIds.filter((value): value is string => typeof value === "string")
-        : [];
-      const matchesChunkScope = chunkIds.length === 0 ||
-        (
-          storedChunkIds.length === chunkIds.length &&
-          chunkIds.every((chunkId) => storedChunkIds.includes(chunkId))
-        );
-      return stored.query === query &&
-        matchesChunkScope &&
-        Array.isArray(stored.graph?.nodes) &&
-        Array.isArray(stored.graph?.edges);
-    } catch {
-      return false;
-    }
-  }
-
   function rememberQueryGraph(
     sessionId: string,
     sessionMessages: SessionMessage[],
@@ -400,96 +331,12 @@
     const metadata = assistantMessage?.metadata as AssistantMetadata | null;
     if (!userMessage) return;
 
-    const documentIds = graphDocumentIdsFromMetadata(metadata);
-    const chunkIds = graphChunkIdsFromMetadata(metadata);
     appState.lastQuery = metadata?.query?.trim() || userMessage.content;
-    const context = {
-      sessionId,
-      query: appState.lastQuery,
-      documentIds,
-      chunkIds,
-      topK: metadata?.graphTopK ?? appState.ragTopK,
-    };
-    queryGraphContext = context;
-    graphReady = hasStoredQueryGraph(sessionId, context.query, context.chunkIds);
-    if (!graphReady && assistantMessage) {
-      void prepareQueryGraph(
-        context.sessionId,
-        context.query,
-        context.documentIds,
-        context.chunkIds,
-        context.topK,
-      );
-    }
-  }
-
-  async function prepareQueryGraph(
-    sessionId: string,
-    query: string,
-    documentIds: string[],
-    chunkIds: string[],
-    topK: number,
-  ) {
-    graphPreparationAbortController?.abort();
-    const controller = new AbortController();
-    graphPreparationAbortController = controller;
-    const generation = ++graphPreparationGeneration;
-    graphPreparing = true;
-    graphReady = false;
-    graphPreparationError = "";
     queryGraphContext = {
       sessionId,
-      query,
-      documentIds: [...documentIds],
-      chunkIds: [...chunkIds],
-      topK,
+      query: appState.lastQuery,
+      topK: metadata?.graphTopK ?? appState.ragTopK,
     };
-
-    try {
-      const params = new URLSearchParams({ query, topK: String(topK) });
-      for (const documentId of documentIds) params.append("documentIds", documentId);
-      for (const chunkId of chunkIds) params.append("chunkIds", chunkId);
-      const response = await fetch(`/knowledge-graph/visual?${params}`, {
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(await assistantErrorMessage(response));
-      const graph = await response.json();
-      if (
-        controller.signal.aborted ||
-        generation !== graphPreparationGeneration ||
-        sessionId !== appState.currentSession?.id
-      ) {
-        return;
-      }
-      const snapshot = {
-        query,
-        documentIds: [...documentIds],
-        chunkIds: [...chunkIds],
-        topK,
-        graph,
-        selectedNodeId: null,
-        inspectorExpanded: false,
-        yaw: 0.42,
-        pitch: -0.18,
-        zoom: 0.82,
-        panX: 0,
-        panY: 0,
-      };
-      try {
-        localStorage.setItem(`dk:query-graph:${sessionId}`, JSON.stringify(snapshot));
-      } catch {
-        // The Galaxy can still reuse the server-side graph if browser storage is full.
-      }
-      graphReady = true;
-    } catch (error) {
-      if (controller.signal.aborted || generation !== graphPreparationGeneration) return;
-      graphPreparationError =
-        error instanceof Error ? error.message : "The Knowledge Graph could not be prepared.";
-    } finally {
-      if (generation === graphPreparationGeneration) {
-        graphPreparing = false;
-      }
-    }
   }
 
   function clearGraphGalaxy() {
@@ -501,6 +348,7 @@
   async function selectResultChunk(source: ChatSource) {
     if (!source.chunkId && !source.nodeId) return;
     selectedResultChunkId = source.chunkId ?? source.nodeId ?? null;
+    if (appState.retrievalMode !== "graph") return;
     if (!isWindowVisible("graph-galaxy-window")) return;
     await tick();
     window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
@@ -521,38 +369,95 @@
       resolvedSource = { ...source, ...(await response.json() as ChatSource) };
     }
 
-    showWindow("graph-galaxy-window");
-    await tick();
+    pendingResultChunk = { source: resolvedSource, queryText };
+    chunkDestinationOpen = true;
+  }
+
+  function closeChunkDestination() {
+    chunkDestinationOpen = false;
+    pendingResultChunk = null;
+  }
+
+  function formatResultChunkNotebookEntry(item: PendingResultChunk) {
+    const { source, queryText } = item;
+    const title =
+      source.sourceTitle ||
+      source.title ||
+      `Chunk ${source.chunkIndex ?? ""}`.trim();
     const content =
-      resolvedSource.content?.trim() ||
-      resolvedSource.description?.replace(/^Page \d+:\s*/, "").trim() ||
-      "";
-    window.dispatchEvent(new CustomEvent("dk:save-result-chunk", {
-      detail: {
-        query: queryText,
-        chunk: {
-          id: `chunk:${source.chunkId}`,
-          kind: "chunk",
-          label:
-            resolvedSource.sourceTitle ||
-            resolvedSource.title ||
-            `Chunk ${resolvedSource.chunkIndex ?? ""}`.trim(),
-          chunkId: resolvedSource.chunkId,
-          documentId: resolvedSource.documentId,
-          sourceTitle: resolvedSource.sourceTitle || resolvedSource.title,
-          pageIndex: resolvedSource.pageIndex,
-          chunkIndex: resolvedSource.chunkIndex,
-          chunkType: resolvedSource.chunkType,
-          content,
-          preview: resolvedSource.description,
-          retrievalScore: resolvedSource.score,
-          score: resolvedSource.score,
-        },
+      source.content?.trim() ||
+      source.description?.replace(/^Page \d+:\s*/, "").trim() ||
+      "No chunk text is available.";
+    const metadata = [
+      queryText ? `Query: ${queryText}` : null,
+      source.sourceTitle || source.title
+        ? `Document: ${source.sourceTitle || source.title}`
+        : null,
+      source.pageIndex == null ? null : `Page: ${source.pageIndex + 1}`,
+      source.chunkIndex == null ? null : `Chunk index: ${source.chunkIndex}`,
+      source.chunkType ? `Chunk type: ${source.chunkType}` : null,
+      source.documentId ? `Document ID: ${source.documentId}` : null,
+      source.chunkId ? `Chunk ID: ${source.chunkId}` : null,
+      source.score == null ? null : `Retrieval score: ${source.score.toFixed(4)}`,
+    ].filter((line): line is string => Boolean(line));
+
+    return [
+      `[Search Result Chunk] ${title}`,
+      ...metadata,
+      "",
+      content,
+    ].join("\n");
+  }
+
+  async function saveResultChunkToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
+    const item = pendingResultChunk;
+    const chunkId = item?.source.chunkId;
+    if (!item || !chunkId) throw new Error("Choose a result chunk to save.");
+
+    const response = await fetch(
+      `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chunkId,
+          text: formatResultChunkNotebookEntry(item),
+        }),
       },
-    }));
+    );
+    const data = await response.json() as {
+      message?: string;
+      activeNotebookId: string | null;
+      notebooks: NotebookWithPages[];
+      duplicate?: boolean;
+    };
+    if (!response.ok) {
+      throw new Error(data.message || "The chunk could not be saved.");
+    }
+
+    applyNotebookState(appState, data);
+    showWindow("notebook-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+    const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
+    showToast(
+      data.duplicate
+        ? `Chunk already exists in ${label}`
+        : `Chunk saved to ${label}`,
+    );
+    closeChunkDestination();
   }
 
   async function openGraphGalaxy() {
+    if (appState.retrievalMode !== "graph") {
+      status = "Enable KG search in Settings to use Graph Galaxy.";
+      return;
+    }
     const context = queryGraphContext;
     if (!context) {
       status = "Ask a question before visualizing its Knowledge Graph.";
@@ -560,12 +465,14 @@
     }
     showWindow("graph-galaxy-window");
     await tick();
-    window.dispatchEvent(new CustomEvent("dk:restore-query-graph", {
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", {
       detail: {
         sessionId: context.sessionId,
         query: context.query,
-        documentIds: context.documentIds,
-        chunkIds: context.chunkIds,
+        // Match the Graph Galaxy's Visualize button: selected documents when
+        // present, or the complete collection when selection is empty.
+        documentIds: getSelectedDocumentIds(),
+        chunkIds: [],
         requestId: ++graphRequestId,
         topK: context.topK,
       },
@@ -612,6 +519,7 @@
           message: text,
           model_id: appState.currentModelId,
           provider_id: appState.currentProviderId,
+          retrieval_mode: appState.retrievalMode,
           max_tokens: appState.maxTokens,
           temperature: appState.temperature,
           top_k: appState.topK,
@@ -681,12 +589,7 @@
     status = "";
     messages = [];
     messageStream = "";
-    graphPreparationAbortController?.abort();
-    graphPreparationGeneration += 1;
-    graphPreparing = false;
-    graphReady = false;
     queryGraphContext = null;
-    graphPreparationError = "";
     clearGraphGalaxy();
     appState.currentSession = await createSession();
   }
@@ -762,11 +665,6 @@
         {graphReadinessMessage}
       </div>
     {/if}
-    {#if graphPreparationError}
-      <div class="chat-status li-subtle" role="status">
-        The response completed, but its Knowledge Graph could not be prepared: {graphPreparationError}
-      </div>
-    {/if}
     {#if loadingSession}
       <div class="chat-status li-subtle" role="status">
         Loading historical chat...
@@ -838,6 +736,7 @@
                               class="btn btn-sm chat-source-btn"
                               type="button"
                               disabled={!source.chunkId}
+                              title="Save this result chunk to a notebook"
                               onclick={() => saveResultChunk(
                                 source,
                                 messages.find((item) => item.role === "user")?.content ??
@@ -926,12 +825,10 @@
         class="inline-action-button chat-graph-button"
         type="button"
         aria-label="Visualize knowledge graph"
-        title={graphPreparationError
-          ? `Open Galaxy and retry: ${graphPreparationError}`
-          : graphPreparing
-          ? "Knowledge Graph is still preparing"
-          : "Visualize knowledge graph"}
-        disabled={!queryGraphContext || graphPreparing}
+        title={appState.retrievalMode === "graph"
+          ? "Visualize knowledge graph"
+          : "Enable KG search in Settings to use Graph Galaxy"}
+        disabled={appState.retrievalMode !== "graph" || !queryGraphContext}
         onclick={openGraphGalaxy}
       >
         <Icon name="hub" size={16} />
@@ -960,6 +857,18 @@
       ariaLabel="Save assistant response destination"
       onClose={closeSendToNotebook}
       onSave={saveAssistantToDestination}
+    />
+
+    <NotebookDestinationDialog
+      open={chunkDestinationOpen}
+      kindLabel="Save Chunk"
+      itemTitle={pendingResultChunk?.source.sourceTitle ??
+        pendingResultChunk?.source.title ??
+        "Selected chunk"}
+      actionLabel="Save Chunk"
+      ariaLabel="Save result chunk destination"
+      onClose={closeChunkDestination}
+      onSave={saveResultChunkToDestination}
     />
   </div>
 </BaseWindow>

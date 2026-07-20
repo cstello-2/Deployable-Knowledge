@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import Dropdown from "$lib/components/menus/Dropdown.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
@@ -8,7 +8,9 @@
   import { applyThemeSettings, readThemeSettings } from "$lib/utils/theme";
   import { showWindow, windowPlacements } from "$lib/utils/workspaceState";
   import { windowDefinitions } from "$lib/components/windows";
+  import type { AppState } from "$lib/state.svelte";
 
+  const appState = getContext<AppState>("appState");
   let menuOpen = $state(false);
   let toolsOpen = $state(false);
   let userOpen = $state(false);
@@ -26,6 +28,9 @@
   }
 
   function restoreWindow(id: string) {
+    if (id === "graph-galaxy-window" && appState.retrievalMode !== "graph") {
+      return;
+    }
     showWindow(id);
     toolsOpen = false;
     menuOpen = false;
@@ -37,6 +42,10 @@
       $windowPlacements.find((placement) => placement.id === id)?.visible ??
       false
     );
+  }
+
+  function windowUnavailable(id: string) {
+    return id === "graph-galaxy-window" && appState.retrievalMode !== "graph";
   }
 
   async function createNewChat() {
@@ -116,9 +125,16 @@
           class:visible={isWindowVisible(window.id)}
           type="button"
           role="menuitem"
+          disabled={windowUnavailable(window.id)}
+          title={windowUnavailable(window.id)
+            ? "Enable KG search in Settings to use Graph Galaxy"
+            : window.title}
           onclick={() => restoreWindow(window.id)}
         >
           <span>{window.title}</span>
+          {#if windowUnavailable(window.id)}
+            <span class="menu-item-hint">KG only</span>
+          {/if}
         </button>
       {/each}
     </Dropdown>
@@ -252,8 +268,19 @@
     color: var(--muted);
   }
 
-  .menu-item:hover {
+  .menu-item:hover:not(:disabled) {
     background: hsl(var(--h) var(--sat) var(--l-panel));
+  }
+
+  .menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .menu-item-hint {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
   }
 
   @media (max-width: 760px) {
