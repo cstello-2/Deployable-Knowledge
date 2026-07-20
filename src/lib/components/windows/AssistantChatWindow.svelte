@@ -27,7 +27,10 @@
     hasNotebookContextSelection,
     restoreNotebookContextPageIds,
   } from "$lib/utils/notebookContextSelection";
-  import { applyNotebookState } from "$lib/utils/notebookState";
+  import {
+    applyNotebookState,
+    attachChunkToNotebookDestination,
+  } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type {
@@ -79,7 +82,6 @@
 
   type PendingResultChunk = {
     source: ChatSource;
-    queryText: string;
   };
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
@@ -356,57 +358,16 @@
     }));
   }
 
-  async function saveResultChunk(source: ChatSource, queryText: string) {
+  function saveResultChunk(source: ChatSource) {
     if (!source.chunkId) return;
     selectedResultChunkId = source.chunkId;
-    let resolvedSource = source;
-    if (!source.content?.trim()) {
-      const response = await fetch(`/chunks/${encodeURIComponent(source.chunkId)}`);
-      if (!response.ok) {
-        status = await assistantErrorMessage(response);
-        return;
-      }
-      resolvedSource = { ...source, ...(await response.json() as ChatSource) };
-    }
-
-    pendingResultChunk = { source: resolvedSource, queryText };
+    pendingResultChunk = { source };
     chunkDestinationOpen = true;
   }
 
   function closeChunkDestination() {
     chunkDestinationOpen = false;
     pendingResultChunk = null;
-  }
-
-  function formatResultChunkNotebookEntry(item: PendingResultChunk) {
-    const { source, queryText } = item;
-    const title =
-      source.sourceTitle ||
-      source.title ||
-      `Chunk ${source.chunkIndex ?? ""}`.trim();
-    const content =
-      source.content?.trim() ||
-      source.description?.replace(/^Page \d+:\s*/, "").trim() ||
-      "No chunk text is available.";
-    const metadata = [
-      queryText ? `Query: ${queryText}` : null,
-      source.sourceTitle || source.title
-        ? `Document: ${source.sourceTitle || source.title}`
-        : null,
-      source.pageIndex == null ? null : `Page: ${source.pageIndex + 1}`,
-      source.chunkIndex == null ? null : `Chunk index: ${source.chunkIndex}`,
-      source.chunkType ? `Chunk type: ${source.chunkType}` : null,
-      source.documentId ? `Document ID: ${source.documentId}` : null,
-      source.chunkId ? `Chunk ID: ${source.chunkId}` : null,
-      source.score == null ? null : `Retrieval score: ${source.score.toFixed(4)}`,
-    ].filter((line): line is string => Boolean(line));
-
-    return [
-      `[Search Result Chunk] ${title}`,
-      ...metadata,
-      "",
-      content,
-    ].join("\n");
   }
 
   async function saveResultChunkToDestination(destination: {
@@ -419,36 +380,21 @@
     const chunkId = item?.source.chunkId;
     if (!item || !chunkId) throw new Error("Choose a result chunk to save.");
 
-    const response = await fetch(
-      `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chunkId,
-          text: formatResultChunkNotebookEntry(item),
-        }),
-      },
+    const result = await attachChunkToNotebookDestination(
+      appState,
+      destination,
+      chunkId,
     );
-    const data = await response.json() as {
-      message?: string;
-      activeNotebookId: string | null;
-      notebooks: NotebookWithPages[];
-      duplicate?: boolean;
-    };
-    if (!response.ok) {
-      throw new Error(data.message || "The chunk could not be saved.");
-    }
 
-    applyNotebookState(appState, data);
     showWindow("notebook-window");
     await tick();
     window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+    window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
     const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
     showToast(
-      data.duplicate
-        ? `Chunk already exists in ${label}`
-        : `Chunk saved to ${label}`,
+      result.duplicate
+        ? `Chunk already exists in Loaded Sources for ${label}`
+        : `Chunk added to Loaded Sources for ${label}`,
     );
     closeChunkDestination();
   }
@@ -737,11 +683,7 @@
                               type="button"
                               disabled={!source.chunkId}
                               title="Save this result chunk to a notebook"
-                              onclick={() => saveResultChunk(
-                                source,
-                                messages.find((item) => item.role === "user")?.content ??
-                                  appState.lastQuery,
-                              )}
+                              onclick={() => saveResultChunk(source)}
                             >
                               Save chunk
                             </button>

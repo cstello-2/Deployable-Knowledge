@@ -69,19 +69,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if (!notebookId) return json({ error: "Missing notebook id" }, { status: 400 });
 
   const body = (await request.json()) as NotebookSourcesRequest;
-  const chunkIds = [...new Set(body.chunk_ids.map((chunkId) => chunkId.trim()))];
+  const chunkIds = [...new Set(
+    (Array.isArray(body.chunk_ids) ? body.chunk_ids : [])
+      .map((chunkId) => String(chunkId).trim())
+      .filter(Boolean),
+  )];
 
+  let added = 0;
   if (chunkIds.length) {
     const createdAt = new Date().toISOString();
-    await db
+    const result = await db
       .insert(notebook_sources)
       .values(chunkIds.map((chunkId) => ({ id: randomUUID(), notebookId, chunkId, createdAt })))
       .onConflictDoNothing({
         target: [notebook_sources.notebookId, notebook_sources.chunkId],
       });
+    added = result.rowsAffected;
   }
 
-  return json({ ok: true, added: chunkIds.length });
+  return json({ ok: true, added });
 };
 
 // Clear every source attached to this notebook.
