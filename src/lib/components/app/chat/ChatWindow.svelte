@@ -1,0 +1,166 @@
+<script lang="ts">
+	import { tick } from 'svelte';
+	import { toast } from 'svelte-sonner';
+	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
+	import {
+		chatStore,
+		documentsStore,
+		notebooksStore,
+		sessionsStore,
+		settingsStore
+	} from '$lib/stores';
+	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
+	import ChatForm from './ChatForm.svelte';
+	import ChatMessageList from './ChatMessageList.svelte';
+	import { sourceChunkIds } from './chat-message';
+
+	interface Props {
+		collapsed?: boolean;
+		closable?: boolean;
+		height?: number | null;
+		id: string;
+		onClose?: () => void;
+		onToggleCollapse?: () => void;
+		title: string;
+	}
+
+	let {
+		id,
+		title,
+		closable = false,
+		height = null,
+		collapsed = false,
+		onToggleCollapse = () => {},
+		onClose = () => {}
+	}: Props = $props();
+
+	let logElement = $state<HTMLDivElement | null>(null);
+	let draft = $state('');
+	let notebookMode = $state(false);
+
+	async function notebookContext(): Promise<string> {
+		await notebooksStore.load();
+		return (
+			notebooksStore.activeNotebook?.pages
+				.map(({ content }) => content)
+				.filter(Boolean)
+				.join('\n\n') ?? ''
+		);
+	}
+
+	async function createSession(): Promise<void> {
+		chatStore.session = await sessionsStore.create();
+		chatStore.messages = [];
+		chatStore.streamedText = '';
+		chatStore.liveTrace = [];
+		chatStore.error = null;
+		chatStore.agentStatus = 'Thinking…';
+	}
+
+	async function startNewChat(): Promise<void> {
+		try {
+			await createSession();
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to start a new chat');
+		}
+	}
+
+	async function scrollToBottom(): Promise<void> {
+		await tick();
+		if (logElement) logElement.scrollTop = logElement.scrollHeight;
+	}
+
+	async function send(): Promise<void> {
+		if (chatStore.isStreaming || !draft.trim()) return;
+		const text = draft.trim();
+		draft = '';
+		settingsStore.lastQuery = text;
+		try {
+			if (!chatStore.session) await createSession();
+			await scrollToBottom();
+			const config = settingsStore.config;
+			const requestBase = {
+				message: text,
+				model_id: config.model,
+				provider_id: config.provider,
+				max_tokens: config.maxTokens,
+				temperature: config.temperature,
+				top_k: config.topK,
+				agent_max_turns: config.agentMaxTurns,
+				tools_enabled: chatStore.toolsEnabled
+			};
+			const request: ApiChatMessageRequest = notebookMode
+				? {
+						...requestBase,
+						conversational: true,
+						context: await notebookContext(),
+						notebook_id: notebooksStore.activeNotebookId
+					}
+				: {
+						...requestBase,
+						conversational: false,
+						prompt_template_id: config.promptTemplateId,
+						persona: config.persona,
+						document_ids: [...documentsStore.selectedIds],
+						rag_top_k: config.ragTopK
+					};
+			await chatStore.sendMessage(request);
+			await sessionsStore.refresh();
+		} catch (error) {
+			toast.error(`Chat failed: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			await scrollToBottom();
+		}
+	}
+
+	async function sendToNotebook(message: SessionMessage): Promise<void> {
+		try {
+			await notebooksStore.load();
+			await notebooksStore.appendToActivePage(message.content);
+			const chunkIds = sourceChunkIds(message);
+			await notebooksStore.addSources(chunkIds);
+			toast.success(
+				chunkIds.length
+					? `Sent to notebook with ${chunkIds.length} source${chunkIds.length === 1 ? '' : 's'}`
+					: 'Sent to notebook'
+			);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to send to notebook');
+		}
+	}
+</script>
+
+<WorkspaceWindow
+	{id}
+	{title}
+	{closable}
+	{height}
+	{collapsed}
+	{onToggleCollapse}
+	{onClose}
+	contentClass="overflow-hidden"
+	contentLabel="Assistant chat"
+>
+	<div class="flex h-full min-h-0 flex-col overflow-hidden">
+		<ChatMessageList
+			bind:ref={logElement}
+			messages={chatStore.messages}
+			busy={chatStore.isStreaming}
+			streamedText={chatStore.streamedText}
+			trace={chatStore.liveTrace}
+			status={chatStore.agentStatus}
+			error={chatStore.error ?? ''}
+			onSendToNotebook={(message) => void sendToNotebook(message)}
+		/>
+		<ChatForm
+			bind:draft
+			busy={chatStore.isStreaming}
+			{notebookMode}
+			toolsEnabled={chatStore.toolsEnabled}
+			onToggleNotebookMode={() => (notebookMode = !notebookMode)}
+			onToggleTools={() => (chatStore.toolsEnabled = !chatStore.toolsEnabled)}
+			onNewChat={() => void startNewChat()}
+			onSubmit={() => void send()}
+		/>
+	</div>
+</WorkspaceWindow>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<script>
+			(() => {
+				const root = document.documentElement;
+				const storedMode = (localStorage.getItem('theme_mode') || 'system').toLowerCase();
+				const storedColor = (localStorage.getItem('theme_color') || 'classic')
+					.toLowerCase()
+					.replaceAll(' ', '-');
+				const mode = ['light', 'dark', 'system'].includes(storedMode) ? storedMode : 'system';
+				const color = ['classic', 'purple', 'blue', 'yellow', 'green', 'high-contrast'].includes(
+					storedColor
+				)
+					? storedColor
+					: 'classic';
+				const dark =
+					mode === 'dark' ||
+					(mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+				localStorage.setItem('theme_mode', mode);
+				localStorage.setItem('theme_color', color);
+				root.dataset.theme = color;
+				root.classList.toggle('dark', dark);
+				root.style.colorScheme = dark ? 'dark' : 'light';
+			})();
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

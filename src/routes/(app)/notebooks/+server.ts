@@ -1,0 +1,55 @@
+import { json, type RequestHandler } from '@sveltejs/kit';
+import { randomUUID } from 'node:crypto';
+import type { ApiNotebookTitleRequest } from '$lib/types';
+import { db } from '$lib/server/database/database';
+import {
+	notebooks,
+	notebookPages,
+	type NewNotebook,
+	type NewNotebookPage
+} from '$lib/server/database/schema';
+import {
+	loadNotebookState,
+	setActiveNotebook
+} from '$lib/server/repositories/notebooks.repository';
+import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
+
+export const GET: RequestHandler = async () => {
+	return json(await loadNotebookState());
+};
+
+export const POST: RequestHandler = async ({ request }) => {
+	const body = (await request.json()) as ApiNotebookTitleRequest;
+	const title = body.title.trim();
+	if (!title) {
+		return json({ error: 'Notebook title is required' }, { status: 400 });
+	}
+
+	const timestamp = new Date().toISOString();
+	const notebookId = randomUUID();
+	const pageId = randomUUID();
+
+	const notebook: NewNotebook = {
+		id: notebookId,
+		userId: NOTEBOOK_USER_ID,
+		title,
+		activePageId: pageId,
+		createdAt: timestamp,
+		updatedAt: timestamp
+	};
+
+	const page: NewNotebookPage = {
+		id: pageId,
+		notebookId,
+		title: 'Page 1',
+		content: '',
+		createdAt: timestamp,
+		updatedAt: timestamp
+	};
+
+	await db.insert(notebooks).values(notebook);
+	await db.insert(notebookPages).values(page);
+	await setActiveNotebook(notebookId);
+
+	return json(await loadNotebookState(), { status: 201 });
+};

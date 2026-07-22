@@ -1,69 +1,32 @@
-# --- Python standard ignores ---
-__pycache__/
-*.py[cod]
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-*.manifest
-*.spec
+# frontend 
+node_modules
+.output
+/.svelte-kit
+/build
 
-# --- Environment + dependencies ---
-.venv/
-env/
-venv/
-ENV/
+# environment 
 *.env
 *.env.*
 .envrc
 .direnv/
 
-# --- Jupyter and notebook checkpoints ---
-.ipynb_checkpoints/
-
-# --- Log files and temp files ---
-*.log
-*.tmp
-*.swp
+# operating systems
 .DS_Store
 Thumbs.db
 
-# --- VSCode project files ---
+# editors 
 .vscode/
 
-# --- ChromaDB persistent vector store ---
+# datbases
 chroma_db/
-
-# --- SQL database ---
 app.db
 app.db-*
-
-# --- Extracted or parsed PDF text content ---
-parsed_texts/
-*.txt
-
-# --- Query result data ---
-*.json
-!prompts/*.json
-app.db
+drizzle/
 
 # --- Model cache or sentence-transformers ---
-cache/
-tmp_model/
-sentence-transformers/
-huggingface_cache/
-*.bin
-*.pkl
+models/
+tmp_model/ 
+.cache/
 
-# --- PDF files ---
-*.pdf
-documents/
-pdfs/
-# --- Miscellaneous ---
-test_queries.txt
-*.md.bak
-refactor_test.py
 
-# --- Agents --- 
-.codex
+/documents/

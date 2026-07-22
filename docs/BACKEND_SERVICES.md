@@ -1,11 +1,18 @@
-# Backend Services Overview
+# Backend services overview
 
-The backend is composed of:
+The TypeScript backend is organized under `src/lib/server`:
 
-- **core/** – retrieval utilities, prompt rendering and LLM abstractions
-- **api/** – FastAPI routers wrapping the core library
-- **app/** – UI routes, authentication and static assets
+- `agent/` runs bounded multi-turn model/tool conversations.
+- `tools/` registers and executes `search`, `get_datetime`, and future tools.
+- `providers/` translates normalized chat messages and tool schemas to Ollama
+  or GitHub Models, then normalizes their streamed responses.
+- `rag/` ingests documents, computes embeddings, and implements semantic,
+  BM25, and hybrid retrieval used by the search tool.
+- `database/` defines the Drizzle schema and local database access.
+- `auth/` handles local sessions.
 
-Requests flow from the UI to `api/` where they are validated and passed to `core/` functions.  The core interacts with ChromaDB and the configured LLM provider.
+SvelteKit route handlers under `src/routes/(app)` compose these services. The
+session-message route builds structured prompt messages and invokes the agent;
+the search route invokes the registered search tool directly.
 
 Return to [docs](README.md).

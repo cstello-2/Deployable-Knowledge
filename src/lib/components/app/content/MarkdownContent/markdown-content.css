@@ -1,0 +1,23 @@
+.markdown-content {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.markdown-content > :first-child {
+	margin-top: 0;
+}
+
+.markdown-content > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-content pre,
+.markdown-content table {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.markdown-content img {
+	height: auto;
+	max-width: 100%;
+}

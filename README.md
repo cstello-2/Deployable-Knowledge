@@ -1,84 +1,122 @@
-# Deployable-Knowledge
+# Deployable Knowledge
 
-**Version vA0.2.2**
-
-Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
-
-## Overview
-
-Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally and queried through FastAPI endpoints which power the JavaScript front end.
+Deployable Knowledge is a local-first retrieval-augmented generation workbench built with
+SvelteKit and Svelte 5. It keeps document ingestion, retrieval, notebooks, and agentic chat in a
+single windowed workspace that can run against local Ollama models or GitHub Models.
 
 ## Features
 
-- **Document ingestion** for PDF and plaintext sources
-- **ChromaDB** vector store with sentence‑transformer embeddings
-- **Chat and search** endpoints with optional streaming responses
-- **Configurable prompts** and persona editing
-- **Authentication middleware** with session and CSRF protection
+### Document ingestion and retrieval
 
-## Quick Start for Usage
+- Ingest PDFs with text extraction and OCR fallback.
+- Create local embeddings with `nomic-ai/nomic-embed-text-v1.5`.
+- Search with semantic, BM25, or hybrid retrieval.
+- Organize documents with tags and select the corpus used by chat.
 
-- For verbose start/run, simply run (double-click) `Launch-DeployableKnowledge.bat` or `Launch-DeployableKnowledge.ps1`
-- For user-friendly/silent start, simply run (double-click) `Launch-DeployableKnowledge.bat-User` or `Launch-DeployableKnowledge-User.ps1`
+### Agentic chat
 
-## Quick Start for Development
+- Stream responses from Ollama or GitHub Models.
+- Configure generation, retrieval, personas, profiles, and prompt templates.
+- Run multi-turn tool calls for document search, Python analysis, and date/time lookup.
+- Inspect live tool traces, source citations, generated data, and images.
 
-**Unix / macOS:**
+### Notebooks and workspace
+
+- Create notebooks and pages, edit with autosave, and preview rendered Markdown.
+- Send chat output and document sources into a notebook.
+- Arrange chat, history, documents, search, and notebooks in persistent browser-style layout tabs.
+- Manage appearance and assistant configuration from a dedicated settings page.
+- Choose light, dark, color-accent, and high-contrast themes.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js matching [`.nvmrc`](.nvmrc)
+- npm
+- Ollama for local chat, or a GitHub Models API key
+
+### Install and run
 
 ```bash
-make setup
-make run
+npm install
+npm run dev
 ```
 
-**Windows (PowerShell):**
+The development command synchronizes the local SQLite schema before starting Vite. On first use,
+the setup screen can download the embedding model required for semantic and hybrid search. Ollama
+is optional until you send a chat request through the Ollama provider.
 
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Use `python -m pip` and `python -m pytest` so installs and tests use the same Python as your shell; this avoids "script location not on PATH" or "pytest not recognized" when the venv Scripts folder is not on PATH.
-
-**Run tests:**
+## Development Workflow
 
 ```bash
-python -m pytest tests/ -q
+npm run lint      # Check Prettier formatting and ESLint rules
+npm run format    # Format the repository
+npm run check     # Run Svelte and TypeScript diagnostics
+npm run build     # Create a production build
+
+npm run db:generate
+npm run db:migrate
+npm run db:push
 ```
 
-Visit <http://localhost:8000> once the server starts. Ollama is available by default with the seeded `llama3` model; use **Manage API Keys** in the prompt editor to connect hosted providers.
+There is currently no automated test suite. Use the lint, check, and build gates above, then smoke
+test the affected workspace flows.
 
-**If you see "script location not on PATH" or "pytest not recognized":** run `pip` and `pytest` as modules so the active Python is used: `python -m pip install -r requirements.txt` and `python -m pytest tests/ -q`.
+## Tech Stack
 
-## Architecture overview
+| Layer               | Technology                                                |
+| ------------------- | --------------------------------------------------------- |
+| Application         | SvelteKit, Svelte 5 runes, TypeScript                     |
+| UI                  | Tailwind CSS 4, shadcn-svelte primitives, bits-ui, Lucide |
+| Database            | SQLite/libSQL with Drizzle ORM                            |
+| Retrieval           | Transformers.js embeddings, BM25, hybrid search           |
+| Document processing | pdf-parse, Tesseract.js, Sharp                            |
+| Model providers     | Ollama, GitHub Models                                     |
+| Agent tools         | Local search, Pyodide Python, date/time                   |
 
-The system is split into three layers:
+## Architecture
+
+The browser application uses a layered data flow:
 
 ```text
-core/  – retrieval, prompt rendering and LLM adapters
-api/   – FastAPI routers translating HTTP ↔ core
-app/   – static assets and UI routes
+Routes and components → runes stores → services → SvelteKit endpoints
+                                           ↓
+                    SQLite repositories, retrieval, providers, agent tools
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data‑flow breakdowns.
+- Components render state and delegate user actions.
+- Singleton runes stores own application state and business behavior.
+- Stateless services own HTTP and streaming I/O.
+- SvelteKit endpoints orchestrate the database, RAG pipeline, providers, and agent runner.
 
-## Documentation
+See [Architecture](docs/ARCHITECTURE.md), [API Reference](docs/API_REFERENCE.md),
+[Backend Services](docs/BACKEND_SERVICES.md), and [Agent Tools](docs/TOOLS.md) for more detail.
 
-Additional guides live in the [`docs/`](docs) folder:
+## Project Structure
 
-- [API reference](docs/API_REFERENCE.md)
-- [UI overview](docs/UI_OVERVIEW.md)
-- [Backend services](docs/BACKEND_SERVICES.md)
-- [Configuration guide](docs/CONFIGURATION.md)
-- [Prompt & LLM integration](docs/PROMPTS_LLM.md)
+```text
+src/
+├── lib/
+│   ├── actions/          Svelte actions for workspace interactions
+│   ├── components/
+│   │   ├── app/
+│   │   │   ├── chat/     Chat, history, messages, agent traces, and composer
+│   │   │   ├── content/  Shared Markdown rendering
+│   │   │   ├── dialogs/  Confirmation, progress, API key, and picker dialogs
+│   │   │   ├── documents/, notebook/, search/, settings/
+│   │   │   ├── navigation/  Persistent tools, settings, and user sidebar
+│   │   │   └── workspace/   Layout tabs, window registry, columns, frames, and resizers
+│   │   └── ui/           Reusable shadcn-svelte primitives
+│   ├── constants/        Endpoints, defaults, and shared limits
+│   ├── enums/            Shared string enums
+│   ├── services/         Stateless API clients
+│   ├── stores/           Singleton Svelte 5 runes stores
+│   ├── server/           Database, repositories, RAG, providers, tools, and agents
+│   ├── types/            Domain and wire types
+│   └── utils/            Shared pure utilities
+├── routes/               Pages and SvelteKit API endpoints
+└── app.css               Tailwind theme tokens and global styles
+```
 
-## Contributing
-
-1. Create a feature branch off `main`.
-2. Add tests and run `python -m pytest tests/` before submitting a pull request.
-3. Follow the existing coding style and keep docstrings concise.
-4. Open a PR describing the change and link to any relevant issues.
-
----
-Released under the MIT license.
+Deployable Knowledge is released under the [MIT License](LICENSE).
