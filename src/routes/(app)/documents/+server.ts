@@ -1,10 +1,15 @@
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
+import { isNotNull } from 'drizzle-orm';
 import type {
 	ApiDocumentIngestEvent,
 	ApiDocumentIngestProgress,
 	ApiDocumentIngestResult
 } from '$lib/types';
+import { db } from '$lib/server/database/database';
+import { documents, syncedFiles } from '$lib/server/database/schema';
+import { folderWatcherManager } from '$lib/server/documents/folder-watcher';
 import { ingestPdfBuffer, ingestPdfPath } from '$lib/server/documents/ingest-file';
+import { removeDocument } from '$lib/server/documents/remove-document';
 import type { RequestHandler } from './$types';
 
 type IngestTask = (
@@ -72,4 +77,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			'X-Accel-Buffering': 'no'
 		}
 	});
+};
+
+export const DELETE: RequestHandler = async () => {
+	const syncedRows = await db
+		.select({ folderId: syncedFiles.folderId })
+		.from(syncedFiles)
+		.where(isNotNull(syncedFiles.documentId));
+	for (const folderId of new Set(syncedRows.map((row) => row.folderId))) {
+		await folderWatcherManager.waitForIdle(folderId);
+	}
+
+	const rows = await db.select({ id: documents.id }).from(documents);
+	let removed = 0;
+	for (const { id } of rows) {
+		if (await removeDocument(id)) removed += 1;
+	}
+
+	return json({ removed });
 };

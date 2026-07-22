@@ -52,7 +52,8 @@ async function loadCandidates({
 	sourcePaths: string[];
 	chunkTypes: SearchChunkType[];
 }) {
-	const filters: SQL[] = [];
+	// Deactivated documents never surface in retrieval, even when explicitly requested
+	const filters: SQL[] = [eq(documents.active, true)];
 
 	if (documentIds.length > 0) {
 		filters.push(inArray(documentChunks.documentId, documentIds));

@@ -30,6 +30,7 @@
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
 		onToggle: (id: string, selected: boolean) => void;
+		onToggleActive: (document: DocumentRow) => void;
 		onToggleGroup: (ids: string[], selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
 		selectedIds: ReadonlySet<string>;
@@ -45,6 +46,7 @@
 		onRemoveFolder,
 		onSyncFolder,
 		onToggle,
+		onToggleActive,
 		onToggleGroup,
 		onToggleTag,
 		selectedIds,
@@ -177,6 +179,7 @@
 								onCreateTag={(tag) => onCreateTag(document, tag)}
 								onDelete={() => onDeleteDocument(document)}
 								onToggle={(selected) => onToggle(document.id, selected)}
+								onToggleActive={() => onToggleActive(document)}
 								onToggleTag={(tag) => onToggleTag(document, tag)}
 								selected={selectedIds.has(document.id)}
 							/>

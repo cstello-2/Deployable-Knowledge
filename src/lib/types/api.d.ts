@@ -31,6 +31,11 @@ export interface ApiDocumentTagAssignmentRequest extends ApiDocumentTagRequest {
 	assigned: boolean;
 }
 
+export interface ApiDocumentActivationRequest {
+	active: boolean;
+	documentIds?: string[];
+}
+
 export interface ApiDocumentIngestProgress {
 	percent: number;
 	label: string;
@@ -52,7 +57,7 @@ export type ApiDocumentIngestEvent =
 
 export type DocumentRow = Pick<
 	Document,
-	'id' | 'title' | 'sourcePath' | 'sourceType' | 'updatedAt'
+	'id' | 'title' | 'sourcePath' | 'sourceType' | 'updatedAt' | 'active'
 > & {
 	chunkCount: number;
 	folderId: string | null;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Funnel from '@lucide/svelte/icons/funnel';
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Input } from '$lib/components/ui/input';
@@ -30,18 +31,20 @@
 			aria-label="Filter documents"
 			bind:value={query}
 			class="flex-1"
-			placeholder="Filter documents by name or tags…"
+			placeholder="Filter documents (fuzzy match on name & tags)…"
 			type="search"
 		/>
 		{#if query}<ActionIcon label="Clear filter" onclick={() => (query = '')}><X /></ActionIcon>{/if}
 		<TagFilterMenu
-			compact
 			onCreate={onCreateTag}
 			onDelete={onDeleteTag}
 			onToggle={onToggleTag}
 			selected={selectedTags}
 			{tags}
 			title="Filter and manage tags"
+			triggerIcon={Funnel}
+			triggerLabel="Filter"
+			triggerTooltip="Filter by tags"
 		/>
 	</div>
 	{#if selectedTags.length}

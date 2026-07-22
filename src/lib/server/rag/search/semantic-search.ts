@@ -48,7 +48,8 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 
 	// Same embedding path as chunking/storage so query vectors stay in sync with the corpus
 	const queryEmbedding = (await embedTexts([query], 'search_query'))[0] ?? [];
-	const filters: SQL[] = [];
+	// Deactivated documents never surface in retrieval, even when explicitly requested
+	const filters: SQL[] = [eq(documents.active, true)];
 
 	if (documentIds.length > 0) {
 		filters.push(inArray(documentChunks.documentId, documentIds));

@@ -1,5 +1,6 @@
 import { API_DOCUMENTS } from '$lib/constants';
 import type {
+	ApiDocumentActivationRequest,
 	ApiDocumentIngestEvent,
 	ApiDocumentIngestProgress,
 	ApiDocumentIngestResult,
@@ -40,6 +41,14 @@ export class DocumentsService {
 
 	static setTagAssignment(value: ApiDocumentTagAssignmentRequest) {
 		return apiPatch<{ status: 'ok' }, ApiDocumentTagAssignmentRequest>(API_DOCUMENTS.TAGS, value);
+	}
+
+	static setActivation(value: ApiDocumentActivationRequest) {
+		return apiPatch<{ ok: true }, ApiDocumentActivationRequest>(API_DOCUMENTS.ACTIVATION, value);
+	}
+
+	static removeAllDocuments() {
+		return apiDelete<{ removed: number }>(API_DOCUMENTS.BASE);
 	}
 
 	static async ingestPath(

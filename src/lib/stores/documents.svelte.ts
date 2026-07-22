@@ -91,6 +91,17 @@ class DocumentsStore {
 		await this.load();
 	}
 
+	async setActivation(documentIds: string[] | null, active: boolean): Promise<void> {
+		await DocumentsService.setActivation(documentIds ? { documentIds, active } : { active });
+		await this.load();
+	}
+
+	async removeAllDocuments(): Promise<void> {
+		await DocumentsService.removeAllDocuments();
+		this._selectedIds.clear();
+		await this.load();
+	}
+
 	async ingestPath(path: string) {
 		this.progress = { percent: 0, label: 'Ingesting PDF', message: 'Preparing file' };
 		const result = await DocumentsService.ingestPath(

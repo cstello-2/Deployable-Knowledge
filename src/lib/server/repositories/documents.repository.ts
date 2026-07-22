@@ -18,6 +18,7 @@ export class DocumentsRepository {
 				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
 				updatedAt: documents.updatedAt,
+				active: documents.active,
 				chunkCount: count(documentChunks.id),
 				folderId: syncedFiles.folderId
 			})

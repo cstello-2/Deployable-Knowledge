@@ -1,5 +1,7 @@
 <script lang="ts">
 	import FileText from '@lucide/svelte/icons/file-text';
+	import Power from '@lucide/svelte/icons/power';
+	import PowerOff from '@lucide/svelte/icons/power-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -13,6 +15,7 @@
 		onCreateTag: (tag: string) => Promise<void> | void;
 		onDelete: () => void;
 		onToggle: (selected: boolean) => void;
+		onToggleActive: () => void;
 		onToggleTag: (tag: string) => void;
 		selected?: boolean;
 		tags: string[];
@@ -24,6 +27,7 @@
 		onCreateTag,
 		onDelete,
 		onToggle,
+		onToggleActive,
 		onToggleTag,
 		selected = false,
 		tags
@@ -46,8 +50,21 @@
 		<div class="flex min-w-0 items-center gap-2">
 			<strong class="min-w-0 truncate text-sm">{document.title}</strong>
 			<span class="shrink-0 text-xs text-muted-foreground">{document.chunkCount} chunks</span>
+			{#if !document.active}
+				<span class="shrink-0 text-xs text-muted-foreground">· inactive</span>
+			{/if}
 			<ActionIcon
-				class="ml-auto border-0 bg-transparent shadow-none hover:text-destructive"
+				class="ml-auto border-0 bg-transparent shadow-none"
+				disabled={busy}
+				label={document.active ? `Deactivate ${document.title}` : `Activate ${document.title}`}
+				size="icon-sm"
+				variant="ghost"
+				onclick={onToggleActive}
+			>
+				{#if document.active}<PowerOff />{:else}<Power />{/if}
+			</ActionIcon>
+			<ActionIcon
+				class="border-0 bg-transparent shadow-none hover:text-destructive"
 				disabled={busy}
 				label={`Remove ${document.title}`}
 				size="icon-sm"

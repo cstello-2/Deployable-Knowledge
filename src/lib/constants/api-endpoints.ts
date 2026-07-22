@@ -5,6 +5,7 @@ export const API_DOCUMENT_FILES = {
 };
 
 export const API_DOCUMENTS = {
+	ACTIVATION: '/documents/activation',
 	BASE: '/documents',
 	DIRECTORIES: '/documents/directories',
 	FOLDERS: '/documents/folders',

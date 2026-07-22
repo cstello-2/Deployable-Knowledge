@@ -1,11 +1,13 @@
 <script lang="ts">
 	import Plus from '@lucide/svelte/icons/plus';
-	import Tags from '@lucide/svelte/icons/tags';
 	import { ActionIcon } from '$lib/components/app/actions';
-	import { Button } from '$lib/components/ui/button';
+	import { Button, buttonVariants } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Popover from '$lib/components/ui/popover';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { cn } from '$lib/components/ui/utils';
 	import { DOCUMENT_TAG_PATTERN, normalizeDocumentTag } from '$lib/utils';
+	import { mergeProps } from 'bits-ui';
 	import TagPaletteItem from './TagPaletteItem.svelte';
 
 	interface Props {
@@ -16,6 +18,9 @@
 		selected?: string[];
 		tags: string[];
 		title?: string;
+		triggerIcon?: typeof Plus;
+		triggerLabel?: string;
+		triggerTooltip?: string;
 	}
 
 	let {
@@ -25,7 +30,10 @@
 		onToggle,
 		selected = [],
 		tags,
-		title = 'Tags'
+		title = 'Tags',
+		triggerIcon: TriggerIcon = Plus,
+		triggerLabel,
+		triggerTooltip
 	}: Props = $props();
 	let creating = $state(false);
 	let error = $state('');
@@ -61,10 +69,18 @@
 		{#snippet child({ props })}
 			{#if compact}
 				<ActionIcon class="size-6 rounded-full" label={title} size="icon-sm" triggerProps={props}
-					><Plus /></ActionIcon
+					><TriggerIcon /></ActionIcon
 				>
 			{:else}
-				<Button {...props} size="sm" variant="outline"><Tags /> {title}</Button>
+				<Tooltip.Root>
+					<Tooltip.Trigger
+						{...mergeProps(props, { class: cn(buttonVariants(), 'cursor-pointer') })}
+					>
+						<TriggerIcon />
+						{triggerLabel ?? title}
+					</Tooltip.Trigger>
+					<Tooltip.Content>{triggerTooltip ?? title}</Tooltip.Content>
+				</Tooltip.Root>
 			{/if}
 		{/snippet}
 	</Popover.Trigger>

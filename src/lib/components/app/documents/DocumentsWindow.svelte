@@ -18,9 +18,11 @@
 		ApiSyncedFolder,
 		DocumentRow
 	} from '$lib/types';
+	import { fuzzyDocumentScore } from '$lib/utils';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
+	import DocumentModeBar, { type DocumentListMode } from './DocumentModeBar.svelte';
 
 	interface Props {
 		collapsed?: boolean;
@@ -51,6 +53,9 @@
 
 	let query = $state('');
 	let tagFilters = $state<string[]>([]);
+	let listMode = $state<DocumentListMode>('all');
+	let pendingDeactivateAll = $state(false);
+	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
 	let pickerDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
 	let pickerLoading = $state(false);
@@ -66,16 +71,17 @@
 	const busy = $derived(uploading || documentsStore.loading || documentsStore.syncing);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
 	const visibleDocuments = $derived.by(() => {
-		const normalized = query.trim().toLowerCase();
-		return documentsStore.documents.filter((document) => {
-			if (tagFilters.length && !tagFilters.some((tag) => document.tags.includes(tag))) return false;
-			return (
-				!normalized ||
-				`${document.title} ${document.id} ${document.tags.join(' ')}`
-					.toLowerCase()
-					.includes(normalized)
-			);
+		const tagged = documentsStore.documents.filter((document) => {
+			if (listMode === 'active' && !document.active) return false;
+			if (listMode === 'inactive' && document.active) return false;
+			return !tagFilters.length || tagFilters.some((tag) => document.tags.includes(tag));
 		});
+		if (!query.trim()) return tagged;
+		return tagged
+			.map((document) => ({ document, score: fuzzyDocumentScore(query, document) }))
+			.filter(({ score }) => score > 0.25)
+			.sort((a, b) => b.score - a.score)
+			.map(({ document }) => document);
 	});
 
 	onMount(() => void reloadLibrary());
@@ -219,6 +225,44 @@
 		}
 	}
 
+	async function toggleDocumentActive(document: DocumentRow): Promise<void> {
+		try {
+			await documentsStore.setActivation([document.id], !document.active);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function bulkSetActivation(active: boolean): Promise<void> {
+		try {
+			await documentsStore.setActivation([...documentsStore.selectedIds], active);
+			toast.success(active ? 'Documents activated' : 'Documents deactivated');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function deactivateAll(): Promise<void> {
+		pendingDeactivateAll = false;
+		try {
+			await documentsStore.setActivation(null, false);
+			toast.success('All documents deactivated');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function removeAll(): Promise<void> {
+		pendingRemoveAll = false;
+		try {
+			await documentsStore.removeAllDocuments();
+			status = 'All documents removed.';
+			toast.success('All documents removed');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	function openBulkPicker(mode: TagPickerMode): void {
 		if (!documentsStore.tags.length) {
 			toast.info('Create a tag first');
@@ -263,6 +307,13 @@
 			selectedTags={tagFilters}
 			tags={documentsStore.tags}
 		/>
+		<DocumentModeBar
+			{busy}
+			mode={listMode}
+			onDeactivateAll={() => (pendingDeactivateAll = true)}
+			onModeChange={(mode) => (listMode = mode)}
+			onRemoveAll={() => (pendingRemoveAll = true)}
+		/>
 		{#if status}<p class="text-xs text-muted-foreground">{status}</p>{/if}
 		<div class="text-xs text-muted-foreground">
 			{selectedCount} selected. With none selected, chat searches all documents.
@@ -270,7 +321,9 @@
 		<div class="grid min-h-0 flex-1 grid-rows-[auto_1fr] gap-2">
 			<DocumentBulkActionsBar
 				count={selectedCount}
+				onActivate={() => void bulkSetActivation(true)}
 				onApplyTag={() => openBulkPicker('add')}
+				onDeactivate={() => void bulkSetActivation(false)}
 				onRemoveTag={() => openBulkPicker('remove')}
 			/>
 			<DocumentList
@@ -283,6 +336,7 @@
 					(pendingFolderRemoval = { folder, removeDocuments })}
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
+				onToggleActive={(document) => void toggleDocumentActive(document)}
 				onToggleGroup={(ids, selected) => documentsStore.setSelection(ids, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
 				selectedIds={documentsStore.selectedIds}
@@ -329,6 +383,20 @@
 	onConfirm={deleteTag}
 	onOpenChange={(open) => !open && (pendingDeleteTag = null)}
 	open={Boolean(pendingDeleteTag)}
+/>
+<DialogConfirmation
+	confirmLabel="Deactivate all"
+	description="Deactivate every document for RAG? No document chunks will be retrieved in chat or search until you activate documents again."
+	onConfirm={deactivateAll}
+	onOpenChange={(open) => (pendingDeactivateAll = open)}
+	open={pendingDeactivateAll}
+/>
+<DialogConfirmation
+	confirmLabel="Remove all documents"
+	description="Remove ALL documents from the library? This deletes their stored chunks and managed files. Synced files remain ignored while their folder is watched."
+	onConfirm={removeAll}
+	onOpenChange={(open) => (pendingRemoveAll = open)}
+	open={pendingRemoveAll}
 />
 <DialogConfirmation
 	confirmLabel="Remove document"
