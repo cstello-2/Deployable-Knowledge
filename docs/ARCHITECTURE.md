@@ -10,7 +10,7 @@ layers:
 3. Svelte components under `src/lib/components` render the browser workspace
    and consume the route APIs.
 
-Document chat now follows this flow:
+Chat follows this flow:
 
 ```text
 Chat UI -> session message route -> agent runner -> provider stream

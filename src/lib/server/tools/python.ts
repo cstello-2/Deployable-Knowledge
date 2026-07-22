@@ -1,14 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { Worker } from "node:worker_threads";
+import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 
-import type { ImageArtifact } from "$lib/imageTypes";
-import type { AgentTool } from "./types";
-import { createToolResult, imageOutput } from "./result";
-import { clampText, readObject, toJsonValue } from "../utils/values";
+import type { ImageArtifact } from '$lib/types';
+import type { AgentTool } from './types';
+import { createToolResult, imageOutput } from './result';
+import { clampText, readObject, toJsonValue } from '../utils/values';
 
 const MAX_CODE_CHARS = 24_000;
 const MAX_TEXT_CHARS = 32_000;
@@ -135,268 +135,253 @@ start().catch((error) => {
 `;
 
 type PythonEnvelope = {
-  status?: unknown;
-  stdout?: unknown;
-  stderr?: unknown;
-  result?: unknown;
-  error?: unknown;
-  images?: unknown;
+	status?: unknown;
+	stdout?: unknown;
+	stderr?: unknown;
+	result?: unknown;
+	error?: unknown;
+	images?: unknown;
 };
 
 type PythonToolData = {
-  status: "ok" | "error";
-  stdout: string;
-  stderr: string;
-  result: unknown;
-  error?: string;
-  images: Array<Pick<ImageArtifact, "id" | "mimeType" | "alt">>;
+	status: 'ok' | 'error';
+	stdout: string;
+	stderr: string;
+	result: unknown;
+	error?: string;
+	images: Array<Pick<ImageArtifact, 'id' | 'mimeType' | 'alt'>>;
 };
 
 type WorkerMessage =
-  | { type: "ready" }
-  | { type: "fatal"; error: string }
-  | { type: "result"; id: string; envelope?: string; error?: string };
+	| { type: 'ready' }
+	| { type: 'fatal'; error: string }
+	| { type: 'result'; id: string; envelope?: string; error?: string };
 
 type PendingExecution = {
-  resolve: (value: string) => void;
-  reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
-  forcedTermination?: ReturnType<typeof setTimeout>;
-  timedOut: boolean;
+	resolve: (value: string) => void;
+	reject: (error: Error) => void;
+	timeout: ReturnType<typeof setTimeout>;
+	forcedTermination?: ReturnType<typeof setTimeout>;
+	timedOut: boolean;
 };
 
 type WorkerState = {
-  worker: Worker;
-  interruptBuffer: Int32Array;
-  ready: Promise<void>;
-  rejectReady: (error: Error) => void;
-  pending: Map<string, PendingExecution>;
+	worker: Worker;
+	interruptBuffer: Int32Array;
+	ready: Promise<void>;
+	rejectReady: (error: Error) => void;
+	pending: Map<string, PendingExecution>;
 };
 
 let workerState: WorkerState | undefined;
 let executionQueue = Promise.resolve();
 
 export const pythonTool: AgentTool<PythonToolData> = {
-  definition: {
-    type: "function",
-    function: {
-      name: "python",
-      description:
-        "Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, NumPy operations, and visualizations. NumPy and Matplotlib are installed. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself.",
-      parameters: {
-        type: "object",
-        properties: {
-          code: {
-            type: "string",
-            description:
-              "Complete Python code. NumPy is available as numpy and Matplotlib as matplotlib. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.",
-          },
-        },
-        required: ["code"],
-        additionalProperties: false,
-      },
-    },
-  },
-  async execute(argumentsValue) {
-    const args = readObject(argumentsValue);
-    const code = clampText(args.code, MAX_CODE_CHARS + 1);
+	definition: {
+		type: 'function',
+		function: {
+			name: 'python',
+			description:
+				'Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, NumPy operations, and visualizations. NumPy and Matplotlib are installed. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself.',
+			parameters: {
+				type: 'object',
+				properties: {
+					code: {
+						type: 'string',
+						description:
+							'Complete Python code. NumPy is available as numpy and Matplotlib as matplotlib. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.'
+					}
+				},
+				required: ['code'],
+				additionalProperties: false
+			}
+		}
+	},
+	async execute(argumentsValue) {
+		const args = readObject(argumentsValue);
+		const code = clampText(args.code, MAX_CODE_CHARS + 1);
 
-    if (!code) throw new Error("python requires non-empty code");
-    if (code.length > MAX_CODE_CHARS) {
-      throw new Error(`python code exceeds ${MAX_CODE_CHARS} characters`);
-    }
+		if (!code) throw new Error('python requires non-empty code');
+		if (code.length > MAX_CODE_CHARS) {
+			throw new Error(`python code exceeds ${MAX_CODE_CHARS} characters`);
+		}
 
-    const envelope = parseEnvelope(await enqueueExecution(code));
-    const images = collectImages(envelope.images);
-    const error = readText(envelope.error);
-    const data: PythonToolData = {
-      status: envelope.status === "ok" && !error ? "ok" : "error",
-      stdout: readText(envelope.stdout),
-      stderr: readText(envelope.stderr),
-      result: toJsonValue(envelope.result),
-      ...(error ? { error } : {}),
-      images: images.map(({ id, mimeType, alt }) => ({ id, mimeType, alt })),
-    };
+		const envelope = parseEnvelope(await enqueueExecution(code));
+		const images = collectImages(envelope.images);
+		const error = readText(envelope.error);
+		const data: PythonToolData = {
+			status: envelope.status === 'ok' && !error ? 'ok' : 'error',
+			stdout: readText(envelope.stdout),
+			stderr: readText(envelope.stderr),
+			result: toJsonValue(envelope.result),
+			...(error ? { error } : {}),
+			images: images.map(({ id, mimeType, alt }) => ({ id, mimeType, alt }))
+		};
 
-    return createToolResult(data, {
-      outputs: images.map(imageOutput),
-      isError: data.status === "error",
-    });
-  },
+		return createToolResult(data, {
+			outputs: images.map(imageOutput),
+			isError: data.status === 'error'
+		});
+	}
 };
 
 function enqueueExecution(code: string): Promise<string> {
-  const execution = executionQueue.then(() => executeInWorker(code));
-  executionQueue = execution.then(
-    () => undefined,
-    () => undefined,
-  );
-  return execution;
+	const execution = executionQueue.then(() => executeInWorker(code));
+	executionQueue = execution.then(
+		() => undefined,
+		() => undefined
+	);
+	return execution;
 }
 
 async function executeInWorker(code: string): Promise<string> {
-  const state = getWorkerState();
-  await state.ready;
-  const id = randomUUID();
+	const state = getWorkerState();
+	await state.ready;
+	const id = randomUUID();
 
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      const pending = state.pending.get(id);
-      if (!pending) return;
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			const pending = state.pending.get(id);
+			if (!pending) return;
 
-      pending.timedOut = true;
-      Atomics.store(state.interruptBuffer, 0, 2);
-      pending.forcedTermination = setTimeout(() => {
-        state.pending.delete(id);
-        if (workerState === state) workerState = undefined;
-        reject(
-          new Error(
-            `Python execution exceeded ${EXECUTION_TIMEOUT_MS / 1000} seconds`,
-          ),
-        );
-        void state.worker.terminate();
-      }, 1_000);
-    }, EXECUTION_TIMEOUT_MS);
+			pending.timedOut = true;
+			Atomics.store(state.interruptBuffer, 0, 2);
+			pending.forcedTermination = setTimeout(() => {
+				state.pending.delete(id);
+				if (workerState === state) workerState = undefined;
+				reject(new Error(`Python execution exceeded ${EXECUTION_TIMEOUT_MS / 1000} seconds`));
+				void state.worker.terminate();
+			}, 1_000);
+		}, EXECUTION_TIMEOUT_MS);
 
-    state.pending.set(id, {
-      resolve,
-      reject,
-      timeout,
-      timedOut: false,
-    });
-    state.worker.postMessage({ id, code });
-  });
+		state.pending.set(id, {
+			resolve,
+			reject,
+			timeout,
+			timedOut: false
+		});
+		state.worker.postMessage({ id, code });
+	});
 }
 
 function getWorkerState(): WorkerState {
-  if (workerState) return workerState;
+	if (workerState) return workerState;
 
-  const sharedBuffer = new SharedArrayBuffer(4);
-  const interruptBuffer = new Int32Array(sharedBuffer);
-  let resolveReady!: () => void;
-  let rejectReady!: (error: Error) => void;
-  const ready = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  const packageCacheDir =
-    process.env.PYODIDE_PACKAGE_CACHE_DIR?.trim() ||
-    join(tmpdir(), "deployable-knowledge-pyodide");
-  mkdirSync(packageCacheDir, { recursive: true });
-  const indexURL = dirname(
-    createRequire(import.meta.url).resolve("pyodide/package.json"),
-  );
-  const worker = new Worker(WORKER_SOURCE, {
-    eval: true,
-    execArgv: [],
-    workerData: {
-      interruptBuffer: sharedBuffer,
-      indexURL,
-      packageCacheDir,
-      runner: PYTHON_RUNNER,
-    },
-  });
-  const state: WorkerState = {
-    worker,
-    interruptBuffer,
-    ready,
-    rejectReady,
-    pending: new Map(),
-  };
-  workerState = state;
+	const sharedBuffer = new SharedArrayBuffer(4);
+	const interruptBuffer = new Int32Array(sharedBuffer);
+	let resolveReady!: () => void;
+	let rejectReady!: (error: Error) => void;
+	const ready = new Promise<void>((resolve, reject) => {
+		resolveReady = resolve;
+		rejectReady = reject;
+	});
+	const packageCacheDir =
+		process.env.PYODIDE_PACKAGE_CACHE_DIR?.trim() || join(tmpdir(), 'deployable-knowledge-pyodide');
+	mkdirSync(packageCacheDir, { recursive: true });
+	const indexURL = dirname(createRequire(import.meta.url).resolve('pyodide/package.json'));
+	const worker = new Worker(WORKER_SOURCE, {
+		eval: true,
+		execArgv: [],
+		workerData: {
+			interruptBuffer: sharedBuffer,
+			indexURL,
+			packageCacheDir,
+			runner: PYTHON_RUNNER
+		}
+	});
+	const state: WorkerState = {
+		worker,
+		interruptBuffer,
+		ready,
+		rejectReady,
+		pending: new Map()
+	};
+	workerState = state;
 
-  worker.on("message", (message: WorkerMessage) => {
-    if (message.type === "ready") {
-      resolveReady();
-      return;
-    }
+	worker.on('message', (message: WorkerMessage) => {
+		if (message.type === 'ready') {
+			resolveReady();
+			return;
+		}
 
-    if (message.type === "fatal") {
-      failWorker(state, new Error(`Unable to initialize Pyodide: ${message.error}`));
-      return;
-    }
+		if (message.type === 'fatal') {
+			failWorker(state, new Error(`Unable to initialize Pyodide: ${message.error}`));
+			return;
+		}
 
-    const pending = state.pending.get(message.id);
-    if (!pending) return;
+		const pending = state.pending.get(message.id);
+		if (!pending) return;
 
-    state.pending.delete(message.id);
-    clearTimeout(pending.timeout);
-    if (pending.forcedTermination) clearTimeout(pending.forcedTermination);
+		state.pending.delete(message.id);
+		clearTimeout(pending.timeout);
+		if (pending.forcedTermination) clearTimeout(pending.forcedTermination);
 
-    if (pending.timedOut) {
-      pending.reject(
-        new Error(
-          `Python execution exceeded ${EXECUTION_TIMEOUT_MS / 1000} seconds`,
-        ),
-      );
-    } else if (message.error) {
-      pending.reject(new Error(message.error));
-    } else {
-      pending.resolve(message.envelope ?? "");
-    }
-  });
-  worker.on("error", (error) =>
-    failWorker(state, error instanceof Error ? error : new Error(String(error))),
-  );
-  worker.on("exit", (code) => {
-    if (workerState === state) {
-      failWorker(state, new Error(`Pyodide worker exited with code ${code}`));
-    }
-  });
+		if (pending.timedOut) {
+			pending.reject(new Error(`Python execution exceeded ${EXECUTION_TIMEOUT_MS / 1000} seconds`));
+		} else if (message.error) {
+			pending.reject(new Error(message.error));
+		} else {
+			pending.resolve(message.envelope ?? '');
+		}
+	});
+	worker.on('error', (error) =>
+		failWorker(state, error instanceof Error ? error : new Error(String(error)))
+	);
+	worker.on('exit', (code) => {
+		if (workerState === state) {
+			failWorker(state, new Error(`Pyodide worker exited with code ${code}`));
+		}
+	});
 
-  return state;
+	return state;
 }
 
 function failWorker(state: WorkerState, error: Error) {
-  if (workerState === state) workerState = undefined;
-  state.rejectReady(error);
+	if (workerState === state) workerState = undefined;
+	state.rejectReady(error);
 
-  for (const pending of state.pending.values()) {
-    clearTimeout(pending.timeout);
-    if (pending.forcedTermination) clearTimeout(pending.forcedTermination);
-    pending.reject(error);
-  }
+	for (const pending of state.pending.values()) {
+		clearTimeout(pending.timeout);
+		if (pending.forcedTermination) clearTimeout(pending.forcedTermination);
+		pending.reject(error);
+	}
 
-  state.pending.clear();
+	state.pending.clear();
 }
 
 function parseEnvelope(value: string): PythonEnvelope {
-  try {
-    return readObject(JSON.parse(value)) as PythonEnvelope;
-  } catch {
-    return {
-      status: "error",
-      error: "Pyodide returned invalid execution output",
-    };
-  }
+	try {
+		return readObject(JSON.parse(value)) as PythonEnvelope;
+	} catch {
+		return {
+			status: 'error',
+			error: 'Pyodide returned invalid execution output'
+		};
+	}
 }
 
 export function collectImages(value: unknown): ImageArtifact[] {
-  if (!Array.isArray(value)) return [];
+	if (!Array.isArray(value)) return [];
 
-  return value.slice(0, MAX_IMAGES).flatMap((candidate, index) => {
-    if (typeof candidate !== "string" || !isBase64(candidate)) return [];
-    if (Buffer.byteLength(candidate, "base64") > MAX_IMAGE_BYTES) return [];
+	return value.slice(0, MAX_IMAGES).flatMap((candidate, index) => {
+		if (typeof candidate !== 'string' || !isBase64(candidate)) return [];
+		if (Buffer.byteLength(candidate, 'base64') > MAX_IMAGE_BYTES) return [];
 
-    return [
-      {
-        id: randomUUID(),
-        mimeType: "image/png" as const,
-        base64: candidate,
-        alt: `Python output ${index + 1}`,
-      },
-    ];
-  });
+		return [
+			{
+				id: randomUUID(),
+				mimeType: 'image/png' as const,
+				base64: candidate,
+				alt: `Python output ${index + 1}`
+			}
+		];
+	});
 }
 
 function isBase64(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length % 4 === 0 &&
-    /^[A-Za-z0-9+/]+={0,2}$/.test(value)
-  );
+	return value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 }
 
 function readText(value: unknown): string {
-  return clampText(value, MAX_TEXT_CHARS);
+	return clampText(value, MAX_TEXT_CHARS);
 }
