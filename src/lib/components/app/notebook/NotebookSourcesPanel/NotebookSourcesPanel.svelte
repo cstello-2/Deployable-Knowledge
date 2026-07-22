@@ -46,24 +46,26 @@
 				onclick={() => (clearOpen = true)}>Clear all</Button
 			>
 		</header>
-		<div class="grid max-h-80 content-start gap-2 overflow-y-auto p-3">
+		<div class="grid min-w-0 max-h-80 content-start gap-2 overflow-x-hidden overflow-y-auto p-3">
 			{#if loading}
 				<Skeleton class="h-20" /><Skeleton class="h-20" />
 			{:else}
 				{#each sources as source (source.id)}
-					<article class="dk-panel relative grid gap-1 rounded-xl border p-3 pr-9">
+					<article class="dk-panel relative grid min-w-0 gap-1 rounded-xl border p-3 pr-9">
 						<ActionIcon
 							size="icon-sm"
 							class="absolute top-2 right-2"
 							label="Remove source"
 							onclick={() => onRemove(source.id)}><X /></ActionIcon
 						>
-						<div class="flex items-center gap-2 text-xs">
-							<strong class="truncate">{source.documentTitle}</strong><span
+						<div class="flex min-w-0 items-center gap-2 text-xs">
+							<strong class="min-w-0 flex-1 truncate">{source.documentTitle}</strong><span
 								class="shrink-0 text-muted-foreground">Page {source.pageIndex + 1}</span
 							>
 						</div>
-						<p class="m-0 line-clamp-3 text-xs text-muted-foreground">{source.preview}</p>
+						<p class="m-0 line-clamp-3 min-w-0 break-words text-xs text-muted-foreground">
+							{source.preview}
+						</p>
 					</article>
 				{:else}
 					<p class="text-sm text-muted-foreground">
