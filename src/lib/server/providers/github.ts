@@ -1,85 +1,123 @@
-import { Provider, type ProviderChatOptions } from "./provider";
+import {
+	Provider,
+	type ProviderChatChunk,
+	type ProviderChatMessage,
+	type ProviderChatOptions
+} from './provider';
+import { createChatCodec } from './chat-codec';
+import { readObject } from '$lib/server/utils/values';
 
-const GITHUB_API_URL = "https://models.github.ai";
+const GITHUB_API_URL = 'https://models.github.ai';
+const chatCodec = createChatCodec({
+	assistantNullContent: 'preserve',
+	reasoningField: 'reasoning_content',
+	toolArguments: 'string',
+	toolCallChunks: 'delta',
+	toolResultNameField: 'name'
+});
 
 export class Github extends Provider {
-  override id = "github";
-  override name = "GitHub Models";
-  override apiKeyRequired = true;
+	override id = 'github';
+	override name = 'GitHub Models';
+	override apiKeyRequired = true;
 
-  override async *chat(
-    prompt: string,
-    model: string,
-    options: ProviderChatOptions = {},
-  ): AsyncGenerator<string> {
-    const apiKey = await this.getApiKey();
+	override async *streamChat(
+		messages: ProviderChatMessage[],
+		model: string,
+		options: ProviderChatOptions = {}
+	): AsyncGenerator<ProviderChatChunk> {
+		const apiKey = await this.getApiKey();
+		const tools = options.toolChoice === 'none' ? undefined : options.tools;
 
-    // No top_k for Github Models
-    let req = new Request(`${GITHUB_API_URL}/inference/chat/completions`, {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${apiKey}`,
-        "X-GitHub-Api-Version": "2026-03-10",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: options.temperature,
-        max_tokens: options.maxTokens,
-        stream: true,
-      }),
-    });
+		// No top_k for Github Models
+		const req = new Request(`${GITHUB_API_URL}/inference/chat/completions`, {
+			method: 'POST',
+			headers: {
+				Accept: 'application/vnd.github+json',
+				Authorization: `Bearer ${apiKey}`,
+				'X-GitHub-Api-Version': '2026-03-10',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				model,
+				messages: messages.map(chatCodec.encodeMessage),
+				temperature: options.temperature,
+				max_tokens: options.maxTokens,
+				...(tools?.length
+					? {
+							tools,
+							tool_choice: options.toolChoice ?? 'auto',
+							parallel_tool_calls: options.parallelToolCalls ?? true
+						}
+					: {}),
+				stream: true
+			})
+		});
 
-    const resp = await fetch(req);
-    const reader = resp.body?.getReader();
-    const decoder = new TextDecoder();
+		const resp = await fetch(req);
 
-    if (!reader) throw new Error("reader could not be created.");
+		if (!resp.ok) {
+			throw new Error(`GitHub Models chat failed (${resp.status}): ${await resp.text()}`);
+		}
 
-    let buffer = "";
-    let complete = false;
+		yield* streamGithubChatResponse(resp);
+	}
 
-    while (!complete) {
-      const { done, value } = await reader.read();
-      if (done) break;
+	override async listModels(): Promise<string[]> {
+		return ['openai/gpt-4.1'];
+	}
+}
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+async function* streamGithubChatResponse(response: Response): AsyncGenerator<ProviderChatChunk> {
+	const reader = response.body?.getReader();
+	const decoder = new TextDecoder();
 
-      for (const line of lines) {
-        if (!line.trim().startsWith("data:")) continue;
+	if (!reader) throw new Error('GitHub Models response body is unavailable.');
 
-        const message = line.replace("data:", "").trim();
-        if (!message) continue;
+	let buffer = '';
 
-        if (message === "[DONE]") {
-          complete = true;
-          break;
-        }
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			buffer += decoder.decode(value, { stream: !done });
 
-        const data = JSON.parse(message);
-        const content = data.choices?.[0]?.delta?.content;
+			const lines = buffer.split('\n');
+			buffer = done ? '' : (lines.pop() ?? '');
 
-        if (content) yield content;
-      }
-    }
+			for (const line of lines) {
+				const event = parseServerSentEvent(line);
+				if (event.done) return;
+				if (event.chunk) yield event.chunk;
+			}
 
-    const message = buffer.replace("data:", "").trim();
+			if (done) break;
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
 
-    if (message && message !== "[DONE]" && !complete) {
-      const data = JSON.parse(message);
-      const content = data.choices?.[0]?.delta?.content;
+function parseServerSentEvent(line: string): {
+	done: boolean;
+	chunk?: ProviderChatChunk;
+} {
+	const trimmed = line.trim();
+	if (!trimmed.startsWith('data:')) return { done: false };
 
-      if (content) yield content;
-    }
+	const payload = trimmed.slice(5).trim();
+	if (!payload) return { done: false };
+	if (payload === '[DONE]') return { done: true };
 
-    reader.releaseLock();
-  }
+	const parsed = JSON.parse(payload) as unknown;
+	const record = readObject(parsed);
+	const error = readObject(record.error);
 
-  override async listModels(): Promise<string[]> {
-    return ["openai/gpt-4.1"];
-  }
+	if (typeof error.message === 'string' && error.message) {
+		throw new Error(error.message);
+	}
+
+	const choices = Array.isArray(record.choices) ? record.choices : [];
+	const delta = readObject(readObject(choices[0]).delta);
+
+	return { done: false, chunk: chatCodec.decodeChunk(delta) ?? undefined };
 }

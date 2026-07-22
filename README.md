@@ -1,54 +1,122 @@
-# Deployable-Knowledge
+# Deployable Knowledge
 
-**Version vA0.3.0**
-
-Offline‑first retrieval‑augmented generation (RAG) stack for disconnected or bandwidth‑constrained environments.
-
-## Overview
-
-Deployable‑Knowledge bundles a local vector store, prompt management and a lightweight web UI around a pluggable large‑language model.  Documents are embedded locally, the frontend is developed in [Sveltekit](https://svelte.dev), the backend is written in [Typescript](https://typescriptlang.org).
+Deployable Knowledge is a local-first retrieval-augmented generation workbench built with
+SvelteKit and Svelte 5. It keeps document ingestion, retrieval, notebooks, and agentic chat in a
+single windowed workspace that can run against local Ollama models or GitHub Models.
 
 ## Features
 
-- **Document ingestion** for PDF and plaintext sources
-- **ChromaDB** vector store with sentence‑transformer embeddings
-- **Chat and search** endpoints with optional streaming responses
-- **Configurable prompts** and persona editing
-- **Authentication middleware** with session and CSRF protection
+### Document ingestion and retrieval
 
-## Quick Start for Development
+- Ingest PDFs with text extraction and OCR fallback.
+- Create local embeddings with `nomic-ai/nomic-embed-text-v1.5`.
+- Search with semantic, BM25, or hybrid retrieval.
+- Organize documents with tags and select the corpus used by chat.
+
+### Agentic chat
+
+- Stream responses from Ollama or GitHub Models.
+- Configure generation, retrieval, personas, profiles, and prompt templates.
+- Run multi-turn tool calls for document search, Python analysis, and date/time lookup.
+- Inspect live tool traces, source citations, generated data, and images.
+
+### Notebooks and workspace
+
+- Create notebooks and pages, edit with autosave, and preview rendered Markdown.
+- Send chat output and document sources into a notebook.
+- Arrange chat, history, documents, search, and notebooks in persistent browser-style layout tabs.
+- Manage appearance and assistant configuration from a dedicated settings page.
+- Choose light, dark, color-accent, and high-contrast themes.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js matching [`.nvmrc`](.nvmrc)
+- npm
+- Ollama for local chat, or a GitHub Models API key
+
+### Install and run
 
 ```bash
-# First time setup (don't do this everytime)
 npm install
-npm run db:generate
-
-npm run db:migrate # to be run if there were upstream database changes
-
-# After and every other startup run 
 npm run dev
 ```
 
-## Architecture overview
+The development command synchronizes the local SQLite schema before starting Vite. On first use,
+the setup screen can download the embedding model required for semantic and hybrid search. Ollama
+is optional until you send a chat request through the Ollama provider.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data‑flow breakdowns.
+## Development Workflow
 
-## Documentation
+```bash
+npm run lint      # Check Prettier formatting and ESLint rules
+npm run format    # Format the repository
+npm run check     # Run Svelte and TypeScript diagnostics
+npm run build     # Create a production build
 
-Additional guides live in the [`docs/`](docs) folder:
+npm run db:generate
+npm run db:migrate
+npm run db:push
+```
 
-- [API reference](docs/API_REFERENCE.md)
-- [UI overview](docs/UI_OVERVIEW.md)
-- [Backend services](docs/BACKEND_SERVICES.md)
-- [Configuration guide](docs/CONFIGURATION.md)
-- [Prompt & LLM integration](docs/PROMPTS_LLM.md)
+There is currently no automated test suite. Use the lint, check, and build gates above, then smoke
+test the affected workspace flows.
 
-## Contributing
+## Tech Stack
 
-1. Create a fork off this repo
-2. Create a feature branch off `cancun` on your fork.
-3. Follow the existing coding style (run formatter, before committing `npm run format`). 
-4. Open a PR describing the change and link to any relevant issues.
+| Layer               | Technology                                                |
+| ------------------- | --------------------------------------------------------- |
+| Application         | SvelteKit, Svelte 5 runes, TypeScript                     |
+| UI                  | Tailwind CSS 4, shadcn-svelte primitives, bits-ui, Lucide |
+| Database            | SQLite/libSQL with Drizzle ORM                            |
+| Retrieval           | Transformers.js embeddings, BM25, hybrid search           |
+| Document processing | pdf-parse, Tesseract.js, Sharp                            |
+| Model providers     | Ollama, GitHub Models                                     |
+| Agent tools         | Local search, Pyodide Python, date/time                   |
 
----
-Released under the MIT license.
+## Architecture
+
+The browser application uses a layered data flow:
+
+```text
+Routes and components → runes stores → services → SvelteKit endpoints
+                                           ↓
+                    SQLite repositories, retrieval, providers, agent tools
+```
+
+- Components render state and delegate user actions.
+- Singleton runes stores own application state and business behavior.
+- Stateless services own HTTP and streaming I/O.
+- SvelteKit endpoints orchestrate the database, RAG pipeline, providers, and agent runner.
+
+See [Architecture](docs/ARCHITECTURE.md), [API Reference](docs/API_REFERENCE.md),
+[Backend Services](docs/BACKEND_SERVICES.md), and [Agent Tools](docs/TOOLS.md) for more detail.
+
+## Project Structure
+
+```text
+src/
+├── lib/
+│   ├── actions/          Svelte actions for workspace interactions
+│   ├── components/
+│   │   ├── app/
+│   │   │   ├── chat/     Chat, history, messages, agent traces, and composer
+│   │   │   ├── content/  Shared Markdown rendering
+│   │   │   ├── dialogs/  Confirmation, progress, API key, and picker dialogs
+│   │   │   ├── documents/, notebook/, search/, settings/
+│   │   │   ├── navigation/  Persistent tools, settings, and user sidebar
+│   │   │   └── workspace/   Layout tabs, window registry, columns, frames, and resizers
+│   │   └── ui/           Reusable shadcn-svelte primitives
+│   ├── constants/        Endpoints, defaults, and shared limits
+│   ├── enums/            Shared string enums
+│   ├── services/         Stateless API clients
+│   ├── stores/           Singleton Svelte 5 runes stores
+│   ├── server/           Database, repositories, RAG, providers, tools, and agents
+│   ├── types/            Domain and wire types
+│   └── utils/            Shared pure utilities
+├── routes/               Pages and SvelteKit API endpoints
+└── app.css               Tailwind theme tokens and global styles
+```
+
+Deployable Knowledge is released under the [MIT License](LICENSE).

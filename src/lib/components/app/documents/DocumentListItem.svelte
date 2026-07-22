@@ -1,0 +1,74 @@
+<script lang="ts">
+	import FileText from '@lucide/svelte/icons/file-text';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import { ActionIcon } from '$lib/components/app/actions';
+	import { Checkbox } from '$lib/components/ui/checkbox';
+	import type { DocumentRow } from '$lib/types';
+	import DocumentTagChip from './DocumentTagChip.svelte';
+	import TagFilterMenu from './TagFilterMenu.svelte';
+
+	interface Props {
+		busy?: boolean;
+		document: DocumentRow;
+		onCreateTag: (tag: string) => Promise<void> | void;
+		onDelete: () => void;
+		onToggle: (selected: boolean) => void;
+		onToggleTag: (tag: string) => void;
+		selected?: boolean;
+		tags: string[];
+	}
+
+	let {
+		busy = false,
+		document,
+		onCreateTag,
+		onDelete,
+		onToggle,
+		onToggleTag,
+		selected = false,
+		tags
+	}: Props = $props();
+</script>
+
+<div
+	class={[
+		'grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-2.5 px-2 py-2 transition-colors hover:bg-muted/35',
+		selected && 'bg-primary/5'
+	]}
+>
+	<Checkbox
+		checked={selected}
+		aria-label={`Use ${document.title} in chat`}
+		onCheckedChange={onToggle}
+	/>
+	<FileText class="size-[18px] text-muted-foreground" />
+	<div class="grid min-w-0 gap-1">
+		<div class="flex min-w-0 items-center gap-2">
+			<strong class="min-w-0 truncate text-sm">{document.title}</strong>
+			<span class="shrink-0 text-xs text-muted-foreground">{document.chunkCount} chunks</span>
+			<ActionIcon
+				class="ml-auto border-0 bg-transparent shadow-none hover:text-destructive"
+				disabled={busy}
+				label={`Remove ${document.title}`}
+				size="icon-sm"
+				variant="ghost"
+				onclick={onDelete}
+			>
+				<Trash2 />
+			</ActionIcon>
+		</div>
+		<div class="flex flex-wrap items-center gap-1.5">
+			{#each document.tags as tag (tag)}
+				<DocumentTagChip {tag} onRemove={() => onToggleTag(tag)} />
+			{/each}
+			<TagFilterMenu
+				compact
+				onCreate={onCreateTag}
+				selected={document.tags}
+				{tags}
+				title="Edit tags"
+				onToggle={onToggleTag}
+			/>
+		</div>
+	</div>
+</div>
