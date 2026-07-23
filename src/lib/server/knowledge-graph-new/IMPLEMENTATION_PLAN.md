@@ -1,370 +1,327 @@
 # Knowledge Graph Extraction Implementation Plan
 
-> Backend extraction plan only. Do not connect this work to the UI, RAG retrieval, HippoRAG, or graph visualization yet.
+> Backend extraction only. Do not connect this to the UI, RAG, HippoRAG,
+> ranking, or graph visualization yet.
 
 ## Goal
 
-Build a trustworthy knowledge graph from the application's existing document chunks.
+Build a trustworthy knowledge graph from the existing `document_chunks`.
 
-The graph must contain specific, directed, evidence-backed relationships that remain useful across unfamiliar technical and historical corpora. If extraction only produces generic concepts, co-occurrence, or vague relationships, the result is not sufficiently different from semantic search.
+The graph must contain specific, directed, evidence-backed relationships that
+remain useful on unfamiliar technical and historical corpora. Generic concepts,
+co-occurrence, and vague edges are not enough.
 
-## Fixed model choices
+## Models
 
-| Role                                         | Model                                  | Runtime                   |
-| -------------------------------------------- | -------------------------------------- | ------------------------- |
-| Schema-guided entity and relation candidates | `knowledgator/gliner-relex-large-v0.5` | Batched Python subprocess |
-| Corpus schema generation                     | `gemma4:12b`                           | Existing Ollama provider  |
-| Independent chunk-level triple extraction    | `gemma4:12b`                           | Existing Ollama provider  |
-| Verification of GLiNER-only candidates       | `gemma4:12b`                           | Existing Ollama provider  |
+| Role                     | Model                                  | Runtime                    |
+| ------------------------ | -------------------------------------- | -------------------------- |
+| Schema-guided candidates | `knowledgator/gliner-relex-large-v0.5` | One batched Python process |
+| Schema generation        | `gemma4:12b`                           | Existing Ollama provider   |
+| Open triple extraction   | `gemma4:12b`                           | Existing Ollama provider   |
+| Candidate verification   | `gemma4:12b`                           | Existing Ollama provider   |
 
 Use the exact Ollama tag `gemma4:12b`.
 
-The two extractors remain logically independent. They may run concurrently on a machine with enough memory or sequentially on constrained hardware without changing the acceptance rules.
+### Portable runtime
 
-## What the first experiment established
+Do not hard-code a developer's Python or model path. Resolve Python in this
+order:
 
-The first full-document experiment used Gemma 3 1B and GLiNER-Relex base.
+1. `KNOWLEDGE_GRAPH_PYTHON`
+2. `PYTHON`
+3. Project-local `.venv`
+4. The platform's normal `python3` or `python`
 
-- Gemma 3 1B produced entity mentions but zero usable relationships.
-- The provisional graph contained 372 relationships.
-- Nearly all graph content came from GLiNER.
-- Many endpoints were generic nouns such as `patient`, `casualty`, `skin`, and `floor`.
-- Several GLiNER relationships were grammatically possible but semantically wrong.
-- Extractor agreement metadata was not reliable enough to use as confidence.
+The target laptop creates its own `.venv`, installs `requirements.txt`, installs
+the Node dependencies, and pulls the Ollama model. Caches and model downloads
+remain local to that laptop.
 
-The next implementation must therefore improve relationship semantics, retain true extractor independence, and make provenance auditable.
+## Implementation requirements
 
-## Non-negotiable constraints
-
-- Reuse `document_chunks`; do not create another chunking pipeline.
-- Use the existing SQLite database; do not add a graph database.
-- Ensure code is simple, readable, anot overly complex. No test cases, saftety checks, or over engineered functions. 
+- Reuse `document_chunks`; do not create another chunker.
+- Keep SQLite; do not add a graph database.
 - Keep orchestration, validation, caching, and persistence in TypeScript.
-- Keep GLiNER isolated to one small, replaceable Python subprocess.
-- Do not add hard-coded lists of people, organizations, equipment, battles, diseases, technologies, or other corpus-specific names. The General list of 10 is fine.
-- Do not create edges from proximity, co-occurrence, or every possible entity pair.
-- Store exact source evidence and chunk provenance for every accepted assertion.
+- Keep GLiNER in one small Python subprocess.
+- Do not create edges from proximity or co-occurrence.
+- Store evidence and chunk provenance for every accepted assertion.
 - Prefer an empty result to an unsupported relationship.
-- Cache every expensive stage so interrupted builds resume.
+- Cache successful work so interrupted builds resume.
 - Keep failures visible.
 
-## Target flow
+### Simplification is required
+
+The new flow must replace the old flow, not sit beside it.
+
+- Delete old prompts, model settings, fallback extraction, unused types, unused
+  helpers, duplicate validation, and obsolete persistence code.
+- Do not retain the old implementation behind a flag or compatibility wrapper.
+- Do not add service layers, registries, repositories, plugin systems, or generic
+  abstractions.
+- Prefer direct functions to abstractions with one caller.
+- Every remaining function must be used by the final runtime path.
+- Keep only essential checks: invalid model output, missing evidence, model
+  failure, and cache persistence.
+- Do not add test files or a test framework. Use the reviewed benchmark plus the
+  existing type and formatting checks.
+
+The implementation is not complete until a deletion pass confirms there is one
+obvious path:
+
+1. Load chunks and schema.
+2. Run both extractors.
+3. Ground, reconcile, and verify assertions.
+4. Resolve entities.
+5. Save the graph.
+
+## Flow
 
 ```text
-Representative corpus sample
-            |
-            v
-Load compact universal and relevant domain ontology seeds
-            |
-            v
-Gemma 4 12B selects, refines, and minimally extends schema
-            |
-            v
-Freeze and cache schema for this build
-            |
-            v
-      Existing document chunk
-            |
-     +------+------+
-     |             |
-     v             v
-GLiNER-Relex    Gemma 4 12B
-schema-guided   open extraction
-candidates      with evidence
-     |             |
-     +------+------+
-            |
-            v
-Reconcile independent assertions
-            |
-            v
-Gemma verifies GLiNER-only candidates
-            |
-            v
+Representative sample of existing chunks
+                |
+                v
+Load useful terms from one ontology library
+                |
+                v
+Gemma selects terms and creates missing corpus categories
+                |
+                v
+Freeze and cache compact schema
+                |
+                v
+        Existing usable chunk
+                |
+        +-------+-------+
+        |               |
+        v               v
+ GLiNER-Relex      Gemma 4 12B
+ schema-guided     open extraction
+ candidates        with exact evidence
+        |               |
+        +-------+-------+
+                |
+                v
+Ground, compare, and verify assertions
+                |
+                v
 Resolve entities and predicates
-            |
-            v
-Persist accepted assertions and provenance
+                |
+                v
+Persist graph and provenance
 ```
 
-## Stage 1: Filter unusable chunks
+Schema generation happens once. After the schema is frozen, GLiNER and Gemma
+extract independently. They may run concurrently or sequentially without
+changing the acceptance rules.
 
-Do not send empty text, broken OCR fragments, or formatting-only chunks to either model.
+## 1. Ontology seeds
 
-The filter must be conservative. It should reject obvious OCR noise without removing short but meaningful labels, captions, anatomical terms, equipment names, or historical names.
+Use the small N3 package to parse the official Schema.org and PROV-O Turtle
+vocabularies. The initial `schema-org-adapter` experiment was removed because
+its transitive JSON-LD stack failed under the project's Node runtime. RDF-Ext
+also worked, but its umbrella dependency tree was unnecessary for two Turtle
+files.
 
-This KG-level guard remains necessary even if ingestion later gains a broader OCR-quality filter because existing databases may already contain noisy chunks.
+The ontology loader must only:
 
-## Stage 2: Generate the corpus schema from ontology seeds
+- Load a local or official vocabulary artifact.
+- Return named classes and relationships with useful descriptions.
+- Return domain/range constraints when present.
+- Reduce the vocabulary to a bounded candidate set for Gemma.
 
-Use Gemma 4 12B once per corpus build or material corpus revision.
+Do not build an ontology framework. Do not send an entire ontology to Gemma.
+Add specialized technical, historical, or medical sources only when the sampled
+corpus needs them and their licensing permits local use.
 
-Select a bounded, diverse sample across documents and semantic regions. Do not use only the first or longest chunks.
+### Universal fallback
 
-The LLM must not invent the schema from nothing. Begin with compact catalogs of established semantic types and relationships:
+These ten general entity types may remain directly in `extraction.ts`:
 
-- **Universal catalog:** a small subset of Schema.org-style types and relationships for people, organizations, places, events, documents, systems, components, products, dates, creation, participation, location, and part-whole structure.
-- **Technical catalog:** a compact Schema.org/PROV-O-informed subset for systems, components, interfaces, protocols, software, hardware, materials, processes, methods, requirements, and measurements, with relationships such as `part_of`, `implements`, `uses`, `depends_on`, `produces`, `measures`, `complies_with`, and `supersedes`.
-- **Medical catalog:** a compact UMLS Semantic Network-derived subset for procedures, anatomical structures, injuries, symptoms, drugs, materials, medical devices, patient groups, treatment, prevention, causation, administration, and contraindication.
-- **Historical catalog:** a compact CIDOC CRM-derived subset for people, groups, events, periods, places, objects, documents, creation, participation, ownership, movement, location, and time.
-- **Provenance catalog:** a small PROV-O-style subset for attribution, derivation, generation, and use.
+1. `person`
+2. `organization`
+3. `location`
+4. `event`
+5. `document`
+6. `date`
+7. `system`
+8. `component`
+9. `process`
+10. `object`
 
-These are dictionaries of reusable categories, not dictionaries of actual entity names. Do not bundle full ontology dumps. The initial catalogs should remain small enough to keep directly in `extraction.ts`; move them only if that file becomes genuinely difficult to read.
+They are categories, not dictionaries of entity names. Use them when ontology
+packages are unavailable, unreliable, or not measurably useful.
 
-Gemma acts as an ontology adapter:
+## 2. Corpus schema
 
-1. Select the relevant established types and relationships.
-2. Merge overlapping or synonymous categories.
-3. Refine descriptions and endpoint constraints for the corpus.
-4. Add only genuinely missing corpus-specific categories.
-5. Reject vague categories when a specific established relation is available.
+Select a bounded, diverse sample across documents and semantic regions.
 
-Generate a compact schema:
+Gemma receives the sample, the ten universal types, and a small set of
+package-derived terms. It then:
 
-```ts
-type EntityType = {
-  name: string;
-  description: string;
-  examples: string[];
-  exclusions: string[];
-  source: "universal" | "domain" | "llm";
-  sourceId: string | null;
-};
+1. Selects relevant established types and relationships.
+2. Merges synonyms.
+3. Adds genuinely missing corpus-specific categories.
+4. Gives every relation a clear subject-to-object direction.
+5. Rejects vague relations such as `related_to`.
 
-type RelationType = {
-  name: string;
-  description: string;
-  subjectTypes: string[];
-  objectTypes: string[];
-  examples: string[];
-  counterexamples: string[];
-  source: "universal" | "domain" | "llm";
-  sourceId: string | null;
-};
+Keep approximately 10-15 entity types and 10-20 relation types. Every type needs
+a name, description, and source. Relations also need allowed subject and object
+types.
 
-type CorpusSchema = {
-  entityTypes: EntityType[];
-  relationTypes: RelationType[];
-  sampledChunkIds: string[];
-  model: "gemma4:12b";
-  promptVersion: string;
-};
-```
+Freeze the schema for the build. Gemma may still discover out-of-schema types
+and predicates during extraction, but they are reviewed and promoted only in a
+later build.
 
-### Schema rules
+## 3. Input filter
 
-- Generate reusable types, never names of actual entities.
-- Select no more than approximately 15 established entity types and 25 established relationship types.
-- Add no more than 5 new corpus-specific entity types and 8 new corpus-specific relationship types.
-- Preserve the ontology source identifier when an established category is selected.
-- Treat seed catalogs as guidance rather than a closed ontology.
-- Give every relationship an explicit direction.
-- Include positive examples and counterexamples.
-- Merge synonyms and reject vague relationships.
-- Avoid `related_to`.
-- Avoid broad labels such as `procedure_target` when a specific predicate is possible.
-- Freeze the schema for the entire build.
-- Promote recurring LLM-only predicates only between builds.
+Reject only empty text, formatting-only content, and broken OCR fragments with
+no meaningful language.
 
-The schema guides GLiNER and helps normalize LLM output. It does not restrict the LLM to a closed ontology.
+Preserve short but meaningful captions, labels, equipment terms, names, and
+historical references. Keep this KG-level guard because existing databases may
+already contain noisy chunks.
 
-## Stage 3: Run independent extraction paths
+## 4. Independent extraction
 
-### GLiNER-Relex path
+### GLiNER-Relex
 
-Run `knowledgator/gliner-relex-large-v0.5` with the frozen corpus schema.
+Load `knowledgator/gliner-relex-large-v0.5` once and process chunks in batches.
+Pin the GLiNER library to the commit in `requirements.txt`; the PyPI 0.2.27
+release does not contain the joint relation-extraction `inference()` API.
 
-GLiNER should return:
+Pass GLiNER:
 
-- Entity spans and types.
-- Directed relation candidates.
-- Model scores.
-- Exact source offsets.
+- Entity names only.
+- Relation names only.
+- Optionally the special `other` entity type.
 
-GLiNER is a high-recall candidate generator. Its relationships are not automatically accepted.
+The selected model's pinned GLiNER API does not consume the descriptions or
+subject/object constraints. Use those during Gemma extraction and validation.
 
-Use one batched Python process per extraction run. Do not reload the model for every chunk.
+Capture relation scores, head/tail offsets, and the entity, adjacency, and
+relation thresholds used. Benchmark `other` both enabled and disabled.
 
-### Gemma path
+GLiNER supplies endpoint offsets, not exact relation evidence. Derive the
+smallest reasonable sentence or text window containing both endpoints and
+retain the original offsets.
 
-Gemma 4 12B independently extracts open-ended entities and assertions from each chunk.
+### Gemma
 
-It may use the corpus schema as guidance but must be allowed to produce a more precise new entity type or predicate.
+Gemma independently extracts open-ended assertions from the same chunk.
 
-Required assertion fields:
+- The corpus schema is guidance, not a closed list.
+- Do not show Gemma GLiNER's candidates during initial extraction.
+- Use an actual JSON Schema through Ollama's `format` field.
+- Require subject, type, directed predicate, object, type, exact evidence,
+  dates, and asserted/negated/uncertain status.
+- Both endpoints must appear in the evidence.
+- Permit an empty result.
 
-```ts
-type ExtractedAssertion = {
-  subject: string;
-  subjectType: string;
-  predicate: string;
-  object: string;
-  objectType: string;
-  evidence: string;
-  startDate: string | null;
-  endDate: string | null;
-  status: "asserted" | "negated" | "uncertain";
-};
-```
+## 5. Reconciliation and verification
 
-### Structured output
+Before another model call, reject candidates when:
 
-Pass an actual JSON Schema through Ollama's `format` field rather than requesting generic JSON.
+- Required fields are missing.
+- Subject and object are identical.
+- Evidence does not belong to the chunk.
+- Both endpoints are not in the evidence window.
+- Direction is meaningless.
+- Schema endpoint constraints are violated.
 
-Validate:
+Normalize only enough to compare candidates. Do not merge entities yet.
 
-- Required fields and enums.
-- Exact subject and object mentions.
-- Exact evidence substring.
-- Both endpoints occur in the evidence.
-- Subject and object differ.
-- Predicate direction is meaningful.
-- Empty arrays are permitted.
+| Candidate                                  | Action                           |
+| ------------------------------------------ | -------------------------------- |
+| Both extractors agree and grounding passes | Accept with agreement provenance |
+| Gemma only                                 | Send to strict verification      |
+| GLiNER only                                | Send to strict verification      |
+| Single-extractor candidate verifies        | Accept with verified provenance  |
+| Verifier rejects or is uncertain           | Reject                           |
+| Grounding fails                            | Reject                           |
 
-Do not show GLiNER output to Gemma during independent extraction. Otherwise agreement would not be independent evidence.
+Batch all single-extractor candidates for a chunk into one verification call.
+The verifier receives only the chunk, candidates, and evidence—not the original
+response or reasoning.
 
-## Stage 4: Reconcile and verify
+Gemma verifying a Gemma-only assertion is a consistency check, not independent
+agreement. Record it accurately. Remove Gemma-only verification after the
+benchmark if it does not measurably improve quality.
 
-Normalize endpoint text only enough to compare candidate assertions. Do not aggressively merge entities yet.
+## 6. Entity resolution
 
-### Acceptance policy
+Keep named entities and stable technical or historical concepts that participate
+in meaningful relationships.
 
-| Candidate state                  | Action                                           |
-| -------------------------------- | ------------------------------------------------ |
-| Gemma and GLiNER agree           | Accept with high-confidence agreement provenance |
-| Gemma only with valid evidence   | Accept as open-ended discovery                   |
-| GLiNER only                      | Send to Gemma semantic verification              |
-| GLiNER only and Gemma verifies   | Accept with verified-candidate provenance        |
-| Verifier rejects or is uncertain | Reject                                           |
-| Evidence is missing or ambiguous | Reject                                           |
+Reject formatting labels, page numbers, pronouns, transient references, and
+generic roles unless the corpus treats them as stable concepts. Reject nodes
+connected only by vague relationships.
 
-Gemma verification must evaluate relationship meaning and direction, not merely whether both endpoint strings occur in the evidence.
+Preserve original mentions as aliases. Normalize acronyms conservatively. Do not
+merge same-name historical entities without sufficient context.
 
-Do not label an assertion as extractor agreement unless both raw extraction outputs independently contain the matching assertion.
+## 7. Cache and persistence
 
-## Stage 5: Entity and predicate resolution
+Cache the schema, raw GLiNER result, raw Gemma result, and final
+reconciled/verified assertions. The final result already records verification,
+so a separate verification cache is unnecessary.
 
-The graph should contain named entities and stable technical or historical concepts, not every noun phrase.
+Use one simple cache table—or the existing cache table—with a stage and hashed
+input key. Do not create a table or class for every stage. Keys include content,
+schema, model, prompt/contract, and relevant threshold versions. Changing one
+extractor must not invalidate the other extractor's valid output.
 
-### Keep
+Persist the build schema and assertions. Derive the entity list and aliases from
+those assertions when the graph is loaded instead of maintaining a duplicate
+entity table.
 
-- People, organizations, locations, events, documents, systems, and named methods.
-- Stable technical concepts such as devices, procedures, components, materials, and anatomical structures when they support meaningful relationships.
-- Historical offices, units, treaties, campaigns, laws, and dated events.
+Each assertion retains:
 
-### Reject or demote
-
-- Generic roles such as `patient`, `personnel`, or `casualty` unless the corpus treats them as stable concepts.
-- Formatting labels, page numbers, headings, and figure markers.
-- Pronouns and transient references.
-- Nodes that only participate in vague relationships.
-
-Resolution should:
-
-- Preserve original mentions as aliases.
-- Normalize acronyms conservatively.
-- Avoid merging same-name historical entities without context.
-- Preserve type disagreements for review.
-- Normalize predicate synonyms without losing raw wording.
-
-## Stage 6: Cache every expensive stage
-
-Cache keys must include:
-
-- Chunk content hash.
-- Corpus signature.
-- Schema version.
-- Prompt version.
-- GLiNER model and thresholds.
-- LLM model and generation settings.
-- Output contract version.
-
-Cache separately:
-
-1. Corpus schema.
-2. Raw GLiNER candidates.
-3. Raw Gemma extraction.
-4. Verification decisions.
-5. Final reconciled result.
-
-Write each successful chunk immediately.
-
-If one chunk fails:
-
-- Continue processing other chunks.
-- Report all failures together.
-- Preserve successful checkpoints.
-- Retry only unfinished stages on the next run.
-
-Changing only the GLiNER model must not invalidate valid Gemma extractions. Changing only the Gemma model must not invalidate valid GLiNER candidates.
-
-## Stage 7: Persist the graph
-
-Continue using SQLite.
-
-Persist:
-
-- Frozen corpus schema.
-- Canonical entities and aliases.
-- Directed assertions.
-- Exact evidence.
-- Document and chunk IDs.
-- Raw and canonical predicates.
+- Canonical endpoints and original endpoint mentions.
+- Directed assertions and raw predicates.
+- Exact Gemma evidence or derived GLiNER evidence windows.
+- Entity offsets and document/chunk IDs.
 - Dates, negation, and uncertainty.
-- Extractor provenance.
-- Verification decision.
-- Model and prompt versions.
+- Extractor and verifier provenance per assertion, plus schema, model, and
+  contract versions at build level.
 
-A visible graph edge is a projection over one or more source assertions. Never collapse assertions in a way that loses evidence or disagreement.
+Never collapse assertions in a way that loses evidence or disagreement.
 
-## Evaluation before another full build
+## Evaluation gate
 
-Do not immediately rerun all 264 chunks.
+Review approximately 30 representative chunks before a full build:
 
-Create a reviewed set of approximately 30 representative chunks:
+Use the build's `chunkLimit: 30` option; it samples across the selected
+documents and uses the same resumable caches as a full run.
 
-- Technical procedures.
-- Dense explanatory prose.
+- Technical procedures and dense prose.
 - Historical or organizational narrative.
-- Tables and captions.
-- Acronym-heavy content.
-- OCR text.
+- Tables, captions, acronyms, and OCR text.
 - Chunks with no valid relationship.
 
 Compare:
 
-1. GLiNER-Relex large alone.
-2. Gemma 4 12B alone.
-3. Hybrid reconciliation.
+1. GLiNER alone.
+2. Gemma alone.
+3. Reconciled hybrid.
+4. GLiNER with and without `other`.
+5. Package-derived ontology seeds versus the universal fallback.
 
-Measure:
+Measure entity and relationship precision/recall, direction accuracy, evidence
+grounding, unsupported assertions, correct empty results, generic nodes,
+verification acceptance, runtime, memory, and resume behavior.
 
-- Entity precision and recall.
-- Relationship precision and recall.
-- Direction accuracy.
-- Exact evidence rate.
-- Unsupported assertion rate.
-- Correct empty-result rate.
-- Generic-node rate.
-- GLiNER-only verification acceptance rate.
-- Time and peak memory.
-- Retry and resume behavior.
-
-### Initial quality gate
-
-Suggested minimums before a full corpus build:
+Suggested full-build gate:
 
 - At least 90% of accepted assertions are explicitly supported.
 - At least 95% direction accuracy.
-- At least 98% exact evidence grounding.
-- No silent extraction failures.
-- Hybrid extraction provides measurable value over Gemma alone.
+- At least 98% valid evidence grounding.
+- No silent failures.
+- Hybrid extraction measurably improves on Gemma alone.
+- Ontology dependencies measurably improve extraction quality.
 
-If the hybrid does not improve precision, recall, or consistency enough to justify its complexity, use Gemma 4 12B alone.
+Delete GLiNER, ontology-package code, or extra verification if its value does not
+justify its complexity.
 
-## Minimal implementation changes
-
-Keep the existing file layout:
+## Files
 
 ```text
 knowledge-graph-new/
@@ -375,96 +332,42 @@ knowledge-graph-new/
   requirements.txt
 ```
 
-Expected changes:
+- `extraction.ts`: schema, model calls, validation, reconciliation.
+- `gliner-extractor.py`: model loading and batched inference only.
+- `knowledge-graph.ts`: chunks, cache, resolution, persistence.
 
-- `extraction.ts`
-  - Expand corpus schema definitions.
-  - Add strict JSON Schema output.
-  - Keep GLiNER and Gemma extraction independent.
-  - Correct provenance and reconciliation.
-  - Add targeted GLiNER-only verification.
-
-- `gliner-extractor.py`
-  - Pin `knowledgator/gliner-relex-large-v0.5`.
-  - Return scores and offsets.
-  - Preserve one-process batched inference.
-
-- `knowledge-graph.ts`
-  - Version caches independently by stage.
-  - Persist accepted assertion provenance.
-  - Keep resumable chunk checkpoints.
-
-- Existing provider files
-  - Allow an Ollama JSON Schema object, not only `format: "json"`.
-
-Do not add new architecture files unless the existing modules become genuinely unreadable.
+Do not add another backend file unless these remain unreadable after obsolete
+code is removed.
 
 ## Implementation order
 
-### Phase 1: Model and contract update
-
-- Pin both model identifiers.
-- Add strict JSON Schema output for Gemma.
-- Return GLiNER scores and offsets.
-- Correct extractor provenance.
-
-### Phase 2: Corpus schema generation
-
-- Improve representative sampling.
-- Load the compact universal catalog and the relevant medical, historical, technical, or provenance catalogs.
-- Have Gemma select and refine established categories before proposing new ones.
-- Enforce limits on both selected and newly generated categories.
-- Preserve category source provenance.
-- Generate definitions, type constraints, examples, and counterexamples.
-- Freeze and cache the schema.
-
-### Phase 3: Independent extraction
-
-- Run GLiNER and Gemma independently.
-- Cache raw outputs separately.
-- Preserve exact evidence.
-
-### Phase 4: Reconciliation
-
-- Match candidate assertions.
-- Verify GLiNER-only candidates.
-- Reject unsupported or vague relationships.
-- Resolve entities and predicates conservatively.
-
-### Phase 5: Small benchmark
-
-- Run the reviewed 30-chunk set.
-- Inspect every accepted and rejected relationship.
-- Compare GLiNER, Gemma, and hybrid quality.
-- Adjust prompts, schema size, and thresholds.
-
-### Phase 6: Full document build
-
-- Run the full document only after the quality gate passes.
-- Export raw JSON and a readable Markdown assertion report.
-- Inspect entity quality, relation quality, provenance, and graph paths.
+1. **Delete first:** remove the old model path, prompts, fallbacks, duplicate
+   types, dead helpers, and unused persistence.
+2. **Ontology loading:** load bounded Schema.org and PROV-O terms with N3.
+3. **Model contracts:** pin models, add strict Gemma output, and return GLiNER
+   scores, thresholds, and offsets.
+4. **Extraction:** generate the schema, run both extractors, ground, reconcile,
+   verify, resolve, cache, and persist.
+5. **Benchmark:** compare extractors, `other`, verification, and ontology seeds.
+6. **Final deletion pass:** remove experiments and components that did not earn
+   their complexity; confirm there is only one extraction path.
+7. **Full build:** run type/format checks, then build the full document and
+   export raw JSON plus a readable Markdown assertion report.
 
 ## Out of scope
 
-Do not implement yet:
-
-- UI integration.
-- Hybrid-search integration.
-- HippoRAG.
-- PageRank or graph ranking.
-- Graph visualization.
-- Query-time graph augmentation.
+- UI or search integration.
+- HippoRAG or query-time graph augmentation.
+- Graph ranking or visualization.
 - A separate graph database.
-
-These only become useful after extraction quality is demonstrated.
 
 ## References
 
-- GLiNER-Relex model: <https://huggingface.co/knowledgator/gliner-relex-large-v0.5>
-- Gemma 4 model card: <https://ai.google.dev/gemma/docs/core/model_card_4>
-- Ollama Gemma 4 tags: <https://ollama.com/library/gemma4>
-- Ollama structured outputs: <https://docs.ollama.com/capabilities/structured-outputs>
-- Schema.org schemas: <https://schema.org/docs/schemas.html>
-- UMLS Semantic Network: <https://www.nlm.nih.gov/research/umls/knowledge_sources/semantic_network/index.html>
-- CIDOC CRM classes and properties: <https://cidoc-crm.org/cidoc-crm/>
-- W3C PROV-O: <https://www.w3.org/TR/prov-o/>
+- GLiNER-Relex:
+  <https://huggingface.co/knowledgator/gliner-relex-large-v0.5>
+- Gemma 4: <https://ai.google.dev/gemma/docs/core/model_card_4>
+- Ollama structured outputs:
+  <https://docs.ollama.com/capabilities/structured-outputs>
+- Schema.org vocabulary: <https://schema.org/docs/developers.html>
+- PROV-O: <https://www.w3.org/TR/prov-o/>
+- N3: <https://github.com/rdfjs/N3.js>

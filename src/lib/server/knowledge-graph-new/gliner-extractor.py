@@ -5,77 +5,73 @@ import os
 import sys
 
 
-def evidence(text: str, head: dict, tail: dict) -> str:
+def evidence_window(text: str, head: dict, tail: dict) -> str:
     start = min(int(head.get("start", 0)), int(tail.get("start", 0)))
     end = max(int(head.get("end", start)), int(tail.get("end", start)))
-    left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start)) + 1
-    stops = [position for position in (text.find(".", end), text.find("\n", end)) if position >= 0]
+    left = max(text.rfind(mark, 0, start) for mark in (".", "!", "?", "\n")) + 1
+    stops = [text.find(mark, end) for mark in (".", "!", "?", "\n")]
+    stops = [position for position in stops if position >= 0]
     right = min(stops) + 1 if stops else len(text)
     return text[left:right].strip()
 
 
 def main() -> None:
     os.environ.setdefault("USE_TF", "0")
+
+    # Older pyarrow releases used by some GLiNER environments need this alias.
     import pyarrow as pa
 
     pa.PyExtensionType = getattr(pa, "PyExtensionType", pa.ExtensionType)
-    try:
-        from gliner import GLiNER
-    except ImportError as error:
-        raise SystemExit(
-            f"GLiNER could not start: {error}. Install or repair it with: pip install gliner"
-        )
+    from gliner import GLiNER
 
     payload = json.load(sys.stdin)
-    chunks = payload.get("chunks", [])
-    texts = [str(chunk.get("content", "")) for chunk in chunks]
-    entity_types = payload.get("entityTypes", [])
-    relation_types = payload.get("relationTypes", [])
-    model_name = os.getenv(
-        "KNOWLEDGE_GRAPH_GLINER_MODEL",
-        "knowledgator/gliner-relex-base-v1.0",
+    chunks = payload["chunks"]
+    texts = [str(chunk["content"]) for chunk in chunks]
+    model = GLiNER.from_pretrained(
+        os.getenv(
+            "KNOWLEDGE_GRAPH_GLINER_MODEL",
+            "knowledgator/gliner-relex-large-v0.5",
+        )
     )
-    model = GLiNER.from_pretrained(model_name)
     entities_by_text, relations_by_text = model.inference(
-        texts,
-        labels=entity_types,
-        relations=relation_types,
-        threshold=float(os.getenv("KNOWLEDGE_GRAPH_GLINER_THRESHOLD", "0.5")),
+        texts=texts,
+        labels=list(payload["entityTypes"]),
+        relations=payload["relationTypes"],
+        threshold=float(os.getenv("KNOWLEDGE_GRAPH_GLINER_THRESHOLD", "0.4")),
+        adjacency_threshold=float(
+            os.getenv("KNOWLEDGE_GRAPH_GLINER_ADJACENCY_THRESHOLD", "0.55")
+        ),
         relation_threshold=float(
-            os.getenv("KNOWLEDGE_GRAPH_GLINER_RELATION_THRESHOLD", "0.5")
+            os.getenv("KNOWLEDGE_GRAPH_GLINER_RELATION_THRESHOLD", "0.75")
         ),
         batch_size=int(os.getenv("KNOWLEDGE_GRAPH_GLINER_BATCH_SIZE", "4")),
+        return_relations=True,
+        flat_ner=False,
     )
 
     output = []
-    for chunk, text, entities, relations in zip(
+    for chunk, text, _entities, relations in zip(
         chunks, texts, entities_by_text, relations_by_text
     ):
         output.append(
             {
-                "chunkId": chunk.get("chunkId"),
-                "entities": [
-                    {
-                        "mention": item.get("text", ""),
-                        "type": item.get("label", "unknown"),
-                        "start": item.get("start", -1),
-                        "end": item.get("end", -1),
-                    }
-                    for item in entities
-                ],
+                "chunkId": chunk["chunkId"],
                 "assertions": [
                     {
-                        "subject": item.get("head", {}).get("text", ""),
-                        "subjectType": item.get("head", {}).get("type", "unknown"),
-                        "rawPredicate": item.get("relation", ""),
-                        "object": item.get("tail", {}).get("text", ""),
-                        "objectType": item.get("tail", {}).get("type", "unknown"),
-                        "evidence": evidence(
-                            text, item.get("head", {}), item.get("tail", {})
-                        ),
+                        "subject": item["head"]["text"],
+                        "subjectType": item["head"]["type"],
+                        "rawPredicate": item["relation"],
+                        "object": item["tail"]["text"],
+                        "objectType": item["tail"]["type"],
+                        "evidence": evidence_window(text, item["head"], item["tail"]),
                         "startDate": None,
                         "endDate": None,
                         "status": "asserted",
+                        "score": item["score"],
+                        "headStart": item["head"]["start"],
+                        "headEnd": item["head"]["end"],
+                        "tailStart": item["tail"]["start"],
+                        "tailEnd": item["tail"]["end"],
                     }
                     for item in relations
                 ],

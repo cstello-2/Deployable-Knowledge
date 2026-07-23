@@ -23,7 +23,7 @@ export class Ollama extends Provider {
           top_k: options.topK,
           num_predict: options.maxTokens,
         },
-        format: options.json ? "json" : undefined,
+        format: options.format,
         stream: true,
       }),
     });
