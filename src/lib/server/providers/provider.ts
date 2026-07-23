@@ -7,6 +7,7 @@ export type ProviderChatOptions = {
   temperature?: number;
   topK?: number;
   maxTokens?: number;
+  json?: boolean;
 };
 
 export abstract class Provider {

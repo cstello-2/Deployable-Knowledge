@@ -23,28 +23,42 @@ export class Ollama extends Provider {
           top_k: options.topK,
           num_predict: options.maxTokens,
         },
+        format: options.json ? "json" : undefined,
         stream: true,
       }),
     });
 
     const resp = await fetch(req);
+    if (!resp.ok) {
+      throw new Error(
+        `Ollama chat failed (${resp.status}): ${await resp.text()}`,
+      );
+    }
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
 
     if (!reader) throw new Error("reader could not be created.");
 
+    let buffer = "";
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n").filter(Boolean);
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
       for (const line of lines) {
+        if (!line.trim()) continue;
         const data = JSON.parse(line);
 
         if (data.message?.content) yield data.message.content;
       }
+
+      if (done) break;
+    }
+
+    if (buffer.trim()) {
+      const data = JSON.parse(buffer);
+      if (data.message?.content) yield data.message.content;
     }
 
     reader.releaseLock();
