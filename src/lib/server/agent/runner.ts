@@ -12,6 +12,16 @@ import { createReasoningTrace, createToolTrace } from '$lib/utils/agent-trace';
 import type { AgentProgressEvent } from '$lib/types';
 import { AGENT_MAX_TURNS_MAX, AGENT_MAX_TURNS_MIN, DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { clampInteger, readObject } from '../utils/values';
+import {
+	logAgentComplete,
+	logModelCall,
+	logStreamContent,
+	logStreamEnd,
+	logStreamReasoning,
+	logStreamStart,
+	logToolExecutionResult,
+	logToolExecutionStart
+} from './dev-log';
 
 export type AgentToolExecution = {
 	id: string;
@@ -75,16 +85,24 @@ export async function runAgent({
 		});
 		const reasoningTraceId = `reasoning-${modelTurns + 1}`;
 		let lastReasoningEmit = 0;
+		const turnOptions: ProviderChatOptions = {
+			...chatOptions,
+			tools: toolsAvailable ? definitions : undefined,
+			toolChoice: toolsAvailable ? 'auto' : 'none',
+			parallelToolCalls: true
+		};
+		logModelCall({
+			providerName: provider.name,
+			model,
+			modelTurn: modelTurns + 1,
+			messages: transcript,
+			options: turnOptions
+		});
 		const turn = await collectTurn(
 			provider,
 			transcript,
 			model,
-			{
-				...chatOptions,
-				tools: toolsAvailable ? definitions : undefined,
-				toolChoice: toolsAvailable ? 'auto' : 'none',
-				parallelToolCalls: true
-			},
+			turnOptions,
 			modelTurns,
 			onText,
 			(reasoning) => {
@@ -123,6 +141,8 @@ export async function runAgent({
 
 			if (!turn.contentChunks.length) onText?.(finalContent);
 
+			logAgentComplete({ modelTurns, toolTurns });
+
 			return {
 				content: finalContent,
 				modelTurns,
@@ -159,7 +179,9 @@ export async function runAgent({
 				name: call.function.name,
 				trace: runningTrace
 			});
+			logToolExecutionStart(call.function.name, parsedArguments);
 			const result = await registry.executeCall(call, toolContext);
+			logToolExecutionResult(call.function.name, result);
 			const toolError = result.isError ? readToolError(result) : '';
 			const callOutputs = result.outputs ?? [];
 			const completedTrace = createToolTrace({
@@ -235,15 +257,19 @@ async function collectTurn(
 	let reasoningContent = '';
 	const toolCalls = new Map<number, MutableToolCall>();
 
+	logStreamStart(turnIndex + 1);
+
 	for await (const chunk of provider.streamChat(messages, model, options)) {
 		if (chunk.content) {
 			content += chunk.content;
 			contentChunks.push(chunk.content);
+			logStreamContent(chunk.content);
 			onText?.(chunk.content);
 		}
 
 		if (chunk.reasoningContent) {
 			reasoningContent += chunk.reasoningContent;
+			logStreamReasoning(chunk.reasoningContent);
 			onReasoning?.(reasoningContent);
 		}
 
@@ -252,13 +278,17 @@ async function collectTurn(
 		}
 	}
 
+	const orderedToolCalls = [...toolCalls.entries()]
+		.sort(([left], [right]) => left - right)
+		.map(([, call]) => call as ProviderToolCall);
+
+	logStreamEnd(orderedToolCalls.map((call) => call.function.name));
+
 	return {
 		content,
 		contentChunks,
 		reasoningContent,
-		toolCalls: [...toolCalls.entries()]
-			.sort(([left], [right]) => left - right)
-			.map(([, call]) => call as ProviderToolCall)
+		toolCalls: orderedToolCalls
 	};
 }
 
