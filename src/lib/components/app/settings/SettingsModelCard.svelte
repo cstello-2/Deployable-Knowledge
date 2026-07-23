@@ -23,9 +23,7 @@
 		settingsStore.config.provider === LOCAL_MODEL_PROVIDER_ID &&
 			settingsStore.config.model === model.fileName
 	);
-	const downloading = $derived(
-		model.tierId !== null && localModelsStore.downloadingTier === model.tierId
-	);
+	const downloading = $derived(localModelsStore.downloadingFile === model.fileName);
 	const percent = $derived(Math.max(0, Math.min(100, localModelsStore.progress?.percent ?? 0)));
 </script>
 
@@ -79,12 +77,11 @@
 			<Button size="sm" variant="destructive" onclick={() => onDelete(model.fileName)}>
 				Delete
 			</Button>
-		{:else if model.tierId !== null}
-			{@const tierId = model.tierId}
+		{:else if model.downloadable}
 			<Button
 				size="sm"
-				disabled={localModelsStore.downloadingTier !== null}
-				onclick={() => void localModelsStore.download(tierId)}
+				disabled={localModelsStore.downloadingFile !== null}
+				onclick={() => void localModelsStore.download(model.fileName)}
 			>
 				Download
 			</Button>

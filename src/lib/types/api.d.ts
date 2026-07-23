@@ -1,4 +1,3 @@
-import type { LocalModelTierId } from '$lib/constants/local-models';
 import type { RetrievalMode } from '$lib/enums';
 import type { AgentProgressEvent } from './agent';
 import type {
@@ -197,7 +196,6 @@ export type ApiEmbeddingModelInstallEvent =
 	| { status: 'error'; message: string };
 
 export interface ApiLocalModelInfo {
-	tier: LocalModelTierId | null;
 	fileName: string;
 	sizeBytes: number | null;
 	downloaded: boolean;
@@ -205,11 +203,11 @@ export interface ApiLocalModelInfo {
 
 export interface ApiLocalModelsStatus {
 	models: ApiLocalModelInfo[];
-	downloadingTier: LocalModelTierId | null;
+	downloadingFile: string | null;
 }
 
 export interface ApiLocalModelDownloadRequest {
-	tier: LocalModelTierId;
+	fileName: string;
 }
 
 export type ApiLocalModelDownloadEvent =

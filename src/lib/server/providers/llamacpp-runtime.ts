@@ -12,7 +12,7 @@ import type {
 	ModelDownloader
 } from 'node-llama-cpp';
 
-import type { LocalModelTier, LocalModelTierId } from '$lib/constants/local-models';
+import type { LocalModel } from '$lib/constants/local-models';
 
 export const MODELS_DIR = resolve(process.cwd(), 'models');
 
@@ -55,28 +55,28 @@ export function resolveLocalModelPath(fileName: string): string {
 	return path;
 }
 
-let activeDownload: { tier: LocalModelTierId; downloader: ModelDownloader | null } | null = null;
+let activeDownload: { fileName: string; downloader: ModelDownloader | null } | null = null;
 
-export const getActiveDownloadTier = (): LocalModelTierId | null => activeDownload?.tier ?? null;
+export const getActiveDownloadFile = (): string | null => activeDownload?.fileName ?? null;
 
 export async function downloadLocalModel(
-	tier: LocalModelTier,
+	model: LocalModel,
 	onProgress: (loaded: number, total: number) => void
 ): Promise<string> {
 	if (activeDownload) {
-		throw new Error(`A model download is already in progress (${activeDownload.tier}).`);
+		throw new Error(`A model download is already in progress (${activeDownload.fileName}).`);
 	}
 
-	activeDownload = { tier: tier.id, downloader: null };
+	activeDownload = { fileName: model.fileName, downloader: null };
 
 	try {
 		await mkdir(MODELS_DIR, { recursive: true });
 
 		const { createModelDownloader } = await loadNlc();
 		const downloader = await createModelDownloader({
-			modelUri: `hf:${tier.repo}/${tier.fileName}`,
+			modelUri: `hf:${model.repo}/${model.fileName}`,
 			dirPath: MODELS_DIR,
-			fileName: tier.fileName,
+			fileName: model.fileName,
 			skipExisting: true,
 			deleteTempFileOnCancel: false,
 			onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
@@ -85,7 +85,7 @@ export async function downloadLocalModel(
 		activeDownload.downloader = downloader;
 		await downloader.download();
 
-		return tier.fileName;
+		return model.fileName;
 	} finally {
 		activeDownload = null;
 	}

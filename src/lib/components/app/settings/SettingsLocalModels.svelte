@@ -2,39 +2,34 @@
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import { onMount } from 'svelte';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
-	import { findLocalModelTierByFile } from '$lib/constants';
+	import { LOCAL_MODELS, findLocalModelByFile } from '$lib/constants';
 	import { localModelsStore } from '$lib/stores';
-	import { LOCAL_MODEL_CATALOG, type LocalModelCardData } from './local-model-catalog';
+	import { LOCAL_MODEL_ICONS, type LocalModelCardData } from './local-model-catalog';
 	import SettingsModelCard from './SettingsModelCard.svelte';
 
 	let pendingDelete = $state<string | null>(null);
 
 	const cards = $derived.by((): LocalModelCardData[] => {
 		const models = localModelsStore.status?.models ?? [];
-		const downloadedFiles = new Set(
-			models.filter((model) => model.downloaded).map((model) => model.fileName)
-		);
-		const catalogCards = LOCAL_MODEL_CATALOG.filter(
-			(entry) => entry.featured || downloadedFiles.has(entry.tier.fileName)
-		).map((entry) => ({
-			fileName: entry.tier.fileName,
-			name: entry.tier.name,
-			vendor: entry.tier.vendor,
-			icon: entry.icon,
-			description: entry.tier.description,
-			tierId: entry.tier.id,
-			downloadSizeBytes: entry.tier.sizeBytes,
-			minRamGiB: entry.tier.minRamGiB
+		const catalogCards = LOCAL_MODELS.map((model) => ({
+			fileName: model.fileName,
+			name: model.name,
+			vendor: model.vendor,
+			icon: LOCAL_MODEL_ICONS[model.fileName] ?? null,
+			description: model.description,
+			downloadable: true,
+			downloadSizeBytes: model.sizeBytes,
+			minRamGiB: model.minRamGiB
 		}));
 		const customCards = models
-			.filter((model) => model.downloaded && !findLocalModelTierByFile(model.fileName))
+			.filter((model) => model.downloaded && !findLocalModelByFile(model.fileName))
 			.map((model) => ({
 				fileName: model.fileName,
 				name: model.fileName,
 				vendor: 'Custom model',
 				icon: null,
 				description: null,
-				tierId: null,
+				downloadable: false,
 				downloadSizeBytes: null,
 				minRamGiB: null
 			}));

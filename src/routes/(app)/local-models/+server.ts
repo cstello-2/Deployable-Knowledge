@@ -1,14 +1,10 @@
 import { json } from '@sveltejs/kit';
 
-import {
-	LOCAL_MODEL_TIERS,
-	findLocalModelTier,
-	findLocalModelTierByFile
-} from '$lib/constants/local-models';
+import { LOCAL_MODELS, findLocalModelByFile } from '$lib/constants/local-models';
 import {
 	cancelActiveDownload,
 	downloadLocalModel,
-	getActiveDownloadTier,
+	getActiveDownloadFile,
 	listLocalModelFiles
 } from '$lib/server/providers/llamacpp-runtime';
 import type {
@@ -22,33 +18,32 @@ export const GET: RequestHandler = async () => {
 	const files = await listLocalModelFiles();
 	const downloaded = new Set(files);
 
-	const models: ApiLocalModelInfo[] = LOCAL_MODEL_TIERS.map((tier) => ({
-		tier: tier.id,
-		fileName: tier.fileName,
-		sizeBytes: tier.sizeBytes,
-		downloaded: downloaded.has(tier.fileName)
+	const models: ApiLocalModelInfo[] = LOCAL_MODELS.map((model) => ({
+		fileName: model.fileName,
+		sizeBytes: model.sizeBytes,
+		downloaded: downloaded.has(model.fileName)
 	}));
 
 	for (const fileName of files) {
-		if (!findLocalModelTierByFile(fileName)) {
-			models.push({ tier: null, fileName, sizeBytes: null, downloaded: true });
+		if (!findLocalModelByFile(fileName)) {
+			models.push({ fileName, sizeBytes: null, downloaded: true });
 		}
 	}
 
 	const status: ApiLocalModelsStatus = {
 		models,
-		downloadingTier: getActiveDownloadTier()
+		downloadingFile: getActiveDownloadFile()
 	};
 
 	return json(status);
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-	const body = (await request.json().catch(() => null)) as { tier?: unknown } | null;
-	const tier = typeof body?.tier === 'string' ? findLocalModelTier(body.tier) : null;
+	const body = (await request.json().catch(() => null)) as { fileName?: unknown } | null;
+	const model = typeof body?.fileName === 'string' ? findLocalModelByFile(body.fileName) : null;
 
-	if (!tier) return json({ error: 'Unknown model tier.' }, { status: 400 });
-	if (getActiveDownloadTier()) {
+	if (!model) return json({ error: 'Unknown model.' }, { status: 400 });
+	if (getActiveDownloadFile()) {
 		return json({ error: 'A model download is already in progress.' }, { status: 409 });
 	}
 
@@ -71,7 +66,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			let lastSentAt = 0;
 
 			try {
-				const fileName = await downloadLocalModel(tier, (loaded, total) => {
+				const fileName = await downloadLocalModel(model, (loaded, total) => {
 					if (!total) return;
 
 					const progress = loaded / total;

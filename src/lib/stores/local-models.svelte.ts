@@ -1,66 +1,38 @@
-import { LOCAL_MODEL_PROVIDER_ID, STORAGE_KEYS } from '$lib/constants';
-import type { LocalModelTierId } from '$lib/constants/local-models';
+import { LOCAL_MODEL_PROVIDER_ID } from '$lib/constants';
 import { LocalModelsService } from '$lib/services';
 import type { ApiDocumentIngestProgress, ApiLocalModelsStatus } from '$lib/types';
-import { persisted } from './persisted.svelte';
 import { settingsStore } from './settings.svelte';
 
 class LocalModelsStore {
 	status = $state<ApiLocalModelsStatus | null>(null);
-	offerOpen = $state(false);
-	selectedTier = $state<LocalModelTierId | null>(null);
-	downloadingTier = $state<LocalModelTierId | null>(null);
+	downloadingFile = $state<string | null>(null);
 	progress = $state<ApiDocumentIngestProgress | null>(null);
 	error = $state<string | null>(null);
-
-	private dismissed = persisted(STORAGE_KEYS.LOCAL_MODEL_OFFER_DISMISSED, false);
 
 	async refresh(): Promise<void> {
 		this.status = await LocalModelsService.getStatus();
 	}
 
-	async maybeOffer(): Promise<void> {
-		if (this.dismissed.value) return;
+	async download(fileName: string): Promise<void> {
+		if (this.downloadingFile) return;
 
-		try {
-			await this.refresh();
-		} catch {
-			return;
-		}
-
-		if (!this.status || this.status.models.some((model) => model.downloaded)) return;
-
-		this.offerOpen = true;
-	}
-
-	skipOffer(): void {
-		this.dismissed.value = true;
-		this.offerOpen = false;
-		this.error = null;
-	}
-
-	async download(tier: LocalModelTierId): Promise<void> {
-		if (this.downloadingTier) return;
-
-		this.downloadingTier = tier;
+		this.downloadingFile = fileName;
 		this.error = null;
 		this.progress = { percent: 0, label: 'Downloading model', message: 'Starting download.' };
 
 		try {
-			const fileName = await LocalModelsService.download(
-				tier,
+			const downloadedFile = await LocalModelsService.download(
+				fileName,
 				(progress) => (this.progress = progress)
 			);
 
-			this.dismissed.value = true;
-			this.offerOpen = false;
-			await this.activateModel(fileName);
+			await this.activateModel(downloadedFile);
 			await this.refresh();
 			await settingsStore.loadProviders();
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : 'Model download failed';
 		} finally {
-			this.downloadingTier = null;
+			this.downloadingFile = null;
 			this.progress = null;
 		}
 	}

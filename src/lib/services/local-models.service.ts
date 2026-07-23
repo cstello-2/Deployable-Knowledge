@@ -5,7 +5,6 @@ import type {
 	ApiLocalModelDownloadRequest,
 	ApiLocalModelsStatus
 } from '$lib/types';
-import type { LocalModelTierId } from '$lib/constants/local-models';
 import { apiDelete, apiFetch, apiStream, formatBytes, parseNdjsonStream } from '$lib/utils';
 
 export class LocalModelsService {
@@ -14,18 +13,18 @@ export class LocalModelsService {
 	}
 
 	static async download(
-		tier: LocalModelTierId,
+		fileName: string,
 		onProgress?: (progress: ApiDocumentIngestProgress) => void,
 		signal?: AbortSignal
 	): Promise<string> {
-		const body: ApiLocalModelDownloadRequest = { tier };
+		const body: ApiLocalModelDownloadRequest = { fileName };
 		const response = await apiStream(API_LOCAL_MODELS.BASE, {
 			method: 'POST',
 			body: JSON.stringify(body),
 			signal
 		});
 
-		let fileName: string | null = null;
+		let downloadedFile: string | null = null;
 
 		for await (const event of parseNdjsonStream<ApiLocalModelDownloadEvent>(response, signal)) {
 			if (event.status === 'progress') {
@@ -35,15 +34,15 @@ export class LocalModelsService {
 					message: `${formatBytes(event.loaded)} / ${formatBytes(event.total)}`
 				});
 			} else if (event.status === 'ready') {
-				fileName = event.fileName;
+				downloadedFile = event.fileName;
 			} else if (event.status === 'error') {
 				throw new Error(event.message);
 			}
 		}
 
-		if (!fileName) throw new Error('The model download ended unexpectedly.');
+		if (!downloadedFile) throw new Error('The model download ended unexpectedly.');
 
-		return fileName;
+		return downloadedFile;
 	}
 
 	static remove(fileName: string) {
