@@ -20,8 +20,8 @@
 
 <form class="grid gap-3" onsubmit={submit}>
 	<Input
-		accept="audio/flac,audio/mpeg,audio/ogg,audio/wav,audio/webm"
-		aria-label="Audio file"
+		accept="audio/wav"
+		aria-label="WAV file"
 		bind:files
 		type="file"
 	/>

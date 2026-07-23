@@ -4,10 +4,7 @@ invokes the transcription model, and returns the transcription result as JSON. T
 */
 
 import { error, json } from '@sveltejs/kit';
-import { randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 import { transcribeAudio } from '$lib/server/transcription/transcription-model';
 import type { RequestHandler } from './$types';
 
@@ -17,25 +14,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	const formData = await request.formData();
 	const audio = formData.get('audio');
 
-	if (!(audio instanceof File)) throw error(400, 'Choose an audio file.');
+	if (!(audio instanceof File)) throw error(400, 'Choose a WAV audio file.');
 	if (audio.size === 0) throw error(400, 'The audio file is empty.');
 	if (audio.size > MAX_AUDIO_BYTES) throw error(413, 'Audio files must be 100 MB or smaller.');
-
-	const extension = extname(audio.name).replace(/[^a-z0-9.]/gi, '').toLowerCase() || '.audio';
-	const jobDirectory = join(tmpdir(), `deployable-knowledge-transcription-${randomUUID()}`);
-	const audioPath = join(jobDirectory, `input${extension}`);
-
-	await mkdir(jobDirectory, { recursive: true });
-
-	try {
-		await writeFile(audioPath, Buffer.from(await audio.arrayBuffer()));
-
-		return json({
-			fileName: audio.name,
-			...(await transcribeAudio(audioPath))
-		});
-	} finally {
-		await rm(jobDirectory, { force: true, recursive: true });
+	if (extname(audio.name).toLowerCase() !== '.wav') {
+		throw error(415, 'Only WAV audio files are supported currently.');
 	}
-};
 
+	return json({
+		fileName: audio.name,
+		...(await transcribeAudio(Buffer.from(await audio.arrayBuffer())))
+	});
+};

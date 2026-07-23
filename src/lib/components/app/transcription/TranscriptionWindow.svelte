@@ -38,7 +38,7 @@
 >
 	<div class="grid min-h-full content-start gap-3 p-1">
 		<p class="text-sm text-muted-foreground">
-			English transcription runs locally with Transformers.js.
+			Transcription supports English language only
 		</p>
 
 		<TranscriptionUpload
