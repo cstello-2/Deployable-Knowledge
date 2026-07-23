@@ -8,6 +8,7 @@ import ChatHistoryWindow from '$lib/components/app/chat/ChatHistory/ChatHistoryW
 import DocumentsWindow from '$lib/components/app/documents/DocumentsWindow.svelte';
 import NotebookWindow from '$lib/components/app/notebook/NotebookWindow.svelte';
 import SearchWindow from '$lib/components/app/search/SearchWindow.svelte';
+import TranscriptionWindow from '$lib/components/app/transcription/TranscriptionWindow.svelte';
 import { WindowColumn } from '$lib/enums';
 import type { Component } from 'svelte';
 
