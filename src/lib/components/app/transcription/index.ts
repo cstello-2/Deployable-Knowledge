@@ -1,1 +1,1 @@
-export { default as Transcription } from './Transcription';
+export { default as TranscriptionWindow } from './TranscriptionWindow.svelte';

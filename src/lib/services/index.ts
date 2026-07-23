@@ -13,3 +13,4 @@ export { PromptTemplatesService } from './prompt-templates.service';
 export { ProvidersService } from './providers.service';
 export { SearchService } from './search.service';
 export { SetupService } from './setup.service';
+export { TranscriptionService } from './transcription.service';
