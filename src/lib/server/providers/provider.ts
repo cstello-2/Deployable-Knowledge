@@ -7,6 +7,7 @@ export type ProviderChatOptions = {
 	temperature?: number;
 	topK?: number;
 	maxTokens?: number;
+	reasoningBudget?: number;
 	tools?: ProviderToolDefinition[];
 	toolChoice?: 'auto' | 'none';
 	parallelToolCalls?: boolean;

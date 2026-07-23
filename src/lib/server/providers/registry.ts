@@ -1,8 +1,10 @@
 import { Github } from './github';
+import { LlamaCpp } from './llamacpp';
 import { Ollama } from './ollama';
 import type { Provider } from './provider';
 
 const providers: Record<string, () => Provider> = {
+	llamacpp: () => new LlamaCpp(),
 	ollama: () => new Ollama(),
 	github: () => new Github()
 };

@@ -39,6 +39,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			maxTokens: body.maxTokens,
 			temperature: body.temperature,
 			topK: body.topK,
+			reasoningBudget: body.reasoningBudget,
 			retrievalMode: body.retrievalMode,
 			ragTopK: body.ragTopK,
 			agentMaxTurns: body.agentMaxTurns,

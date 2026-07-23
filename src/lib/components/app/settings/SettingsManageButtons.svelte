@@ -1,5 +1,4 @@
 <script lang="ts">
-	import PlugZap from '@lucide/svelte/icons/plug-zap';
 	import Save from '@lucide/svelte/icons/save';
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
@@ -17,7 +16,4 @@
 
 <div class="flex flex-wrap gap-2 border-t pt-4">
 	<Button disabled={!settingsStore.activeProfileId} onclick={save}><Save /> Save settings</Button>
-	<Button variant="outline" onclick={() => toast.info('MCP manager coming soon')}
-		><PlugZap /> MCP servers</Button
-	>
 </div>

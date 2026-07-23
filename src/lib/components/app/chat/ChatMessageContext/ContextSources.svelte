@@ -19,7 +19,7 @@
 </script>
 
 {#if sources.length}
-	<ol class="grid gap-1 pl-5 text-xs text-muted-foreground">
+	<ol class="grid list-inside gap-1 text-xs text-muted-foreground">
 		{#each sources as source (`source-${source.id}`)}
 			{@const href = hrefFor(source)}
 			<li>
