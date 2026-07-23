@@ -1,3 +1,4 @@
+import type { LocalModelTierId } from '$lib/constants/local-models';
 import type { RetrievalMode } from '$lib/enums';
 import type { AgentProgressEvent } from './agent';
 import type {
@@ -15,6 +16,7 @@ export interface AssistantConfig {
 	maxTokens: number;
 	temperature: number;
 	topK: number;
+	reasoningBudget: number;
 	retrievalMode: RetrievalMode;
 	ragTopK: number;
 	agentMaxTurns: number;
@@ -194,6 +196,27 @@ export type ApiEmbeddingModelInstallEvent =
 	| { status: 'ready' }
 	| { status: 'error'; message: string };
 
+export interface ApiLocalModelInfo {
+	tier: LocalModelTierId | null;
+	fileName: string;
+	sizeBytes: number | null;
+	downloaded: boolean;
+}
+
+export interface ApiLocalModelsStatus {
+	models: ApiLocalModelInfo[];
+	downloadingTier: LocalModelTierId | null;
+}
+
+export interface ApiLocalModelDownloadRequest {
+	tier: LocalModelTierId;
+}
+
+export type ApiLocalModelDownloadEvent =
+	| { status: 'progress'; progress: number; loaded: number; total: number }
+	| { status: 'ready'; fileName: string }
+	| { status: 'error'; message: string };
+
 interface ApiChatMessageBase {
 	message: string;
 	model_id: string;
@@ -201,6 +224,7 @@ interface ApiChatMessageBase {
 	max_tokens: number;
 	temperature: number;
 	top_k: number;
+	reasoning_budget?: number;
 	agent_max_turns: number;
 	tools_enabled?: boolean;
 }

@@ -174,6 +174,9 @@ export const profiles = sqliteTable(
 		maxTokens: integer('max_tokens').notNull().default(DEFAULT_ASSISTANT_CONFIG.maxTokens),
 		temperature: real().notNull().default(DEFAULT_ASSISTANT_CONFIG.temperature),
 		topK: integer('top_k').notNull().default(DEFAULT_ASSISTANT_CONFIG.topK),
+		reasoningBudget: integer('reasoning_budget')
+			.notNull()
+			.default(DEFAULT_ASSISTANT_CONFIG.reasoningBudget),
 		retrievalMode: text('retrieval_mode', {
 			enum: ['semantic', 'bm25', 'hybrid']
 		})
@@ -352,6 +355,7 @@ export type AssistantProfileValues = Pick<
 	| 'maxTokens'
 	| 'temperature'
 	| 'topK'
+	| 'reasoningBudget'
 	| 'retrievalMode'
 	| 'ragTopK'
 	| 'agentMaxTurns'

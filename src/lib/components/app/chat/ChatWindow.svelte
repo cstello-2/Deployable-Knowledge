@@ -86,6 +86,7 @@
 				max_tokens: config.maxTokens,
 				temperature: config.temperature,
 				top_k: config.topK,
+				reasoning_budget: config.reasoningBudget,
 				agent_max_turns: config.agentMaxTurns,
 				tools_enabled: chatStore.toolsEnabled
 			};

@@ -9,6 +9,6 @@
 	let { children, label }: Props = $props();
 </script>
 
-<section class="mt-2 grid gap-1.5 border-t pt-2" aria-label={label}>
+<section class="mt-2 grid gap-1.5" aria-label={label}>
 	{@render children?.()}
 </section>

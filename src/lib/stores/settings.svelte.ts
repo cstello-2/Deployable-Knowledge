@@ -148,6 +148,7 @@ class SettingsStore {
 			maxTokens: profile.maxTokens,
 			temperature: profile.temperature,
 			topK: profile.topK,
+			reasoningBudget: profile.reasoningBudget,
 			retrievalMode: profile.retrievalMode as RetrievalMode,
 			ragTopK: profile.ragTopK,
 			agentMaxTurns: profile.agentMaxTurns,

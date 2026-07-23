@@ -6,6 +6,7 @@
  */
 export { ChatService } from './chat.service';
 export { DocumentsService } from './documents.service';
+export { LocalModelsService } from './local-models.service';
 export { NotebooksService } from './notebooks.service';
 export { ProfilesService } from './profiles.service';
 export { PromptTemplatesService } from './prompt-templates.service';

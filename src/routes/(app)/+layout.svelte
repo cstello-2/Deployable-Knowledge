@@ -5,11 +5,17 @@
 	import { Toaster } from 'svelte-sonner';
 	import packageMetadata from '../../../package.json';
 	import favicon from '$lib/assets/icon.svg';
-	import { DialogProgress } from '$lib/components/app/dialogs';
+	import { DialogLocalModelSetup, DialogProgress } from '$lib/components/app/dialogs';
 	import { AppStartupOverlay } from '$lib/components/app/navigation';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { STORAGE_KEYS } from '$lib/constants';
-	import { settingsStore, setupStore, themeStore, workspaceStore } from '$lib/stores';
+	import {
+		localModelsStore,
+		settingsStore,
+		setupStore,
+		themeStore,
+		workspaceStore
+	} from '$lib/stores';
 
 	let { children } = $props();
 	let layoutReady = $state(false);
@@ -18,7 +24,7 @@
 		themeStore.init();
 		workspaceStore.init();
 		void settingsStore.init();
-		void setupStore.init();
+		void setupStore.init().then(() => localModelsStore.maybeOffer());
 
 		let secondFrame = 0;
 		const firstFrame = requestAnimationFrame(() => {
@@ -59,6 +65,8 @@
 		onRetry={() => void setupStore.install()}
 		onClose={() => (setupStore.open = false)}
 	/>
+
+	<DialogLocalModelSetup />
 
 	<AppStartupOverlay ready={layoutReady} version={packageMetadata.version} />
 </Tooltip.Provider>

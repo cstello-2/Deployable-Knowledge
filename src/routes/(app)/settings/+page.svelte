@@ -1,9 +1,1 @@
-<script lang="ts">
-	import { SettingsPage } from '$lib/components/app/settings';
-</script>
-
-<svelte:head>
-	<title>Settings · Deployable Knowledge</title>
-</svelte:head>
-
-<SettingsPage />
+<!-- /settings redirects to /settings/agent (see +page.ts). This stub must exist for the route to resolve. -->

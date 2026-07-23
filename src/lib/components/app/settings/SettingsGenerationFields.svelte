@@ -59,6 +59,23 @@
 		/>
 	</div>
 	<div class="grid gap-2">
+		<Label for="settings-reasoning-budget">Reasoning budget (tokens)</Label>
+		<Input
+			id="settings-reasoning-budget"
+			type="number"
+			min="-1"
+			value={settingsStore.config.reasoningBudget}
+			oninput={(event) =>
+				settingsStore.updateConfig({
+					reasoningBudget: Math.max(
+						-1,
+						Math.floor(numberValue(event, settingsStore.config.reasoningBudget))
+					)
+				})}
+		/>
+		<p class="m-0 text-xs text-muted-foreground">-1 = unlimited · 0 = disable thinking</p>
+	</div>
+	<div class="grid gap-2">
 		<Label for="settings-agent-turns">Agent turns</Label>
 		<Input
 			id="settings-agent-turns"

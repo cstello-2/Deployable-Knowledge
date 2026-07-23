@@ -2,13 +2,17 @@ import type { AgentTraceItem, StoredToolCall } from '$lib/types';
 
 type TraceStatus = NonNullable<AgentTraceItem['status']>;
 
-export function createReasoningTrace(id: string, output: string): AgentTraceItem {
+export function createReasoningTrace(
+	id: string,
+	output: string,
+	status: TraceStatus = 'complete'
+): AgentTraceItem {
 	return {
 		id,
 		kind: 'reasoning',
-		title: 'Thought process',
+		title: status === 'running' ? 'Thinking…' : 'Thought process',
 		output: output.trim(),
-		status: 'complete'
+		status
 	};
 }
 

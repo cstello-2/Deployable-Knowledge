@@ -23,7 +23,12 @@
 {#if outputs.length}
 	<ul class="grid list-none gap-1.5 p-0">
 		{#each outputs as output (`${output.type}-${output.id}`)}
-			<li class="min-w-0 rounded-md border-l-2 bg-muted/40 p-2 text-xs">
+			<li
+				class={[
+					'min-w-0 text-xs',
+					output.type !== 'image' && 'rounded-md border-l-2 bg-muted/40 p-2'
+				]}
+			>
 				{#if output.type === 'image'}
 					<img
 						class="max-h-60 max-w-full rounded bg-white object-contain"

@@ -1,10 +1,13 @@
-export { default as SettingsGenerationFields } from './SettingsGenerationFields.svelte';
+export { default as SettingsAgentPage } from './SettingsAgentPage.svelte';
+export { default as SettingsApiKeys } from './SettingsApiKeys.svelte';
 export { default as SettingsAppearance } from './SettingsAppearance.svelte';
+export { default as SettingsGenerationFields } from './SettingsGenerationFields.svelte';
+export { default as SettingsLayout } from './SettingsLayout.svelte';
+export { default as SettingsLocalModels } from './SettingsLocalModels.svelte';
 export { default as SettingsManageButtons } from './SettingsManageButtons.svelte';
 export { default as SettingsModelSelector } from './SettingsModelSelector.svelte';
 export { default as SettingsPersonaField } from './SettingsPersonaField.svelte';
 export { default as SettingsProfileSelector } from './SettingsProfileSelector.svelte';
 export { default as SettingsPromptTemplateSelector } from './SettingsPromptTemplateSelector.svelte';
 export { default as SettingsRetrievalSection } from './SettingsRetrievalSection.svelte';
-export { default as SettingsPage } from './SettingsPage.svelte';
 export * from './settings-profiles';

@@ -27,6 +27,11 @@ export const API_NOTEBOOKS = {
 	source: (id: string, sourceId: string) => `/notebooks/${segment(id)}/sources/${segment(sourceId)}`
 };
 
+export const API_LOCAL_MODELS = {
+	BASE: '/local-models',
+	byFile: (fileName: string) => `/local-models/${segment(fileName)}`
+};
+
 export const API_PROFILES = {
 	BASE: '/profiles',
 	ACTIVE: '/profiles/active',

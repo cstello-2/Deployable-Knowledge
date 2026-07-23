@@ -31,7 +31,7 @@
 	};
 </script>
 
-<section class="dk-panel grid gap-5 rounded-xl border p-5" aria-labelledby="appearance-heading">
+<section class="grid gap-5" aria-labelledby="appearance-heading">
 	<header class="flex items-center gap-3">
 		<Palette class="size-5 shrink-0" />
 		<div class="grid gap-1">

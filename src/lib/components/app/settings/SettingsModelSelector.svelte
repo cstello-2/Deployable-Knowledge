@@ -1,15 +1,10 @@
 <script lang="ts">
 	import KeyRound from '@lucide/svelte/icons/key-round';
+	import { resolve } from '$app/paths';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import { settingsStore } from '$lib/stores';
-
-	interface Props {
-		onManageApiKeys: () => void;
-	}
-
-	let { onManageApiKeys }: Props = $props();
 
 	const selectedValue = $derived(`${settingsStore.config.provider}::${settingsStore.config.model}`);
 
@@ -26,7 +21,9 @@
 <section class="grid gap-2">
 	<div class="flex items-center justify-between gap-2">
 		<Label for="settings-model">Provider and model</Label>
-		<Button variant="ghost" size="sm" onclick={onManageApiKeys}><KeyRound /> API keys</Button>
+		<Button variant="ghost" size="sm" href={resolve('/settings/models')}>
+			<KeyRound /> API keys
+		</Button>
 	</div>
 	<Select.Root type="single" value={selectedValue} onValueChange={selectModel}>
 		<Select.Trigger id="settings-model" class="w-full">

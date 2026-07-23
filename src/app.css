@@ -211,24 +211,34 @@
 		cursor: pointer;
 	}
 
+	/* Shared scrollbar tokens — keep native (webkit) scrollbars and the
+	   ScrollArea component skin in sync. */
+	:root {
+		--scrollbar-size: 0.65rem;
+		--scrollbar-radius: 0.5rem;
+		--scrollbar-track: color-mix(in oklab, var(--background) 88%, var(--card));
+		--scrollbar-thumb: color-mix(in oklab, var(--border) 88%, var(--muted-foreground));
+		--scrollbar-thumb-hover: color-mix(in oklab, var(--border) 65%, var(--muted-foreground));
+	}
+
 	*::-webkit-scrollbar {
-		width: 0.65rem;
-		height: 0.65rem;
+		width: var(--scrollbar-size);
+		height: var(--scrollbar-size);
 	}
 
 	*::-webkit-scrollbar-track {
 		border-left: 1px solid var(--border);
-		background: color-mix(in oklab, var(--background) 88%, var(--card));
+		background: var(--scrollbar-track);
 	}
 
 	*::-webkit-scrollbar-thumb {
-		border: 2px solid color-mix(in oklab, var(--background) 88%, var(--card));
-		border-radius: 0.5rem;
-		background: color-mix(in oklab, var(--border) 88%, var(--muted-foreground));
+		border: 2px solid var(--scrollbar-track);
+		border-radius: var(--scrollbar-radius);
+		background: var(--scrollbar-thumb);
 	}
 
 	*:hover::-webkit-scrollbar-thumb {
-		background: color-mix(in oklab, var(--border) 65%, var(--muted-foreground));
+		background: var(--scrollbar-thumb-hover);
 	}
 }
 

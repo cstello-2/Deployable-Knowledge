@@ -53,7 +53,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const options: ProviderChatOptions = {
 		temperature: body.temperature,
 		topK: body.top_k,
-		maxTokens: body.max_tokens
+		maxTokens: body.max_tokens,
+		reasoningBudget:
+			typeof body.reasoning_budget === 'number'
+				? Math.max(-1, Math.floor(body.reasoning_budget))
+				: undefined
 	};
 
 	const existing = await SessionsRepository.find(params.id);

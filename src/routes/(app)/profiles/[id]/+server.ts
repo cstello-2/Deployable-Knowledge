@@ -34,6 +34,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			maxTokens: body.maxTokens,
 			temperature: body.temperature,
 			topK: body.topK,
+			reasoningBudget: body.reasoningBudget,
 			retrievalMode: body.retrievalMode,
 			ragTopK: body.ragTopK,
 			agentMaxTurns: body.agentMaxTurns,

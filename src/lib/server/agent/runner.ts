@@ -73,6 +73,8 @@ export async function runAgent({
 			modelTurn: modelTurns + 1,
 			toolTurn: toolTurns
 		});
+		const reasoningTraceId = `reasoning-${modelTurns + 1}`;
+		let lastReasoningEmit = 0;
 		const turn = await collectTurn(
 			provider,
 			transcript,
@@ -84,7 +86,19 @@ export async function runAgent({
 				parallelToolCalls: true
 			},
 			modelTurns,
-			onText
+			onText,
+			(reasoning) => {
+				const now = Date.now();
+				if (now - lastReasoningEmit < 250) return;
+				lastReasoningEmit = now;
+				onProgress?.({
+					kind: 'model',
+					status: 'started',
+					modelTurn: modelTurns + 1,
+					toolTurn: toolTurns,
+					trace: createReasoningTrace(reasoningTraceId, reasoning, 'running')
+				});
+			}
 		);
 		modelTurns += 1;
 		const reasoningTrace = turn.reasoningContent.trim()
@@ -213,7 +227,8 @@ async function collectTurn(
 	model: string,
 	options: ProviderChatOptions,
 	turnIndex: number,
-	onText?: (text: string) => void
+	onText?: (text: string) => void,
+	onReasoning?: (accumulated: string) => void
 ) {
 	const contentChunks: string[] = [];
 	let content = '';
@@ -227,7 +242,10 @@ async function collectTurn(
 			onText?.(chunk.content);
 		}
 
-		if (chunk.reasoningContent) reasoningContent += chunk.reasoningContent;
+		if (chunk.reasoningContent) {
+			reasoningContent += chunk.reasoningContent;
+			onReasoning?.(reasoningContent);
+		}
 
 		for (const delta of chunk.toolCalls ?? []) {
 			mergeToolCallDelta(toolCalls, delta, turnIndex);
