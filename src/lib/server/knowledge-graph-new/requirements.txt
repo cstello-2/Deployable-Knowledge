@@ -1,0 +1,1 @@
+gliner @ git+https://github.com/urchade/GLiNER.git@2f10b62f801880560e0d35734c9c7ee44d0c37b3
