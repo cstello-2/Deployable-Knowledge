@@ -3,7 +3,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import { transcriptionStore } from '$lib/stores';
 	import TranscriptViewer from './TranscriptViewer.svelte';
-	import TranscriptionUpload from './TranscriptionUpload.svelte';
 
 	interface Props {
 		collapsed?: boolean;
@@ -38,24 +37,23 @@
 >
 	<div class="grid min-h-full content-start gap-3 p-1">
 		<p class="text-sm text-muted-foreground">
-			Transcription supports English language only
+			Choose a WAV file from Document Library. Transcription currently supports English only.
 		</p>
 
-		<TranscriptionUpload
-			disabled={transcriptionStore.loading}
-			onSubmit={(audio) => void transcriptionStore.transcribe(audio)}
-		/>
+		{#if transcriptionStore.loading}
+			<p class="text-sm text-muted-foreground" aria-live="polite">Transcribing audio…</p>
+		{/if}
 
 		{#if transcriptionStore.error}
-			<p class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+			<p
+				class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+			>
 				{transcriptionStore.error}
 			</p>
 		{/if}
 
 		{#if transcriptionStore.result}
-			<Button onclick={() => transcriptionStore.clear()} variant="outline">
-				Clear transcript
-			</Button>
+			<Button onclick={() => transcriptionStore.clear()} variant="outline">Clear transcript</Button>
 		{/if}
 
 		<TranscriptViewer result={transcriptionStore.result} />

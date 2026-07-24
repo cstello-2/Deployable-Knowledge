@@ -4,18 +4,19 @@ import type { TranscriptionResult } from '$lib/types';
 class TranscriptionStore {
 	error = $state<string | null>(null);
 	loading = $state(false);
-	result = $state<TranscriptionResult | null>(null);
+	result = $state<TranscriptionResult | null>(null); // In the future, implement transcription history
 
-	async transcribe(audio: File): Promise<void> {
+	async transcribePath(path: string): Promise<void> {
 		if (this.loading) return;
 
 		this.error = null;
 		this.loading = true;
 
 		try {
-			this.result = await TranscriptionService.transcribe(audio);
+			this.result = await TranscriptionService.transcribePath(path);
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : 'Transcription failed.';
+			throw error;
 		} finally {
 			this.loading = false;
 		}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import AudioLines from '@lucide/svelte/icons/audio-lines';
 	import CheckSquare2 from '@lucide/svelte/icons/square-check-big';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Folder from '@lucide/svelte/icons/folder';
@@ -45,7 +46,8 @@
 				><FolderSync /> Add documents or sync a folder</Dialog.Title
 			>
 			<Dialog.Description>
-				Browse local folders, select individual PDFs, or keep the current folder synchronized.
+				Browse local folders, select PDFs or audio files, or keep files in the current folder
+				synchronized.
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -108,12 +110,16 @@
 									{:else}
 										<Square class="size-4 shrink-0" />
 									{/if}
-									<FileText class="size-4 shrink-0" />
+									{#if item.kind === 'audio'}
+										<AudioLines class="size-4 shrink-0" />
+									{:else}
+										<FileText class="size-4 shrink-0" />
+									{/if}
 									<span class="truncate">{item.name}</span>
 								</button>
 							{/if}
 						{:else}
-							<p class="p-4 text-sm text-muted-foreground">No folders or PDFs here.</p>
+							<p class="p-4 text-sm text-muted-foreground">No folders, PDFs, or audio files here.</p>
 						{/each}
 					{/if}
 				</div>
@@ -123,13 +129,13 @@
 		<Dialog.Footer>
 			<span class="mr-auto text-xs text-muted-foreground">
 				{selectedPaths.length
-					? `${selectedPaths.length} PDF${selectedPaths.length === 1 ? '' : 's'} selected`
-					: 'No PDFs selected'}
+					? `${selectedPaths.length} file${selectedPaths.length === 1 ? '' : 's'} selected`
+					: 'No files selected'}
 			</span>
 			<Button variant="outline" onclick={() => onOpenChange(false)}>Cancel</Button>
 			{#if selectedPaths.length}
 				<Button {disabled} onclick={() => onSubmitPaths(selectedPaths)}>
-					Add {selectedPaths.length} PDF{selectedPaths.length === 1 ? '' : 's'}
+					Add {selectedPaths.length} file{selectedPaths.length === 1 ? '' : 's'}
 				</Button>
 			{:else}
 				<Button

@@ -5,3 +5,4 @@ export * from './document-tags';
 export * from './format';
 export * from './ndjson';
 export * from './notebook-text';
+export * from './audio-format';

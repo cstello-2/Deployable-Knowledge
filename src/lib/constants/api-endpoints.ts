@@ -61,4 +61,4 @@ export const API_SETUP = '/setup';
 
 export const API_TRANSCRIPTIONS = {
 	BASE: '/transcriptions'
-}
+};
