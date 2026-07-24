@@ -5,10 +5,9 @@
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type { AppState } from "$lib/state.svelte";
-  import type { NotebookWithPages } from "$lib/server/database/schema";
   import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
   import { showWindow } from "$lib/utils/workspaceState";
-  import { applyNotebookState } from "$lib/utils/notebookState";
+  import { attachChunkToNotebookDestination } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
 
   type VisualNode = {
@@ -883,34 +882,6 @@
     return node.chunkId || node.id;
   }
 
-  function formatChunkNotebookEntry(node: VisualNode) {
-    const scoreLines = [
-      node.retrievalScore == null ? null : `Retrieval score: ${node.retrievalScore.toFixed(4)}`,
-      node.hybridScore == null ? null : `Hybrid score: ${node.hybridScore.toFixed(4)}`,
-      node.graphScore == null ? null : `Graph score: ${node.graphScore.toFixed(4)}`,
-      node.score == null ? null : `Galaxy score: ${node.score.toFixed(4)}`,
-    ].filter((line): line is string => Boolean(line));
-    const metadata = [
-      query ? `Query: ${query}` : null,
-      node.sourceTitle ? `Document: ${node.sourceTitle}` : null,
-      node.pageIndex == null ? null : `Page: ${node.pageIndex + 1}`,
-      node.chunkIndex == null ? null : `Chunk index: ${node.chunkIndex}`,
-      node.chunkType ? `Chunk type: ${node.chunkType}` : null,
-      node.documentId ? `Document ID: ${node.documentId}` : null,
-      node.chunkId ? `Chunk ID: ${node.chunkId}` : null,
-      node.matchedEntities?.length ? `Matched entities: ${node.matchedEntities.join(", ")}` : null,
-      node.relations?.length ? `Relations: ${node.relations.join(", ")}` : null,
-      ...scoreLines,
-    ].filter((line): line is string => Boolean(line));
-
-    return [
-      `[Knowledge Graph Chunk] ${node.label}`,
-      ...metadata,
-      "",
-      node.content || node.preview || "No chunk text is available.",
-    ].join("\n");
-  }
-
   async function openSaveChunkDialog() {
     const node = selectedNode;
     if (node?.kind !== "chunk") return;
@@ -940,39 +911,26 @@
   }) {
     const node = pendingChunk;
     if (node?.kind !== "chunk") return;
-    const saveKey = chunkSaveKey(node);
+    const saveKey = node.chunkId;
+    if (!saveKey) throw new Error("This graph chunk has no stored source ID.");
     if (savingChunkId) return;
 
     savingChunkId = saveKey;
     try {
-      const response = await fetch(
-        `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chunkId: saveKey,
-            text: formatChunkNotebookEntry(node),
-          }),
-        },
+      const result = await attachChunkToNotebookDestination(
+        appState,
+        destination,
+        saveKey,
       );
-      const data = await response.json() as {
-        message?: string;
-        activeNotebookId: string | null;
-        notebooks: NotebookWithPages[];
-        duplicate?: boolean;
-      };
-      if (!response.ok) throw new Error(data.message || "The chunk could not be saved.");
-
-      applyNotebookState(appState, data);
       showWindow("notebook-window");
       await tick();
       notifyNotebookChanged();
+      window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
       const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
       showToast(
-        data.duplicate
-          ? `Chunk already exists in ${label}`
-          : `Chunk saved to ${label}`,
+        result.duplicate
+          ? `Chunk already exists in Loaded Sources for ${label}`
+          : `Chunk added to Loaded Sources for ${label}`,
       );
       saveDialogOpen = false;
       pendingChunk = null;
@@ -1168,7 +1126,8 @@
                   <button
                     class="btn btn-sm inspector-toggle"
                     type="button"
-                    disabled={savingChunkId === chunkSaveKey(selectedNode)}
+                    disabled={!selectedNode.chunkId ||
+                      savingChunkId === chunkSaveKey(selectedNode)}
                     onclick={openSaveChunkDialog}
                   >
                     <Icon name="bookmark_add" size={14} />
