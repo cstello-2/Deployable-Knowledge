@@ -14,6 +14,6 @@ export const SUPPORTED_AUDIO_EXTENSIONS = [
 ] as const;
 
 export function isSupportedAudioPath(path: string): boolean {
-    const normalized = path.toLowerCase();
-    return SUPPORTED_AUDIO_EXTENSIONS.some((extension) => normalized.endsWith(extension));
+	const normalized = path.toLowerCase();
+	return SUPPORTED_AUDIO_EXTENSIONS.some((extension) => normalized.endsWith(extension));
 }

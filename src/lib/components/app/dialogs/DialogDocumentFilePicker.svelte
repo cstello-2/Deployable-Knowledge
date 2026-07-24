@@ -119,7 +119,9 @@
 								</button>
 							{/if}
 						{:else}
-							<p class="p-4 text-sm text-muted-foreground">No folders, PDFs, or audio files here.</p>
+							<p class="p-4 text-sm text-muted-foreground">
+								No folders, PDFs, or audio files here.
+							</p>
 						{/each}
 					{/if}
 				</div>
