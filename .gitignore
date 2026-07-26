@@ -29,6 +29,7 @@ models/
 tmp_model/ 
 .cache/
 knowledge-graph-*.json
+knowledge-graph-*.csv
 
 
 /documents/

@@ -53,6 +53,7 @@ export type BuildOptions = ExtractionSettings & {
   documentIds?: string[];
   chunkLimit?: number;
   force?: boolean;
+  logger?: (message: string) => void;
   onProgress?: (progress: {
     stage: "schema" | "extracting" | "reconciling" | "saving";
     completed: number;
@@ -60,17 +61,31 @@ export type BuildOptions = ExtractionSettings & {
   }) => void;
 };
 
+export type BuildFailure = {
+  stage: "llm" | "gliner" | "reconciling" | "saving";
+  chunkId: string | null;
+  message: string;
+};
+
 export type BuildResult = {
+  complete: boolean;
   reused: boolean;
   chunks: number;
+  completedChunks: number;
+  failures: BuildFailure[];
   graph: KnowledgeGraph;
 };
 
-const VERSION = "kg-build-v3";
+const VERSION = "kg-build-v4";
 
 export async function buildKnowledgeGraph(
   options: BuildOptions,
 ): Promise<BuildResult> {
+  const started = performance.now();
+  const log = (text: string) =>
+    (options.logger ?? console.log)(
+      `[kg ${duration(performance.now() - started)}] ${text}`,
+    );
   await ensureTables();
   const documentIds = uniqueIds(options.documentIds ?? []);
   const chunks = limitChunks(
@@ -78,6 +93,7 @@ export async function buildKnowledgeGraph(
     options.chunkLimit,
   );
   if (!chunks.length) throw new Error("No stored document chunks are available.");
+  log(`loaded ${chunks.length} chunks`);
 
   const scope = documentIds.length
     ? `documents:${hash(documentIds.join("\0"))}`
@@ -103,14 +119,19 @@ export async function buildKnowledgeGraph(
     !options.force &&
     String(previous.rows[0]?.signature ?? "") === signature
   ) {
+    log("complete graph cache hit");
     return {
+      complete: true,
       reused: true,
       chunks: chunks.length,
+      completedChunks: chunks.length,
+      failures: [],
       graph: await loadKnowledgeGraph(documentIds),
     };
   }
 
   const cache = await readCache();
+  const schemaStarted = performance.now();
   progress(options, "schema", 0, 1);
   const schemaKey = cacheKey("schema", {
     chunks: chunks.map((chunk) => [chunk.chunkId, hash(chunk.content)]),
@@ -119,8 +140,12 @@ export async function buildKnowledgeGraph(
   });
   let schema = parse<CorpusSchema>(cache.get(schemaKey));
   if (!schema) {
+    log("discovering corpus schema");
     schema = await discoverCorpusSchema(chunks, options);
     await writeCache([{ key: schemaKey, value: schema }]);
+    log(`schema discovered in ${duration(performance.now() - schemaStarted)}`);
+  } else {
+    log(`schema cache hit in ${duration(performance.now() - schemaStarted)}`);
   }
   progress(options, "schema", 1, 1);
 
@@ -145,87 +170,200 @@ export async function buildKnowledgeGraph(
   });
   const usable = pending.filter((chunk) => hasUsableText(chunk.content));
   const missingGliner = usable.filter((chunk) => !gliner.has(chunk.chunkId));
+  log(
+    `cache status: ${final.size} final, ${llm.size} LLM, ${gliner.size} GLiNER; ${pending.length} pending`,
+  );
+
+  let cacheQueue = Promise.resolve();
+  const cacheResult = (key: string, value: unknown) => {
+    const write = cacheQueue.then(() => writeCache([{ key, value }]));
+    cacheQueue = write.catch(() => undefined);
+    return write;
+  };
+
+  const failures: BuildFailure[] = [];
+  let glinerCompleted = 0;
+  const glinerStarted = performance.now();
   const glinerPromise =
     options.useGliner === false
-      ? Promise.resolve(new Map<string, ExtractionResult>())
-      : runGliner(missingGliner, schema);
+      ? Promise.resolve<Error | null>(null)
+      : runGliner(missingGliner, schema, async (chunkId, result) => {
+          gliner.set(chunkId, result);
+          await cacheResult(keys.get(chunkId)!.gliner, result);
+          glinerCompleted += 1;
+          log(
+            `GLiNER ${glinerCompleted}/${missingGliner.length} checkpointed (${eta(glinerCompleted, missingGliner.length, glinerStarted)})`,
+          );
+        }).then(
+          () => null,
+          (error) => (error instanceof Error ? error : new Error(String(error))),
+        );
 
-  const failures: string[] = [];
   let completed = chunks.length - pending.length;
+  let attempted = 0;
+  const missingLlm = pending.filter((chunk) => !llm.has(chunk.chunkId));
+  const extractionStarted = performance.now();
   progress(options, "extracting", completed, chunks.length);
   for (const chunk of pending) {
     if (!llm.has(chunk.chunkId)) {
+      const chunkStarted = performance.now();
       try {
         const result = hasUsableText(chunk.content)
           ? await extractWithLlm(chunk, schema, options)
           : emptyExtraction();
         llm.set(chunk.chunkId, result);
-        await writeCache([{ key: keys.get(chunk.chunkId)!.llm, value: result }]);
+        await cacheResult(keys.get(chunk.chunkId)!.llm, result);
+        attempted += 1;
+        log(
+          `LLM ${attempted}/${missingLlm.length} ${chunk.chunkId} took ${duration(performance.now() - chunkStarted)} (${eta(attempted, missingLlm.length, extractionStarted)})`,
+        );
       } catch (error) {
-        failures.push(`${chunk.chunkId}: ${message(error)}`);
+        attempted += 1;
+        failures.push({
+          stage: "llm",
+          chunkId: chunk.chunkId,
+          message: message(error),
+        });
+        log(
+          `LLM ${attempted}/${missingLlm.length} ${chunk.chunkId} failed after ${duration(performance.now() - chunkStarted)}`,
+        );
       }
     }
     progress(options, "extracting", ++completed, chunks.length);
   }
 
-  try {
-    const extracted = await glinerPromise;
-    const writes = missingGliner.map((chunk) => {
-      const result = extracted.get(chunk.chunkId) ?? emptyExtraction();
-      gliner.set(chunk.chunkId, result);
-      return { key: keys.get(chunk.chunkId)!.gliner, value: result };
+  const glinerError = await glinerPromise;
+  await cacheQueue;
+  if (glinerError) {
+    failures.push({
+      stage: "gliner",
+      chunkId: null,
+      message: glinerError.message,
     });
-    await writeCache(writes);
-  } catch (error) {
-    throw new Error(
-      `GLiNER failed after completed LLM chunks were cached: ${message(error)}`,
-    );
+    log(`GLiNER failed after ${glinerCompleted} checkpoints: ${glinerError.message}`);
+  } else if (options.useGliner !== false) {
+    log(`GLiNER finished in ${duration(performance.now() - glinerStarted)}`);
   }
   for (const chunk of pending) {
-    if (!gliner.has(chunk.chunkId)) {
+    if (!hasUsableText(chunk.content) || options.useGliner === false) {
       gliner.set(chunk.chunkId, emptyExtraction());
+    } else if (!gliner.has(chunk.chunkId) && !glinerError) {
+      failures.push({
+        stage: "gliner",
+        chunkId: chunk.chunkId,
+        message: "GLiNER returned no result for this chunk.",
+      });
     }
   }
 
   completed = chunks.length - pending.length;
+  attempted = 0;
+  const reconcilable = pending.filter(
+    (chunk) => llm.has(chunk.chunkId) && gliner.has(chunk.chunkId),
+  );
+  const reconciliationStarted = performance.now();
   progress(options, "reconciling", completed, chunks.length);
   for (const chunk of pending) {
     const llmResult = llm.get(chunk.chunkId);
-    if (llmResult) {
+    const glinerResult = gliner.get(chunk.chunkId);
+    if (llmResult && glinerResult) {
+      const chunkStarted = performance.now();
       try {
         const result = hasUsableText(chunk.content)
           ? await reconcileExtractions(
               chunk.content,
               schema,
               llmResult,
-              gliner.get(chunk.chunkId)!,
+              glinerResult,
               options,
             )
           : emptyExtraction();
         final.set(chunk.chunkId, result);
-        await writeCache([
-          { key: keys.get(chunk.chunkId)!.final, value: result },
-        ]);
+        await cacheResult(keys.get(chunk.chunkId)!.final, result);
+        attempted += 1;
+        log(
+          `reconcile ${attempted}/${reconcilable.length} ${chunk.chunkId} took ${duration(performance.now() - chunkStarted)} (${eta(attempted, reconcilable.length, reconciliationStarted)})`,
+        );
       } catch (error) {
-        failures.push(`${chunk.chunkId}: ${message(error)}`);
+        attempted += 1;
+        failures.push({
+          stage: "reconciling",
+          chunkId: chunk.chunkId,
+          message: message(error),
+        });
+        log(
+          `reconcile ${attempted}/${reconcilable.length} ${chunk.chunkId} failed after ${duration(performance.now() - chunkStarted)}`,
+        );
       }
     }
     progress(options, "reconciling", ++completed, chunks.length);
   }
-  if (failures.length) {
-    throw new Error(
-      `${failures.length} chunk(s) failed. Completed stages were cached; rerun to resume.\n${failures.join("\n")}`,
-    );
+  await cacheQueue;
+
+  for (const chunk of chunks) {
+    if (
+      !final.has(chunk.chunkId) &&
+      !failures.some((failure) => failure.chunkId === chunk.chunkId) &&
+      !glinerError
+    ) {
+      failures.push({
+        stage: "reconciling",
+        chunkId: chunk.chunkId,
+        message: "Chunk did not produce a final cached result.",
+      });
+    }
   }
 
   const assertions = resolveAssertions(scope, chunks, final);
+  const resultGraph = graph(schema, assertions);
+  if (failures.length) {
+    log(
+      `partial build: ${final.size}/${chunks.length} chunks complete, ${failures.length} failures; rerun resumes from cache`,
+    );
+    return {
+      complete: false,
+      reused: false,
+      chunks: chunks.length,
+      completedChunks: final.size,
+      failures,
+      graph: resultGraph,
+    };
+  }
+
+  const saveStarted = performance.now();
   progress(options, "saving", 0, assertions.length);
-  await save(scope, signature, schema, options, assertions);
+  try {
+    await save(scope, signature, schema, options, assertions);
+  } catch (error) {
+    failures.push({
+      stage: "saving",
+      chunkId: null,
+      message: message(error),
+    });
+    log(
+      `final save failed after ${duration(performance.now() - saveStarted)}; the previous complete graph was preserved`,
+    );
+    return {
+      complete: false,
+      reused: false,
+      chunks: chunks.length,
+      completedChunks: chunks.length,
+      failures,
+      graph: resultGraph,
+    };
+  }
   progress(options, "saving", assertions.length, assertions.length);
+  log(
+    `saved ${resultGraph.entities.length} entities and ${assertions.length} assertions in ${duration(performance.now() - saveStarted)}`,
+  );
+  log(`complete in ${duration(performance.now() - started)}`);
   return {
+    complete: true,
     reused: false,
     chunks: chunks.length,
-    graph: graph(schema, assertions),
+    completedChunks: chunks.length,
+    failures: [],
+    graph: resultGraph,
   };
 }
 
@@ -272,6 +410,48 @@ export async function loadKnowledgeGraph(
     JSON.parse(String(build.rows[0].schema_json)) as CorpusSchema,
     assertions,
   );
+}
+
+export function tripletsCsv(graph: KnowledgeGraph): string {
+  const rows = graph.assertions.map((assertion) => [
+    assertion.subject,
+    assertion.subjectType,
+    assertion.canonicalPredicate,
+    assertion.rawPredicate,
+    assertion.object,
+    assertion.objectType,
+    assertion.status,
+    assertion.startDate,
+    assertion.endDate,
+    assertion.provenance.extractors.join("+"),
+    assertion.provenance.verified,
+    assertion.provenance.score,
+    assertion.documentId,
+    assertion.chunkId,
+    assertion.evidence,
+  ]);
+  return [
+    [
+      "subject",
+      "subject_type",
+      "predicate",
+      "raw_predicate",
+      "object",
+      "object_type",
+      "status",
+      "start_date",
+      "end_date",
+      "extractors",
+      "verified",
+      "score",
+      "document_id",
+      "chunk_id",
+      "evidence",
+    ],
+    ...rows,
+  ]
+    .map((row) => row.map(csv).join(","))
+    .join("\n");
 }
 
 async function loadChunks(documentIds: string[]): Promise<GraphChunk[]> {
@@ -400,17 +580,18 @@ async function save(
   options: BuildOptions,
   assertions: GraphAssertion[],
 ): Promise<void> {
-  await databaseClient.execute({
-    sql: "DELETE FROM kg_new_assertions WHERE scope_key = ?",
-    args: [scope],
-  });
-  await batch(
-    assertions.map((assertion) => ({
+  const transaction = await databaseClient.transaction("write");
+  try {
+    await transaction.execute({
+      sql: "DELETE FROM kg_new_assertions WHERE scope_key = ?",
+      args: [scope],
+    });
+    const statements = assertions.map((assertion) => ({
       sql: `INSERT INTO kg_new_assertions
-        (id, scope_key, document_id, chunk_id, subject, subject_type, raw_predicate,
-         canonical_predicate, object_name, object_type, evidence, start_date,
-         end_date, status, extractors)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, scope_key, document_id, chunk_id, subject, subject_type, raw_predicate,
+           canonical_predicate, object_name, object_type, evidence, start_date,
+           end_date, status, extractors)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         assertion.id,
         scope,
@@ -428,27 +609,36 @@ async function save(
         assertion.status,
         JSON.stringify(assertion.provenance),
       ],
-    })),
-  );
-  await databaseClient.execute({
-    sql: `INSERT INTO kg_new_builds
-      (scope_key, signature, provider_id, model_id, schema_json, built_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(scope_key) DO UPDATE SET
-        signature = excluded.signature,
-        provider_id = excluded.provider_id,
-        model_id = excluded.model_id,
-        schema_json = excluded.schema_json,
-        built_at = excluded.built_at`,
-    args: [
-      scope,
-      signature,
-      options.providerId,
-      options.modelId,
-      JSON.stringify(schema),
-      new Date().toISOString(),
-    ],
-  });
+    }));
+    for (let index = 0; index < statements.length; index += 200) {
+      await transaction.batch(statements.slice(index, index + 200));
+    }
+    await transaction.execute({
+      sql: `INSERT INTO kg_new_builds
+        (scope_key, signature, provider_id, model_id, schema_json, built_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_key) DO UPDATE SET
+          signature = excluded.signature,
+          provider_id = excluded.provider_id,
+          model_id = excluded.model_id,
+          schema_json = excluded.schema_json,
+          built_at = excluded.built_at`,
+      args: [
+        scope,
+        signature,
+        options.providerId,
+        options.modelId,
+        JSON.stringify(schema),
+        new Date().toISOString(),
+      ],
+    });
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback().catch(() => undefined);
+    throw error;
+  } finally {
+    transaction.close();
+  }
 }
 
 async function ensureTables(): Promise<void> {
@@ -628,4 +818,22 @@ function hash(value: string): string {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function csv(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function duration(milliseconds: number): string {
+  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(1)}s`;
+  const minutes = Math.floor(milliseconds / 60_000);
+  const seconds = Math.round((milliseconds % 60_000) / 1_000);
+  return `${minutes}m ${seconds}s`;
+}
+
+function eta(completed: number, total: number, started: number): string {
+  if (!completed || completed >= total) return "ETA 0s";
+  const remaining = ((performance.now() - started) / completed) * (total - completed);
+  return `ETA ${duration(remaining)}`;
 }

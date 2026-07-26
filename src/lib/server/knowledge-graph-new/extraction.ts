@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { Parser, Store } from "n3";
 import { getProvider } from "$lib/server/providers/registry";
@@ -58,7 +59,7 @@ export type ExtractionSettings = {
 
 type ScoredTerm = SchemaCategory & { relation: boolean; score: number };
 
-const VERSION = "kg-v3";
+const VERSION = "kg-v4";
 const ONTOLOGIES = [
   "https://schema.org/version/latest/schemaorg-current-https.ttl",
   "https://www.w3.org/ns/prov.ttl",
@@ -117,7 +118,7 @@ const ASSERTION = object({
   endDate: nullableString,
   status: { type: "string", enum: ["asserted", "negated", "uncertain"] },
 });
-const EXTRACTION_OUTPUT = object({ assertions: array(ASSERTION) });
+const EXTRACTION_OUTPUT = object({ assertions: array(ASSERTION, 30) });
 const VERIFICATION_OUTPUT = object({
   accepted: array({ type: "integer" }),
 });
@@ -212,7 +213,7 @@ there is no useful relationship.
 Chunk:
 ${chunk.content}`,
     EXTRACTION_OUTPUT,
-    2_000,
+    4_000,
   );
   return parseResult(result, chunk.content, "llm");
 }
@@ -220,6 +221,10 @@ ${chunk.content}`,
 export async function runGliner(
   chunks: GraphChunk[],
   schema: CorpusSchema,
+  onResult?: (
+    chunkId: string,
+    result: ExtractionResult,
+  ) => Promise<void>,
 ): Promise<Map<string, ExtractionResult>> {
   if (!chunks.length) return new Map();
   const script = resolve(
@@ -235,35 +240,48 @@ export async function runGliner(
     labels.push("other");
   }
 
-  const raw = await new Promise<string>((done, fail) => {
-    const child = spawn(python, [script], { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (data) => (stdout += data));
-    child.stderr.on("data", (data) => (stderr += data));
-    child.on("error", fail);
-    child.on("close", (code) =>
-      code === 0
-        ? done(stdout)
-        : fail(new Error(stderr.trim() || `GLiNER exited with code ${code}`)),
-    );
-    child.stdin.end(
-      JSON.stringify({
-        chunks,
-        entityTypes: labels,
-        relationTypes: schema.relationTypes.map((type) => type.name),
-      }),
-    );
-  });
-
   const byId = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]));
-  return new Map(
-    (JSON.parse(raw) as Array<Record<string, unknown>>).flatMap((item) => {
-      const id = clean(item.chunkId);
-      const chunk = byId.get(id);
-      return chunk ? [[id, parseResult(item, chunk.content, "gliner")]] : [];
+  const results = new Map<string, ExtractionResult>();
+  const child = spawn(python, [script], { stdio: ["pipe", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.on(
+    "data",
+    (data) => (stderr = `${stderr}${String(data)}`.slice(-12_000)),
+  );
+  const exited = new Promise<number | null>((done, fail) => {
+    child.on("error", fail);
+    child.on("close", done);
+  });
+  child.stdin.end(
+    JSON.stringify({
+      chunks,
+      entityTypes: labels,
+      relationTypes: schema.relationTypes.map((type) => type.name),
     }),
   );
+
+  try {
+    for await (const line of createInterface({ input: child.stdout })) {
+      if (!line.trim()) continue;
+      const item = JSON.parse(line) as Record<string, unknown>;
+      const id = clean(item.chunkId);
+      const chunk = byId.get(id);
+      if (!chunk) continue;
+      const result = parseResult(item, chunk.content, "gliner");
+      results.set(id, result);
+      await onResult?.(id, result);
+    }
+  } catch (error) {
+    child.kill();
+    await exited.catch(() => undefined);
+    throw error;
+  }
+
+  const code = await exited;
+  if (code !== 0) {
+    throw new Error(stderr.trim() || `GLiNER exited with code ${code}`);
+  }
+  return results;
 }
 
 export async function reconcileExtractions(
@@ -434,25 +452,38 @@ async function askJson<T>(
   format: Record<string, unknown>,
   maxTokens: number,
 ): Promise<T> {
-  let output = "";
-  for await (const part of getProvider(settings.providerId).chat(
-    prompt,
-    settings.modelId,
-    {
-      temperature: 0,
-      topK: 20,
-      ...settings.providerOptions,
-      format,
-      maxTokens: settings.providerOptions?.maxTokens ?? maxTokens,
-    },
-  )) {
-    output += part;
+  const attempts = positiveInteger(
+    process.env.KNOWLEDGE_GRAPH_JSON_ATTEMPTS,
+    3,
+  );
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      let output = "";
+      for await (const part of getProvider(settings.providerId).chat(
+        prompt,
+        settings.modelId,
+        {
+          temperature: 0,
+          topK: 20,
+          ...settings.providerOptions,
+          format,
+          maxTokens: settings.providerOptions?.maxTokens ?? maxTokens,
+        },
+      )) {
+        output += part;
+      }
+      return JSON.parse(output) as T;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+      }
+    }
   }
-  try {
-    return JSON.parse(output) as T;
-  } catch {
-    throw new Error("The model did not return valid structured JSON.");
-  }
+  throw new Error(
+    `Structured model request failed after ${attempts} attempts: ${message(lastError)}`,
+  );
 }
 
 async function loadOntologyTerms(sample: string): Promise<SchemaCategory[]> {
@@ -681,4 +712,13 @@ function integer(value: unknown): number | null {
 function number(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
