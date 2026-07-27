@@ -46,8 +46,8 @@
 				><FolderSync /> Add documents or sync a folder</Dialog.Title
 			>
 			<Dialog.Description>
-				Browse local folders, select PDFs or audio files, or keep files in the current folder
-				synchronized.
+				Browse local folders, select PDFs, MD files, or audio files, or keep files in the current
+				folder synchronized.
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -119,9 +119,7 @@
 								</button>
 							{/if}
 						{:else}
-							<p class="p-4 text-sm text-muted-foreground">
-								No folders, PDFs, or audio files here.
-							</p>
+							<p class="p-4 text-sm text-muted-foreground">No folders or files here.</p>
 						{/each}
 					{/if}
 				</div>

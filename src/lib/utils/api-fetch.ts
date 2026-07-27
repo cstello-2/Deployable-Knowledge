@@ -58,6 +58,41 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 	return response.json() as Promise<T>;
 }
 
+function downloadFilename(response: Response, fallback: string): string {
+	const disposition = response.headers.get('Content-Disposition') ?? '';
+	const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+	if (encoded) {
+		try {
+			return decodeURIComponent(encoded);
+		} catch {
+			// Fall through to the plain filename when a server sends malformed encoding.
+		}
+	}
+	return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback;
+}
+
+export async function apiDownload(
+	path: string,
+	fallbackFilename: string,
+	options: ApiFetchOptions = {}
+): Promise<string> {
+	const response = await request(path, options);
+	const filename = downloadFilename(response, fallbackFilename);
+	const objectUrl = URL.createObjectURL(await response.blob());
+	const link = document.createElement('a');
+	link.download = filename;
+	link.href = objectUrl;
+	link.hidden = true;
+	document.body.append(link);
+	try {
+		link.click();
+	} finally {
+		link.remove();
+		URL.revokeObjectURL(objectUrl);
+	}
+	return filename;
+}
+
 export function apiPost<T, B = unknown>(path: string, body: B, options: ApiFetchOptions = {}) {
 	return apiFetch<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });
 }

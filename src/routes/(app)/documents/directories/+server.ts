@@ -35,6 +35,8 @@ export const GET: RequestHandler = async ({ url }) => {
 				items.push({ name: entry.name, path, kind: 'pdf' });
 			} else if (isSupportedAudioPath(entry.name)) {
 				items.push({ kind: 'audio', name: entry.name, path });
+			} else if (extension === '.md') {
+				items.push({ name: entry.name, path, kind: 'markdown' });
 			}
 		}
 	}

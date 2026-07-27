@@ -11,7 +11,7 @@
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
-	import { documentsStore, transcriptionStore, workspaceStore } from '$lib/stores';
+	import { documentsStore, transcriptionStore, workspaceStore, notebooksStore } from '$lib/stores';
 	import type {
 		ApiDocumentDirectoryResponse,
 		ApiDocumentFolderSyncResponse,
@@ -61,7 +61,7 @@
 	let pickerLoading = $state(false);
 	let pickerSelectedPaths = $state<string[]>([]);
 	let uploading = $state(false);
-	let activeFileOperation = $state<'pdf' | 'audio' | null>(null);
+	let activeFileOperation = $state<'pdf' | 'audio' | 'markdown' | null>(null);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
 	let pendingFolderRemoval = $state<PendingFolderRemoval | null>(null);
@@ -78,7 +78,12 @@
 					label: 'Transcribing audio file...',
 					message: 'Running local English speech recognition.'
 				}
-			: documentsStore.progress
+			: activeFileOperation === 'markdown'
+				? {
+						label: 'Importing Markdown...',
+						message: 'Creating a page in the active notebook.'
+					}
+				: documentsStore.progress
 	);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
 	const visibleDocuments = $derived.by(() => {
@@ -133,6 +138,7 @@
 		let ingested = 0;
 		let transcribed = 0;
 		let failed = 0;
+		let imported = 0;
 		try {
 			for (const path of paths) {
 				try {
@@ -141,6 +147,11 @@
 						await transcriptionStore.transcribePath(path);
 						transcribed += 1;
 						workspaceStore.showWindow('transcription-window');
+					} else if (path.toLowerCase().endsWith('.md')) {
+						activeFileOperation = 'markdown';
+						await notebooksStore.importMarkdown(path);
+						imported += 1;
+						workspaceStore.showWindow('notebooks-window');
 					} else {
 						activeFileOperation = 'pdf';
 						await documentsStore.ingestPath(path);
@@ -154,10 +165,11 @@
 			const completed = [
 				ingested ? `${ingested} PDF${ingested === 1 ? '' : 's'} ingested` : '',
 				transcribed ? `${transcribed} audio file${transcribed === 1 ? '' : 's'} transcribed` : '',
+				imported ? `${imported} markdown file${imported === 1 ? '' : 's'} imported` : '',
 				failed ? `${failed} failed` : ''
 			].filter(Boolean);
 			status = completed.length ? `${completed.join('; ')}.` : '';
-			if (ingested || transcribed) toast.success(completed.slice(0, 2).join('; '));
+			if (ingested || transcribed || imported) toast.success(completed.slice(0, 2).join('; '));
 		} finally {
 			uploading = false;
 			activeFileOperation = null;

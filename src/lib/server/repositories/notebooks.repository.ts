@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { NotebookStateResponse } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
@@ -57,6 +57,44 @@ export class NotebooksRepository {
 				target: notebookState.userId,
 				set: { activeNotebookId: notebookId, updatedAt }
 			});
+	}
+
+	static async findWithPages(id: string): Promise<NotebookWithPages | null> {
+		const [notebook] = await db
+			.select()
+			.from(notebooks)
+			.where(and(eq(notebooks.id, id), eq(notebooks.userId, NOTEBOOK_USER_ID)))
+			.limit(1);
+		if (!notebook) return null;
+
+		const pages = await db
+			.select()
+			.from(notebookPages)
+			.where(eq(notebookPages.notebookId, id))
+			.orderBy(asc(notebookPages.createdAt));
+		return { ...notebook, pages };
+	}
+
+	static async createPage(notebookId: string, title: string, content: string): Promise<string> {
+		const pageId = randomUUID();
+		const timestamp = new Date().toISOString();
+		const page: NewNotebookPage = {
+			id: pageId,
+			notebookId,
+			title,
+			content,
+			createdAt: timestamp,
+			updatedAt: timestamp
+		};
+		await db.transaction(async (transaction) => {
+			await transaction.insert(notebookPages).values(page);
+			await transaction
+				.update(notebooks)
+				.set({ activePageId: pageId, updatedAt: timestamp })
+				.where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, NOTEBOOK_USER_ID)));
+		});
+
+		return pageId;
 	}
 
 	static async loadState(): Promise<NotebookStateResponse> {

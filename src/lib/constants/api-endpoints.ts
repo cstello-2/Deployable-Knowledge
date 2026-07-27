@@ -18,13 +18,17 @@ export const API_DOCUMENTS = {
 export const API_NOTEBOOKS = {
 	BASE: '/notebooks',
 	byId: (id: string) => `/notebooks/${segment(id)}`,
+	export: (id: string) => `/notebooks/${segment(id)}/export`,
 	select: (id: string) => `/notebooks/${segment(id)}/select`,
 	pages: (id: string) => `/notebooks/${segment(id)}/pages`,
 	page: (id: string, pageId: string) => `/notebooks/${segment(id)}/pages/${segment(pageId)}`,
 	selectPage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/select`,
 	sources: (id: string) => `/notebooks/${segment(id)}/sources`,
-	source: (id: string, sourceId: string) => `/notebooks/${segment(id)}/sources/${segment(sourceId)}`
+	source: (id: string, sourceId: string) =>
+		`/notebooks/${segment(id)}/sources/${segment(sourceId)}`,
+	importMarkdown: (id: string) => `/notebooks/${segment(id)}/import-markdown`,
+	importCollection: (id: string) => `/notebooks/${segment(id)}/import-collection`
 };
 
 export const API_LOCAL_MODELS = {

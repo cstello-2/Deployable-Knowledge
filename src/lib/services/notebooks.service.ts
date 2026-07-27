@@ -2,12 +2,13 @@ import { API_NOTEBOOKS } from '$lib/constants';
 import type {
 	ApiNotebookPageContentRequest,
 	ApiNotebookPageTitleRequest,
+	ApiNotebookMarkdownImportRequest,
 	ApiNotebookSourcesRequest,
 	ApiNotebookTitleRequest,
 	NotebookSourceItem,
 	NotebookStateResponse
 } from '$lib/types';
-import { apiDelete, apiFetch, apiPatch, apiPost } from '$lib/utils';
+import { apiDelete, apiDownload, apiFetch, apiPatch, apiPost } from '$lib/utils';
 
 export class NotebooksService {
 	static list() {
@@ -26,6 +27,10 @@ export class NotebooksService {
 
 	static delete(id: string) {
 		return apiDelete<NotebookStateResponse>(API_NOTEBOOKS.byId(id));
+	}
+
+	static exportNotebook(id: string) {
+		return apiDownload(API_NOTEBOOKS.export(id), 'notebook.md');
 	}
 
 	static select(id: string) {
@@ -80,5 +85,12 @@ export class NotebooksService {
 
 	static removeSource(id: string, sourceId: string) {
 		return apiDelete<{ ok: true }>(API_NOTEBOOKS.source(id, sourceId));
+	}
+
+	static importMarkdown(id: string, path: string) {
+		return apiPost<NotebookStateResponse, ApiNotebookMarkdownImportRequest>(
+			API_NOTEBOOKS.importMarkdown(id),
+			{ path }
+		);
 	}
 }

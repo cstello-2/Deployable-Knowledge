@@ -248,6 +248,24 @@
 		}
 	}
 
+	async function exportNotebook(): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook) return;
+
+		await autosave.flush();
+		if (notes !== lastSavedNotes) {
+			toast.error('Save the current page before exporting.');
+			return;
+		}
+
+		try {
+			const filename = await notebooksStore.exportNotebook(notebook.id);
+			if (filename) toast.success(`Exported ${filename}`);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -273,16 +291,18 @@
 >
 	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
 		<NotebookHeader
-			{view}
-			title={headerTitle()}
+			exporting={notebooksStore.exportingNotebookId !== null}
+			onBack={goBack}
+			onClearSources={clearSources}
+			onCreate={openCreate}
+			onExport={exportNotebook}
+			onRemoveSource={removeSource}
+			onTogglePreview={() => (previewMode = !previewMode)}
 			{previewMode}
 			sources={notebooksStore.sources}
 			sourcesLoading={notebooksStore.sourcesLoading}
-			onBack={goBack}
-			onCreate={openCreate}
-			onTogglePreview={() => (previewMode = !previewMode)}
-			onRemoveSource={removeSource}
-			onClearSources={clearSources}
+			title={headerTitle()}
+			{view}
 		/>
 		{#if view === 'notebooks'}
 			<NotebookList

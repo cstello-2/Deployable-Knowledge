@@ -71,7 +71,7 @@ export interface ApiDocumentListResponse {
 }
 
 export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf' | 'audio';
+	kind: 'folder' | 'pdf' | 'audio' | 'markdown';
 	name: string;
 	path: string;
 }
@@ -239,6 +239,14 @@ export interface ApiNotebookChatMessageRequest extends ApiChatMessageBase {
 	conversational: true;
 	context: string;
 	notebook_id: string | null;
+}
+
+export interface ApiNotebookMarkdownImportRequest {
+	path: string;
+}
+
+export interface ApiNotebookCollectionImportRequest {
+	path: string;
 }
 
 export type ApiChatMessageRequest = ApiDocumentChatMessageRequest | ApiNotebookChatMessageRequest;
