@@ -215,6 +215,21 @@ export function toggleNotebookContextNotebook(
   });
 }
 
+export function removeNotebookContext(
+  appState: AppState,
+  notebook: NotebookWithPages,
+): NotebookContextSelection {
+  const notebookPageIds = new Set(notebook.pages.map((page) => page.id));
+  return setNotebookContextSelection(appState, {
+    notebookIds: appState.notebookContextNotebookIds.filter(
+      (id) => id !== notebook.id,
+    ),
+    pageIds: appState.notebookContextPageIds.filter(
+      (id) => !notebookPageIds.has(id),
+    ),
+  });
+}
+
 export function selectAllNotebookContext(
   appState: AppState,
 ): NotebookContextSelection {

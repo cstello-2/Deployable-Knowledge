@@ -13,6 +13,7 @@
     getSelectedDocumentIds,
     selectedDocumentIds,
   } from "$lib/utils/documentSelection";
+  import { documentPdfPageUrl } from "$lib/utils/documentReferences";
   import {
     knowledgeGraphState,
     knowledgeGraphStateMatches,
@@ -47,6 +48,7 @@
     score?: number;
     rawScore?: number;
     documentId?: string;
+    sourceType?: "PDF" | "NOTEBOOK";
     chunkId?: string;
     nodeId?: string;
     pageIndex?: number;
@@ -90,6 +92,18 @@
 
   function getAssistantMetadata(message: SessionMessage): AssistantMetadata {
     return (message.metadata as AssistantMetadata | null) ?? {};
+  }
+
+  function getSourcePdfUrl(source: ChatSource): string | null {
+    if (
+      !source.documentId ||
+      source.pageIndex === undefined ||
+      source.sourceType === "NOTEBOOK"
+    ) {
+      return null;
+    }
+
+    return documentPdfPageUrl(source.documentId, source.pageIndex);
   }
 
   let {
@@ -656,6 +670,7 @@
               {#if sources.length}
                 <ol class="chat-source-list">
                   {#each sources as source, index (index)}
+                    {@const pdfUrl = getSourcePdfUrl(source)}
                     <li
                       class="chat-source-row"
                       class:selected={(source.chunkId ?? source.nodeId) === selectedResultChunkId}
@@ -676,6 +691,11 @@
                             {#if source.url}
                               <a class="btn btn-sm chat-source-btn" href={source.url} target="_blank" rel="noopener noreferrer">
                                 {source.title ?? source.url}
+                              </a>
+                            {/if}
+                            {#if pdfUrl}
+                              <a class="btn btn-sm chat-source-btn" href={pdfUrl} target="_blank" rel="noopener noreferrer">
+                                Open PDF page {Math.max(1, (source.pageIndex ?? 0) + 1)}
                               </a>
                             {/if}
                             <button

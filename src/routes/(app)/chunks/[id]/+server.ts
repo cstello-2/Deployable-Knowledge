@@ -9,6 +9,7 @@ export const GET: RequestHandler = async ({ params }) => {
     .select({
       chunkId: document_chunks.id,
       documentId: document_chunks.documentId,
+      sourceType: documents.sourceType,
       sourceTitle: documents.title,
       pageIndex: document_chunks.pageIndex,
       chunkIndex: document_chunks.chunkIndex,

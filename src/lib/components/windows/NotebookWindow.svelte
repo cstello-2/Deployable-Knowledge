@@ -1,20 +1,31 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import type {
     NotebookPageContentRequest,
     NotebookPageTitleRequest,
     NotebookTitleRequest,
   } from "$lib/requestTypes";
   import Dropdown from "$lib/components/menus/Dropdown.svelte";
+  import DropdownItem from "$lib/components/menus/DropdownItem.svelte";
+  import NotebookMovePageDialog from "$lib/components/notebooks/NotebookMovePageDialog.svelte";
+  import NotebookSearchDialog from "$lib/components/notebooks/NotebookSearchDialog.svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
+  import { documentPdfPageUrl } from "$lib/utils/documentReferences";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import {
+    formatNotebookCitation,
+    insertNotebookCitation,
+  } from "$lib/utils/notebookCitations";
+  import type { NotebookSearchResult } from "$lib/utils/notebookSearch";
   import {
     NOTEBOOK_CONTEXT_CHANGED_EVENT,
     type NotebookContextChangedDetail,
+    notebookContextCoverage,
     notebookProvidesContext as notebookIsSelectedForContext,
     pageProvidesNotebookContext,
+    removeNotebookContext,
     restoreNotebookContextPageIds,
     toggleNotebookContextNotebook,
     toggleNotebookContextPage,
@@ -35,6 +46,13 @@
   import type { WindowInstanceProps } from "./index";
 
   type NotebookView = "notebooks" | "pages" | "editor";
+  type ExportFormat = "markdown" | "pdf";
+  type MasterCorpusResult = {
+    documentId: string;
+    title: string;
+    pageCount: number;
+    chunkCount: number;
+  };
 
   let {
     id,
@@ -53,18 +71,28 @@
   // server-side and has no column of its own.
   type NotebookSourceItem = Pick<NotebookSource, "id" | "chunkId" | "createdAt"> &
     Pick<DocumentChunk, "pageIndex"> & {
+      documentId: Document["id"];
       documentTitle: Document["title"];
+      sourceType: Document["sourceType"];
       preview: string;
     };
 
   let notes = $state("");
+  let notesTextarea = $state<HTMLTextAreaElement>();
   let previewMode = $state(false);
   let notebookView = $state<NotebookView>("editor");
   let loading = $state(false);
   let saveStatus = $state("");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let exportOpen = $state(false);
+  let notebookExportOpen = $state(false);
+  let selectedNotebookExportPageIds = $state<string[]>([]);
+  let exporting = $state(false);
   let selectedNotebookText = $state("");
   let notebookSelectionButtonVisible = $state(false);
+  let movePageOpen = $state(false);
+  let pageToMove = $state<NotebookPage | null>(null);
+  let notebookSearchOpen = $state(false);
   let notebookLocked = $derived(appState.assistantRequestInFlight);
   let otherPageCharacterCount = $derived(
     appState.activeNotebook?.pages.reduce(
@@ -90,6 +118,11 @@
   let notebookAtLimit = $derived(
     notebookCharacterCount >= NOTEBOOK_TEXT_CHARACTER_LIMIT,
   );
+  let activeNotebookContextCoverage = $derived(
+    appState.activeNotebook
+      ? notebookContextCoverage(appState, appState.activeNotebook)
+      : "none",
+  );
 
   // Sources attached to the active notebook (via "Send to Notebook") — hidden
   // from the notebook page text, viewable here.
@@ -105,12 +138,14 @@
   function showNotebooks() {
     if (notebookLocked) return;
     sourcesOpen = false;
+    notebookExportOpen = false;
     notebookView = "notebooks";
   }
 
   function showPages() {
     if (notebookLocked) return;
     sourcesOpen = false;
+    exportOpen = false;
     notebookView = appState.activeNotebook ? "pages" : "notebooks";
   }
 
@@ -124,12 +159,18 @@
   }
 
   $effect(() => {
-    if (collapsed) sourcesOpen = false;
+    if (collapsed) {
+      sourcesOpen = false;
+      exportOpen = false;
+      notebookExportOpen = false;
+    }
   });
 
   $effect(() => {
     if (!notebookLocked) return;
     sourcesOpen = false;
+    exportOpen = false;
+    notebookExportOpen = false;
     notebookSelectionButtonVisible = false;
     selectedNotebookText = "";
   });
@@ -156,6 +197,12 @@
   function toggleNotebookContext(notebook: NotebookWithPages) {
     if (notebookLocked) return;
     toggleNotebookContextNotebook(appState, notebook);
+  }
+
+  function deactivateActiveNotebookContext() {
+    if (notebookLocked || !appState.activeNotebook) return;
+    removeNotebookContext(appState, appState.activeNotebook);
+    showToast("Notebook context deactivated");
   }
 
   async function loadSources() {
@@ -187,6 +234,26 @@
     if (!window.confirm("Remove all sources attached to this notebook?")) return;
     await fetch(`/notebooks/${notebookId}/sources`, { method: "DELETE" });
     await loadSources();
+  }
+
+  async function insertSourceCitation(source: NotebookSourceItem) {
+    if (notebookLocked || !appState.activePage) return;
+    const citation = formatNotebookCitation(source);
+    const start = notesTextarea?.selectionStart ?? notes.length;
+    const end = notesTextarea?.selectionEnd ?? start;
+    const insertion = insertNotebookCitation(notes, citation, start, end);
+
+    notes = insertion.text;
+    sourcesOpen = false;
+    queueSaveCurrentPage();
+    await tick();
+    notesTextarea?.focus();
+    notesTextarea?.setSelectionRange(insertion.cursor, insertion.cursor);
+    showToast(
+      `Citation inserted: ${source.documentTitle}, p. ${
+        source.pageIndex + 1
+      }`,
+    );
   }
 
   async function loadNotebooks() {
@@ -391,6 +458,57 @@
     showToast("Page renamed");
   }
 
+  function openMovePage(page: NotebookPage) {
+    if (notebookLocked) return;
+    pageToMove = page;
+    movePageOpen = true;
+  }
+
+  function closeMovePage() {
+    movePageOpen = false;
+    pageToMove = null;
+  }
+
+  async function movePageToNotebook(destinationNotebookId: string) {
+    const sourceNotebook = appState.activeNotebook;
+    const page = pageToMove;
+    if (!sourceNotebook || !page) {
+      throw new Error("The page is no longer available.");
+    }
+
+    await flushPendingSave();
+    const response = await fetch(
+      `/notebooks/${sourceNotebook.id}/pages/${page.id}/move`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinationNotebookId }),
+      },
+    );
+    const data = (await response.json()) as {
+      message?: string;
+      error?: string;
+      activeNotebookId: string | null;
+      notebooks: NotebookWithPages[];
+      movedPageTitle?: string;
+      destinationNotebookTitle?: string;
+      renamed?: boolean;
+    };
+    if (!response.ok) {
+      throw new Error(data.message || data.error || "The page could not be moved.");
+    }
+
+    applyState(data);
+    notebookView = "pages";
+    closeMovePage();
+    showToast(
+      `Moved ${data.movedPageTitle ?? page.title} to ${
+        data.destinationNotebookTitle ?? "the selected notebook"
+      }${data.renamed ? " with a unique title" : ""}`,
+      5000,
+    );
+  }
+
   async function deleteNotebook(notebook: NotebookWithPages) {
     if (notebookLocked) return;
     const pageLabel = notebook.pages.length === 1 ? "page" : "pages";
@@ -484,6 +602,190 @@
     previewMode = !previewMode;
   }
 
+  function toggleNotebookExport() {
+    if (notebookLocked || exporting) return;
+    if (notebookExportOpen) {
+      notebookExportOpen = false;
+      return;
+    }
+
+    selectedNotebookExportPageIds =
+      appState.activeNotebook?.pages.map((page) => page.id) ?? [];
+    notebookExportOpen = true;
+  }
+
+  function toggleNotebookExportPage(pageId: string) {
+    selectedNotebookExportPageIds = selectedNotebookExportPageIds.includes(
+      pageId,
+    )
+      ? selectedNotebookExportPageIds.filter((id) => id !== pageId)
+      : [...selectedNotebookExportPageIds, pageId];
+  }
+
+  function selectAllNotebookExportPages() {
+    selectedNotebookExportPageIds =
+      appState.activeNotebook?.pages.map((page) => page.id) ?? [];
+  }
+
+  function clearNotebookExportPages() {
+    selectedNotebookExportPageIds = [];
+  }
+
+  async function exportCurrentPage(format: ExportFormat) {
+    if (notebookLocked || exporting) return;
+    const notebook = appState.activeNotebook;
+    const page = appState.activePage;
+    if (!notebook || !page) return;
+
+    exportOpen = false;
+    exporting = true;
+
+    try {
+      await flushPendingSave();
+      const response = await fetch(
+        `/notebooks/${notebook.id}/pages/${page.id}/export?format=${format}`,
+      );
+      if (!response.ok) throw new Error("Export failed");
+
+      await downloadExport(
+        response,
+        `notebook-page.${format === "markdown" ? "md" : "pdf"}`,
+      );
+      showToast(
+        `Page exported as ${format === "markdown" ? "Markdown" : "PDF"}`,
+      );
+    } catch {
+      showToast("Page export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+
+  async function openNotebookSearchResult(result: NotebookSearchResult) {
+    const notebookSelected =
+      result.notebookId === appState.activeNotebookId ||
+      (await selectNotebook(result.notebookId));
+    if (!notebookSelected) {
+      throw new Error("The notebook could not be opened.");
+    }
+
+    const page = appState.activeNotebook?.pages.find(
+      (candidate) => candidate.id === result.pageId,
+    );
+    if (!page) throw new Error("The matching page no longer exists.");
+
+    const pageSelected =
+      page.id === appState.activePage?.id || (await selectPage(page));
+    if (!pageSelected) throw new Error("The matching page could not be opened.");
+
+    sourcesOpen = false;
+    notebookSearchOpen = false;
+    notebookView = "editor";
+  }
+
+  async function exportNotebookPages(format: ExportFormat) {
+    if (
+      notebookLocked ||
+      exporting ||
+      selectedNotebookExportPageIds.length === 0
+    ) {
+      return;
+    }
+    const notebook = appState.activeNotebook;
+    if (!notebook) return;
+
+    notebookExportOpen = false;
+    exporting = true;
+
+    try {
+      await flushPendingSave();
+      const response = await fetch(`/notebooks/${notebook.id}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format,
+          pageIds: selectedNotebookExportPageIds,
+        }),
+      });
+      if (!response.ok) throw new Error("Export failed");
+
+      await downloadExport(
+        response,
+        `notebook.${format === "markdown" ? "md" : "pdf"}`,
+      );
+      const pageCount = selectedNotebookExportPageIds.length;
+      showToast(
+        `${pageCount} ${pageCount === 1 ? "page" : "pages"} exported as ${
+          format === "markdown" ? "Markdown" : "PDF"
+        }`,
+      );
+    } catch {
+      showToast("Notebook export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+
+  async function addPagesToMasterCorpus(pageIds: string[]) {
+    if (notebookLocked || exporting || pageIds.length === 0) return;
+    const notebook = appState.activeNotebook;
+    if (!notebook) return;
+
+    exportOpen = false;
+    notebookExportOpen = false;
+    exporting = true;
+    showToast("Embedding notebook pages into Master Corpus", 5000);
+
+    try {
+      await flushPendingSave();
+      const response = await fetch(
+        `/notebooks/${notebook.id}/master-corpus`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageIds }),
+        },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          message?: string;
+        } | null;
+        throw new Error(body?.message || "Master Corpus export failed");
+      }
+
+      const result = (await response.json()) as MasterCorpusResult;
+      window.dispatchEvent(new CustomEvent("dk:documents-updated"));
+      showToast(
+        `${result.pageCount} ${
+          result.pageCount === 1 ? "page" : "pages"
+        } added to Master Corpus as ${result.chunkCount} searchable ${
+          result.chunkCount === 1 ? "chunk" : "chunks"
+        }`,
+        5000,
+      );
+    } catch (cause) {
+      showToast(
+        cause instanceof Error ? cause.message : "Master Corpus export failed",
+        5000,
+      );
+    } finally {
+      exporting = false;
+    }
+  }
+
+  async function downloadExport(response: Response, fallbackFilename: string) {
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const filename =
+      disposition.match(/filename="([^"]+)"/)?.[1] ?? fallbackFilename;
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(href), 0);
+  }
+
   onMount(() => {
     restoreNotebookContextPageIds(appState);
     void loadNotebooks();
@@ -569,6 +871,15 @@
           <button
             class="inline-action-button"
             type="button"
+            title="Search notebook pages"
+            aria-label="Search notebook pages"
+            onclick={() => (notebookSearchOpen = true)}
+          >
+            <Icon name="search" size={17} />
+          </button>
+          <button
+            class="inline-action-button"
+            type="button"
             title="Create notebook"
             aria-label="Create notebook"
             onclick={createNotebook}
@@ -577,9 +888,115 @@
           </button>
         </div>
       {:else if notebookView === "pages"}
-        <div class="inline-button-group notebook-create-actions">
+        <div class="notebook-actions">
           <button
-            class="inline-action-button"
+            class="icon-action"
+            type="button"
+            title="Search notebook pages"
+            aria-label="Search notebook pages"
+            onclick={() => (notebookSearchOpen = true)}
+          >
+            <Icon name="search" size={17} />
+          </button>
+          <Dropdown
+            id="notebook_multi_export"
+            bind:open={notebookExportOpen}
+            align="end"
+            width="300px"
+            maxHeight={440}
+            role="dialog"
+            ariaLabel="Choose notebook pages to export"
+            menuClass="notebook-multi-export-dropdown"
+          >
+            {#snippet trigger({ open, menuId })}
+              <button
+                class="icon-action"
+                class:active={open}
+                type="button"
+                title="Export notebook pages"
+                aria-label="Export notebook pages"
+                aria-haspopup="dialog"
+                aria-controls={menuId}
+                aria-expanded={open}
+                disabled={notebookLocked || exporting}
+                onclick={toggleNotebookExport}
+              >
+                <Icon name="download" size={17} />
+              </button>
+            {/snippet}
+
+            <div class="notebook-export-picker" data-window-action>
+              <header class="notebook-export-picker-header">
+                <strong>Choose pages</strong>
+                <div class="notebook-export-selection-actions">
+                  <button type="button" onclick={selectAllNotebookExportPages}>
+                    All
+                  </button>
+                  <button type="button" onclick={clearNotebookExportPages}>
+                    None
+                  </button>
+                </div>
+              </header>
+
+              <div class="notebook-export-page-list">
+                {#each appState.activeNotebook?.pages ?? [] as page (page.id)}
+                  {@const selected =
+                    selectedNotebookExportPageIds.includes(page.id)}
+                  <button
+                    class="notebook-export-page"
+                    class:selected
+                    type="button"
+                    aria-pressed={selected}
+                    onclick={() => toggleNotebookExportPage(page.id)}
+                  >
+                    <Icon
+                      name={selected ? "check_box" : "check_box_outline_blank"}
+                      size={17}
+                    />
+                    <span>{page.title}</span>
+                  </button>
+                {/each}
+              </div>
+
+              <div class="notebook-export-summary">
+                {selectedNotebookExportPageIds.length}
+                {selectedNotebookExportPageIds.length === 1 ? "page" : "pages"}
+                selected
+              </div>
+
+              <div class="notebook-export-format-actions">
+                <button
+                  type="button"
+                  disabled={!selectedNotebookExportPageIds.length || exporting}
+                  onclick={() => exportNotebookPages("markdown")}
+                >
+                  <Icon name="markdown" size={17} />
+                  Markdown
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedNotebookExportPageIds.length || exporting}
+                  onclick={() => exportNotebookPages("pdf")}
+                >
+                  <Icon name="picture_as_pdf" size={17} />
+                  PDF
+                </button>
+                <button
+                  class="master-corpus-action"
+                  type="button"
+                  disabled={!selectedNotebookExportPageIds.length || exporting}
+                  onclick={() =>
+                    addPagesToMasterCorpus(selectedNotebookExportPageIds)}
+                >
+                  <Icon name="database_upload" size={17} />
+                  Add to Master Corpus
+                </button>
+              </div>
+            </div>
+          </Dropdown>
+
+          <button
+            class="icon-action"
             type="button"
             title="Create page"
             aria-label="Create page"
@@ -590,6 +1007,15 @@
         </div>
       {:else}
         <div class="notebook-actions">
+          <button
+            class="icon-action"
+            type="button"
+            title="Search notebook pages"
+            aria-label="Search notebook pages"
+            onclick={() => (notebookSearchOpen = true)}
+          >
+            <Icon name="search" size={17} />
+          </button>
           {#if appState.activePage}
             <button
               class="icon-action context-toggle"
@@ -677,11 +1103,78 @@
                         <span class="source-page">Page {source.pageIndex + 1}</span>
                       </div>
                       <p class="source-preview">{source.preview}</p>
+                      <div class="source-row-actions">
+                        {#if source.sourceType === "PDF"}
+                          <a
+                            class="source-reference"
+                            href={documentPdfPageUrl(source.documentId, source.pageIndex)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open ${source.documentTitle} at page ${source.pageIndex + 1}`}
+                          >
+                            <Icon name="open_in_new" size={14} />
+                            Open PDF page {source.pageIndex + 1}
+                          </a>
+                        {/if}
+                        <button
+                          class="source-citation"
+                          type="button"
+                          title={`Insert citation for ${source.documentTitle}, page ${source.pageIndex + 1}`}
+                          disabled={notebookLocked}
+                          onclick={() => insertSourceCitation(source)}
+                        >
+                          <Icon name="format_quote" size={14} />
+                          Insert citation
+                        </button>
+                      </div>
                     </div>
                   {/each}
                 {/if}
               </div>
             </div>
+          </Dropdown>
+
+          <Dropdown
+            id="notebook_export"
+            bind:open={exportOpen}
+            align="end"
+            minWidth="180px"
+            ariaLabel="Export notebook page"
+          >
+            {#snippet trigger({ open, menuId })}
+              <button
+                class="icon-action"
+                class:active={open}
+                type="button"
+                title="Export page"
+                aria-label="Export page"
+                aria-haspopup="menu"
+                aria-controls={menuId}
+                aria-expanded={open}
+                data-window-action
+                disabled={notebookLocked || exporting}
+                onclick={() => (exportOpen = !exportOpen)}
+              >
+                <Icon name="download" size={17} />
+              </button>
+            {/snippet}
+
+            <DropdownItem onclick={() => exportCurrentPage("markdown")}>
+              <Icon name="markdown" size={17} />
+              <span>Markdown (.md)</span>
+            </DropdownItem>
+            <DropdownItem onclick={() => exportCurrentPage("pdf")}>
+              <Icon name="picture_as_pdf" size={17} />
+              <span>PDF (.pdf)</span>
+            </DropdownItem>
+            <DropdownItem
+              onclick={() =>
+                appState.activePage &&
+                addPagesToMasterCorpus([appState.activePage.id])}
+            >
+              <Icon name="database_upload" size={17} />
+              <span>Master Corpus</span>
+            </DropdownItem>
           </Dropdown>
 
           <button
@@ -699,6 +1192,25 @@
         </div>
       {/if}
     </header>
+
+    {#if notebookView !== "notebooks" && activeNotebookContextCoverage !== "none"}
+      <div class="notebook-context-banner" role="status">
+        <span>
+          <Icon name="library_add_check" size={16} />
+          {activeNotebookContextCoverage === "all"
+            ? "This notebook is active context"
+            : "Some pages are active context"}
+        </span>
+        <button
+          type="button"
+          disabled={notebookLocked}
+          onclick={deactivateActiveNotebookContext}
+        >
+          <Icon name="remove_done" size={15} />
+          Deactivate context
+        </button>
+      </div>
+    {/if}
 
     {#if notebookView === "notebooks"}
       <nav class="notebook-browser" aria-label="Notebooks">
@@ -774,7 +1286,7 @@
           {#if appState.activeNotebook?.pages.length}
             {#each appState.activeNotebook.pages as page (page.id)}
               <div
-                class="navigation-item"
+                class="navigation-item page-navigation-item"
                 class:active={page.id === appState.activePage?.id}
               >
                 <button
@@ -807,6 +1319,15 @@
                   onclick={() => togglePageContext(page.id)}
                 >
                   <Icon name="library_add_check" size={16} />
+                </button>
+                <button
+                  class="inline-action-button navigation-row-action"
+                  type="button"
+                  title={`Move ${page.title} to another notebook`}
+                  aria-label={`Move ${page.title} to another notebook`}
+                  onclick={() => openMovePage(page)}
+                >
+                  <Icon name="drive_file_move" size={16} />
                 </button>
                 <button
                   class="inline-action-button navigation-row-action danger"
@@ -855,6 +1376,7 @@
         {:else}
           <textarea
             class="notebook-textarea"
+            bind:this={notesTextarea}
             bind:value={notes}
             maxlength={currentPageCharacterLimit}
             oninput={queueSaveCurrentPage}
@@ -892,6 +1414,20 @@
     {/if}
   </fieldset>
 
+  <NotebookMovePageDialog
+    open={movePageOpen}
+    page={pageToMove}
+    sourceNotebookId={appState.activeNotebookId}
+    notebooks={appState.notebooks}
+    onClose={closeMovePage}
+    onMove={movePageToNotebook}
+  />
+  <NotebookSearchDialog
+    open={notebookSearchOpen}
+    notebooks={appState.notebooks}
+    onClose={() => (notebookSearchOpen = false)}
+    onOpenResult={openNotebookSearchResult}
+  />
 </BaseWindow>
 
 <style>
@@ -991,6 +1527,53 @@
     gap: 8px;
   }
 
+  .notebook-context-banner {
+    display: flex;
+    min-height: 38px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--accent) 8%, transparent);
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .notebook-context-banner > span,
+  .notebook-context-banner button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .notebook-context-banner > span {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .notebook-context-banner button {
+    min-height: 26px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: hsl(var(--h) var(--sat) var(--l-panel));
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .notebook-context-banner button:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+  }
+
+  .notebook-context-banner button:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
   .notebook-create-actions {
     grid-auto-columns: 30px;
     height: 30px;
@@ -1052,6 +1635,135 @@
   :global(.notebook-sources-dropdown) {
     padding: 0;
     overflow: hidden;
+  }
+
+  :global(.notebook-multi-export-dropdown) {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .notebook-export-picker {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  .notebook-export-picker-header {
+    display: flex;
+    min-height: 40px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .notebook-export-selection-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  .notebook-export-selection-actions button {
+    padding: 4px 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .notebook-export-selection-actions button:hover {
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 5%));
+    color: var(--text);
+  }
+
+  .notebook-export-page-list {
+    display: flex;
+    min-height: 48px;
+    max-height: 270px;
+    padding: 6px;
+    overflow-y: auto;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .notebook-export-page {
+    display: grid;
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+  }
+
+  .notebook-export-page:hover,
+  .notebook-export-page.selected {
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 4%));
+    color: var(--text);
+  }
+
+  .notebook-export-page.selected {
+    color: color-mix(in oklab, var(--accent) 75%, var(--text));
+  }
+
+  .notebook-export-page span {
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .notebook-export-summary {
+    padding: 7px 10px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .notebook-export-format-actions {
+    display: grid;
+    padding: 0 8px 8px;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .notebook-export-format-actions button {
+    display: inline-flex;
+    min-height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-panel) + 3%));
+    color: var(--text);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .notebook-export-format-actions button:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+  }
+
+  .notebook-export-format-actions button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .notebook-export-format-actions .master-corpus-action {
+    grid-column: 1 / -1;
   }
 
   .sources-panel {
@@ -1136,6 +1848,41 @@
     line-clamp: 3;
   }
 
+  .source-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 7px;
+  }
+
+  .source-citation,
+  .source-reference {
+    display: inline-flex;
+    min-height: 26px;
+    padding: 4px 7px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    text-decoration: none;
+  }
+
+  .source-citation:hover:not(:disabled),
+  .source-reference:hover {
+    border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+    color: var(--text);
+  }
+
+  .source-citation:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
   .source-remove {
     position: absolute;
     top: 6px;
@@ -1195,6 +1942,10 @@
     border-color: var(--accent);
     box-shadow: inset 0 0 0 1px
       color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+
+  .page-navigation-item {
+    grid-template-columns: minmax(0, 1fr) repeat(4, auto);
   }
 
   .navigation-item:hover {

@@ -3,7 +3,11 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { db } from "../../database/database";
-import { document_chunks, documents } from "../../database/schema";
+import {
+  document_chunks,
+  documents,
+  type Document,
+} from "../../database/schema";
 import { embedTextsForStoredDimension } from "../embedding-model";
 import {
   cleanFilterValues,
@@ -20,6 +24,7 @@ type CandidateRow = {
   chunkId: string;
   documentId: string;
   sourcePath: string;
+  sourceType: Document["sourceType"];
   sourceTitle: string;
   pageIndex: number;
   chunkIndex: number;
@@ -67,6 +72,7 @@ export async function searchSemantic(
       chunkId: document_chunks.id,
       documentId: document_chunks.documentId,
       sourcePath: documents.sourcePath,
+      sourceType: documents.sourceType,
       sourceTitle: documents.title,
       pageIndex: document_chunks.pageIndex,
       chunkIndex: document_chunks.chunkIndex,
@@ -149,6 +155,7 @@ export async function searchSemantic(
       chunkId: row.chunkId,
       documentId: row.documentId,
       sourcePath: row.sourcePath,
+      sourceType: row.sourceType,
       sourceTitle: row.sourceTitle,
       pageIndex: row.pageIndex,
       chunkIndex: row.chunkIndex,

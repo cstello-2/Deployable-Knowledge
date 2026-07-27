@@ -114,6 +114,17 @@
 
   onMount(() => {
     refreshAll().catch(() => showToast("Documents failed to load"));
+    const handleDocumentsUpdated = () => {
+      refreshAll().catch(() => showToast("Documents failed to refresh"));
+    };
+    window.addEventListener("dk:documents-updated", handleDocumentsUpdated);
+
+    return () => {
+      window.removeEventListener(
+        "dk:documents-updated",
+        handleDocumentsUpdated,
+      );
+    };
   });
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {

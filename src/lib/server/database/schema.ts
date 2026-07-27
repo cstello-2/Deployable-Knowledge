@@ -230,7 +230,7 @@ export const documents = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
-    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PDF", "NOTEBOOK"] }).notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
