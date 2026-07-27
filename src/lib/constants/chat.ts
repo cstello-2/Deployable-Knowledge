@@ -1,0 +1,1 @@
+export const CHAT_HISTORY_MESSAGE_LIMIT = 20;

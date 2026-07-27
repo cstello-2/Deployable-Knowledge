@@ -1,0 +1,4 @@
+package-lock.json
+.svelte-kit/
+build/
+venv/
