@@ -15,8 +15,7 @@
   import { documentPdfPageUrl } from "$lib/utils/documentReferences";
   import { renderMarkdown } from "$lib/utils/markdown";
   import {
-    formatNotebookCitation,
-    insertNotebookCitation,
+    insertNotebookSourceCitation,
   } from "$lib/utils/notebookCitations";
   import type { NotebookSearchResult } from "$lib/utils/notebookSearch";
   import {
@@ -238,10 +237,14 @@
 
   async function insertSourceCitation(source: NotebookSourceItem) {
     if (notebookLocked || !appState.activePage) return;
-    const citation = formatNotebookCitation(source);
     const start = notesTextarea?.selectionStart ?? notes.length;
     const end = notesTextarea?.selectionEnd ?? start;
-    const insertion = insertNotebookCitation(notes, citation, start, end);
+    const insertion = insertNotebookSourceCitation(
+      notes,
+      source,
+      start,
+      end,
+    );
 
     notes = insertion.text;
     sourcesOpen = false;

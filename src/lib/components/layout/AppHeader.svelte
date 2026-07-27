@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
   import Dropdown from "$lib/components/menus/Dropdown.svelte";
+  import EngineHeartbeat from "$lib/components/layout/EngineHeartbeat.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import ThemePopup from "$lib/components/popups/ThemePopup.svelte";
   import favicon from "$lib/assets/icon.svg";
@@ -146,6 +147,7 @@
   </div>
 
   <div class="right">
+    <EngineHeartbeat />
     <Dropdown
       id="user_menu"
       bind:open={userOpen}

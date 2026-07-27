@@ -9,6 +9,7 @@ import {
   type Document,
 } from "../../database/schema";
 import { embedTextsForStoredDimension } from "../embedding-model";
+import { isUsefulImageText } from "../chunk/ocr-text-quality";
 import {
   cleanFilterValues,
   type ScoredSearchMatch,
@@ -67,7 +68,7 @@ export async function searchSemantic(
   }
 
   // Use Drizzle for the row query, then do vector math in TS
-  const candidateRows = await db
+  const candidateRows = (await db
     .select({
       chunkId: document_chunks.id,
       documentId: document_chunks.documentId,
@@ -82,7 +83,12 @@ export async function searchSemantic(
     })
     .from(document_chunks)
     .innerJoin(documents, eq(documents.id, document_chunks.documentId))
-    .where(filters.length ? and(...filters) : undefined) as CandidateRow[];
+    .where(filters.length ? and(...filters) : undefined) as CandidateRow[])
+    .filter(
+      (candidate) =>
+        candidate.chunkType !== "IMAGE" ||
+        isUsefulImageText(candidate.content),
+    );
 
   // Stored vectors are Float32 bytes. Decode them once before scoring
   const decodedCandidates = candidateRows.map((row) => {

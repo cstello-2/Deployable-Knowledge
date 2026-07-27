@@ -21,6 +21,7 @@ import {
 } from "./graph-snapshot";
 import type { IndexedChunk } from "./types";
 import { graphId, sanitizeEntityLabel, unique } from "./utils";
+import { isUsefulImageText } from "$lib/server/rag/chunk/ocr-text-quality";
 
 export type {
   KnowledgeGraphBuildState,
@@ -30,7 +31,7 @@ export type {
 
 // Bump this when entity extraction, relation extraction, or graph construction changes.
 // Query-only settings such as topK and maxDepth do not require a rebuild.
-export const KNOWLEDGE_GRAPH_BUILD_VERSION = "2";
+export const KNOWLEDGE_GRAPH_BUILD_VERSION = "3";
 
 export type KnowledgeGraphIndex = {
   graph: GraphStore;
@@ -290,6 +291,10 @@ async function resolveChunkGraphScope(
 
   const order = new Map(chunkIds.map((chunkId, index) => [chunkId, index]));
   const chunkRows: IndexedChunk[] = rows
+    .filter(
+      (row) =>
+        row.chunkType !== "IMAGE" || isUsefulImageText(row.content),
+    )
     .map((row) => ({
       chunkId: row.chunkId,
       documentId: row.documentId,
@@ -369,6 +374,12 @@ async function constructKnowledgeGraph(scope: ResolvedGraphScope): Promise<Knowl
     for (const row of chunkRows) {
       // IMAGE chunks contain OCR output in the upstream pipeline, so all stored types can
       // contribute evidence as long as they contain text.
+      if (
+        row.chunkType === "IMAGE" &&
+        !isUsefulImageText(row.content)
+      ) {
+        continue;
+      }
       const chunk: IndexedChunk = {
         chunkId: row.chunkId,
         documentId: row.documentId,

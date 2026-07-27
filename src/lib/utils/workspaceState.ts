@@ -1,5 +1,9 @@
 import { derived, get, writable } from "svelte/store";
 import { windowDefinitions, type WindowColumn } from "$lib/components/windows";
+import {
+  reorderItemsById,
+  type LayoutPresetDropPosition,
+} from "$lib/utils/layoutPresetOrder";
 
 export type WindowPlacement = {
   id: string;
@@ -98,6 +102,7 @@ export function initWorkspaceStateStorage() {
 }
 
 export function showWindow(id: string) {
+  leftPaneCollapsed.set(false);
   windowPlacements.update((placements) =>
     placements.map((placement) =>
       placement.id === id
@@ -256,6 +261,17 @@ export function addLayoutPreset() {
 
   layoutPresets.set([...get(layoutPresets), preset]);
   activeLayoutPresetId.set(preset.id);
+}
+
+export function reorderLayoutPreset(
+  movingId: string,
+  targetId: string,
+  position: LayoutPresetDropPosition,
+) {
+  ensureWorkspaceStateStorage();
+  layoutPresets.update((presets) =>
+    reorderItemsById(presets, movingId, targetId, position),
+  );
 }
 
 function captureWorkspaceLayout(): WorkspaceLayoutSnapshot {

@@ -7,6 +7,7 @@ import { stemmer } from "stemmer";
 import { eng } from "stopword";
 import { db } from "../../database/database";
 import { document_chunks, documents } from "../../database/schema";
+import { isUsefulImageText } from "../chunk/ocr-text-quality";
 import {
   cleanFilterValues,
   type ScoredSearchMatch,
@@ -99,7 +100,13 @@ export async function searchBm25(options: Bm25SearchOptions): Promise<Bm25Search
     return { query, results: [] };
   }
 
-  const candidates = await loadCandidates({ documentIds, sourcePaths, chunkTypes });
+  const candidates = (
+    await loadCandidates({ documentIds, sourcePaths, chunkTypes })
+  ).filter(
+    (candidate) =>
+      candidate.chunkType !== "IMAGE" ||
+      isUsefulImageText(candidate.content),
+  );
 
   if (candidates.length === 0) {
     return { query, results: [] };
