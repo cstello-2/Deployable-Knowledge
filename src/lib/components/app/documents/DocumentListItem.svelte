@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AudioLines from '@lucide/svelte/icons/audio-lines';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Power from '@lucide/svelte/icons/power';
 	import PowerOff from '@lucide/svelte/icons/power-off';
@@ -32,6 +33,8 @@
 		selected = false,
 		tags
 	}: Props = $props();
+
+	const SourceIcon = $derived(document.sourceType === 'AUDIO' ? AudioLines : FileText);
 </script>
 
 <div
@@ -45,7 +48,7 @@
 		aria-label={`Use ${document.title} in chat`}
 		onCheckedChange={onToggle}
 	/>
-	<FileText class="size-[18px] text-muted-foreground" />
+	<SourceIcon class="size-[18px] text-muted-foreground" />
 	<div class="grid min-w-0 gap-1">
 		<div class="flex min-w-0 items-center gap-2">
 			<strong class="min-w-0 truncate text-sm">{document.title}</strong>

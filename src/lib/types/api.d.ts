@@ -261,6 +261,7 @@ export interface ApiSearchMatch {
 	chunkId: string;
 	documentId: string;
 	sourceTitle: string;
+	sourceType: Document['sourceType'];
 	pageIndex: number;
 	content: string;
 }

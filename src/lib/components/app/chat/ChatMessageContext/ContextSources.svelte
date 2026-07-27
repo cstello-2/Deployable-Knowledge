@@ -9,8 +9,9 @@
 
 	let { sources }: Props = $props();
 
+	// Only PDF sources have a file to open; transcripts live in the library as chunks
 	function hrefFor(output: Extract<AgentOutput, { type: 'source' }>): string | undefined {
-		if (output.data.documentId) {
+		if (output.data.documentId && output.data.sourceType !== 'AUDIO') {
 			const page = (output.data.pageIndex ?? 0) + 1;
 			return `${API_DOCUMENT_FILES.byId(output.data.documentId)}#page=${page}`;
 		}

@@ -8,4 +8,3 @@ export { setupStore } from './setup.svelte';
 export { themeStore, THEME_COLORS, THEME_MODES } from './theme.svelte';
 export { workspaceStore } from './workspace.svelte';
 export type { ThemeColor, ThemeMode } from './theme.svelte';
-export { transcriptionStore } from './transcription.svelte';

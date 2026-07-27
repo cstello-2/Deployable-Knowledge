@@ -21,6 +21,7 @@ export type RagSource = {
 	description: string;
 	documentId: string;
 	chunkId: string;
+	sourceType: SearchMatchBase['sourceType'];
 	pageIndex: number;
 	chunkIndex: number;
 };
@@ -46,15 +47,22 @@ function formatContext(matches: SearchMatchBase[]) {
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-function buildSources(matches: SearchMatchBase[]): RagSource[] {
-	return matches.map((match) => ({
-		title: match.sourceTitle,
-		description: `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
-		documentId: match.documentId,
-		chunkId: match.chunkId,
-		pageIndex: match.pageIndex,
-		chunkIndex: match.chunkIndex
-	}));
+export function buildSources(matches: SearchMatchBase[]): RagSource[] {
+	return matches.map((match) => {
+		const preview = compactText(match.content, MAX_PREVIEW_CHARS);
+
+		return {
+			title: match.sourceTitle,
+			// Transcripts have no pages, so only paged sources get a page reference
+			description:
+				match.sourceType === 'AUDIO' ? preview : `Page ${match.pageIndex + 1}: ${preview}`,
+			documentId: match.documentId,
+			chunkId: match.chunkId,
+			sourceType: match.sourceType,
+			pageIndex: match.pageIndex,
+			chunkIndex: match.chunkIndex
+		};
+	});
 }
 
 // Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 to force one path

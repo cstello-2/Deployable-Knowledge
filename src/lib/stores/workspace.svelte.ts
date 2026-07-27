@@ -17,8 +17,7 @@ const DEFAULT_PLACEMENTS: WindowPlacement[] = [
 	placement('chat-history-window', WindowColumn.LEFT),
 	placement('chat-window', WindowColumn.RIGHT),
 	placement('search-context-window', WindowColumn.RIGHT),
-	placement('notebook-window', WindowColumn.RIGHT),
-	placement('transcription-window', WindowColumn.LEFT)
+	placement('notebook-window', WindowColumn.RIGHT)
 ];
 
 interface StoredPresetState {

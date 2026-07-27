@@ -1,3 +1,5 @@
+import type { Document } from './database';
+
 export interface ImageArtifact {
 	id: string;
 	mimeType: 'image/png';
@@ -11,6 +13,7 @@ export interface SourceArtifact {
 	description?: string;
 	documentId?: string;
 	chunkId?: string;
+	sourceType?: Document['sourceType'];
 	pageIndex?: number;
 	chunkIndex?: number;
 }

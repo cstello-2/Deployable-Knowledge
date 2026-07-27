@@ -10,6 +10,7 @@ import {
 	cleanFilterValues,
 	type ScoredSearchMatch,
 	type SearchChunkType,
+	type SearchMatchBase,
 	type SearchOptionsBase,
 	type SearchResult
 } from './search-shared';
@@ -22,6 +23,7 @@ type CandidateRow = {
 	documentId: string;
 	sourcePath: string;
 	sourceTitle: string;
+	sourceType: SearchMatchBase['sourceType'];
 	pageIndex: number;
 	chunkIndex: number;
 	chunkType: SearchChunkType;
@@ -70,6 +72,7 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 			documentId: documentChunks.documentId,
 			sourcePath: documents.sourcePath,
 			sourceTitle: documents.title,
+			sourceType: documents.sourceType,
 			pageIndex: documentChunks.pageIndex,
 			chunkIndex: documentChunks.chunkIndex,
 			chunkType: documentChunks.chunkType,
@@ -125,6 +128,7 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 			documentId: row.documentId,
 			sourcePath: row.sourcePath,
 			sourceTitle: row.sourceTitle,
+			sourceType: row.sourceType,
 			pageIndex: row.pageIndex,
 			chunkIndex: row.chunkIndex,
 			chunkType: row.chunkType,

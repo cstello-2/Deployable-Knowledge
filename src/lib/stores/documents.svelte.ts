@@ -103,7 +103,7 @@ class DocumentsStore {
 	}
 
 	async ingestPath(path: string) {
-		this.progress = { percent: 0, label: 'Ingesting PDF', message: 'Preparing file' };
+		this.progress = { percent: 0, label: 'Ingesting file', message: 'Preparing file' };
 		const result = await DocumentsService.ingestPath(
 			path,
 			(progress) => (this.progress = progress)

@@ -8,7 +8,7 @@ import type {
 import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
 import { folderWatcherManager } from '$lib/server/documents/folder-watcher';
-import { ingestPdfBuffer, ingestPdfPath } from '$lib/server/documents/ingest-file';
+import { ingestFilePath, ingestPdfBuffer } from '$lib/server/documents/ingest-file';
 import { removeDocument } from '$lib/server/documents/remove-document';
 import type { RequestHandler } from './$types';
 
@@ -27,10 +27,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	} else {
 		const body = (await request.json().catch(() => null)) as { path?: unknown } | null;
 		if (typeof body?.path !== 'string' || !body.path.trim()) {
-			throw error(400, 'Select a PDF file.');
+			throw error(400, 'Select a file.');
 		}
 		const path = body.path;
-		ingest = (onProgress) => ingestPdfPath(path, onProgress);
+		ingest = (onProgress) => ingestFilePath(path, onProgress);
 	}
 
 	const stream = new ReadableStream({
@@ -45,15 +45,15 @@ export const POST: RequestHandler = async ({ request }) => {
 					send({
 						status: 'progress',
 						percent: 0,
-						label: 'Ingesting PDF',
-						message: 'Preparing OCR'
+						label: 'Ingesting file',
+						message: 'Preparing file'
 					});
 					const result = await ingest((progress) => send({ status: 'progress', ...progress }));
 
 					send({
 						status: 'progress',
 						percent: 100,
-						label: 'Ingesting PDF',
+						label: 'Ingesting file',
 						message: 'Complete'
 					});
 					send({ status: 'complete', result });

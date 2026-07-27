@@ -1,15 +1,15 @@
 import { searchAllMethods } from '../rag/search/hybrid-search';
 import {
+	buildSources,
 	retrieveRagContext,
 	type RagRetrievalMode,
 	type RagSource
 } from '../rag/search/retrieve-rag-context';
-import type { SearchMatchBase } from '../rag/search/search-shared';
 import type { AgentTool } from './types';
 import { createToolResult, sourceOutput } from './result';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
-import { clampInteger, clampText, compactText, readObject } from '../utils/values';
+import { clampInteger, clampText, readObject } from '../utils/values';
 
 type SearchMode = RagRetrievalMode | 'all';
 
@@ -110,14 +110,3 @@ export const searchTool: AgentTool<SearchToolData> = {
 		});
 	}
 };
-
-function buildSources(matches: SearchMatchBase[]): RagSource[] {
-	return matches.map((match) => ({
-		title: match.sourceTitle,
-		description: `Page ${match.pageIndex + 1}: ${compactText(match.content, 200)}`,
-		documentId: match.documentId,
-		chunkId: match.chunkId,
-		pageIndex: match.pageIndex,
-		chunkIndex: match.chunkIndex
-	}));
-}
