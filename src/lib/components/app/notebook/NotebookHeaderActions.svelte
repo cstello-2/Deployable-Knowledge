@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Eye from '@lucide/svelte/icons/eye';
+	import Download from '@lucide/svelte/icons/download';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import { ActionIcon } from '$lib/components/app/actions';
@@ -8,8 +9,10 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
+		exporting?: boolean;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onExport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
@@ -20,8 +23,10 @@
 	}
 
 	let {
+		exporting = false,
 		onClearSources,
 		onCreate,
+		onExport,
 		onInsertCitation,
 		onRemoveSource,
 		onTogglePreview,
@@ -57,5 +62,14 @@
 		>
 			{#if previewMode}<Pencil />{:else}<Eye />{/if}
 		</ActionIcon>
+	{/if}
+	{#if view !== 'notebooks'}
+		<ActionIcon
+			class="size-8"
+			disabled={exporting}
+			label={exporting ? 'Exporting notebook' : 'Export notebook as Markdown'}
+			onclick={onExport}
+			variant="ghost"><Download /></ActionIcon
+		>
 	{/if}
 </div>

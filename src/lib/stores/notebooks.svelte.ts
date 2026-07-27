@@ -10,6 +10,7 @@ class NotebooksStore {
 	private _notebooks = $state<NotebookWithPages[]>([]);
 	private _activeNotebookId = $state<string | null>(null);
 	private _sources = $state<NotebookSourceItem[]>([]);
+	exportingNotebookId = $state<string | null>(null);
 	loading = $state(false);
 	sourcesLoading = $state(false);
 	error = $state<string | null>(null);
@@ -63,6 +64,29 @@ class NotebooksStore {
 
 	async delete(id: string): Promise<void> {
 		this.apply(await NotebooksService.delete(id));
+	}
+
+	async exportNotebook(id: string): Promise<string | null> {
+		if (this.exportingNotebookId) return null;
+		this.exportingNotebookId = id;
+		try {
+			return await NotebooksService.exportNotebook(id);
+		} finally {
+			this.exportingNotebookId = null;
+		}
+	}
+
+	async importMarkdown(path: string): Promise<void> {
+		if (!this._activeNotebookId) {
+			await this.load();
+		}
+
+		const notebookId = this._activeNotebookId;
+		if (!notebookId) {
+			throw new Error('Create or open a notebook before importing Markdown file.');
+		}
+
+		this.apply(await NotebooksService.importMarkdown(notebookId, path));
 	}
 
 	async createPage(notebookId: string, title: string): Promise<void> {

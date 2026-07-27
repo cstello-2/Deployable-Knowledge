@@ -6,9 +6,11 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
+		exporting?: boolean;
 		onBack: () => void;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onExport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
@@ -20,9 +22,11 @@
 	}
 
 	let {
+		exporting = false,
 		onBack,
 		onClearSources,
 		onCreate,
+		onExport,
 		onInsertCitation,
 		onRemoveSource,
 		onTogglePreview,
@@ -45,14 +49,16 @@
 	{/if}
 	<h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
 	<NotebookHeaderActions
+		{exporting}
+		{onClearSources}
+		{onCreate}
+		{onExport}
+		{onInsertCitation}
+		{onRemoveSource}
+		{onTogglePreview}
 		{previewMode}
 		{sources}
 		{sourcesLoading}
 		{view}
-		{onInsertCitation}
-		{onClearSources}
-		{onCreate}
-		{onRemoveSource}
-		{onTogglePreview}
 	/>
 </header>
