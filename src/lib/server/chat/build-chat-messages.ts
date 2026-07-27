@@ -4,17 +4,27 @@ import type { ProviderChatMessage } from '$lib/server/providers/provider';
 import {
 	AGENT_SYSTEM_PROMPT,
 	CONVERSATIONAL_SYSTEM_PROMPT,
+	DOCUMENT_CONTEXT_SYSTEM_PROMPT,
 	DOCUMENT_SEARCH_SYSTEM_PROMPT,
 	REFERENCE_MATERIAL_INSTRUCTION
 } from '$lib/server/agent/prompts';
 
-export function createConversationalMessages(
-	messages: SessionMessage[],
-	userMessage: string,
-	context = ''
-): ProviderChatMessage[] {
+export function createConversationalMessages({
+	messages,
+	userMessage,
+	context = '',
+	toolsEnabled = true
+}: {
+	messages: SessionMessage[];
+	userMessage: string;
+	context?: string;
+	toolsEnabled?: boolean;
+}): ProviderChatMessage[] {
 	const output: ProviderChatMessage[] = [
-		{ role: 'system', content: `${CONVERSATIONAL_SYSTEM_PROMPT}\n\n${AGENT_SYSTEM_PROMPT}` }
+		{
+			role: 'system',
+			content: joinPrompts([CONVERSATIONAL_SYSTEM_PROMPT, toolsEnabled ? AGENT_SYSTEM_PROMPT : ''])
+		}
 	];
 	appendRecentHistory(output, messages);
 
@@ -27,26 +37,43 @@ export function createConversationalMessages(
 	return output;
 }
 
-export function createDocumentMessages(
-	messages: SessionMessage[],
-	userMessage: string,
+export function createDocumentMessages({
+	messages,
+	userMessage,
 	systemPrompt = '',
-	persona = ''
-): ProviderChatMessage[] {
+	persona = '',
+	context = '',
+	toolsEnabled = true
+}: {
+	messages: SessionMessage[];
+	userMessage: string;
+	systemPrompt?: string;
+	persona?: string;
+	context?: string;
+	toolsEnabled?: boolean;
+}): ProviderChatMessage[] {
 	const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : '';
-	const systemParts = [
-		systemPrompt,
-		personaBlock,
-		AGENT_SYSTEM_PROMPT,
-		DOCUMENT_SEARCH_SYSTEM_PROMPT
-	]
-		.map((part) => part.trim())
-		.filter(Boolean);
+	// Tools off means the search tool already ran for this prompt, so the model
+	// works from the retrieved context instead of being told to search.
+	const retrievalPolicy = toolsEnabled
+		? [AGENT_SYSTEM_PROMPT, DOCUMENT_SEARCH_SYSTEM_PROMPT]
+		: [DOCUMENT_CONTEXT_SYSTEM_PROMPT];
+	const systemContent = joinPrompts([systemPrompt, personaBlock, ...retrievalPolicy]);
 	const output: ProviderChatMessage[] = [];
-	if (systemParts.length) output.push({ role: 'system', content: systemParts.join('\n\n') });
+	if (systemContent) output.push({ role: 'system', content: systemContent });
 	appendRecentHistory(output, messages);
-	output.push({ role: 'user', content: userMessage });
+	output.push({
+		role: 'user',
+		content: context ? `${context}\n\nRequest: ${userMessage}` : userMessage
+	});
 	return output;
+}
+
+function joinPrompts(parts: string[]): string {
+	return parts
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.join('\n\n');
 }
 
 function appendRecentHistory(output: ProviderChatMessage[], messages: SessionMessage[]): void {

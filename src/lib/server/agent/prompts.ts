@@ -25,6 +25,11 @@ export const DOCUMENT_SEARCH_SYSTEM_PROMPT = `DOCUMENT SEARCH POLICY:
 - Do not use search for synthetic data, creative work, calculations, time, or visualization requests unless the user also asks for facts from their documents. Use the tool that directly matches the task.
 - Never use search as generic recovery for uncertainty or another tool's failure.`;
 
+export const DOCUMENT_CONTEXT_SYSTEM_PROMPT = `DOCUMENT CONTEXT POLICY:
+- Tool calling is off for this request. A document search already ran for the user's question and its results are included as a context block in the user's message.
+- Base document-specific claims only on that context block, and name the source document when you use it.
+- No further retrieval is possible in this turn. Never say that you will search, cannot search, or need more information — if the context block is missing or does not answer the question, say plainly that the documents do not cover it and answer what you can.`;
+
 export const REFERENCE_MATERIAL_INSTRUCTION = `Use the reference material above as background knowledge. Then respond to the request below in your own words:
 - Answer or complete the request, adding explanation, detail, and reasoning that go beyond what the material literally says.
 - If the request asks you to expand, elaborate, or "go deeper" on a point, give NEW information, examples, and specifics about it — do not restate the point or repeat sentences already shown above.

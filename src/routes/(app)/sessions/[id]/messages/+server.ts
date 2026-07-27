@@ -14,10 +14,12 @@ import type { ProviderChatOptions } from '$lib/server/providers/provider';
 import { runAgent } from '$lib/server/agent/runner';
 import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
 import { toolRegistry } from '$lib/server/tools';
+import type { ToolExecutionContext } from '$lib/server/tools/types';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
 import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
+import { runAutoSearch } from '$lib/server/chat/auto-search';
 import {
 	createConversationalMessages,
 	createDocumentMessages
@@ -99,9 +101,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const context = [pageContext, sourceExcerpts].filter(Boolean).join('\n\n');
 
-	const chatMessages = body.conversational
-		? createConversationalMessages(messages, message, context)
-		: createDocumentMessages(messages, message, promptTemplate?.systemPrompt || '', persona);
 	const toolsEnabled = body.tools_enabled !== false;
 	const toolNames = toolsEnabled
 		? body.conversational
@@ -112,6 +111,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		? (profile?.ragTopK ?? DEFAULT_ASSISTANT_CONFIG.ragTopK)
 		: body.rag_top_k;
 	const documentIds = body.conversational ? undefined : body.document_ids;
+	const toolContext: ToolExecutionContext = { documentIds, retrievalMode, ragTopK };
+	// Document chat without tool calling still has to reach the corpus, so the
+	// search tool runs automatically for every prompt.
+	const autoSearchEnabled = !toolsEnabled && !body.conversational;
 
 	const timestamp = new Date();
 
@@ -125,6 +128,27 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			};
 
 			try {
+				const autoSearch = autoSearchEnabled
+					? await runAutoSearch({
+							query: message,
+							toolContext,
+							onProgress(progress) {
+								send({ type: 'agent', progress });
+							}
+						})
+					: null;
+
+				const chatMessages = body.conversational
+					? createConversationalMessages({ messages, userMessage: message, context, toolsEnabled })
+					: createDocumentMessages({
+							messages,
+							userMessage: message,
+							systemPrompt: promptTemplate?.systemPrompt || '',
+							persona,
+							context: autoSearch?.context ?? '',
+							toolsEnabled
+						});
+
 				const agentResult = await runAgent({
 					provider,
 					model: modelId,
@@ -133,11 +157,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					registry: toolRegistry,
 					toolNames,
 					maxToolTurns: toolsEnabled ? body.agent_max_turns : 0,
-					toolContext: {
-						documentIds,
-						retrievalMode,
-						ragTopK
-					},
+					toolContext,
 					onProgress(progress) {
 						send({ type: 'agent', progress });
 					},
@@ -148,6 +168,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						send({ type: 'text-reset' });
 					}
 				});
+
+				const trace = [...(autoSearch?.trace ?? []), ...agentResult.trace];
+				const outputs = [...(autoSearch?.outputs ?? []), ...agentResult.outputs];
+				const toolCallCount = agentResult.toolExecutions.length + (autoSearch ? 1 : 0);
 
 				await db.insert(sessionMessages).values([
 					{
@@ -167,9 +191,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 								modelId,
 								modelTurns: agentResult.modelTurns,
 								toolTurns: agentResult.toolTurns,
-								trace: agentResult.trace
+								trace
 							},
-							...(agentResult.outputs.length ? { outputs: agentResult.outputs } : {})
+							...(outputs.length ? { outputs } : {})
 						},
 						createdAt: timestamp
 					}
@@ -192,8 +216,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					type: 'complete',
 					modelTurns: agentResult.modelTurns,
 					toolTurns: agentResult.toolTurns,
-					toolCalls: agentResult.toolExecutions.length,
-					contextItems: agentResult.outputs.length
+					toolCalls: toolCallCount,
+					contextItems: outputs.length
 				});
 				controller.close();
 				closed = true;
