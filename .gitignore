@@ -30,3 +30,11 @@ tmp_model/
 
 
 /documents/
+
+# --- Third-party modules ---
+/third_party/
+/third_party/whisper.cpp/
+
+# --- Third-party module resources ---
+resources/whisper/models/
+resources/whisper/bin/

@@ -11,14 +11,14 @@
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
-	import { documentsStore } from '$lib/stores';
+	import { documentsStore, transcriptionStore, workspaceStore } from '$lib/stores';
 	import type {
 		ApiDocumentDirectoryResponse,
 		ApiDocumentFolderSyncResponse,
 		ApiSyncedFolder,
 		DocumentRow
 	} from '$lib/types';
-	import { fuzzyDocumentScore } from '$lib/utils';
+	import { fuzzyDocumentScore, isSupportedAudioPath } from '$lib/utils';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
@@ -61,6 +61,7 @@
 	let pickerLoading = $state(false);
 	let pickerSelectedPaths = $state<string[]>([]);
 	let uploading = $state(false);
+	let activeFileOperation = $state<'pdf' | 'audio' | null>(null);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
 	let pendingFolderRemoval = $state<PendingFolderRemoval | null>(null);
@@ -68,7 +69,17 @@
 	let tagPickerMode = $state<TagPickerMode>('add');
 	let status = $state('');
 
-	const busy = $derived(uploading || documentsStore.loading || documentsStore.syncing);
+	const busy = $derived(
+		uploading || transcriptionStore.loading || documentsStore.loading || documentsStore.syncing
+	);
+	const fileProgress = $derived(
+		activeFileOperation === 'audio'
+			? {
+					label: 'Transcribing audio file...',
+					message: 'Running local English speech recognition.'
+				}
+			: documentsStore.progress
+	);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
 	const visibleDocuments = $derived.by(() => {
 		const tagged = documentsStore.documents.filter((document) => {
@@ -115,26 +126,41 @@
 			: [...tagFilters, tag];
 	}
 
-	async function ingestPaths(paths: string[]): Promise<void> {
+	async function processPaths(paths: string[]): Promise<void> {
 		if (!paths.length) return;
 		filePickerOpen = false;
 		uploading = true;
-		let succeeded = 0;
+		let ingested = 0;
+		let transcribed = 0;
 		let failed = 0;
 		try {
 			for (const path of paths) {
 				try {
-					await documentsStore.ingestPath(path);
-					succeeded += 1;
+					if (isSupportedAudioPath(path)) {
+						activeFileOperation = 'audio';
+						await transcriptionStore.transcribePath(path);
+						transcribed += 1;
+						workspaceStore.showWindow('transcription-window');
+					} else {
+						activeFileOperation = 'pdf';
+						await documentsStore.ingestPath(path);
+						ingested += 1;
+					}
 				} catch (error) {
 					failed += 1;
 					toast.error(error instanceof Error ? error.message : String(error));
 				}
 			}
-			status = `Added ${succeeded} PDF${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
-			if (succeeded) toast.success(`${succeeded} PDF${succeeded === 1 ? '' : 's'} ingested`);
+			const completed = [
+				ingested ? `${ingested} PDF${ingested === 1 ? '' : 's'} ingested` : '',
+				transcribed ? `${transcribed} audio file${transcribed === 1 ? '' : 's'} transcribed` : '',
+				failed ? `${failed} failed` : ''
+			].filter(Boolean);
+			status = completed.length ? `${completed.join('; ')}.` : '';
+			if (ingested || transcribed) toast.success(completed.slice(0, 2).join('; '));
 		} finally {
 			uploading = false;
+			activeFileOperation = null;
 			pickerSelectedPaths = [];
 			documentsStore.progress = null;
 		}
@@ -345,7 +371,7 @@
 		</div>
 		<div class="border-t pt-3">
 			<Button class="w-full" disabled={busy} onclick={() => void openFilePicker()}>
-				<FolderPlus /> Add documents
+				<FolderPlus /> Add files
 			</Button>
 		</div>
 	</div>
@@ -358,7 +384,7 @@
 	onNavigate={(path) => void navigateDirectory(path)}
 	onOpenChange={(open) => (filePickerOpen = open)}
 	onSelectedPathsChange={(paths) => (pickerSelectedPaths = paths)}
-	onSubmitPaths={(paths) => void ingestPaths(paths)}
+	onSubmitPaths={(paths) => void processPaths(paths)}
 	onSyncFolder={(path) => void addFolder(path)}
 	open={filePickerOpen}
 	selectedPaths={pickerSelectedPaths}
@@ -370,7 +396,7 @@
 	tags={documentsStore.tags}
 	title={tagPickerMode === 'add' ? 'Tag to apply' : 'Tag to remove'}
 />
-<DialogProgress open={uploading} progress={documentsStore.progress} title="Ingesting PDF" />
+<DialogProgress open={uploading} progress={fileProgress} title="Processing files" />
 <DialogDocumentSyncProgress
 	files={documentsStore.syncFiles}
 	open={documentsStore.syncing}

@@ -6,6 +6,7 @@ import { error, json } from '@sveltejs/kit';
 import type { ApiDocumentDirectoryItem, ApiDocumentDirectoryResponse } from '$lib/types';
 import { containsPath } from '$lib/server/documents/remove-document';
 import type { RequestHandler } from './$types';
+import { isSupportedAudioPath } from '$lib/utils';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const root = await realpath(homedir());
@@ -28,13 +29,19 @@ export const GET: RequestHandler = async ({ url }) => {
 		if (entry.name.startsWith('.')) continue;
 		const path = join(directory, entry.name);
 		if (entry.isDirectory()) items.push({ name: entry.name, path, kind: 'folder' });
-		if (entry.isFile() && extname(entry.name).toLowerCase() === '.pdf') {
-			items.push({ name: entry.name, path, kind: 'pdf' });
+		if (entry.isFile()) {
+			const extension = extname(entry.name).toLowerCase();
+			if (extension === '.pdf') {
+				items.push({ name: entry.name, path, kind: 'pdf' });
+			} else if (isSupportedAudioPath(entry.name)) {
+				items.push({ kind: 'audio', name: entry.name, path });
+			}
 		}
 	}
 
 	items.sort((left, right) => {
-		if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1;
+		if (left.kind === 'folder' && right.kind !== 'folder') return -1;
+		if (right.kind === 'folder' && left.kind !== 'folder') return 1;
 		return left.name.localeCompare(right.name);
 	});
 

@@ -10,6 +10,8 @@ import NotebookWindow from '$lib/components/app/notebook/NotebookWindow.svelte';
 import SearchWindow from '$lib/components/app/search/SearchWindow.svelte';
 import { WindowColumn } from '$lib/enums';
 import type { Component } from 'svelte';
+import AudioLines from '@lucide/svelte/icons/audio-lines';
+import TranscriptionWindow from '$lib/components/app/transcription/TranscriptionWindow.svelte';
 
 export interface WindowInstanceProps {
 	collapsed?: boolean;
@@ -64,6 +66,13 @@ export const windowDefinitions = [
 		column: WindowColumn.RIGHT,
 		component: NotebookWindow,
 		icon: BookOpen
+	},
+	{
+		id: 'transcription-window',
+		title: 'Audio Transcription',
+		column: WindowColumn.LEFT,
+		component: TranscriptionWindow,
+		icon: AudioLines
 	}
 ] satisfies WindowDefinition[];
 

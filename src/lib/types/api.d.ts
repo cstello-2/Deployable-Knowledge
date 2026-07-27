@@ -71,7 +71,7 @@ export interface ApiDocumentListResponse {
 }
 
 export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf';
+	kind: 'folder' | 'pdf' | 'audio';
 	name: string;
 	path: string;
 }
