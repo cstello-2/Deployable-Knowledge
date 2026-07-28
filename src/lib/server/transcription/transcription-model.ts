@@ -15,12 +15,24 @@ env.localModelPath = TRANSFORMERS_CACHE_DIR;
 
 let transcriptionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | undefined;
 
-export async function transcribeAudio(audioData: Float32Array): Promise<string> {
+export type TranscriptSegment = {
+	startMs: number;
+	endMs: number;
+	text: string;
+};
+
+export type TranscriptionResult = {
+	text: string;
+	segments: TranscriptSegment[];
+};
+
+export async function transcribeAudio(audioData: Float32Array): Promise<TranscriptionResult> {
 	transcriptionPipeline ??= pipeline('automatic-speech-recognition', TRANSCRIPTION_MODEL, {
 		cache_dir: TRANSFORMERS_CACHE_DIR
 	});
 
 	const transcriber = await transcriptionPipeline;
+
 	// Timestamps let the pipeline stitch the 30 second windows of long audio back together
 	const result = await transcriber(audioData, {
 		chunk_length_s: 30,
@@ -28,5 +40,21 @@ export async function transcribeAudio(audioData: Float32Array): Promise<string> 
 		stride_length_s: 5
 	});
 
-	return result.text.trim();
+	const segments = (result.chunks ?? []).flatMap<TranscriptSegment>((segment) => {
+		const text = segment.text?.trim() ?? '';
+		const [start, end] = segment.timestamp ?? [];
+		if (!text || typeof start !== 'number') return [];
+
+		const endSeconds = typeof end === 'number' ? Math.max(end, start) : start;
+
+		return [
+			{
+				startMs: Math.max(0, Math.round(start * 1000)),
+				endMs: Math.max(0, Math.round(endSeconds * 1000)),
+				text
+			}
+		];
+	});
+
+	return { text: result.text.trim(), segments };
 }

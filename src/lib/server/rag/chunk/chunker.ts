@@ -206,7 +206,9 @@ function chunkSentenceSpans(
 				source: page.source,
 				pageIndex: page.pageIndex,
 				chunkIndex,
-				content: chunkContent
+				content: chunkContent,
+				startChar,
+				endChar
 			});
 			chunkIndex += 1;
 		}

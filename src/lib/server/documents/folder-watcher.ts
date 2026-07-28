@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import type { ApiDocumentSyncFileProgress, ApiDocumentSyncResult, SyncedFolder } from '$lib/types';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
-import { isSupportedDocument } from '$lib/server/rag/ingest-document';
+import { isSyncableFile } from '$lib/server/documents/source-types';
 import { syncFolder, type SyncProgressCallback } from './folder-sync';
 
 type Folder = Pick<SyncedFolder, 'id' | 'path'>;
@@ -69,7 +69,7 @@ export const folderWatcherManager = {
 			ignoreInitial: true,
 			atomic: true,
 			awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 250 },
-			ignored: (path, stats) => Boolean(stats?.isFile() && !isSupportedDocument(path))
+			ignored: (path, stats) => Boolean(stats?.isFile() && !isSyncableFile(path))
 		});
 		const state: WatchedFolder = {
 			watcher,
@@ -84,7 +84,7 @@ export const folderWatcherManager = {
 			if (
 				event === 'addDir' ||
 				event === 'unlinkDir' ||
-				(['add', 'change', 'unlink'].includes(event) && isSupportedDocument(path))
+				(['add', 'change', 'unlink'].includes(event) && isSyncableFile(path))
 			) {
 				this.scheduleSync(folder.id);
 			}

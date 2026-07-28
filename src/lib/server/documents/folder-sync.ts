@@ -10,8 +10,9 @@ import type {
 import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
-import { ingestDocument, isSupportedDocument } from '$lib/server/rag/ingest-document';
+import { ingestDocument } from '$lib/server/rag/ingest-document';
 import { removeDocument, removeManagedDocumentFile } from './remove-document';
+import { handlerForPath, isSyncableFile } from './source-types';
 
 export type SyncProgressCallback = (progress: ApiDocumentSyncFileProgress) => void;
 
@@ -23,7 +24,7 @@ interface SyncFile {
 
 async function findFiles(directory: string): Promise<SyncFile[]> {
 	const entries = await readdir(directory, { withFileTypes: true, recursive: true });
-	const files = entries.filter((entry) => entry.isFile() && isSupportedDocument(entry.name));
+	const files = entries.filter((entry) => entry.isFile() && isSyncableFile(entry.name));
 	const values = await Promise.all(
 		files.map(async (file) => {
 			const sourcePath = resolve(file.parentPath, file.name);
@@ -101,12 +102,17 @@ export async function syncFolder(
 
 		try {
 			onProgress?.({ sourcePath: file.sourcePath, status: 'ingesting' });
+
+			handlerForPath(file.sourcePath)?.validateFile?.({ path: file.sourcePath, size: file.size });
+
 			managedPath = await managedPathFor(file.sourcePath);
+
 			const [existingDocument] = await db
 				.select({ id: documents.id })
 				.from(documents)
 				.where(eq(documents.sourcePath, managedPath))
 				.limit(1);
+
 			const [existingOwner] = existingDocument
 				? await db
 						.select({ folderId: syncedFiles.folderId, sourcePath: syncedFiles.sourcePath })

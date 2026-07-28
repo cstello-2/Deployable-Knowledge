@@ -70,6 +70,16 @@ export interface ApiDocumentListResponse {
 	tags: string[];
 }
 
+export type TranscriptChunkRow = Pick<
+	DocumentChunk,
+	'id' | 'chunkIndex' | 'content' | 'startMs' | 'endMs'
+>;
+
+export interface ApiTranscriptResponse {
+	chunks: TranscriptChunkRow[];
+	document: Pick<Document, 'id' | 'title' | 'sourceType' | 'updatedAt'>;
+}
+
 export interface ApiDocumentDirectoryItem {
 	kind: 'folder' | 'pdf' | 'audio';
 	name: string;
@@ -263,6 +273,7 @@ export interface ApiSearchMatch {
 	sourceTitle: string;
 	sourceType: Document['sourceType'];
 	pageIndex: number;
+	chunkIndex: number;
 	content: string;
 }
 

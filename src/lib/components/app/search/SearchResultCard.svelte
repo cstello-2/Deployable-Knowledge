@@ -1,7 +1,8 @@
 <script lang="ts">
+	import AudioLines from '@lucide/svelte/icons/audio-lines';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { Button } from '$lib/components/ui/button';
-	import { API_DOCUMENT_FILES } from '$lib/constants';
+	import { documentViewerHref } from '$lib/constants';
 	import type { ApiSearchMatch } from '$lib/types';
 
 	interface Props {
@@ -13,6 +14,7 @@
 
 	// Transcript chunks have no pages and no file to open, unlike PDF chunks
 	const isTranscript = $derived(result.sourceType === 'AUDIO');
+	const viewerHref = $derived(documentViewerHref(result.sourceType, result.documentId, result));
 </script>
 
 <article class="dk-panel grid gap-2 rounded-xl border p-3 shadow-sm">
@@ -22,17 +24,21 @@
 		<span>{isTranscript ? 'Transcript' : `Page ${result.pageIndex + 1}`}</span>
 	</div>
 	<p class="m-0 whitespace-pre-wrap text-sm leading-relaxed">{result.content}</p>
-	{#if !isTranscript}
-		<div>
+	<div>
+		{#if isTranscript}
+			<Button variant="outline" size="sm" href={viewerHref}>
+				<AudioLines /> Play this chunk
+			</Button>
+		{:else}
 			<Button
 				variant="outline"
 				size="sm"
-				href={`${API_DOCUMENT_FILES.byId(result.documentId)}#page=${result.pageIndex + 1}`}
+				href={viewerHref}
 				target="_blank"
 				rel="noopener noreferrer"
 			>
 				<ExternalLink /> Show in PDF
 			</Button>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </article>

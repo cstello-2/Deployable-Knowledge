@@ -251,6 +251,8 @@ export const documentChunks = sqliteTable(
 		pageIndex: integer('page_index').notNull(),
 		chunkIndex: integer('chunk_index').notNull(),
 		content: text('content').notNull(),
+		startMs: integer('start_ms'),
+		endMs: integer('end_ms'),
 		embedding: blob('embedding', { mode: 'buffer' }).notNull(),
 		createdAt: text('created_at').notNull()
 	},

@@ -57,6 +57,8 @@ function buildChunkRows(
 		pageIndex: chunk.pageIndex,
 		chunkIndex: chunk.chunkIndex,
 		content: chunk.content,
+		startMs: chunk.startMs ?? null,
+		endMs: chunk.endMs ?? null,
 		embedding: embeddingToBuffer(embeddings[index] ?? []),
 		createdAt: now
 	}));

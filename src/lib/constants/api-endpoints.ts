@@ -1,8 +1,25 @@
+import type { Document } from '$lib/types';
+
 const segment = (value: string) => encodeURIComponent(value);
 
 export const API_DOCUMENT_FILES = {
 	byId: (id: string) => `/document-files/${segment(id)}`
 };
+
+export const APP_TRANSCRIPTS = {
+	byId: (id: string) => `/transcripts/${segment(id)}`,
+	chunk: (id: string, chunkIndex: number) =>
+		`/transcripts/${segment(id)}?chunk=${segment(String(chunkIndex))}`
+};
+
+export function documentViewerHref(
+	sourceType: Document['sourceType'] | undefined,
+	documentId: string,
+	location: { chunkIndex?: number | null; pageIndex?: number | null }
+): string {
+	if (sourceType === 'AUDIO') return APP_TRANSCRIPTS.chunk(documentId, location.chunkIndex ?? 0);
+	return `${API_DOCUMENT_FILES.byId(documentId)}#page=${(location.pageIndex ?? 0) + 1}`;
+}
 
 export const API_DOCUMENTS = {
 	ACTIVATION: '/documents/activation',

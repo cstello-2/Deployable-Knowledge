@@ -1,12 +1,12 @@
 import { constants } from 'node:fs';
 import { access, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { extname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { error, json } from '@sveltejs/kit';
 import type { ApiDocumentDirectoryItem, ApiDocumentDirectoryResponse } from '$lib/types';
 import { containsPath } from '$lib/server/documents/remove-document';
+import { handlerForPath } from '$lib/server/documents/source-types';
 import type { RequestHandler } from './$types';
-import { isSupportedAudioPath } from '$lib/utils';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const root = await realpath(homedir());
@@ -30,12 +30,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		const path = join(directory, entry.name);
 		if (entry.isDirectory()) items.push({ name: entry.name, path, kind: 'folder' });
 		if (entry.isFile()) {
-			const extension = extname(entry.name).toLowerCase();
-			if (extension === '.pdf') {
-				items.push({ name: entry.name, path, kind: 'pdf' });
-			} else if (isSupportedAudioPath(entry.name)) {
-				items.push({ kind: 'audio', name: entry.name, path });
-			}
+			const handler = handlerForPath(entry.name);
+			if (handler) items.push({ kind: handler.kind, name: entry.name, path });
 		}
 	}
 

@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { PDFParse, type EmbeddedImage, type TableArray } from 'pdf-parse';
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
-import { normalizeWhitespace, type ExtractedChunk as Chunk, type Source } from './parse-shared.ts';
-
-export type TextExtractionResult = {
-	chunks: Chunk[];
-	pageCount: number;
-};
+import {
+	normalizeWhitespace,
+	type ExtractedChunk as Chunk,
+	type ExtractionResult,
+	type Source
+} from './parse-shared.ts';
 
 function tableToText(table: TableArray): string {
 	return table
@@ -84,7 +84,7 @@ async function getPageImages(data: Uint8Array, pageNumber: number): Promise<Embe
 export async function extractText(
 	file: Source,
 	onPageProgress?: (current: number, total: number) => void
-): Promise<TextExtractionResult> {
+): Promise<ExtractionResult> {
 	const data = await readFile(file.path);
 	const parser = new PDFParse({ data });
 

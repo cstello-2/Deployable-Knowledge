@@ -7,11 +7,10 @@ import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/ty
 import { db } from '$lib/server/database/database';
 import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
-import { isSupportedAudioPath } from '$lib/utils';
+import { handlerForPath, SOURCE_TYPE_HANDLERS, type SourceTypeHandler } from './source-types';
 import { containsPath, removeManagedDocumentFile } from './remove-document';
 
 const DOCUMENTS_DIR = 'documents';
-const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 
 async function existingDocument(sourcePath: string): Promise<ApiDocumentIngestResult | null> {
 	const [existing] = await db
@@ -29,54 +28,58 @@ async function existingDocument(sourcePath: string): Promise<ApiDocumentIngestRe
 	return existing ? { ...existing, pageCount: 0, chunkCount: Number(existing.chunkCount) } : null;
 }
 
-export async function ingestPdfBuffer(
+function titleFor(name: string): string {
+	return basename(name, extname(name)).trim() || name;
+}
+
+export async function ingestFileBuffer(
 	originalName: string,
 	buffer: Buffer,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
 ): Promise<ApiDocumentIngestResult> {
-	if (
-		!originalName.toLowerCase().endsWith('.pdf') ||
-		buffer.subarray(0, 5).toString() !== '%PDF-'
-	) {
-		throw new Error('Only PDF uploads are supported.');
+	const handler = handlerForPath(originalName);
+
+	// Uploads land in the managed documents folder, so in-place formats need a real path
+	if (handler?.storage !== 'managed-copy') {
+		const supported = SOURCE_TYPE_HANDLERS.filter((entry) => entry.storage === 'managed-copy')
+			.map((entry) => entry.type)
+			.join(', ');
+		throw new Error(`Only ${supported} uploads are supported.`);
 	}
+	handler.validateBuffer?.(buffer);
 
 	await mkdir(DOCUMENTS_DIR, { recursive: true });
 	const contentHash = createHash('sha256').update(buffer).digest('hex');
-	const savedPath = join(DOCUMENTS_DIR, `${contentHash.slice(0, 16)}.pdf`);
+	const savedPath = join(
+		DOCUMENTS_DIR,
+		`${contentHash.slice(0, 16)}${extname(originalName).toLowerCase()}`
+	);
 	const existing = await existingDocument(savedPath);
 	if (existing) return existing;
 
 	await writeFile(savedPath, buffer);
 	try {
-		return await ingestDocument(
-			{
-				filePath: savedPath,
-				title: originalName.replace(/\.pdf$/i, '').trim() || originalName
-			},
-			onProgress
-		);
+		return await ingestDocument({ filePath: savedPath, title: titleFor(originalName) }, onProgress);
 	} catch (error) {
 		await removeManagedDocumentFile(savedPath);
 		throw error;
 	}
 }
 
-// Audio stays where the user keeps it; the transcript chunks are the ingested artifact
-async function ingestAudioPath(
+// In-place sources stay where the user keeps them; the chunks are the ingested artifact
+async function ingestInPlace(
+	handler: SourceTypeHandler,
 	path: string,
 	byteLength: number,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
 ): Promise<ApiDocumentIngestResult> {
-	if (byteLength === 0) throw new Error('The audio file is empty.');
-	if (byteLength > MAX_AUDIO_BYTES) throw new Error('Audio files must be 100 MB or smaller.');
+	handler.validateFile?.({ path, size: byteLength });
 
-	// Transcription is slow, so a file that already has a transcript keeps the stored one
+	// Extraction is slow (e.g. transcription), so a file that already has chunks keeps the stored ones
 	const existing = await existingDocument(path);
 	if (existing) return existing;
 
-	const extension = extname(path);
-	return ingestDocument({ filePath: path, title: basename(path, extension) }, onProgress);
+	return ingestDocument({ filePath: path, title: titleFor(path) }, onProgress);
 }
 
 export async function ingestFilePath(
@@ -86,11 +89,16 @@ export async function ingestFilePath(
 	const root = await realpath(homedir());
 	const path = await realpath(resolve(filePath));
 	const fileStats = await stat(path);
+
 	if (!containsPath(root, path) || !fileStats.isFile()) {
 		throw new Error('Select a file inside your home folder.');
 	}
 
-	if (isSupportedAudioPath(path)) return ingestAudioPath(path, fileStats.size, onProgress);
+	const handler = handlerForPath(path);
+	if (!handler) throw new Error('Unsupported document type.');
+	if (handler.storage === 'in-place') {
+		return ingestInPlace(handler, path, fileStats.size, onProgress);
+	}
 
 	const [tracked] = await db
 		.select({ sourcePath: documents.sourcePath })
@@ -98,10 +106,11 @@ export async function ingestFilePath(
 		.innerJoin(documents, eq(documents.id, syncedFiles.documentId))
 		.where(eq(syncedFiles.sourcePath, path))
 		.limit(1);
+
 	if (tracked) {
 		const existing = await existingDocument(tracked.sourcePath);
 		if (existing) return existing;
 	}
 
-	return ingestPdfBuffer(basename(path), await readFile(path), onProgress);
+	return ingestFileBuffer(basename(path), await readFile(path), onProgress);
 }

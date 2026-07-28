@@ -8,7 +8,7 @@ import type {
 import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
 import { folderWatcherManager } from '$lib/server/documents/folder-watcher';
-import { ingestFilePath, ingestPdfBuffer } from '$lib/server/documents/ingest-file';
+import { ingestFileBuffer, ingestFilePath } from '$lib/server/documents/ingest-file';
 import { removeDocument } from '$lib/server/documents/remove-document';
 import type { RequestHandler } from './$types';
 
@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!(upload instanceof File)) throw error(400, 'Upload a PDF file.');
 		const name = upload.name || 'document.pdf';
 		const buffer = Buffer.from(await upload.arrayBuffer());
-		ingest = (onProgress) => ingestPdfBuffer(name, buffer, onProgress);
+		ingest = (onProgress) => ingestFileBuffer(name, buffer, onProgress);
 	} else {
 		const body = (await request.json().catch(() => null)) as { path?: unknown } | null;
 		if (typeof body?.path !== 'string' || !body.path.trim()) {
