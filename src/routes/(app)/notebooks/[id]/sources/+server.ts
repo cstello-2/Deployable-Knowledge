@@ -23,6 +23,7 @@ function preview(text: string, limit = PREVIEW_CHARS): string {
 // `preview` is computed and has no column of its own.
 export type NotebookSourceItem = Pick<NotebookSource, 'id' | 'chunkId' | 'createdAt'> &
 	Pick<DocumentChunk, 'pageIndex'> & {
+		documentId: Document['id'];
 		documentTitle: Document['title'];
 		preview: string;
 	};
@@ -37,6 +38,7 @@ export const GET: RequestHandler = async ({ params }) => {
 		.select({
 			id: notebookSources.id,
 			chunkId: notebookSources.chunkId,
+			documentId: documents.id,
 			documentTitle: documents.title,
 			pageIndex: documentChunks.pageIndex,
 			content: documentChunks.content,
@@ -53,6 +55,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			(row): NotebookSourceItem => ({
 				id: row.id,
 				chunkId: row.chunkId,
+				documentId: row.documentId,
 				documentTitle: row.documentTitle,
 				pageIndex: row.pageIndex,
 				preview: preview(row.content),

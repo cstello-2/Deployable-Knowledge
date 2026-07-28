@@ -9,6 +9,7 @@
 		onBack: () => void;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
@@ -22,6 +23,7 @@
 		onBack,
 		onClearSources,
 		onCreate,
+		onInsertCitation,
 		onRemoveSource,
 		onTogglePreview,
 		previewMode = false,
@@ -47,6 +49,7 @@
 		{sources}
 		{sourcesLoading}
 		{view}
+		{onInsertCitation}
 		{onClearSources}
 		{onCreate}
 		{onRemoveSource}
