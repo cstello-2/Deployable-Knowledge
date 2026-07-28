@@ -12,7 +12,7 @@
 		NOTEBOOK_TEXT_CHARACTER_LIMIT,
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
-	import { notebooksStore } from '$lib/stores';
+	import { documentsStore, notebooksStore } from '$lib/stores';
 	import type { NotebookPage, NotebookSourceItem, NotebookWithPages } from '$lib/types';
 	import { createNotebookAutosave } from './notebook-autosave';
 	import { notebookCountLabel } from './notebook-format';
@@ -332,6 +332,32 @@
 		}
 	}
 
+	async function addToMasterCorpus(pageIds: string[]): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook || !pageIds.length) return;
+		await autosave.flush();
+		try {
+			const response = await fetch(`/notebooks/${encodeURIComponent(notebook.id)}/master-corpus`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pageIds })
+			});
+			const result = (await response.json()) as {
+				error?: string;
+				pageCount?: number;
+				chunkCount?: number;
+			};
+			if (!response.ok) throw new Error(result.error ?? 'Master Corpus export failed');
+			await documentsStore.load();
+			notebookExportOpen = false;
+			toast.success(
+				`${result.pageCount ?? pageIds.length} pages added as ${result.chunkCount ?? 0} searchable chunks`
+			);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -471,6 +497,7 @@
 	pages={notebooksStore.activeNotebook?.pages ?? []}
 	onOpenChange={(open) => (notebookExportOpen = open)}
 	onExport={exportNotebook}
+	onMasterCorpus={addToMasterCorpus}
 />
 
 <DialogConfirmation

@@ -17,7 +17,8 @@ export function insertNotebookSourceCitation(
 	const page = source.pageIndex + 1;
 	const title = escapeLabel(source.documentTitle.trim() || 'Source');
 	const href = `${API_DOCUMENT_FILES.byId(source.documentId)}#page=${page}`;
-	const citation = `([${title}, p. ${page}](${href}))`;
+	const citation =
+		source.sourceType === 'PDF' ? `([${title}, p. ${page}](${href}))` : `(${title}, p. ${page})`;
 	const start = clamp(selectionStart, 0, text.length);
 	const end = clamp(selectionEnd, start, text.length);
 	const before = text.slice(0, start);
@@ -26,7 +27,11 @@ export function insertNotebookSourceCitation(
 	const suffix = after && !/^[\s.,;:!?)}\]]/.test(after) ? ' ' : '';
 	const insertion = `${prefix}${citation}${suffix}`;
 	const body = `${before}${insertion}${after}`.trimEnd();
-	const row = `| [${escapeTable(source.documentTitle)}](${href}) | ${page} |`;
+	const sourceCell =
+		source.sourceType === 'PDF'
+			? `[${escapeTable(source.documentTitle)}](${href})`
+			: escapeTable(source.documentTitle);
+	const row = `| ${sourceCell} | ${page} |`;
 	const existingRows = extractRows(body);
 	const withoutTable = removeTable(body);
 	const rows = existingRows.includes(row) ? existingRows : [...existingRows, row];

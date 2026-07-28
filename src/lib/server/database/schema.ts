@@ -205,7 +205,7 @@ export const documents = sqliteTable(
 		id: text('id').primaryKey(),
 		title: text('title').notNull(),
 		sourcePath: text('source_path').notNull(),
-		sourceType: text('source_type', { enum: ['PDF', 'AUDIO'] }).notNull(),
+		sourceType: text('source_type', { enum: ['PDF', 'AUDIO', 'NOTEBOOK'] }).notNull(),
 		active: integer('active', { mode: 'boolean' }).notNull().default(true),
 		createdAt: text('created_at').notNull(),
 		updatedAt: text('updated_at').notNull()

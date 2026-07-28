@@ -161,6 +161,7 @@ export type NotebookSourceItem = Pick<NotebookSource, 'id' | 'chunkId' | 'create
 	Pick<DocumentChunk, 'pageIndex'> & {
 		documentId: Document['id'];
 		documentTitle: Document['title'];
+		sourceType: Document['sourceType'];
 		preview: string;
 	};
 

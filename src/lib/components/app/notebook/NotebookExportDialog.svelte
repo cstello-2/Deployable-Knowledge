@@ -10,12 +10,13 @@
 
 	interface Props {
 		onExport: (format: ExportFormat, pageIds: string[]) => Promise<void> | void;
+		onMasterCorpus: (pageIds: string[]) => Promise<void> | void;
 		onOpenChange: (open: boolean) => void;
 		open: boolean;
 		pages: readonly NotebookPage[];
 	}
 
-	let { onExport, onOpenChange, open, pages }: Props = $props();
+	let { onExport, onMasterCorpus, onOpenChange, open, pages }: Props = $props();
 	let selectedPageIds = $state<string[]>([]);
 	let wasOpen = false;
 
@@ -70,6 +71,11 @@
 			</div>
 		</ScrollArea>
 		<Dialog.Footer>
+			<Button
+				variant="secondary"
+				disabled={!selectedPageIds.length}
+				onclick={() => onMasterCorpus(selectedPageIds)}>Add to Master Corpus</Button
+			>
 			<Button
 				variant="outline"
 				disabled={!selectedPageIds.length}
