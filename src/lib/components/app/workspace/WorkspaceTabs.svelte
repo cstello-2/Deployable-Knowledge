@@ -16,12 +16,50 @@
 
 	let renamePresetId = $state<string | null>(null);
 	let renameName = $state('');
+	let draggedPresetId = $state<string | null>(null);
+	let dropTargetId = $state<string | null>(null);
+	let dropPosition = $state<'before' | 'after'>('before');
 
 	function renameLayout(event: SubmitEvent): void {
 		event.preventDefault();
 		if (!renamePresetId || !renameName.trim()) return;
 		workspaceStore.renameLayoutPreset(renamePresetId, renameName);
 		renamePresetId = null;
+	}
+
+	function clearPresetDrag(): void {
+		draggedPresetId = null;
+		dropTargetId = null;
+		dropPosition = 'before';
+	}
+
+	function handlePresetDragStart(event: DragEvent, presetId: string): void {
+		draggedPresetId = presetId;
+		event.dataTransfer?.setData('text/plain', presetId);
+		if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+	}
+
+	function handlePresetDragOver(event: DragEvent, targetId: string): void {
+		const movingId = draggedPresetId ?? event.dataTransfer?.getData('text/plain') ?? null;
+		if (!movingId || movingId === targetId) {
+			dropTargetId = null;
+			return;
+		}
+
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		dropTargetId = targetId;
+		dropPosition = event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after';
+	}
+
+	function handlePresetDrop(event: DragEvent, targetId: string): void {
+		event.preventDefault();
+		const movingId = draggedPresetId ?? event.dataTransfer?.getData('text/plain') ?? null;
+		if (movingId && movingId !== targetId) {
+			workspaceStore.reorderLayoutPreset(movingId, targetId, dropPosition);
+		}
+		clearPresetDrag();
 	}
 </script>
 
@@ -54,10 +92,21 @@
 							{...props}
 							class={[
 								'group flex h-8 min-w-36 max-w-56 items-center rounded-lg border transition-[background-color,border-color,color,box-shadow] focus-within:ring-2 focus-within:ring-ring/50 focus-within:ring-inset',
+								draggedPresetId === preset.id && 'opacity-45',
+								dropTargetId === preset.id &&
+									(dropPosition === 'before'
+										? 'border-l-2 border-l-primary'
+										: 'border-r-2 border-r-primary'),
 								active
 									? 'border-border bg-background text-foreground shadow-sm'
 									: 'border-transparent bg-transparent text-muted-foreground hover:bg-card/75 hover:text-foreground'
 							]}
+							draggable="true"
+							title="Drag to reorder layout tabs"
+							ondragstart={(event) => handlePresetDragStart(event, preset.id)}
+							ondragover={(event) => handlePresetDragOver(event, preset.id)}
+							ondrop={(event) => handlePresetDrop(event, preset.id)}
+							ondragend={clearPresetDrag}
 						>
 							<button
 								class="flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-xs font-medium outline-none"
