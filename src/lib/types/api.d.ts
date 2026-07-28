@@ -168,6 +168,17 @@ export interface ApiNotebookPageMoveRequest {
 	destinationNotebookId: string;
 }
 
+export interface ApiNotebookMasterCorpusRequest {
+	pageIds: string[];
+}
+
+export interface ApiNotebookMasterCorpusResponse {
+	chunkCount: number;
+	documentId: string;
+	pageCount: number;
+	title: string;
+}
+
 export interface ApiReorderRequest {
 	orderedIds: string[];
 }

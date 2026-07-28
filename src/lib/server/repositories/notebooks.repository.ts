@@ -3,6 +3,7 @@ import { and, asc, eq, max } from 'drizzle-orm';
 import type { NotebookStateResponse } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
+import type { NotebookCorpusInput } from '$lib/server/notebooks/master-corpus-chunks';
 import {
 	notebookPages,
 	notebookState,
@@ -251,6 +252,40 @@ export class NotebooksRepository {
 			notebookRows[0]?.id ??
 			null;
 		return { activeNotebookId, notebooks: output };
+	}
+
+	static async loadCorpusInput(
+		notebookId: string,
+		pageIds: readonly string[]
+	): Promise<NotebookCorpusInput | null> {
+		const [notebook] = await db
+			.select({ title: notebooks.title })
+			.from(notebooks)
+			.where(eq(notebooks.id, notebookId))
+			.limit(1);
+		if (!notebook) return null;
+
+		const selectedIds = new Set(pageIds);
+		const pages = (
+			await db
+				.select({
+					content: notebookPages.content,
+					id: notebookPages.id,
+					title: notebookPages.title
+				})
+				.from(notebookPages)
+				.where(eq(notebookPages.notebookId, notebookId))
+				.orderBy(asc(notebookPages.createdAt))
+		)
+			.map((page, pageIndex) => ({ ...page, pageIndex }))
+			.filter(({ id }) => selectedIds.has(id))
+			.map(({ content, pageIndex, title }) => ({ content, pageIndex, title }));
+
+		return {
+			notebookId,
+			notebookTitle: notebook.title,
+			pages
+		};
 	}
 }
 

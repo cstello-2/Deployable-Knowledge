@@ -1,5 +1,6 @@
 import { NotebooksService } from '$lib/services';
 import type {
+	ApiNotebookMasterCorpusResponse,
 	NotebookPage,
 	NotebookSourceItem,
 	NotebookStateResponse,
@@ -134,6 +135,12 @@ class NotebooksStore {
 
 	async createPage(notebookId: string, title: string): Promise<void> {
 		this.apply(await NotebooksService.createPage(notebookId, title));
+	}
+
+	async addToMasterCorpus(pageIds: string[]): Promise<ApiNotebookMasterCorpusResponse> {
+		if (!this._activeNotebookId) throw new Error('Open a notebook first.');
+		if (!pageIds.length) throw new Error('Select at least one notebook page.');
+		return NotebooksService.addToMasterCorpus(this._activeNotebookId, pageIds);
 	}
 
 	async selectPage(notebookId: string, pageId: string): Promise<void> {

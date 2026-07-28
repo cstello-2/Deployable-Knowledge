@@ -45,6 +45,7 @@ export const API_NOTEBOOKS = {
 	exportPage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/export`,
 	importPages: (id: string) => `/notebooks/${segment(id)}/import`,
+	masterCorpus: (id: string) => `/notebooks/${segment(id)}/master-corpus`,
 	select: (id: string) => `/notebooks/${segment(id)}/select`,
 	pages: (id: string) => `/notebooks/${segment(id)}/pages`,
 	page: (id: string, pageId: string) => `/notebooks/${segment(id)}/pages/${segment(pageId)}`,

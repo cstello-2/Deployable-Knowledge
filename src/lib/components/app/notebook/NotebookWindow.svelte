@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Database from '@lucide/svelte/icons/database';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { ApiError } from '$lib/utils';
@@ -12,7 +13,7 @@
 		NOTEBOOK_TEXT_CHARACTER_LIMIT,
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
-	import { notebooksStore } from '$lib/stores';
+	import { documentsStore, notebooksStore } from '$lib/stores';
 	import type {
 		ApiDocumentDirectoryResponse,
 		NotebookPage,
@@ -30,6 +31,7 @@
 	import NotebookEditor from './NotebookEditor.svelte';
 	import NotebookHeader from './NotebookHeader.svelte';
 	import NotebookList from './NotebookList.svelte';
+	import NotebookMasterCorpusDialog from './NotebookMasterCorpusDialog.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookPreview from './NotebookPreview.svelte';
 	import NotebookImportDialog from './NotebookImportDialog.svelte';
@@ -77,6 +79,7 @@
 	let importing = $state(false);
 	let importMode = $state<NotebookImportMode>('collection');
 	let importSelectedPaths = $state<string[]>([]);
+	let masterCorpusOpen = $state(false);
 
 	function textDialogTitle(): string {
 		if (textDialogMode === 'create-notebook') return 'New notebook';
@@ -341,6 +344,21 @@
 		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
 	}
 
+	async function addToMasterCorpus(pageIds: string[]): Promise<void> {
+		if (!pageIds.length) return;
+		await autosave.flush();
+		try {
+			const result = await notebooksStore.addToMasterCorpus(pageIds);
+			await documentsStore.load();
+			masterCorpusOpen = false;
+			toast.success(
+				`${result.pageCount} ${result.pageCount === 1 ? 'page' : 'pages'} added as ${result.chunkCount} searchable ${result.chunkCount === 1 ? 'chunk' : 'chunks'}`
+			);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	async function prepareExport(): Promise<boolean> {
 		await autosave.flush();
 		if (notes === lastSavedNotes) return true;
@@ -491,26 +509,36 @@
 				/>
 			</NotebookSearch>
 		{:else if view === 'pages'}
-			<NotebookSearch
-				notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
-				onOpenResult={openSearchResult}
-				placeholder="Search pages..."
-			>
-				<NotebookPageList
-					activeId={notebooksStore.activePage?.id ?? null}
-					exportDisabled={notebooksStore.exportingNotebookId !== null ||
-						notebooksStore.exportingPageId !== null}
-					exportingId={notebooksStore.exportingPageId}
-					onDelete={openDeletePage}
-					onExport={(page) => void exportPage(page)}
-					onMove={openMovePage}
-					onOpen={(page) => void openPage(page)}
-					onRename={(page) => openRename(page, 'page')}
-					onReorder={reorderPage}
-					pages={notebooksStore.activeNotebook?.pages ?? []}
-					reorderDisabled={notebooksStore.reordering}
-				/>
-			</NotebookSearch>
+			<div class="grid min-h-0 grid-rows-[auto_1fr]">
+				<div class="flex items-center justify-between gap-3 border-b bg-muted/20 px-3 py-2">
+					<span class="text-xs text-muted-foreground">
+						Make selected notebook pages searchable in the document library.
+					</span>
+					<Button size="sm" variant="secondary" onclick={() => (masterCorpusOpen = true)}>
+						<Database /> Add to Master Corpus
+					</Button>
+				</div>
+				<NotebookSearch
+					notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
+					onOpenResult={openSearchResult}
+					placeholder="Search pages..."
+				>
+					<NotebookPageList
+						activeId={notebooksStore.activePage?.id ?? null}
+						exportDisabled={notebooksStore.exportingNotebookId !== null ||
+							notebooksStore.exportingPageId !== null}
+						exportingId={notebooksStore.exportingPageId}
+						onDelete={openDeletePage}
+						onExport={(page) => void exportPage(page)}
+						onMove={openMovePage}
+						onOpen={(page) => void openPage(page)}
+						onRename={(page) => openRename(page, 'page')}
+						onReorder={reorderPage}
+						pages={notebooksStore.activeNotebook?.pages ?? []}
+						reorderDisabled={notebooksStore.reordering}
+					/>
+				</NotebookSearch>
+			</div>
 		{:else if previewMode}
 			<NotebookPreview content={notes} />
 		{:else}
@@ -591,6 +619,13 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<NotebookMasterCorpusDialog
+	open={masterCorpusOpen}
+	pages={notebooksStore.activeNotebook?.pages ?? []}
+	onOpenChange={(open) => (masterCorpusOpen = open)}
+	onAdd={addToMasterCorpus}
+/>
 
 <DialogConfirmation
 	open={Boolean(deleteTarget)}
