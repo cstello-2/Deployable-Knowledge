@@ -33,23 +33,23 @@
 <div class="flex items-center gap-1">
 	{#if view === 'notebooks' || view === 'pages'}
 		<ActionIcon
-			variant="ghost"
 			class="size-8"
 			label={view === 'notebooks' ? 'Create notebook' : 'Create page'}
+			variant="ghost"
 			onclick={onCreate}><Plus /></ActionIcon
 		>
 	{:else}
 		<NotebookSourcesPanel
-			{sources}
 			loading={sourcesLoading}
-			onRemove={onRemoveSource}
+			{sources}
 			onClear={onClearSources}
+			onRemove={onRemoveSource}
 		/>
 		<ActionIcon
-			variant={previewMode ? 'secondary' : 'ghost'}
 			class="size-8"
 			label={previewMode ? 'Edit notes' : 'Preview Markdown'}
 			pressed={previewMode}
+			variant={previewMode ? 'secondary' : 'ghost'}
 			onclick={onTogglePreview}
 		>
 			{#if previewMode}<Pencil />{:else}<Eye />{/if}

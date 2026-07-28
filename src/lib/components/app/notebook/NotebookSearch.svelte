@@ -28,7 +28,7 @@
 			<Search
 				class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
 			/>
-			<Input aria-label={placeholder} class="pl-9" {placeholder} type="search" bind:value={query} />
+			<Input bind:value={query} aria-label={placeholder} class="pl-9" {placeholder} type="search" />
 		</div>
 	</div>
 	{#if searching}

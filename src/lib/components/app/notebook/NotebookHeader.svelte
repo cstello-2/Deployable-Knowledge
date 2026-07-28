@@ -35,21 +35,21 @@
 <header class="flex h-11 items-center gap-2 border-b bg-card/70 px-3">
 	{#if view !== 'notebooks'}
 		<ActionIcon
-			variant="ghost"
 			class="size-8"
 			label={view === 'editor' ? 'Back to pages' : 'Back to notebooks'}
+			variant="ghost"
 			onclick={onBack}><ArrowLeft /></ActionIcon
 		>
 	{/if}
 	<h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
 	<NotebookHeaderActions
-		{view}
 		{previewMode}
 		{sources}
 		{sourcesLoading}
-		{onCreate}
-		{onTogglePreview}
-		{onRemoveSource}
+		{view}
 		{onClearSources}
+		{onCreate}
+		{onRemoveSource}
+		{onTogglePreview}
 	/>
 </header>
