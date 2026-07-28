@@ -20,6 +20,7 @@ type CandidateRow = {
   chunkId: string;
   documentId: string;
   sourcePath: string;
+  sourceType: Document["sourceType"];
   sourceTitle: string;
   sourceType: Document["sourceType"];
   pageIndex: number;
@@ -63,11 +64,12 @@ export async function searchSemantic(
   }
 
   // Use Drizzle for the row query, then do vector math in TS
-  const candidateRows = await db
+  const candidateRows = (await db
     .select({
       chunkId: document_chunks.id,
       documentId: document_chunks.documentId,
       sourcePath: documents.sourcePath,
+      sourceType: documents.sourceType,
       sourceTitle: documents.title,
       sourceType: documents.sourceType,
       pageIndex: document_chunks.pageIndex,
@@ -78,7 +80,12 @@ export async function searchSemantic(
     })
     .from(document_chunks)
     .innerJoin(documents, eq(documents.id, document_chunks.documentId))
-    .where(filters.length ? and(...filters) : undefined) as CandidateRow[];
+    .where(filters.length ? and(...filters) : undefined) as CandidateRow[])
+    .filter(
+      (candidate) =>
+        candidate.chunkType !== "IMAGE" ||
+        isUsefulImageText(candidate.content),
+    );
 
   // Stored vectors are Float32 bytes. Decode them once before scoring
   const decodedCandidates = candidateRows.map((row) => {
@@ -158,6 +165,7 @@ export async function searchSemantic(
       chunkId: row.chunkId,
       documentId: row.documentId,
       sourcePath: row.sourcePath,
+      sourceType: row.sourceType,
       sourceTitle: row.sourceTitle,
       sourceType: row.sourceType,
       pageIndex: row.pageIndex,

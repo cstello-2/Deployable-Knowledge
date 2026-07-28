@@ -38,6 +38,7 @@ export const GET: RequestHandler = async ({ params }) => {
     .select({
       id: notebook_sources.id,
       chunkId: notebook_sources.chunkId,
+      documentId: documents.id,
       documentTitle: documents.title,
       sourceType: documents.sourceType,
       pageIndex: document_chunks.pageIndex,
@@ -56,6 +57,7 @@ export const GET: RequestHandler = async ({ params }) => {
       (row): NotebookSourceItem => ({
         id: row.id,
         chunkId: row.chunkId,
+        documentId: row.documentId,
         documentTitle: row.documentTitle,
         sourceType: row.sourceType,
         pageIndex: row.pageIndex,

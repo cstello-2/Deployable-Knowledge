@@ -6,12 +6,57 @@
     layoutPresets,
     leftPaneCollapsed,
     deleteActiveLayoutPreset,
+    reorderLayoutPreset,
     toggleLeftPaneCollapsed,
   } from "$lib/utils/workspaceState";
+  import type { LayoutPresetDropPosition } from "$lib/utils/layoutPresetOrder";
   import Icon from "$lib/components/utils/Icon.svelte";
+
+  let draggedPresetId = $state<string | null>(null);
+  let dropTargetId = $state<string | null>(null);
+  let dropPosition = $state<LayoutPresetDropPosition>("before");
 
   function presetLabel(index: number) {
     return String(index + 1);
+  }
+
+  function clearPresetDrag() {
+    draggedPresetId = null;
+    dropTargetId = null;
+    dropPosition = "before";
+  }
+
+  function handlePresetDragStart(event: DragEvent, presetId: string) {
+    draggedPresetId = presetId;
+    event.dataTransfer?.setData("text/plain", presetId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  }
+
+  function handlePresetDragOver(event: DragEvent, targetId: string) {
+    const movingId =
+      draggedPresetId ?? event.dataTransfer?.getData("text/plain") ?? null;
+    if (!movingId || movingId === targetId) {
+      dropTargetId = null;
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    const target = event.currentTarget as HTMLElement;
+    const bounds = target.getBoundingClientRect();
+    dropTargetId = targetId;
+    dropPosition =
+      event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function handlePresetDrop(event: DragEvent, targetId: string) {
+    event.preventDefault();
+    const movingId =
+      draggedPresetId ?? event.dataTransfer?.getData("text/plain") ?? null;
+    if (movingId && movingId !== targetId) {
+      reorderLayoutPreset(movingId, targetId, dropPosition);
+    }
+    clearPresetDrag();
   }
 </script>
 
@@ -38,10 +83,20 @@
       <button
         class="preset-button"
         class:active={$activeLayoutPresetId === preset.id}
+        class:dragging={draggedPresetId === preset.id}
+        class:drop-before={dropTargetId === preset.id &&
+          dropPosition === "before"}
+        class:drop-after={dropTargetId === preset.id &&
+          dropPosition === "after"}
         type="button"
-        title={`Apply layout ${label}`}
+        draggable="true"
+        title={`Apply layout ${label}. Drag to reorder.`}
         aria-label={`Apply layout ${label}`}
         aria-pressed={$activeLayoutPresetId === preset.id}
+        ondragstart={(event) => handlePresetDragStart(event, preset.id)}
+        ondragover={(event) => handlePresetDragOver(event, preset.id)}
+        ondrop={(event) => handlePresetDrop(event, preset.id)}
+        ondragend={clearPresetDrag}
         onclick={() => applyLayoutPreset(preset.id)}
       >
         {label}
@@ -121,9 +176,38 @@
   }
 
   .preset-button {
+    position: relative;
+    cursor: grab;
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
+  }
+
+  .preset-button:active {
+    cursor: grabbing;
+  }
+
+  .preset-button.dragging {
+    opacity: 0.45;
+  }
+
+  .preset-button.drop-before::before,
+  .preset-button.drop-after::after {
+    position: absolute;
+    right: 2px;
+    left: 2px;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--accent);
+    content: "";
+  }
+
+  .preset-button.drop-before::before {
+    top: -4px;
+  }
+
+  .preset-button.drop-after::after {
+    bottom: -4px;
   }
 
   .tool-button:hover,

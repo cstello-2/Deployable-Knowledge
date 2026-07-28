@@ -9,6 +9,7 @@ import {
   notebookContextCoverage,
   pageProvidesNotebookContext,
   pruneNotebookContextPageIds,
+  removeNotebookContext,
   selectAllNotebookContext,
   setNotebookContextSelection,
   toggleNotebookContextNotebook,
@@ -86,6 +87,23 @@ test("notebook coverage is active only when every page provides context", () => 
 
   toggleNotebookContextPage(appState, "page-1");
   assert.equal(notebookContextCoverage(appState, first), "partial");
+});
+
+test("deactivating a notebook removes its whole and partial context only", () => {
+  const first = notebook("notebook-1", "Notebook 1", ["page-1", "page-2"]);
+  const second = notebook("notebook-2", "Notebook 2", ["page-3"]);
+  const appState = state([first, second]);
+  setNotebookContextSelection(appState, {
+    notebookIds: ["notebook-2"],
+    pageIds: ["page-1", "page-2"],
+  });
+
+  removeNotebookContext(appState, first);
+
+  assert.deepEqual(appState.notebookContextNotebookIds, ["notebook-2"]);
+  assert.deepEqual(appState.notebookContextPageIds, []);
+  assert.equal(notebookContextCoverage(appState, first), "none");
+  assert.equal(notebookContextCoverage(appState, second), "all");
 });
 
 test("mixed notebook and page selections retain distinct IDs and summary counts", () => {

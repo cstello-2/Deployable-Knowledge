@@ -7,6 +7,7 @@ import type {
   SearchChunkType,
   SearchMatchBase,
 } from "./search-shared";
+import type { Document } from "$lib/server/database/schema";
 import {
   searchKnowledgeGraph,
   type KnowledgeGraphPath,
@@ -44,6 +45,7 @@ export type RagSource = {
   title: string;
   description: string;
   documentId: string;
+  sourceType: Document["sourceType"];
   chunkId: string;
   pageIndex: number;
   chunkIndex: number;
