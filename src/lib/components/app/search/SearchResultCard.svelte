@@ -1,4 +1,5 @@
 <script lang="ts">
+	import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { Button } from '$lib/components/ui/button';
 	import { API_DOCUMENT_FILES } from '$lib/constants';
@@ -6,10 +7,11 @@
 
 	interface Props {
 		index?: number;
+		onSaveChunk: (chunkId: string) => Promise<void> | void;
 		result: ApiSearchMatch;
 	}
 
-	let { index = 0, result }: Props = $props();
+	let { index = 0, onSaveChunk, result }: Props = $props();
 
 	// Transcript chunks have no pages and no file to open, unlike PDF chunks
 	const isTranscript = $derived(result.sourceType === 'AUDIO');
@@ -22,9 +24,13 @@
 		<span>{isTranscript ? 'Transcript' : `Page ${result.pageIndex + 1}`}</span>
 	</div>
 	<p class="m-0 whitespace-pre-wrap text-sm leading-relaxed">{result.content}</p>
-	{#if !isTranscript}
-		<div>
+	<div>
+		<Button variant="outline" size="sm" onclick={() => onSaveChunk(result.chunkId)}>
+			<BookmarkPlus /> Save chunk
+		</Button>
+		{#if !isTranscript}
 			<Button
+				class="ml-2"
 				variant="outline"
 				size="sm"
 				href={`${API_DOCUMENT_FILES.byId(result.documentId)}#page=${result.pageIndex + 1}`}
@@ -33,6 +39,6 @@
 			>
 				<ExternalLink /> Show in PDF
 			</Button>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </article>

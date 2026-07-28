@@ -9,6 +9,7 @@
 		busy?: boolean;
 		error?: string;
 		messages: SessionMessage[];
+		onSaveChunk: (chunkId: string) => Promise<void> | void;
 		onSendToNotebook: (message: SessionMessage) => void;
 		ref?: HTMLDivElement | null;
 		status?: string;
@@ -20,6 +21,7 @@
 		busy = false,
 		error = '',
 		messages,
+		onSaveChunk,
 		onSendToNotebook,
 		ref = $bindable(null),
 		status = 'Thinking…',
@@ -36,7 +38,7 @@
 >
 	<div class="flex min-h-full flex-col gap-2 p-2">
 		{#each messages as message (message.id)}
-			<ChatMessage {message} onSendToNotebook={() => onSendToNotebook(message)} />
+			<ChatMessage {message} {onSaveChunk} onSendToNotebook={() => onSendToNotebook(message)} />
 		{:else}
 			{#if !busy}
 				<Empty.Root class="my-auto"
