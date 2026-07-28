@@ -8,6 +8,7 @@ import { eng } from 'stopword';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { db } from '../../database/database';
 import { documentChunks, documents } from '../../database/schema';
+import { isUsefulImageText } from '../chunk/ocr-text-quality';
 import {
 	cleanFilterValues,
 	type ScoredSearchMatch,
@@ -99,7 +100,9 @@ export async function searchBm25(options: Bm25SearchOptions): Promise<Bm25Search
 		return { query, results: [] };
 	}
 
-	const candidates = await loadCandidates({ documentIds, sourcePaths, chunkTypes });
+	const candidates = (await loadCandidates({ documentIds, sourcePaths, chunkTypes })).filter(
+		(candidate) => candidate.chunkType !== 'IMAGE' || isUsefulImageText(candidate.content)
+	);
 
 	if (candidates.length === 0) {
 		return { query, results: [] };

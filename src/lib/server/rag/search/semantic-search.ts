@@ -5,6 +5,7 @@ import type { SQL } from 'drizzle-orm';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { db } from '../../database/database';
 import { documentChunks, documents } from '../../database/schema';
+import { isUsefulImageText } from '../chunk/ocr-text-quality';
 import { embedTexts } from '../embedding-model';
 import {
 	cleanFilterValues,
@@ -66,22 +67,24 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 	}
 
 	// Use Drizzle for the row query, then do vector math in TS
-	const candidateRows = (await db
-		.select({
-			chunkId: documentChunks.id,
-			documentId: documentChunks.documentId,
-			sourcePath: documents.sourcePath,
-			sourceTitle: documents.title,
-			sourceType: documents.sourceType,
-			pageIndex: documentChunks.pageIndex,
-			chunkIndex: documentChunks.chunkIndex,
-			chunkType: documentChunks.chunkType,
-			content: documentChunks.content,
-			embedding: documentChunks.embedding
-		})
-		.from(documentChunks)
-		.innerJoin(documents, eq(documents.id, documentChunks.documentId))
-		.where(filters.length ? and(...filters) : undefined)) as CandidateRow[];
+	const candidateRows = (
+		(await db
+			.select({
+				chunkId: documentChunks.id,
+				documentId: documentChunks.documentId,
+				sourcePath: documents.sourcePath,
+				sourceTitle: documents.title,
+				sourceType: documents.sourceType,
+				pageIndex: documentChunks.pageIndex,
+				chunkIndex: documentChunks.chunkIndex,
+				chunkType: documentChunks.chunkType,
+				content: documentChunks.content,
+				embedding: documentChunks.embedding
+			})
+			.from(documentChunks)
+			.innerJoin(documents, eq(documents.id, documentChunks.documentId))
+			.where(filters.length ? and(...filters) : undefined)) as CandidateRow[]
+	).filter((candidate) => candidate.chunkType !== 'IMAGE' || isUsefulImageText(candidate.content));
 
 	// Stored vectors are Float32 bytes. Decode them once before scoring
 	const decodedCandidates = candidateRows.map((row) => {
