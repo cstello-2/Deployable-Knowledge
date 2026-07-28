@@ -28,6 +28,12 @@ single windowed workspace that can run against local Ollama models or GitHub Mod
 - Manage appearance and assistant configuration from a dedicated settings page.
 - Choose light, dark, color-accent, and high-contrast themes.
 
+### Fork-specific: Audio transcription
+
+- Add audio files up to 2 hours in length
+- Utilizes OpenAI's whisper-tiny model for transcription
+- Supports all FFMpeg supported audio files
+
 ## Getting Started
 
 ### Prerequisites
