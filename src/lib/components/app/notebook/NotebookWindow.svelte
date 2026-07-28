@@ -22,8 +22,8 @@
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookPreview from './NotebookPreview.svelte';
-	import NotebookSearchDialog from './NotebookSearchDialog.svelte';
-	import type { NotebookSearchResult } from '$lib/utils/notebook-search';
+	import NotebookSearch from './NotebookSearch.svelte';
+	import type { NotebookSearchResult } from './notebook-search';
 
 	interface Props {
 		collapsed?: boolean;
@@ -56,7 +56,6 @@
 	let textDialogValue = $state('');
 	let renameTarget = $state<NotebookRenameTarget | null>(null);
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
-	let notebookSearchOpen = $state(false);
 
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
@@ -191,7 +190,6 @@
 			await notebooksStore.selectPage(result.notebookId, result.pageId);
 			view = 'editor';
 			previewMode = false;
-			notebookSearchOpen = false;
 		} catch (error) {
 			toast.error(message(error));
 		}
@@ -301,24 +299,35 @@
 			onTogglePreview={() => (previewMode = !previewMode)}
 			onRemoveSource={removeSource}
 			onClearSources={clearSources}
-			onSearch={() => (notebookSearchOpen = true)}
 		/>
 		{#if view === 'notebooks'}
-			<NotebookList
+			<NotebookSearch
 				notebooks={notebooksStore.notebooks}
-				activeId={notebooksStore.activeNotebookId}
-				onOpen={(notebook) => void openNotebook(notebook)}
-				onRename={(notebook) => openRename(notebook, 'notebook')}
-				onDelete={openDeleteNotebook}
-			/>
+				placeholder="Search notebooks..."
+				onOpenResult={openSearchResult}
+			>
+				<NotebookList
+					notebooks={notebooksStore.notebooks}
+					activeId={notebooksStore.activeNotebookId}
+					onOpen={(notebook) => void openNotebook(notebook)}
+					onRename={(notebook) => openRename(notebook, 'notebook')}
+					onDelete={openDeleteNotebook}
+				/>
+			</NotebookSearch>
 		{:else if view === 'pages'}
-			<NotebookPageList
-				pages={notebooksStore.activeNotebook?.pages ?? []}
-				activeId={notebooksStore.activePage?.id ?? null}
-				onOpen={(page) => void openPage(page)}
-				onRename={(page) => openRename(page, 'page')}
-				onDelete={openDeletePage}
-			/>
+			<NotebookSearch
+				notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
+				placeholder="Search pages..."
+				onOpenResult={openSearchResult}
+			>
+				<NotebookPageList
+					pages={notebooksStore.activeNotebook?.pages ?? []}
+					activeId={notebooksStore.activePage?.id ?? null}
+					onOpen={(page) => void openPage(page)}
+					onRename={(page) => openRename(page, 'page')}
+					onDelete={openDeletePage}
+				/>
+			</NotebookSearch>
 		{:else if previewMode}
 			<NotebookPreview content={notes} />
 		{:else}
@@ -367,13 +376,6 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
-
-<NotebookSearchDialog
-	open={notebookSearchOpen}
-	notebooks={notebooksStore.notebooks}
-	onOpenChange={(open) => (notebookSearchOpen = open)}
-	onOpenResult={openSearchResult}
-/>
 
 <DialogConfirmation
 	open={Boolean(deleteTarget)}

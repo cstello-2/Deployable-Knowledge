@@ -10,7 +10,6 @@
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
 		onRemoveSource: (id: string) => Promise<void> | void;
-		onSearch: () => void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
 		sources: readonly NotebookSourceItem[];
@@ -24,7 +23,6 @@
 		onClearSources,
 		onCreate,
 		onRemoveSource,
-		onSearch,
 		onTogglePreview,
 		previewMode = false,
 		sources,
@@ -52,7 +50,6 @@
 		{onCreate}
 		{onTogglePreview}
 		{onRemoveSource}
-		{onSearch}
 		{onClearSources}
 	/>
 </header>
