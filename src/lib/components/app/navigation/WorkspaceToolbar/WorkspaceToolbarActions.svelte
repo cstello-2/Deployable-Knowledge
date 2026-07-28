@@ -6,9 +6,11 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import EngineHeartbeat from '../EngineHeartbeat.svelte';
 </script>
 
 <div class="ml-1 flex shrink-0 items-center gap-1 border-l pl-1" aria-label="Application controls">
+	<EngineHeartbeat />
 	<Tooltip.Root>
 		<Tooltip.Trigger>
 			{#snippet child({ props })}
