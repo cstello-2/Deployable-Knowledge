@@ -6,24 +6,39 @@
 
 	interface Props {
 		activeId: string | null;
+		exportDisabled?: boolean;
+		exportingId: string | null;
 		notebooks: readonly NotebookWithPages[];
 		onDelete: (notebook: NotebookWithPages) => void;
+		onExport: (notebook: NotebookWithPages) => Promise<void> | void;
 		onOpen: (notebook: NotebookWithPages) => void;
 		onRename: (notebook: NotebookWithPages) => void;
 	}
 
-	let { activeId, notebooks, onDelete, onOpen, onRename }: Props = $props();
+	let {
+		activeId,
+		exportDisabled = false,
+		exportingId,
+		notebooks,
+		onDelete,
+		onExport,
+		onOpen,
+		onRename
+	}: Props = $props();
 </script>
 
 <ScrollArea class="min-h-0" scrollbarYClasses="hidden">
-	<nav class="grid content-start gap-2 p-3" aria-label="Notebooks">
+	<nav aria-label="Notebooks" class="grid content-start gap-2 p-3">
 		{#each notebooks as notebook (notebook.id)}
 			<NotebookListItem
-				{notebook}
 				active={notebook.id === activeId}
+				{exportDisabled}
+				exporting={notebook.id === exportingId}
+				{notebook}
+				onDelete={() => onDelete(notebook)}
+				onExport={() => onExport(notebook)}
 				onOpen={() => onOpen(notebook)}
 				onRename={() => onRename(notebook)}
-				onDelete={() => onDelete(notebook)}
 			/>
 		{:else}
 			<Empty.Root class="border border-dashed"

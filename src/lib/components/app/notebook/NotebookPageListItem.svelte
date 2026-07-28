@@ -6,14 +6,27 @@
 
 	interface Props {
 		active?: boolean;
+		exportDisabled?: boolean;
+		exporting?: boolean;
 		onDelete: () => void;
+		onExport: () => Promise<void> | void;
 		onMove: () => void;
 		onOpen: () => void;
 		onRename: () => void;
 		page: NotebookPage;
 	}
 
-	let { active = false, onDelete, onMove, onOpen, onRename, page }: Props = $props();
+	let {
+		active = false,
+		exportDisabled = false,
+		exporting = false,
+		onDelete,
+		onExport,
+		onMove,
+		onOpen,
+		onRename,
+		page
+	}: Props = $props();
 </script>
 
 <div
@@ -23,10 +36,10 @@
 	]}
 >
 	<button
-		class="flex min-w-0 cursor-pointer items-center gap-2.5 bg-transparent px-3 py-2 text-left"
-		type="button"
 		aria-current={active ? 'page' : undefined}
+		class="flex min-w-0 cursor-pointer items-center gap-2.5 bg-transparent px-3 py-2 text-left"
 		onclick={onOpen}
+		type="button"
 	>
 		<FileText class="size-4 shrink-0 text-muted-foreground" />
 		<span class="grid min-w-0 gap-0.5"
@@ -35,5 +48,14 @@
 			></span
 		>
 	</button>
-	<NotebookItemMenu label={page.title} {onDelete} {onMove} {onRename} />
+	<NotebookItemMenu
+		{exportDisabled}
+		{exporting}
+		kind="page"
+		label={page.title}
+		{onDelete}
+		{onExport}
+		{onMove}
+		{onRename}
+	/>
 </div>

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Eye from '@lucide/svelte/icons/eye';
-	import Download from '@lucide/svelte/icons/download';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Upload from '@lucide/svelte/icons/upload';
@@ -10,11 +9,9 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
-		exporting?: boolean;
 		importing?: boolean;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
-		onExport: () => Promise<void> | void;
 		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
@@ -26,11 +23,9 @@
 	}
 
 	let {
-		exporting = false,
 		importing = false,
 		onClearSources,
 		onCreate,
-		onExport,
 		onImport,
 		onInsertCitation,
 		onRemoveSource,
@@ -60,19 +55,6 @@
 					: 'Import Markdown or text pages'}
 			onclick={onImport}
 			variant="ghost"><Upload /></ActionIcon
-		>
-		<ActionIcon
-			class="size-8"
-			disabled={exporting}
-			label={exporting
-				? view === 'notebooks'
-					? 'Exporting notebook'
-					: 'Exporting page'
-				: view === 'notebooks'
-					? 'Export notebook as ZIP'
-					: 'Export page as Markdown'}
-			onclick={onExport}
-			variant="ghost"><Download /></ActionIcon
 		>
 	{:else}
 		<NotebookSourcesPanel

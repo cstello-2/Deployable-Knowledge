@@ -322,31 +322,32 @@
 		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
 	}
 
-	async function exportCurrentView(): Promise<void> {
-		const notebook = notebooksStore.activeNotebook;
-		if (!notebook) return;
-
+	async function prepareExport(): Promise<boolean> {
 		await autosave.flush();
-		if (notes !== lastSavedNotes) {
-			toast.error('Save the current page before exporting.');
-			return;
-		}
+		if (notes === lastSavedNotes) return true;
+		toast.error('Save the current page before exporting.');
+		return false;
+	}
 
+	async function exportNotebook(notebook: NotebookWithPages): Promise<void> {
+		if (!(await prepareExport())) return;
 		try {
-			const filename =
-				view === 'notebooks'
-					? await notebooksStore.exportNotebook(notebook.id)
-					: await exportActivePage(notebook);
+			const filename = await notebooksStore.exportNotebook(notebook.id);
 			if (filename) toast.success(`Exported ${filename}`);
 		} catch (error) {
 			toast.error(message(error));
 		}
 	}
 
-	function exportActivePage(notebook: NotebookWithPages): Promise<string | null> {
-		const page = notebooksStore.activePage;
-		if (!page) throw new Error('Open a notebook page before exporting.');
-		return notebooksStore.exportPage(notebook.id, page.id);
+	async function exportPage(page: NotebookPage): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook || !(await prepareExport())) return;
+		try {
+			const filename = await notebooksStore.exportPage(notebook.id, page.id);
+			if (filename) toast.success(`Exported ${filename}`);
+		} catch (error) {
+			toast.error(message(error));
+		}
 	}
 
 	async function openImportDialog(): Promise<void> {
@@ -436,13 +437,10 @@
 >
 	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
 		<NotebookHeader
-			exporting={notebooksStore.exportingNotebookId !== null ||
-				notebooksStore.exportingPageId !== null}
 			{importing}
 			onBack={goBack}
 			onClearSources={clearSources}
 			onCreate={openCreate}
-			onExport={exportCurrentView}
 			onImport={openImportDialog}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
@@ -456,30 +454,38 @@
 		{#if view === 'notebooks'}
 			<NotebookSearch
 				notebooks={notebooksStore.notebooks}
-				placeholder="Search notebooks..."
 				onOpenResult={openSearchResult}
+				placeholder="Search notebooks..."
 			>
 				<NotebookList
-					notebooks={notebooksStore.notebooks}
 					activeId={notebooksStore.activeNotebookId}
+					exportDisabled={notebooksStore.exportingNotebookId !== null ||
+						notebooksStore.exportingPageId !== null}
+					exportingId={notebooksStore.exportingNotebookId}
+					notebooks={notebooksStore.notebooks}
+					onDelete={openDeleteNotebook}
+					onExport={(notebook) => void exportNotebook(notebook)}
 					onOpen={(notebook) => void openNotebook(notebook)}
 					onRename={(notebook) => openRename(notebook, 'notebook')}
-					onDelete={openDeleteNotebook}
 				/>
 			</NotebookSearch>
 		{:else if view === 'pages'}
 			<NotebookSearch
 				notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
-				placeholder="Search pages..."
 				onOpenResult={openSearchResult}
+				placeholder="Search pages..."
 			>
 				<NotebookPageList
-					pages={notebooksStore.activeNotebook?.pages ?? []}
 					activeId={notebooksStore.activePage?.id ?? null}
+					exportDisabled={notebooksStore.exportingNotebookId !== null ||
+						notebooksStore.exportingPageId !== null}
+					exportingId={notebooksStore.exportingPageId}
+					onDelete={openDeletePage}
+					onExport={(page) => void exportPage(page)}
+					onMove={openMovePage}
 					onOpen={(page) => void openPage(page)}
 					onRename={(page) => openRename(page, 'page')}
-					onMove={openMovePage}
-					onDelete={openDeletePage}
+					pages={notebooksStore.activeNotebook?.pages ?? []}
 				/>
 			</NotebookSearch>
 		{:else if previewMode}

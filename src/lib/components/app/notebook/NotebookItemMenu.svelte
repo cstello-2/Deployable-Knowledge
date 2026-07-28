@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Download from '@lucide/svelte/icons/download';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import MoveRight from '@lucide/svelte/icons/move-right';
@@ -7,13 +8,26 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 
 	interface Props {
+		exportDisabled?: boolean;
+		exporting?: boolean;
+		kind: 'notebook' | 'page';
 		label: string;
 		onDelete: () => void;
+		onExport: () => Promise<void> | void;
 		onMove?: () => void;
 		onRename: () => void;
 	}
 
-	let { label, onDelete, onMove, onRename }: Props = $props();
+	let {
+		exportDisabled = false,
+		exporting = false,
+		kind,
+		label,
+		onDelete,
+		onExport,
+		onMove,
+		onRename
+	}: Props = $props();
 </script>
 
 <DropdownMenu.Root>
@@ -30,7 +44,7 @@
 			</ActionIcon>
 		{/snippet}
 	</DropdownMenu.Trigger>
-	<DropdownMenu.Content align="end" class="w-36" sideOffset={4}>
+	<DropdownMenu.Content align="end" class="w-44" sideOffset={4}>
 		<DropdownMenu.Item onclick={onRename}>
 			<Pencil />
 			Rename
@@ -41,6 +55,10 @@
 				Move to notebook
 			</DropdownMenu.Item>
 		{/if}
+		<DropdownMenu.Item disabled={exportDisabled || exporting} onclick={onExport}>
+			<Download />
+			{exporting ? 'Exporting…' : kind === 'notebook' ? 'Export as ZIP' : 'Export as Markdown'}
+		</DropdownMenu.Item>
 		<DropdownMenu.Item onclick={onDelete} variant="destructive">
 			<Trash2 />
 			Delete
