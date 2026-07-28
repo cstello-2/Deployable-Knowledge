@@ -11,7 +11,7 @@
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
-	import { documentsStore, transcriptionStore, workspaceStore, notebooksStore } from '$lib/stores';
+	import { documentsStore, notebooksStore, transcriptionStore, workspaceStore } from '$lib/stores';
 	import type {
 		ApiDocumentDirectoryResponse,
 		ApiDocumentFolderSyncResponse,
@@ -61,7 +61,9 @@
 	let pickerLoading = $state(false);
 	let pickerSelectedPaths = $state<string[]>([]);
 	let uploading = $state(false);
-	let activeFileOperation = $state<'pdf' | 'audio' | 'markdown' | null>(null);
+	let activeFileOperation = $state<
+		'pdf' | 'audio' | 'notebook-page' | 'notebook-collection' | null
+	>(null);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
 	let pendingFolderRemoval = $state<PendingFolderRemoval | null>(null);
@@ -78,12 +80,17 @@
 					label: 'Transcribing audio file...',
 					message: 'Running local English speech recognition.'
 				}
-			: activeFileOperation === 'markdown'
+			: activeFileOperation === 'notebook-page'
 				? {
-						label: 'Importing Markdown...',
-						message: 'Creating a page in the active notebook.'
+						label: 'Importing notebook page...',
+						message: 'Converting the file to Markdown in the active notebook.'
 					}
-				: documentsStore.progress
+				: activeFileOperation === 'notebook-collection'
+					? {
+							label: 'Importing notebook...',
+							message: 'Creating notebook pages from Markdown and text files.'
+						}
+					: documentsStore.progress
 	);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
 	const visibleDocuments = $derived.by(() => {
@@ -138,7 +145,8 @@
 		let ingested = 0;
 		let transcribed = 0;
 		let failed = 0;
-		let imported = 0;
+		let importedPages = 0;
+		let importedNotebooks = 0;
 		try {
 			for (const path of paths) {
 				try {
@@ -147,11 +155,16 @@
 						await transcriptionStore.transcribePath(path);
 						transcribed += 1;
 						workspaceStore.showWindow('transcription-window');
-					} else if (path.toLowerCase().endsWith('.md')) {
-						activeFileOperation = 'markdown';
+					} else if (path.toLowerCase().endsWith('.md') || path.toLowerCase().endsWith('.txt')) {
+						activeFileOperation = 'notebook-page';
 						await notebooksStore.importMarkdown(path);
-						imported += 1;
-						workspaceStore.showWindow('notebooks-window');
+						importedPages += 1;
+						workspaceStore.showWindow('notebook-window');
+					} else if (path.toLowerCase().endsWith('.zip')) {
+						activeFileOperation = 'notebook-collection';
+						await notebooksStore.importCollection(path);
+						importedNotebooks += 1;
+						workspaceStore.showWindow('notebook-window');
 					} else {
 						activeFileOperation = 'pdf';
 						await documentsStore.ingestPath(path);
@@ -165,16 +178,41 @@
 			const completed = [
 				ingested ? `${ingested} PDF${ingested === 1 ? '' : 's'} ingested` : '',
 				transcribed ? `${transcribed} audio file${transcribed === 1 ? '' : 's'} transcribed` : '',
-				imported ? `${imported} markdown file${imported === 1 ? '' : 's'} imported` : '',
+				importedPages
+					? `${importedPages} notebook page${importedPages === 1 ? '' : 's'} imported`
+					: '',
+				importedNotebooks
+					? `${importedNotebooks} notebook${importedNotebooks === 1 ? '' : 's'} imported`
+					: '',
 				failed ? `${failed} failed` : ''
 			].filter(Boolean);
 			status = completed.length ? `${completed.join('; ')}.` : '';
-			if (ingested || transcribed || imported) toast.success(completed.slice(0, 2).join('; '));
+			if (ingested || transcribed || importedPages || importedNotebooks) {
+				toast.success(completed.slice(0, 3).join('; '));
+			}
 		} finally {
 			uploading = false;
 			activeFileOperation = null;
 			pickerSelectedPaths = [];
 			documentsStore.progress = null;
+		}
+	}
+
+	async function importFolderAsNotebook(path: string): Promise<void> {
+		filePickerOpen = false;
+		uploading = true;
+		activeFileOperation = 'notebook-collection';
+		try {
+			await notebooksStore.importCollection(path);
+			status = 'Notebook imported.';
+			toast.success('Notebook imported');
+			workspaceStore.showWindow('notebook-window');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		} finally {
+			uploading = false;
+			activeFileOperation = null;
+			pickerSelectedPaths = [];
 		}
 	}
 
@@ -393,6 +431,7 @@
 	directory={pickerDirectory}
 	disabled={busy}
 	loading={pickerLoading}
+	onImportFolder={(path) => void importFolderAsNotebook(path)}
 	onNavigate={(path) => void navigateDirectory(path)}
 	onOpenChange={(open) => (filePickerOpen = open)}
 	onSelectedPathsChange={(paths) => (pickerSelectedPaths = paths)}

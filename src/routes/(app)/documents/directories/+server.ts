@@ -37,6 +37,10 @@ export const GET: RequestHandler = async ({ url }) => {
 				items.push({ kind: 'audio', name: entry.name, path });
 			} else if (extension === '.md') {
 				items.push({ name: entry.name, path, kind: 'markdown' });
+			} else if (extension === '.txt') {
+				items.push({ name: entry.name, path, kind: 'text' });
+			} else if (extension === '.zip') {
+				items.push({ name: entry.name, path, kind: 'archive' });
 			}
 		}
 	}

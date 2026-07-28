@@ -16,6 +16,7 @@
 		directory: ApiDocumentDirectoryResponse | null;
 		disabled?: boolean;
 		loading?: boolean;
+		onImportFolder: (path: string) => void;
 		onNavigate: (path: string) => void;
 		onOpenChange: (open: boolean) => void;
 		onSelectedPathsChange: (paths: string[]) => void;
@@ -29,6 +30,7 @@
 		directory,
 		disabled = false,
 		loading = false,
+		onImportFolder,
 		onNavigate,
 		onOpenChange,
 		onSelectedPathsChange,
@@ -46,8 +48,8 @@
 				><FolderSync /> Add documents or sync a folder</Dialog.Title
 			>
 			<Dialog.Description>
-				Browse local folders, select PDFs, MD files, or audio files, or keep files in the current
-				folder synchronized.
+				Browse local folders; select PDFs, Markdown, text, ZIP, or audio files; or keep files in the
+				current folder synchronized.
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -138,6 +140,13 @@
 					Add {selectedPaths.length} file{selectedPaths.length === 1 ? '' : 's'}
 				</Button>
 			{:else}
+				<Button
+					disabled={disabled || loading || !directory}
+					onclick={() => directory && onImportFolder(directory.path)}
+					variant="outline"
+				>
+					<Folder /> Import folder as notebook
+				</Button>
 				<Button
 					disabled={disabled || loading || !directory}
 					onclick={() => directory && onSyncFolder(directory.path)}

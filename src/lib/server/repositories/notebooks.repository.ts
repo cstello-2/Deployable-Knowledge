@@ -15,6 +15,11 @@ import {
 	type NotebookWithPages
 } from '$lib/server/database/schema';
 
+export interface NotebookPageInput {
+	content: string;
+	title: string;
+}
+
 export class NotebooksRepository {
 	static async createDefault(): Promise<string> {
 		const timestamp = new Date().toISOString();
@@ -95,6 +100,61 @@ export class NotebooksRepository {
 		});
 
 		return pageId;
+	}
+
+	static async createWithPages(
+		title: string,
+		pages: readonly NotebookPageInput[]
+	): Promise<string> {
+		if (!pages.length) {
+			throw new Error('A notebook requires at least one page.');
+		}
+
+		const now = Date.now();
+		const notebookId = randomUUID();
+
+		const pageRows: NewNotebookPage[] = pages.map(({ title, content }, index) => {
+			const timestamp = new Date(now + index).toISOString();
+
+			return {
+				id: randomUUID(),
+				notebookId,
+				title,
+				content,
+				createdAt: timestamp,
+				updatedAt: timestamp
+			};
+		});
+
+		const timestamp = new Date(now).toISOString();
+		const notebook: NewNotebook = {
+			id: notebookId,
+			userId: NOTEBOOK_USER_ID,
+			title,
+			activePageId: pageRows[0].id,
+			createdAt: timestamp,
+			updatedAt: timestamp
+		};
+
+		const state: NewNotebookState = {
+			userId: NOTEBOOK_USER_ID,
+			activeNotebookId: notebookId,
+			updatedAt: timestamp
+		};
+
+		await db.transaction(async (transaction) => {
+			await transaction.insert(notebooks).values(notebook);
+			await transaction.insert(notebookPages).values(pageRows);
+			await transaction
+				.insert(notebookState)
+				.values(state)
+				.onConflictDoUpdate({
+					target: notebookState.userId,
+					set: { activeNotebookId: notebookId, updatedAt: timestamp }
+				});
+		});
+
+		return notebookId;
 	}
 
 	static async loadState(): Promise<NotebookStateResponse> {

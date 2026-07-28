@@ -76,6 +76,11 @@ class NotebooksStore {
 		}
 	}
 
+	async importCollection(path: string): Promise<void> {
+		if (!path.trim()) return;
+		this.apply(await NotebooksService.importCollection(path));
+	}
+
 	async importMarkdown(path: string): Promise<void> {
 		if (!this._activeNotebookId) {
 			await this.load();
@@ -83,7 +88,7 @@ class NotebooksStore {
 
 		const notebookId = this._activeNotebookId;
 		if (!notebookId) {
-			throw new Error('Create or open a notebook before importing Markdown file.');
+			throw new Error('Create or open a notebook before importing a Markdown or text file.');
 		}
 
 		this.apply(await NotebooksService.importMarkdown(notebookId, path));

@@ -43,6 +43,13 @@
 			label={view === 'notebooks' ? 'Create notebook' : 'Create page'}
 			onclick={onCreate}><Plus /></ActionIcon
 		>
+		<ActionIcon
+			class="size-8"
+			disabled={exporting}
+			label={exporting ? 'Exporting notebook' : 'Export notebook as ZIP'}
+			onclick={onExport}
+			variant="ghost"><Download /></ActionIcon
+		>
 	{:else}
 		<NotebookSourcesPanel
 			{sources}
@@ -59,14 +66,5 @@
 		>
 			{#if previewMode}<Pencil />{:else}<Eye />{/if}
 		</ActionIcon>
-	{/if}
-	{#if view !== 'notebooks'}
-		<ActionIcon
-			class="size-8"
-			disabled={exporting}
-			label={exporting ? 'Exporting notebook' : 'Export notebook as Markdown'}
-			onclick={onExport}
-			variant="ghost"><Download /></ActionIcon
-		>
 	{/if}
 </div>
