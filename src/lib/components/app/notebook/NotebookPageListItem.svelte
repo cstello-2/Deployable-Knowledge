@@ -7,12 +7,13 @@
 	interface Props {
 		active?: boolean;
 		onDelete: () => void;
+		onMove: () => void;
 		onOpen: () => void;
 		onRename: () => void;
 		page: NotebookPage;
 	}
 
-	let { active = false, onDelete, onOpen, onRename, page }: Props = $props();
+	let { active = false, onDelete, onMove, onOpen, onRename, page }: Props = $props();
 </script>
 
 <div
@@ -34,5 +35,5 @@
 			></span
 		>
 	</button>
-	<NotebookItemMenu label={page.title} {onDelete} {onRename} />
+	<NotebookItemMenu label={page.title} {onDelete} {onMove} {onRename} />
 </div>
