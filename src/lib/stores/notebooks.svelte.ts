@@ -11,9 +11,14 @@ class NotebooksStore {
 	private _activeNotebookId = $state<string | null>(null);
 	private _sources = $state<NotebookSourceItem[]>([]);
 	exportingNotebookId = $state<string | null>(null);
+	exportingPageId = $state<string | null>(null);
 	loading = $state(false);
 	sourcesLoading = $state(false);
 	error = $state<string | null>(null);
+
+	browseImportDirectory(path = '') {
+		return NotebooksService.browseImportDirectory(path);
+	}
 
 	get notebooks(): readonly NotebookWithPages[] {
 		return this._notebooks;
@@ -67,12 +72,26 @@ class NotebooksStore {
 	}
 
 	async exportNotebook(id: string): Promise<string | null> {
-		if (this.exportingNotebookId) return null;
+		if (this.exportingNotebookId || this.exportingPageId) return null;
+
 		this.exportingNotebookId = id;
+
 		try {
 			return await NotebooksService.exportNotebook(id);
 		} finally {
 			this.exportingNotebookId = null;
+		}
+	}
+
+	async exportPage(notebookId: string, pageId: string): Promise<string | null> {
+		if (this.exportingNotebookId || this.exportingPageId) return null;
+
+		this.exportingPageId = pageId;
+
+		try {
+			return await NotebooksService.exportPage(notebookId, pageId);
+		} finally {
+			this.exportingPageId = null;
 		}
 	}
 

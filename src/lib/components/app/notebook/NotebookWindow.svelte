@@ -13,15 +13,26 @@
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
 	import { notebooksStore } from '$lib/stores';
-	import type { NotebookPage, NotebookSourceItem, NotebookWithPages } from '$lib/types';
+	import type {
+		ApiDocumentDirectoryResponse,
+		NotebookPage,
+		NotebookSourceItem,
+		NotebookWithPages
+	} from '$lib/types';
 	import { createNotebookAutosave } from './notebook-autosave';
 	import { notebookCountLabel } from './notebook-format';
-	import type { NotebookDeleteTarget, NotebookRenameTarget, NotebookView } from './notebook-types';
+	import type {
+		NotebookDeleteTarget,
+		NotebookRenameTarget,
+		NotebookView,
+		NotebookImportMode
+	} from './notebook-types';
 	import NotebookEditor from './NotebookEditor.svelte';
 	import NotebookHeader from './NotebookHeader.svelte';
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookPreview from './NotebookPreview.svelte';
+	import NotebookImportDialog from './NotebookImportDialog.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
 	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
@@ -60,6 +71,12 @@
 	let movePageTarget = $state<NotebookPage | null>(null);
 	let moveDestinationId = $state('');
 	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
+	let importDialogOpen = $state(false);
+	let importDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
+	let importLoading = $state(false);
+	let importing = $state(false);
+	let importMode = $state<NotebookImportMode>('collection');
+	let importSelectedPaths = $state<string[]>([]);
 
 	function textDialogTitle(): string {
 		if (textDialogMode === 'create-notebook') return 'New notebook';
@@ -305,7 +322,7 @@
 		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
 	}
 
-	async function exportNotebook(): Promise<void> {
+	async function exportCurrentView(): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook) return;
 
@@ -316,10 +333,81 @@
 		}
 
 		try {
-			const filename = await notebooksStore.exportNotebook(notebook.id);
+			const filename =
+				view === 'notebooks'
+					? await notebooksStore.exportNotebook(notebook.id)
+					: await exportActivePage(notebook);
 			if (filename) toast.success(`Exported ${filename}`);
 		} catch (error) {
 			toast.error(message(error));
+		}
+	}
+
+	function exportActivePage(notebook: NotebookWithPages): Promise<string | null> {
+		const page = notebooksStore.activePage;
+		if (!page) throw new Error('Open a notebook page before exporting.');
+		return notebooksStore.exportPage(notebook.id, page.id);
+	}
+
+	async function openImportDialog(): Promise<void> {
+		importMode = view === 'notebooks' ? 'collection' : 'pages';
+
+		if (importMode === 'pages') {
+			if (!notebooksStore.activeNotebook) {
+				toast.error('Open a notebook before importing pages.');
+				return;
+			}
+
+			await autosave.flush();
+
+			if (notes !== lastSavedNotes) {
+				toast.error('Save the current page before importing.');
+				return;
+			}
+		}
+
+		importDialogOpen = true;
+		importSelectedPaths = [];
+		await navigateImportDirectory('');
+	}
+
+	async function navigateImportDirectory(path: string): Promise<void> {
+		importLoading = true;
+		importSelectedPaths = [];
+
+		try {
+			importDirectory = await notebooksStore.browseImportDirectory(path);
+		} catch (error) {
+			toast.error(message(error));
+		} finally {
+			importLoading = false;
+		}
+	}
+
+	async function importPaths(paths: string[]): Promise<void> {
+		if (!paths.length) return;
+
+		importing = true;
+
+		try {
+			if (importMode === 'collection') {
+				await notebooksStore.importCollection(paths[0]);
+				view = 'pages';
+				toast.success('Notebook collection imported');
+			} else {
+				for (const path of paths) {
+					await notebooksStore.importMarkdown(path);
+				}
+
+				toast.success(`${paths.length} notebook page${paths.length === 1 ? '' : 's'} imported`);
+			}
+
+			importDialogOpen = false;
+			importSelectedPaths = [];
+		} catch (error) {
+			toast.error(message(error));
+		} finally {
+			importing = false;
 		}
 	}
 
@@ -348,11 +436,14 @@
 >
 	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
 		<NotebookHeader
-			exporting={notebooksStore.exportingNotebookId !== null}
+			exporting={notebooksStore.exportingNotebookId !== null ||
+				notebooksStore.exportingPageId !== null}
+			{importing}
 			onBack={goBack}
 			onClearSources={clearSources}
 			onCreate={openCreate}
-			onExport={exportNotebook}
+			onExport={exportCurrentView}
+			onImport={openImportDialog}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
 			onTogglePreview={() => (previewMode = !previewMode)}
@@ -408,6 +499,20 @@
 		{/if}
 	</div>
 </WorkspaceWindow>
+
+<NotebookImportDialog
+	directory={importDirectory}
+	disabled={importing}
+	loading={importLoading}
+	mode={importMode}
+	onImportFolder={(path) => void importPaths([path])}
+	onNavigate={(path) => void navigateImportDirectory(path)}
+	onOpenChange={(open) => (importDialogOpen = open)}
+	onSelectedPathsChange={(paths) => (importSelectedPaths = paths)}
+	onSubmitPaths={(paths) => void importPaths(paths)}
+	open={importDialogOpen}
+	selectedPaths={importSelectedPaths}
+/>
 
 <Dialog.Root
 	open={Boolean(textDialogMode)}

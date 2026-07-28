@@ -6,3 +6,4 @@ export type NotebookDeleteTarget = {
 	title: string;
 	detail: string;
 };
+export type NotebookImportMode = 'collection' | 'pages';

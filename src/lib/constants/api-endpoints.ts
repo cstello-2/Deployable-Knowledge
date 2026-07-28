@@ -37,6 +37,8 @@ export const API_NOTEBOOKS = {
 	IMPORT_COLLECTION: '/notebooks/import-collection',
 	byId: (id: string) => `/notebooks/${segment(id)}`,
 	export: (id: string) => `/notebooks/${segment(id)}/export`,
+	exportPage: (id: string, pageId: string) =>
+		`/notebooks/${segment(id)}/pages/${segment(pageId)}/export`,
 	importMarkdown: (id: string) => `/notebooks/${segment(id)}/import-markdown`,
 	select: (id: string) => `/notebooks/${segment(id)}/select`,
 	pages: (id: string) => `/notebooks/${segment(id)}/pages`,

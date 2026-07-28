@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip';
-import type { NotebookWithPages } from '$lib/types';
+import type { NotebookPage, NotebookWithPages } from '$lib/types';
 
 function heading(title: string): string {
 	return title.replace(/\s+/g, ' ').trim();
@@ -18,6 +18,15 @@ function filenameBase(title: string, fallback: string): string {
 	);
 }
 
+export function notebookPageMarkdown(page: Pick<NotebookPage, 'content' | 'title'>): string {
+	const content = page.content.trimEnd();
+	return content ? `${content}\n` : `# ${heading(page.title)}\n`;
+}
+
+export function notebookPageMarkdownFilename(title: string): string {
+	return `${filenameBase(title, 'notebook-page')}.md`;
+}
+
 export function notebookZip(notebook: NotebookWithPages): ArrayBuffer {
 	const archive = new AdmZip();
 	const usedNames = new Set<string>();
@@ -34,10 +43,7 @@ export function notebookZip(notebook: NotebookWithPages): ArrayBuffer {
 
 		usedNames.add(filename.toLowerCase());
 
-		const content = page.content.trimEnd();
-		const markdown = content ? `${content}\n` : `# ${heading(page.title)}\n`;
-
-		archive.addFile(filename, Buffer.from(markdown, 'utf8'));
+		archive.addFile(filename, Buffer.from(notebookPageMarkdown(page), 'utf8'));
 	});
 
 	return Uint8Array.from(archive.toBuffer()).buffer;

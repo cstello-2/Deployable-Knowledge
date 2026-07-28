@@ -1,5 +1,6 @@
-import { API_NOTEBOOKS } from '$lib/constants';
+import { API_DOCUMENTS, API_NOTEBOOKS } from '$lib/constants';
 import type {
+	ApiDocumentDirectoryResponse,
 	ApiNotebookCollectionImportRequest,
 	ApiNotebookMarkdownImportRequest,
 	ApiNotebookPageContentRequest,
@@ -13,6 +14,18 @@ import type {
 import { apiDelete, apiDownload, apiFetch, apiPatch, apiPost } from '$lib/utils';
 
 export class NotebooksService {
+	static browseImportDirectory(path = '') {
+		const query = new URLSearchParams({ purpose: 'notebook' });
+
+		if (path) {
+			query.set('path', path);
+		}
+
+		return apiFetch<ApiDocumentDirectoryResponse>(
+			`${API_DOCUMENTS.DIRECTORIES}?${query.toString()}`
+		);
+	}
+
 	static list() {
 		return apiFetch<NotebookStateResponse>(API_NOTEBOOKS.BASE);
 	}
@@ -108,5 +121,9 @@ export class NotebooksService {
 			API_NOTEBOOKS.importMarkdown(id),
 			{ path }
 		);
+	}
+
+	static exportPage(notebookId: string, pageId: string) {
+		return apiDownload(API_NOTEBOOKS.exportPage(notebookId, pageId), 'notebook-page.md');
 	}
 }
