@@ -181,6 +181,24 @@ class WorkspaceStore {
 		this.persist();
 	}
 
+	reorderLayoutPreset(movingId: string, targetId: string, position: 'before' | 'after'): void {
+		this.ensureInitialized();
+		if (movingId === targetId) return;
+		const moving = this.layoutPresets.find(({ id }) => id === movingId);
+		const targetExists = this.layoutPresets.some(({ id }) => id === targetId);
+		if (!moving || !targetExists) return;
+
+		const remaining = this.layoutPresets.filter(({ id }) => id !== movingId);
+		const targetIndex = remaining.findIndex(({ id }) => id === targetId);
+		const insertIndex = targetIndex + (position === 'after' ? 1 : 0);
+		this.layoutPresets = [
+			...remaining.slice(0, insertIndex),
+			moving,
+			...remaining.slice(insertIndex)
+		];
+		this.persist();
+	}
+
 	deleteLayoutPreset(id: string): void {
 		this.ensureInitialized();
 		if (this.layoutPresets.length <= 1) return;
