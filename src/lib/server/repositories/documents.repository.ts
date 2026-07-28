@@ -2,10 +2,10 @@ import { asc, count, desc, eq } from 'drizzle-orm';
 import type { ApiDocumentListResponse, DocumentRow } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import {
-	documentChunks,
-	documentTags,
+	document_chunks as documentChunks,
+	document_tags as documentTags,
 	documents,
-	syncedFiles,
+	synced_files as syncedFiles,
 	tags
 } from '$lib/server/database/schema';
 

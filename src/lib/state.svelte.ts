@@ -25,5 +25,6 @@ export class AppState {
   persona = $state("");
   retrievalMode = $state<"semantic" | "bm25" | "hybrid" | "graph">("hybrid");
   ragTopK = $state(5);
+  agentMaxTurns = $state(4);
   lastQuery = $state("");
 }

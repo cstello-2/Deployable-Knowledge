@@ -112,12 +112,16 @@ export const searchTool: AgentTool<SearchToolData> = {
 };
 
 function buildSources(matches: SearchMatchBase[]): RagSource[] {
-	return matches.map((match) => ({
+	return matches.map((match, index) => ({
 		title: match.sourceTitle,
 		description: `Page ${match.pageIndex + 1}: ${compactText(match.content, 200)}`,
 		documentId: match.documentId,
 		chunkId: match.chunkId,
 		pageIndex: match.pageIndex,
-		chunkIndex: match.chunkIndex
+		chunkIndex: match.chunkIndex,
+		score: matches.length === 1 ? 1 : 1 - index / Math.max(1, matches.length - 1),
+		content: match.content,
+		sourceTitle: match.sourceTitle,
+		chunkType: match.chunkType
 	}));
 }

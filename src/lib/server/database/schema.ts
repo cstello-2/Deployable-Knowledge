@@ -180,6 +180,7 @@ export const settings = sqliteTable(
       .notNull()
       .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
+    agentMaxTurns: integer("agent_max_turns").notNull().default(4),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },
@@ -210,6 +211,7 @@ export const profiles = sqliteTable(
       .notNull()
       .default("hybrid"),
     ragTopK: integer("rag_top_k").notNull().default(5),
+    agentMaxTurns: integer("agent_max_turns").notNull().default(4),
     promptTemplateId: text("prompt_template_id").references(
       () => promptTemplates.id,
       { onDelete: "set null" },
@@ -231,6 +233,7 @@ export const documents = sqliteTable(
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
     sourceType: text("source_type", { enum: ["PDF", "DOCX", "PPTX", "CSV", "XLSX", "TXT", "MD"] }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -435,6 +438,10 @@ export type GraphEdgeRow = typeof graph_edges.$inferSelect;
 export type NewGraphEdgeRow = typeof graph_edges.$inferInsert;
 
 export type SyncedFolder = typeof synced_folders.$inferSelect;
+export type NewSyncedFolder = typeof synced_folders.$inferInsert;
+
+export type SyncedFile = typeof synced_files.$inferSelect;
+export type NewSyncedFile = typeof synced_files.$inferInsert;
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;
@@ -449,6 +456,7 @@ export type AssistantProfileValues = Pick<
   | "topK"
   | "retrievalMode"
   | "ragTopK"
+  | "agentMaxTurns"
   | "promptTemplateId"
   | "persona"
 >;

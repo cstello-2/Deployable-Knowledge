@@ -5,7 +5,7 @@ import { NOTEBOOK_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 import type { ApiNotebookPageContentRequest, ApiNotebookPageTitleRequest } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import {
-	notebookPages,
+	notebook_pages as notebookPages,
 	notebooks,
 	type NewNotebookPage,
 	type NotebookPage

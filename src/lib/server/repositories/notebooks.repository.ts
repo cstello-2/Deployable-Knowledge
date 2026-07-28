@@ -4,8 +4,8 @@ import type { NotebookStateResponse } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
 import {
-	notebookPages,
-	notebookState,
+	notebook_pages as notebookPages,
+	notebook_state as notebookState,
 	notebooks,
 	type NewNotebook,
 	type NewNotebookPage,

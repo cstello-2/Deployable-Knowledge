@@ -1,7 +1,7 @@
 import { asc, desc, eq } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '$lib/server/database/constants';
 import { db } from '$lib/server/database/database';
-import { sessionMessages, sessions } from '$lib/server/database/schema';
+import { session_messages as sessionMessages, sessions } from '$lib/server/database/schema';
 
 export class SessionsRepository {
 	static list() {

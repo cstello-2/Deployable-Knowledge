@@ -5,7 +5,11 @@ import { basename, join, resolve } from 'node:path';
 import { count, eq } from 'drizzle-orm';
 import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/types';
 import { db } from '$lib/server/database/database';
-import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
+import {
+	document_chunks as documentChunks,
+	documents,
+	synced_files as syncedFiles
+} from '$lib/server/database/schema';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
 import { containsPath, removeManagedDocumentFile } from './remove-document';
 

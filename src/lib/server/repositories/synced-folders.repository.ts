@@ -1,8 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import {
-	syncedFiles,
-	syncedFolders,
+	synced_files as syncedFiles,
+	synced_folders as syncedFolders,
 	type NewSyncedFolder,
 	type SyncedFolder
 } from '$lib/server/database/schema';
