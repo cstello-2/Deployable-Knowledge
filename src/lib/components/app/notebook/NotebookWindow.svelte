@@ -22,6 +22,8 @@
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookPreview from './NotebookPreview.svelte';
+	import NotebookSearchDialog from './NotebookSearchDialog.svelte';
+	import type { NotebookSearchResult } from '$lib/utils/notebook-search';
 
 	interface Props {
 		collapsed?: boolean;
@@ -54,6 +56,7 @@
 	let textDialogValue = $state('');
 	let renameTarget = $state<NotebookRenameTarget | null>(null);
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
+	let notebookSearchOpen = $state(false);
 
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
@@ -179,6 +182,21 @@
 		};
 	}
 
+	async function openSearchResult(result: NotebookSearchResult): Promise<void> {
+		await autosave.flush();
+		try {
+			if (result.notebookId !== notebooksStore.activeNotebookId) {
+				await notebooksStore.select(result.notebookId);
+			}
+			await notebooksStore.selectPage(result.notebookId, result.pageId);
+			view = 'editor';
+			previewMode = false;
+			notebookSearchOpen = false;
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	async function submitTextDialog(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const value = textDialogValue.trim();
@@ -283,6 +301,7 @@
 			onTogglePreview={() => (previewMode = !previewMode)}
 			onRemoveSource={removeSource}
 			onClearSources={clearSources}
+			onSearch={() => (notebookSearchOpen = true)}
 		/>
 		{#if view === 'notebooks'}
 			<NotebookList
@@ -348,6 +367,13 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<NotebookSearchDialog
+	open={notebookSearchOpen}
+	notebooks={notebooksStore.notebooks}
+	onOpenChange={(open) => (notebookSearchOpen = open)}
+	onOpenResult={openSearchResult}
+/>
 
 <DialogConfirmation
 	open={Boolean(deleteTarget)}

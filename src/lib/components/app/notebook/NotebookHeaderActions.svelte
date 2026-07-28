@@ -2,6 +2,7 @@
 	import Eye from '@lucide/svelte/icons/eye';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
+	import Search from '@lucide/svelte/icons/search';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import type { NotebookSourceItem } from '$lib/types';
 	import { NotebookSourcesPanel } from './NotebookSourcesPanel';
@@ -11,6 +12,7 @@
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
 		onRemoveSource: (id: string) => Promise<void> | void;
+		onSearch: () => void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
 		sources: readonly NotebookSourceItem[];
@@ -22,6 +24,7 @@
 		onClearSources,
 		onCreate,
 		onRemoveSource,
+		onSearch,
 		onTogglePreview,
 		previewMode = false,
 		sources,
@@ -31,6 +34,9 @@
 </script>
 
 <div class="flex items-center gap-1">
+	<ActionIcon variant="ghost" class="size-8" label="Search notebook pages" onclick={onSearch}
+		><Search /></ActionIcon
+	>
 	{#if view === 'notebooks' || view === 'pages'}
 		<ActionIcon
 			variant="ghost"
