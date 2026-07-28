@@ -18,6 +18,7 @@
 	import { notebookCountLabel } from './notebook-format';
 	import type { NotebookDeleteTarget, NotebookRenameTarget, NotebookView } from './notebook-types';
 	import NotebookEditor from './NotebookEditor.svelte';
+	import NotebookExportDialog from './NotebookExportDialog.svelte';
 	import NotebookHeader from './NotebookHeader.svelte';
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
@@ -54,6 +55,7 @@
 	let textDialogValue = $state('');
 	let renameTarget = $state<NotebookRenameTarget | null>(null);
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
+	let notebookExportOpen = $state(false);
 
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
@@ -248,6 +250,35 @@
 		}
 	}
 
+	async function exportNotebook(format: 'markdown' | 'pdf', pageIds: string[]): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook || !pageIds.length) return;
+		await autosave.flush();
+		try {
+			const response = await fetch(`/notebooks/${encodeURIComponent(notebook.id)}/export`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ format, pageIds })
+			});
+			if (!response.ok) throw new Error('Notebook export failed');
+			const blob = await response.blob();
+			const disposition = response.headers.get('Content-Disposition') ?? '';
+			const filename =
+				disposition.match(/filename="([^"]+)"/)?.[1] ??
+				`notebook.${format === 'markdown' ? 'md' : 'pdf'}`;
+			const href = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = href;
+			anchor.download = filename;
+			anchor.click();
+			window.setTimeout(() => URL.revokeObjectURL(href), 0);
+			notebookExportOpen = false;
+			toast.success(`${pageIds.length} ${pageIds.length === 1 ? 'page' : 'pages'} exported`);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -280,6 +311,7 @@
 			sourcesLoading={notebooksStore.sourcesLoading}
 			onBack={goBack}
 			onCreate={openCreate}
+			onExport={() => (notebookExportOpen = true)}
 			onTogglePreview={() => (previewMode = !previewMode)}
 			onRemoveSource={removeSource}
 			onClearSources={clearSources}
@@ -348,6 +380,13 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<NotebookExportDialog
+	open={notebookExportOpen}
+	pages={notebooksStore.activeNotebook?.pages ?? []}
+	onOpenChange={(open) => (notebookExportOpen = open)}
+	onExport={exportNotebook}
+/>
 
 <DialogConfirmation
 	open={Boolean(deleteTarget)}

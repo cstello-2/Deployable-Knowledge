@@ -9,6 +9,7 @@
 		onBack: () => void;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onExport: () => void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
@@ -22,6 +23,7 @@
 		onBack,
 		onClearSources,
 		onCreate,
+		onExport,
 		onRemoveSource,
 		onTogglePreview,
 		previewMode = false,
@@ -48,6 +50,7 @@
 		{sources}
 		{sourcesLoading}
 		{onCreate}
+		{onExport}
 		{onTogglePreview}
 		{onRemoveSource}
 		{onClearSources}

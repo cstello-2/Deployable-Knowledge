@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Eye from '@lucide/svelte/icons/eye';
+	import Download from '@lucide/svelte/icons/download';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import { ActionIcon } from '$lib/components/app/actions';
@@ -10,6 +11,7 @@
 	interface Props {
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onExport: () => void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
@@ -21,6 +23,7 @@
 	let {
 		onClearSources,
 		onCreate,
+		onExport,
 		onRemoveSource,
 		onTogglePreview,
 		previewMode = false,
@@ -32,6 +35,11 @@
 
 <div class="flex items-center gap-1">
 	{#if view === 'notebooks' || view === 'pages'}
+		{#if view === 'pages'}
+			<ActionIcon variant="ghost" class="size-8" label="Export notebook pages" onclick={onExport}
+				><Download /></ActionIcon
+			>
+		{/if}
 		<ActionIcon
 			variant="ghost"
 			class="size-8"
@@ -45,6 +53,9 @@
 			onRemove={onRemoveSource}
 			onClear={onClearSources}
 		/>
+		<ActionIcon variant="ghost" class="size-8" label="Export notebook pages" onclick={onExport}
+			><Download /></ActionIcon
+		>
 		<ActionIcon
 			variant={previewMode ? 'secondary' : 'ghost'}
 			class="size-8"
