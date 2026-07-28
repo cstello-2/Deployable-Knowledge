@@ -1,0 +1,100 @@
+{
+  "entities": [
+    {
+      "label": "Air Education and Training Command",
+      "type": "organization",
+      "aliases": ["AETC"],
+      "description": "Air Force command focused on education and training.",
+      "source": "AETC/USAF corpus",
+      "priority": 4
+    },
+    {
+      "label": "Air Combat Command",
+      "type": "organization",
+      "aliases": ["ACC"],
+      "description": "Air Force command focused on air combat forces.",
+      "source": "ACC/USAF corpus",
+      "priority": 4
+    },
+    {
+      "label": "Undergraduate Pilot Training",
+      "type": "training_program",
+      "aliases": ["UPT"],
+      "description": "Pilot training program.",
+      "source": "AETC/USAF corpus",
+      "priority": 3
+    },
+    {
+      "label": "T-38",
+      "type": "aircraft",
+      "aliases": ["T-38C", "T-38 Talon"],
+      "description": "USAF training aircraft.",
+      "source": "AETC/USAF corpus",
+      "priority": 5
+    },
+    {
+      "label": "Flight Training",
+      "type": "training_program",
+      "aliases": ["flying training", "pilot training"],
+      "description": "Training program for aircraft operation.",
+      "source": "AETC/USAF corpus",
+      "priority": 4
+    },
+    {
+      "label": "Instructor Pilot",
+      "type": "role",
+      "aliases": ["IP"],
+      "description": "Pilot assigned to instruct or evaluate flight training.",
+      "source": "AETC/USAF corpus",
+      "priority": 3
+    },
+    {
+      "label": "Student Pilot",
+      "type": "role",
+      "aliases": ["SP"],
+      "description": "Pilot undergoing training.",
+      "source": "AETC/USAF corpus",
+      "priority": 3
+    },
+    {
+      "label": "Flight Evaluation",
+      "type": "process",
+      "aliases": ["checkride", "evaluation"],
+      "description": "Assessment of flight performance or qualification.",
+      "source": "AETC/USAF corpus",
+      "priority": 3
+    },
+    {
+      "label": "Aircraft Commander",
+      "type": "role",
+      "aliases": ["AC"],
+      "description": "Aircrew member responsible for aircraft operation.",
+      "source": "USAF aviation corpus",
+      "priority": 3
+    },
+    {
+      "label": "Mission Qualification",
+      "type": "training_requirement",
+      "aliases": ["mission qualification training", "MQT"],
+      "description": "Training or qualification required for mission performance.",
+      "source": "USAF aviation corpus",
+      "priority": 3
+    },
+    {
+      "label": "Continuation Training",
+      "type": "training_requirement",
+      "aliases": ["CT"],
+      "description": "Recurring or ongoing training requirement.",
+      "source": "USAF aviation corpus",
+      "priority": 3
+    },
+    {
+      "label": "Emergency Procedure",
+      "type": "procedure",
+      "aliases": ["EP"],
+      "description": "Procedure used during aircraft or operational emergencies.",
+      "source": "USAF aviation corpus",
+      "priority": 3
+    }
+  ]
+}

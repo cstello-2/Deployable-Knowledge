@@ -1,0 +1,84 @@
+{
+  "relations": [
+    {
+      "name": "assigned_to",
+      "description": "Subject person, role, unit, or responsibility is assigned to the object organization, role, mission, or process.",
+      "aliases": ["assigned_under", "attached_to", "allocated_to"],
+      "subjectTypes": ["person", "role", "unit", "organization", "responsibility"],
+      "objectTypes": ["organization", "role", "unit", "mission", "process"],
+      "priority": 3
+    },
+    {
+      "name": "commands",
+      "description": "Subject commander, role, or organization commands the object unit, force, mission, or operation.",
+      "aliases": ["leads", "directs", "has_command_of"],
+      "subjectTypes": ["person", "role", "organization"],
+      "objectTypes": ["unit", "organization", "operation", "mission", "force"],
+      "priority": 4
+    },
+    {
+      "name": "coordinates_with",
+      "description": "Subject organization, role, or process coordinates with the object organization, role, or process.",
+      "aliases": ["coordinates", "collaborates_with", "works_with"],
+      "subjectTypes": ["organization", "role", "process", "person"],
+      "objectTypes": ["organization", "role", "process", "person"],
+      "priority": 3
+    },
+    {
+      "name": "provides",
+      "description": "Subject provides the object capability, resource, guidance, support, or service.",
+      "aliases": ["supplies", "furnishes", "offers"],
+      "subjectTypes": ["organization", "role", "system", "process", "document"],
+      "objectTypes": ["capability", "resource", "support", "guidance", "service", "document"],
+      "priority": 3
+    },
+    {
+      "name": "contains",
+      "description": "Subject document, collection, system, or process contains the object section, requirement, record, or component.",
+      "aliases": ["includes", "comprises", "has_part"],
+      "subjectTypes": ["document", "archive_collection", "system", "process", "publication"],
+      "objectTypes": ["section", "requirement", "record_set", "archive_record", "component", "process"],
+      "priority": 4
+    },
+    {
+      "name": "implements",
+      "description": "Subject process, system, organization, or document implements the object policy, requirement, procedure, or standard.",
+      "aliases": ["executes", "carries_out", "puts_into_effect"],
+      "subjectTypes": ["process", "system", "organization", "document", "role"],
+      "objectTypes": ["policy_area", "requirement", "procedure", "standard", "guidance"],
+      "priority": 4
+    },
+    {
+      "name": "evaluates",
+      "description": "Subject person, role, process, or document evaluates the object performance, qualification, unit, or process.",
+      "aliases": ["assesses", "reviews", "measures"],
+      "subjectTypes": ["person", "role", "process", "document", "organization"],
+      "objectTypes": ["performance", "training_requirement", "qualification", "unit", "process", "person"],
+      "priority": 3
+    },
+    {
+      "name": "trains_for",
+      "description": "Subject training, role, or process prepares the object person, role, unit, mission, operation, or procedure.",
+      "aliases": ["prepares_for", "qualifies_for", "training_for"],
+      "subjectTypes": ["training_program", "training_requirement", "process", "role"],
+      "objectTypes": ["person", "role", "unit", "mission", "operation", "procedure", "aircraft"],
+      "priority": 4
+    },
+    {
+      "name": "operates",
+      "description": "Subject person, role, unit, or organization operates the object aircraft, system, equipment, or capability.",
+      "aliases": ["flies", "uses_operationally", "employs_operationally"],
+      "subjectTypes": ["person", "role", "unit", "organization"],
+      "objectTypes": ["aircraft", "system", "equipment", "capability"],
+      "priority": 3
+    },
+    {
+      "name": "stored_in",
+      "description": "Subject record, publication, or collection is stored in the object archive, repository, collection, or system.",
+      "aliases": ["archived_in", "filed_in", "kept_in"],
+      "subjectTypes": ["document", "record_set", "archive_record", "publication", "form"],
+      "objectTypes": ["archive_collection", "repository", "system", "organization"],
+      "priority": 3
+    }
+  ]
+}

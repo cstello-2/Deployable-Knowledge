@@ -1,0 +1,196 @@
+{
+  "entities": [
+    {
+      "label": "Air Component Commander",
+      "type": "role",
+      "aliases": [],
+      "description": "Commander leading Air Force forces and joint air operations.",
+      "source": "Air Force Glossary",
+      "priority": 4
+    },
+    {
+      "label": "Air Expeditionary Force",
+      "type": "organization_type",
+      "aliases": ["AEF"],
+      "description": "Rotational Air Force force-package structure.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Air Force Doctrine Publication",
+      "type": "document_type",
+      "aliases": ["AFDP"],
+      "description": "Air Force doctrine publication.",
+      "source": "Air Force Glossary",
+      "priority": 4
+    },
+    {
+      "label": "Air Force Forces",
+      "type": "unit",
+      "aliases": ["AFFOR"],
+      "description": "Air Force forces assigned or attached to a joint force.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Commander, Air Force Forces",
+      "type": "role",
+      "aliases": ["COMAFFOR"],
+      "description": "Single Air Force commander of an Air Force service component.",
+      "source": "Air Force Glossary",
+      "priority": 4
+    },
+    {
+      "label": "Commander, Air Force Special Operations Forces",
+      "type": "role",
+      "aliases": ["COMAFSOF"],
+      "description": "Senior Airman presenting Air Force special operations forces to a joint force commander.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Joint Force Air Component Commander",
+      "type": "role",
+      "aliases": ["JFACC"],
+      "description": "Commander responsible for joint air operations.",
+      "source": "Air Force Glossary",
+      "priority": 4
+    },
+    {
+      "label": "Airpower",
+      "type": "capability",
+      "aliases": ["air power"],
+      "description": "Military power projected through the air domain.",
+      "source": "Air Force Glossary",
+      "priority": 4
+    },
+    {
+      "label": "Airlift",
+      "type": "operation",
+      "aliases": ["air lift"],
+      "description": "Transport and delivery of forces or materiel through the air.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Airbridge",
+      "type": "operation",
+      "aliases": ["air bridge"],
+      "description": "Air refueling operation extending aircraft range during transit.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    },
+    {
+      "label": "Control of the Air",
+      "type": "operational_condition",
+      "aliases": ["air superiority", "air supremacy", "air parity"],
+      "description": "Degree of influence in the air domain relative to an adversary.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Base Security Zone",
+      "type": "area",
+      "aliases": ["BSZ"],
+      "description": "Area around a base relevant to air base defense planning.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    },
+    {
+      "label": "Combat Support",
+      "type": "capability",
+      "aliases": ["CS"],
+      "description": "Capability to field, base, protect, support, and sustain Air Force forces.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Counterair Operations",
+      "type": "operation",
+      "aliases": ["counterair"],
+      "description": "Operations for control of the air.",
+      "source": "Air Force Doctrine",
+      "priority": 3
+    },
+    {
+      "label": "Counterland Operations",
+      "type": "operation",
+      "aliases": ["counterland"],
+      "description": "Airpower operations against enemy land force capabilities.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Counterspace Operations",
+      "type": "operation",
+      "aliases": ["counterspace", "offensive counterspace", "OCS", "defensive counterspace", "DCS"],
+      "description": "Operations related to control and protection in and through space.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Cyberspace Operations",
+      "type": "operation",
+      "aliases": ["cyber operations"],
+      "description": "Operations conducted in or through cyberspace.",
+      "source": "Air Force Doctrine",
+      "priority": 3
+    },
+    {
+      "label": "Cyber Tasking Order",
+      "type": "document_type",
+      "aliases": ["CTO"],
+      "description": "Tasking document for Air Force cyber forces.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    },
+    {
+      "label": "Information Warfare",
+      "type": "operation",
+      "aliases": ["IW"],
+      "description": "Use of military capabilities through the information environment.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Mission Assurance",
+      "type": "process",
+      "aliases": ["MA"],
+      "description": "Measures required to accomplish essential mission objectives in contested environments.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Joint Planning Process for Air",
+      "type": "process",
+      "aliases": ["JPPA"],
+      "description": "Air planning process culminating in joint air operations plans.",
+      "source": "Air Force Glossary",
+      "priority": 3
+    },
+    {
+      "label": "Joint Air Operations Plan",
+      "type": "document_type",
+      "aliases": ["JAOP"],
+      "description": "Plan produced through joint air planning.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    },
+    {
+      "label": "Operational-Level Assessment",
+      "type": "process",
+      "aliases": ["OA"],
+      "description": "Evaluation of achievement of objectives through operational assessment.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    },
+    {
+      "label": "Wargaming",
+      "type": "process",
+      "aliases": ["war gaming"],
+      "description": "Visualization of actions, reactions, and counteractions.",
+      "source": "Air Force Glossary",
+      "priority": 2
+    }
+  ]
+}

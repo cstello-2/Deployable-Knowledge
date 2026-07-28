@@ -1,0 +1,123 @@
+{
+  "entities": [
+    {
+      "label": "Tactical Combat Casualty Care",
+      "type": "doctrine",
+      "aliases": ["TCCC", "Tactical Combat Casualty Care Handbook"],
+      "description": "Combat trauma care doctrine and training corpus.",
+      "priority": 5
+    },
+    {
+      "label": "Committee on Tactical Combat Casualty Care",
+      "type": "organization",
+      "aliases": ["CoTCCC", "TCCC Working Group"],
+      "description": "Committee that develops and maintains TCCC guidelines.",
+      "priority": 4
+    },
+    {
+      "label": "Care Under Fire",
+      "type": "phase_of_care",
+      "aliases": ["CUF"],
+      "description": "TCCC care phase while still under effective hostile fire.",
+      "priority": 4
+    },
+    {
+      "label": "Tactical Field Care",
+      "type": "phase_of_care",
+      "aliases": ["TFC"],
+      "description": "TCCC care phase after immediate fire threat is reduced.",
+      "priority": 4
+    },
+    {
+      "label": "Tactical Evacuation Care",
+      "type": "phase_of_care",
+      "aliases": ["TACEVAC", "TEC"],
+      "description": "TCCC care phase during evacuation.",
+      "priority": 4
+    },
+    {
+      "label": "MARCH PAWS",
+      "type": "procedure",
+      "aliases": ["MARCH", "PAWS"],
+      "description": "TCCC treatment sequence for life-threatening injuries.",
+      "priority": 5
+    },
+    {
+      "label": "Massive Hemorrhage",
+      "type": "medical_condition",
+      "aliases": ["hemorrhage", "bleeding"],
+      "description": "Severe blood loss requiring immediate control.",
+      "priority": 3
+    },
+    {
+      "label": "Airway Obstruction",
+      "type": "medical_condition",
+      "aliases": ["airway compromise", "airway"],
+      "description": "Blocked or threatened airway.",
+      "priority": 3
+    },
+    {
+      "label": "Respiration",
+      "type": "physiological_function",
+      "aliases": ["breathing"],
+      "description": "Breathing and chest injury assessment category.",
+      "priority": 2
+    },
+    {
+      "label": "Circulation",
+      "type": "physiological_function",
+      "aliases": ["shock", "blood circulation"],
+      "description": "Perfusion and shock-management category.",
+      "priority": 2
+    },
+    {
+      "label": "Hypothermia",
+      "type": "medical_condition",
+      "aliases": ["cold injury"],
+      "description": "Dangerous drop in body temperature.",
+      "priority": 2
+    },
+    {
+      "label": "Head Injury",
+      "type": "medical_condition",
+      "aliases": ["traumatic brain injury", "TBI"],
+      "description": "Head trauma or traumatic brain injury.",
+      "priority": 2
+    },
+    {
+      "label": "Pneumothorax",
+      "type": "medical_condition",
+      "aliases": ["tension pneumothorax"],
+      "description": "Air in the pleural space, including life-threatening tension pneumothorax.",
+      "priority": 3
+    },
+    {
+      "label": "Tourniquet",
+      "type": "medical_intervention",
+      "aliases": ["limb tourniquet", "junctional tourniquet"],
+      "description": "Device used to control severe extremity bleeding.",
+      "priority": 4
+    },
+    {
+      "label": "Hemostatic Dressing",
+      "type": "medical_intervention",
+      "aliases": ["hemostatic gauze", "combat gauze"],
+      "description": "Dressing used to control bleeding.",
+      "priority": 3
+    },
+    {
+      "label": "Needle Decompression",
+      "type": "medical_intervention",
+      "aliases": ["needle thoracostomy", "NDC"],
+      "description": "Procedure to treat suspected tension pneumothorax.",
+      "priority": 3
+    },
+    {
+      "label": "Nasopharyngeal Airway",
+      "type": "medical_equipment",
+      "aliases": ["NPA"],
+      "description": "Airway adjunct used to maintain airway patency.",
+      "priority": 3
+    }
+  ]
+}

@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 import { Parser, Store } from "n3";
 import { getProvider } from "$lib/server/providers/registry";
 import type { ProviderChatOptions } from "$lib/server/providers/provider";
+import {
+  DICTIONARY_VERSION,
+  canonicalizeAssertion,
+  dictionaryPrompt,
+  loadKnowledgeGraphDictionary,
+} from "./dictionary";
 
 export type GraphChunk = {
   chunkId: string;
@@ -19,6 +25,8 @@ export type SchemaCategory = {
   source: string;
   subjectTypes?: string[];
   objectTypes?: string[];
+  aliases?: string[];
+  provenanceOnly?: boolean;
 };
 
 export type CorpusSchema = {
@@ -26,6 +34,8 @@ export type CorpusSchema = {
   relationTypes: SchemaCategory[];
   sampledChunkIds: string[];
   version: string;
+  dictionaryVersion?: string;
+  dictionarySources?: string[];
 };
 
 export type Extractor = "llm" | "gliner";
@@ -59,7 +69,7 @@ export type ExtractionSettings = {
 
 type ScoredTerm = SchemaCategory & { relation: boolean; score: number };
 
-const VERSION = "kg-v4";
+const VERSION = "kg-v5";
 const ONTOLOGIES = [
   "https://schema.org/version/latest/schemaorg-current-https.ttl",
   "https://www.w3.org/ns/prov.ttl",
@@ -135,6 +145,7 @@ export function extractionVersion(): Record<string, unknown> {
     relation:
       process.env.KNOWLEDGE_GRAPH_GLINER_RELATION_THRESHOLD ?? "0.75",
     other: process.env.KNOWLEDGE_GRAPH_GLINER_OTHER !== "false",
+    dictionary: DICTIONARY_VERSION,
   };
 }
 
@@ -149,7 +160,10 @@ export async function discoverCorpusSchema(
     .slice(0, 18_000);
   if (!sample) throw new Error("No usable text is available for schema discovery.");
 
-  const ontologyTerms = await loadOntologyTerms(sample);
+  const [ontologyTerms, dictionary] = await Promise.all([
+    loadOntologyTerms(sample),
+    loadKnowledgeGraphDictionary(sample),
+  ]);
   const result = await askJson<{
     entityTypes: unknown;
     relationTypes: unknown;
@@ -163,11 +177,16 @@ ${JSON.stringify(UNIVERSAL)}
 Lexically relevant established ontology terms:
 ${JSON.stringify(ontologyTerms)}
 
+Trusted project dictionaries and memory:
+${dictionaryPrompt(dictionary)}
+
 Select established terms, merge synonyms, and add only genuinely missing
 corpus-specific categories. Categories must be reusable types, never entity
 names. Relations must be precise, directed, and explicitly supportable from
-text. Never create related_to or co-occurrence relations. Return at most five
-additional entity types and twenty relations.
+text. Prefer the dictionary relation names exactly; add a new relation only
+when none of the trusted relation names fit. Never create related_to,
+mentioned_with, near, page/table/chapter, or co-occurrence relations. Return at
+most five additional entity types and twenty relations.
 
 Corpus sample:
 ${sample}`,
@@ -177,9 +196,13 @@ ${sample}`,
 
   const entityTypes = unique([
     ...UNIVERSAL,
+    ...dictionary.entityTypes,
     ...readCategories(result.entityTypes),
-  ]).slice(0, 15);
-  const relationTypes = readCategories(result.relationTypes, true).slice(0, 20);
+  ]).slice(0, 32);
+  const relationTypes = unique([
+    ...dictionary.relationTypes,
+    ...readCategories(result.relationTypes, true),
+  ]).slice(0, 50);
   if (!relationTypes.length) {
     throw new Error("Schema discovery returned no usable relation types.");
   }
@@ -188,6 +211,8 @@ ${sample}`,
     relationTypes,
     sampledChunkIds: sampled.map((chunk) => chunk.chunkId),
     version: VERSION,
+    dictionaryVersion: dictionary.version,
+    dictionarySources: dictionary.sources,
   };
 }
 
@@ -196,6 +221,7 @@ export async function extractWithLlm(
   schema: CorpusSchema,
   settings: ExtractionSettings,
 ): Promise<ExtractionResult> {
+  const dictionary = await loadKnowledgeGraphDictionary(chunk.content);
   const result = await askJson<Record<string, unknown>>(
     settings,
     `Extract a small, evidence-grounded knowledge graph from this chunk.
@@ -203,12 +229,18 @@ export async function extractWithLlm(
 Schema guidance:
 ${JSON.stringify(schema)}
 
+Trusted dictionary guidance:
+${dictionaryPrompt(dictionary, 35)}
+
 Extract only explicitly stated, meaningful relationships. Copy subject, object,
 and one evidence substring exactly from the chunk; the evidence must contain
 both endpoints. Preserve direction, dates, negation, and uncertainty. Do not
 connect nearby entities, extract formatting, or emit every noun phrase. The
-schema is guidance, not a closed list. Return an empty assertions array when
-there is no useful relationship.
+relation schema is a controlled vocabulary: use the listed predicate names
+exactly when they fit, and skip the assertion when no listed predicate fits.
+Normalize obvious aliases to the dictionary label, but only when the alias is
+present in the chunk. Return an empty assertions array when there is no useful
+relationship.
 
 Chunk:
 ${chunk.content}`,
@@ -291,11 +323,11 @@ export async function reconcileExtractions(
   gliner: ExtractionResult,
   settings: ExtractionSettings,
 ): Promise<ExtractionResult> {
-  const assertions = llm.assertions
-    .filter((assertion) => fitsSchema(assertion, schema))
-    .map((assertion) => ({ ...assertion }));
-  for (const candidate of gliner.assertions) {
-    if (!fitsSchema(candidate, schema)) continue;
+  const dictionary = await loadKnowledgeGraphDictionary(text);
+  const assertions = normalizeResult(llm, schema, dictionary).map((assertion) => ({
+    ...assertion,
+  }));
+  for (const candidate of normalizeResult(gliner, schema, dictionary)) {
     const match = assertions.find((assertion) =>
       sameAssertion(assertion, candidate),
     );
@@ -320,6 +352,17 @@ export async function reconcileExtractions(
           : [],
     ),
   };
+}
+
+function normalizeResult(
+  result: ExtractionResult,
+  schema: CorpusSchema,
+  dictionary: Awaited<ReturnType<typeof loadKnowledgeGraphDictionary>>,
+): ExtractedAssertion[] {
+  return result.assertions.flatMap((assertion) => {
+    const canonical = canonicalizeAssertion(assertion, schema, dictionary);
+    return canonical && fitsSchema(canonical, schema) ? [canonical] : [];
+  });
 }
 
 export function emptyExtraction(): ExtractionResult {
@@ -430,7 +473,7 @@ function fitsSchema(
   const relation = schema.relationTypes.find(
     (type) => type.name === category(assertion.rawPredicate),
   );
-  if (!relation) return true;
+  if (!relation) return false;
   return (
     accepts(relation.subjectTypes, assertion.subjectType) &&
     accepts(relation.objectTypes, assertion.objectType)
@@ -438,12 +481,10 @@ function fitsSchema(
 }
 
 function accepts(allowed: string[] | undefined, actual: string): boolean {
-  return (
-    !allowed?.length ||
-    actual === "unknown" ||
-    actual === "other" ||
-    allowed.map(category).includes(category(actual))
-  );
+  if (!allowed?.length) return true;
+  const typed = category(actual);
+  if (!typed || typed === "unknown" || typed === "other") return false;
+  return allowed.map(category).includes(typed);
 }
 
 async function askJson<T>(

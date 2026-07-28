@@ -1,0 +1,140 @@
+{
+  "entities": [
+    {
+      "label": "Publication",
+      "type": "document",
+      "aliases": ["official publication", "directive publication", "nondirective publication"],
+      "description": "Official document used to publish policy, guidance, doctrine, or procedures.",
+      "source": "DAF publications corpus",
+      "priority": 4
+    },
+    {
+      "label": "Form",
+      "type": "document",
+      "aliases": ["official form", "prescribed form", "adopted form"],
+      "description": "Standardized document used to collect or record information.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Records Management",
+      "type": "process",
+      "aliases": ["recordkeeping", "records disposition"],
+      "description": "Management, retention, and disposition of records.",
+      "source": "DAF publications corpus",
+      "priority": 4
+    },
+    {
+      "label": "Record Set",
+      "type": "record_set",
+      "aliases": ["records set", "collection of records"],
+      "description": "Collection of records associated with a publication, form, or process.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Office of Collateral Responsibility",
+      "type": "role",
+      "aliases": ["OCR"],
+      "description": "Office providing collateral responsibility or coordination support.",
+      "source": "DAF publications corpus",
+      "priority": 2
+    },
+    {
+      "label": "Publication Change Request",
+      "type": "process",
+      "aliases": ["change request", "recommended change"],
+      "description": "Process or request to modify an official publication.",
+      "source": "DAF publications corpus",
+      "priority": 2
+    },
+    {
+      "label": "Waiver",
+      "type": "process",
+      "aliases": ["waiver request", "compliance waiver"],
+      "description": "Request or approval to deviate from a requirement.",
+      "source": "DAF publications corpus",
+      "priority": 2
+    },
+    {
+      "label": "Compliance Statement",
+      "type": "requirement",
+      "aliases": ["tiered compliance item", "non-tiered compliance item"],
+      "description": "Directive or instruction describing mandatory compliance.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Dress and Personal Appearance",
+      "type": "policy_area",
+      "aliases": ["dress manual", "uniform policy", "grooming standards"],
+      "description": "Policy area covering dress, appearance, uniforms, and grooming.",
+      "source": "DAF publications corpus",
+      "priority": 4
+    },
+    {
+      "label": "Officer Performance Report",
+      "type": "document",
+      "aliases": ["OPR", "performance report"],
+      "description": "Performance evaluation record for officers.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Enlisted Performance Report",
+      "type": "document",
+      "aliases": ["EPR", "performance report"],
+      "description": "Performance evaluation record for enlisted personnel.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Decoration",
+      "type": "award",
+      "aliases": ["military decoration", "award"],
+      "description": "Award or decoration recognizing service, achievement, or valor.",
+      "source": "DAF publications corpus",
+      "priority": 3
+    },
+    {
+      "label": "Achievement Medal",
+      "type": "award",
+      "aliases": ["Air Force Achievement Medal", "AFAM"],
+      "description": "Military achievement award.",
+      "source": "DAF publications corpus",
+      "priority": 2
+    },
+    {
+      "label": "Commendation Medal",
+      "type": "award",
+      "aliases": ["Air Force Commendation Medal", "AFCM"],
+      "description": "Military commendation award.",
+      "source": "DAF publications corpus",
+      "priority": 2
+    },
+    {
+      "label": "Command History",
+      "type": "archive_collection",
+      "aliases": ["command history archive", "historical archive"],
+      "description": "Historical record collection documenting command activities.",
+      "source": "ACC archive corpus",
+      "priority": 3
+    },
+    {
+      "label": "Research Collection",
+      "type": "archive_collection",
+      "aliases": ["research hierarchy", "research archive"],
+      "description": "Organized collection used for research discovery.",
+      "source": "ACC archive corpus",
+      "priority": 3
+    },
+    {
+      "label": "Accession",
+      "type": "archive_record",
+      "aliases": ["archive accession"],
+      "description": "Archival intake or record accession.",
+      "source": "archives terminology",
+      "priority": 2
+    }
+  ]
+}

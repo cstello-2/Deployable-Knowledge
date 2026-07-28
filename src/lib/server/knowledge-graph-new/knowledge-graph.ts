@@ -76,7 +76,7 @@ export type BuildResult = {
   graph: KnowledgeGraph;
 };
 
-const VERSION = "kg-build-v4";
+const VERSION = "kg-build-v5";
 
 export async function buildKnowledgeGraph(
   options: BuildOptions,
@@ -613,6 +613,10 @@ async function save(
     for (let index = 0; index < statements.length; index += 200) {
       await transaction.batch(statements.slice(index, index + 200));
     }
+    const memory = memoryStatements(schema, assertions);
+    for (let index = 0; index < memory.length; index += 200) {
+      await transaction.batch(memory.slice(index, index + 200));
+    }
     await transaction.execute({
       sql: `INSERT INTO kg_new_builds
         (scope_key, signature, provider_id, model_id, schema_json, built_at)
@@ -660,9 +664,104 @@ async function ensureTables(): Promise<void> {
       `CREATE TABLE IF NOT EXISTS kg_new_chunk_cache (
         cache_key TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS kg_new_entity_memory (
+        canonical_name TEXT PRIMARY KEY, entity_type TEXT NOT NULL,
+        aliases_json TEXT NOT NULL, sources_json TEXT NOT NULL,
+        approved INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS kg_new_relation_memory (
+        canonical_predicate TEXT PRIMARY KEY, description TEXT NOT NULL,
+        aliases_json TEXT NOT NULL, subject_types_json TEXT NOT NULL,
+        object_types_json TEXT NOT NULL, approved INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+      )`,
     ],
     "write",
   );
+}
+
+function memoryStatements(
+  schema: CorpusSchema,
+  assertions: GraphAssertion[],
+): Array<{ sql: string; args: Array<string | null> }> {
+  const updatedAt = new Date().toISOString();
+  const entities = new Map<
+    string,
+    {
+      name: string;
+      type: string;
+      aliases: Set<string>;
+      sources: Set<string>;
+    }
+  >();
+  for (const assertion of assertions) {
+    for (const [name, type, raw] of [
+      [
+        assertion.subject,
+        assertion.subjectType,
+        assertion.provenance.rawSubject,
+      ],
+      [assertion.object, assertion.objectType, assertion.provenance.rawObject],
+    ] as const) {
+      const key = normalize(name);
+      const entity =
+        entities.get(key) ??
+        {
+          name,
+          type,
+          aliases: new Set<string>(),
+          sources: new Set<string>(),
+        };
+      if (entity.type === "unknown" && type !== "unknown") entity.type = type;
+      if (normalize(raw) !== key) entity.aliases.add(raw);
+      entity.sources.add(assertion.documentId);
+      entities.set(key, entity);
+    }
+  }
+  const entityStatements = [...entities.values()].map((entity) => ({
+    sql: `INSERT INTO kg_new_entity_memory
+      (canonical_name, entity_type, aliases_json, sources_json, approved, updated_at)
+      VALUES (?, ?, ?, ?, 1, ?)
+      ON CONFLICT(canonical_name) DO UPDATE SET
+        entity_type = CASE
+          WHEN kg_new_entity_memory.entity_type IN ('unknown', 'other')
+          THEN excluded.entity_type
+          ELSE kg_new_entity_memory.entity_type
+        END,
+        aliases_json = excluded.aliases_json,
+        sources_json = excluded.sources_json,
+        approved = 1,
+        updated_at = excluded.updated_at`,
+    args: [
+      entity.name,
+      entity.type,
+      JSON.stringify([...entity.aliases].sort()),
+      JSON.stringify([...entity.sources].sort()),
+      updatedAt,
+    ],
+  }));
+  const relationStatements = schema.relationTypes.map((relation) => ({
+    sql: `INSERT INTO kg_new_relation_memory
+      (canonical_predicate, description, aliases_json, subject_types_json,
+       object_types_json, approved, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(canonical_predicate) DO UPDATE SET
+        description = excluded.description,
+        aliases_json = excluded.aliases_json,
+        subject_types_json = excluded.subject_types_json,
+        object_types_json = excluded.object_types_json,
+        approved = 1,
+        updated_at = excluded.updated_at`,
+    args: [
+      relation.name,
+      relation.description,
+      JSON.stringify(relation.aliases ?? []),
+      JSON.stringify(relation.subjectTypes ?? []),
+      JSON.stringify(relation.objectTypes ?? []),
+      updatedAt,
+    ],
+  }));
+  return [...entityStatements, ...relationStatements];
 }
 
 async function readCache(): Promise<Map<string, string>> {

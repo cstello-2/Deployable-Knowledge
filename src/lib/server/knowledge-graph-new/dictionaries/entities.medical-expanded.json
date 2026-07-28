@@ -1,0 +1,132 @@
+{
+  "entities": [
+    {
+      "label": "Battlefield Trauma",
+      "type": "medical_condition",
+      "aliases": ["combat trauma", "trauma"],
+      "description": "Traumatic injury in battlefield or operational settings.",
+      "source": "JTS/TCCC/MeSH",
+      "priority": 4
+    },
+    {
+      "label": "Casualty",
+      "type": "person",
+      "aliases": ["patient", "injured service member"],
+      "description": "Person receiving battlefield or operational medical care.",
+      "source": "JTS/TCCC",
+      "priority": 3
+    },
+    {
+      "label": "Combat Lifesaver",
+      "type": "role",
+      "aliases": ["CLS"],
+      "description": "Service member trained to provide combat lifesaving care.",
+      "source": "TCCC",
+      "priority": 3
+    },
+    {
+      "label": "Combat Medic",
+      "type": "role",
+      "aliases": ["CMC", "medic"],
+      "description": "Medical provider in combat settings.",
+      "source": "TCCC",
+      "priority": 3
+    },
+    {
+      "label": "Prolonged Casualty Care",
+      "type": "phase_of_care",
+      "aliases": ["PCC"],
+      "description": "Extended care when evacuation or definitive care is delayed.",
+      "source": "JTS/TCCC",
+      "priority": 3
+    },
+    {
+      "label": "En Route Care",
+      "type": "phase_of_care",
+      "aliases": ["ERC"],
+      "description": "Care provided during transport between roles of care.",
+      "source": "JTS",
+      "priority": 3
+    },
+    {
+      "label": "Medical Treatment Facility",
+      "type": "facility",
+      "aliases": ["MTF"],
+      "description": "Facility capable of providing medical treatment.",
+      "source": "TCCC",
+      "priority": 3
+    },
+    {
+      "label": "Hemorrhagic Shock",
+      "type": "medical_condition",
+      "aliases": ["shock", "hypovolemic shock"],
+      "description": "Shock caused by severe blood loss.",
+      "source": "JTS/MeSH",
+      "priority": 4
+    },
+    {
+      "label": "Extremity Hemorrhage",
+      "type": "medical_condition",
+      "aliases": ["extremity bleeding"],
+      "description": "Severe bleeding from an arm or leg.",
+      "source": "TCCC",
+      "priority": 4
+    },
+    {
+      "label": "Junctional Hemorrhage",
+      "type": "medical_condition",
+      "aliases": ["junctional bleeding"],
+      "description": "Bleeding from junctional areas not suitable for standard limb tourniquets.",
+      "source": "TCCC",
+      "priority": 3
+    },
+    {
+      "label": "Chest Trauma",
+      "type": "medical_condition",
+      "aliases": ["thoracic trauma", "chest injury"],
+      "description": "Trauma involving the chest.",
+      "source": "TCCC/MeSH",
+      "priority": 3
+    },
+    {
+      "label": "Burn Injury",
+      "type": "medical_condition",
+      "aliases": ["burns"],
+      "description": "Thermal, chemical, electrical, or other burn injury.",
+      "source": "JTS/MeSH",
+      "priority": 3
+    },
+    {
+      "label": "Pain Management",
+      "type": "process",
+      "aliases": ["analgesia", "pain control"],
+      "description": "Treatment process to control pain.",
+      "source": "TCCC/MeSH",
+      "priority": 3
+    },
+    {
+      "label": "Antibiotic Therapy",
+      "type": "medical_intervention",
+      "aliases": ["antibiotics", "battlefield antibiotics"],
+      "description": "Use of antibiotics to prevent or treat infection.",
+      "source": "TCCC/MeSH",
+      "priority": 3
+    },
+    {
+      "label": "Fluid Resuscitation",
+      "type": "medical_intervention",
+      "aliases": ["resuscitation", "blood resuscitation"],
+      "description": "Restoring circulating volume after blood loss or shock.",
+      "source": "JTS/TCCC/MeSH",
+      "priority": 3
+    },
+    {
+      "label": "Tranexamic Acid",
+      "type": "medication",
+      "aliases": ["TXA"],
+      "description": "Medication used to reduce bleeding.",
+      "source": "JTS/TCCC/MeSH",
+      "priority": 3
+    }
+  ]
+}

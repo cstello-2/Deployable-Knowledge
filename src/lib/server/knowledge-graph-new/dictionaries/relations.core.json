@@ -1,0 +1,130 @@
+{
+  "relations": [
+    {
+      "name": "defines",
+      "description": "Subject explicitly defines, describes, or establishes the meaning of the object.",
+      "aliases": ["definition_of", "describes", "establishes"],
+      "subjectTypes": ["document", "doctrine", "procedure", "standard"],
+      "objectTypes": ["process", "medical_condition", "medical_intervention", "role", "document_type", "phase_of_care", "object"],
+      "priority": 5
+    },
+    {
+      "name": "requires",
+      "description": "Subject mandates, requires, or makes the object necessary.",
+      "aliases": ["mandates", "must_have", "shall_have", "requires_use_of"],
+      "subjectTypes": ["document", "doctrine", "procedure", "organization", "role"],
+      "objectTypes": ["procedure", "training_requirement", "medical_intervention", "equipment", "role", "process"],
+      "priority": 5
+    },
+    {
+      "name": "authorizes",
+      "description": "Subject grants authority, permission, or responsibility to the object.",
+      "aliases": ["allows", "permits", "delegates_to"],
+      "subjectTypes": ["document", "organization", "role"],
+      "objectTypes": ["organization", "role", "person", "process"],
+      "priority": 4
+    },
+    {
+      "name": "prohibits",
+      "description": "Subject explicitly forbids or restricts the object.",
+      "aliases": ["forbids", "restricts", "not_authorized"],
+      "subjectTypes": ["document", "doctrine", "organization", "role"],
+      "objectTypes": ["procedure", "process", "medical_intervention", "object"],
+      "priority": 4
+    },
+    {
+      "name": "recommends",
+      "description": "Subject recommends or advises the object without making it mandatory.",
+      "aliases": ["advises", "should_use", "preferred"],
+      "subjectTypes": ["document", "doctrine", "organization", "role"],
+      "objectTypes": ["procedure", "medical_intervention", "equipment", "process"],
+      "priority": 4
+    },
+    {
+      "name": "treats",
+      "description": "Subject intervention or procedure treats the object condition or injury.",
+      "aliases": ["treatment_for", "used_to_treat", "manages_condition"],
+      "subjectTypes": ["medical_intervention", "procedure", "equipment"],
+      "objectTypes": ["medical_condition", "injury", "symptom"],
+      "priority": 5
+    },
+    {
+      "name": "prevents",
+      "description": "Subject prevents, reduces risk of, or protects against the object.",
+      "aliases": ["protects_against", "reduces_risk_of"],
+      "subjectTypes": ["medical_intervention", "procedure", "equipment", "process"],
+      "objectTypes": ["medical_condition", "injury", "risk", "event"],
+      "priority": 3
+    },
+    {
+      "name": "indicates",
+      "description": "Subject sign, symptom, or finding indicates the object condition or next action.",
+      "aliases": ["suggests", "signals", "is_sign_of"],
+      "subjectTypes": ["symptom", "finding", "medical_condition", "event"],
+      "objectTypes": ["medical_condition", "procedure", "medical_intervention"],
+      "priority": 4
+    },
+    {
+      "name": "part_of",
+      "description": "Subject is a component, phase, section, or step of the object.",
+      "aliases": ["component_of", "phase_of", "step_of", "belongs_to"],
+      "subjectTypes": ["component", "phase_of_care", "procedure", "process", "section"],
+      "objectTypes": ["system", "doctrine", "procedure", "process", "document"],
+      "priority": 4
+    },
+    {
+      "name": "applies_to",
+      "description": "Subject applies to the object audience, condition, role, unit, or situation.",
+      "aliases": ["governs", "covers", "scope_includes"],
+      "subjectTypes": ["document", "doctrine", "procedure", "standard"],
+      "objectTypes": ["organization", "role", "medical_condition", "event", "process", "location"],
+      "priority": 4
+    },
+    {
+      "name": "uses",
+      "description": "Subject procedure, role, or system uses the object equipment, method, or resource.",
+      "aliases": ["uses_tool", "employs", "utilizes"],
+      "subjectTypes": ["procedure", "process", "role", "system", "medical_intervention"],
+      "objectTypes": ["equipment", "medical_equipment", "medical_intervention", "object", "resource"],
+      "priority": 3
+    },
+    {
+      "name": "reports_to",
+      "description": "Subject organization, office, or role reports to the object.",
+      "aliases": ["subordinate_to", "accountable_to"],
+      "subjectTypes": ["organization", "role", "person"],
+      "objectTypes": ["organization", "role", "person"],
+      "priority": 2
+    },
+    {
+      "name": "responsible_for",
+      "description": "Subject organization, office, or role is responsible for the object.",
+      "aliases": ["owns", "manages", "has_responsibility_for"],
+      "subjectTypes": ["organization", "role", "person"],
+      "objectTypes": ["document", "process", "procedure", "system", "program"],
+      "priority": 4
+    },
+    {
+      "name": "supports",
+      "description": "Subject supports, enables, or provides evidence for the object.",
+      "aliases": ["enables", "evidence_for"],
+      "subjectTypes": ["document", "procedure", "process", "system", "resource"],
+      "objectTypes": ["process", "procedure", "decision", "medical_intervention", "organization"],
+      "priority": 2
+    },
+    {
+      "name": "supersedes",
+      "description": "Subject replaces, rescinds, or supersedes the object.",
+      "aliases": ["replaces", "rescinds", "cancels"],
+      "subjectTypes": ["document", "standard"],
+      "objectTypes": ["document", "standard"],
+      "priority": 3
+    },
+    {
+      "name": "documented_in",
+      "description": "Provenance-only document location relation; do not emit as a semantic graph assertion.",
+      "aliases": ["appears_in", "listed_in", "found_on_page", "table_in", "chapter_in", "section_in"],
+      "provenanceOnly": true
+    }
+  ]
+}

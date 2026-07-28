@@ -1,0 +1,67 @@
+{
+  "entities": [
+    {
+      "label": "Department of the Air Force",
+      "type": "organization",
+      "aliases": ["DAF", "Air Force"],
+      "description": "United States Department of the Air Force.",
+      "priority": 4
+    },
+    {
+      "label": "United States Air Force",
+      "type": "organization",
+      "aliases": ["USAF", "U.S. Air Force"],
+      "description": "United States Air Force.",
+      "priority": 4
+    },
+    {
+      "label": "Department of Defense",
+      "type": "organization",
+      "aliases": ["DoD", "DOD"],
+      "description": "United States Department of Defense.",
+      "priority": 3
+    },
+    {
+      "label": "Air Force Instruction",
+      "type": "document_type",
+      "aliases": ["AFI"],
+      "description": "Air Force instruction publication type.",
+      "priority": 3
+    },
+    {
+      "label": "Department of the Air Force Instruction",
+      "type": "document_type",
+      "aliases": ["DAFI"],
+      "description": "Department of the Air Force instruction publication type.",
+      "priority": 3
+    },
+    {
+      "label": "Air Force Manual",
+      "type": "document_type",
+      "aliases": ["AFMAN"],
+      "description": "Air Force manual publication type.",
+      "priority": 2
+    },
+    {
+      "label": "Department of the Air Force Manual",
+      "type": "document_type",
+      "aliases": ["DAFMAN"],
+      "description": "Department of the Air Force manual publication type.",
+      "priority": 2
+    },
+    {
+      "label": "Office of Primary Responsibility",
+      "type": "role",
+      "aliases": ["OPR"],
+      "description": "Office responsible for a publication or process.",
+      "priority": 2
+    },
+    {
+      "label": "Major Command",
+      "type": "organization_type",
+      "aliases": ["MAJCOM"],
+      "description": "Air Force major command.",
+      "priority": 2
+    }
+  ]
+}
