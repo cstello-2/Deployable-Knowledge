@@ -37,6 +37,15 @@ export function countWords(text: string): number {
   return text.trim().match(/\S+/g)?.length ?? 0;
 }
 
+const MIN_TEXT_CHUNK_WORDS = 5;
+
+// PPTX chunks are pooled per-slide, so a short one is a slide's entire real content, not
+// a fragment - the floor doesn't apply there. Shared here since chunker.ts and
+// assemble-chunks.ts both enforce this independently and would otherwise drift out of sync.
+export function minWordsFor(source: Source): number {
+  return source.type === "PPTX" ? 0 : MIN_TEXT_CHUNK_WORDS;
+}
+
 // Create unique chunkId for each chunk, prevents duplicate chunks
 export function buildChunkId(
   page: ExtractedChunk,

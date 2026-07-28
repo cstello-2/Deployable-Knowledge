@@ -6,6 +6,7 @@
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
   import type { AppState } from "$lib/state.svelte";
   import type { UserSettings } from "$lib/server/database/schema";
+  import { formatPositionLabel } from "$lib/utils/positionLabel";
   import type { WindowInstanceProps } from "./index";
 
   type RetrievalMode = "semantic" | "bm25" | "hybrid";
@@ -13,8 +14,9 @@
     chunkId: string;
     documentId: string;
     sourceTitle: string;
-    sourceType: "PDF" | "DOCX";
+    sourceType: "PDF" | "DOCX" | "PPTX" | "CSV" | "XLSX" | "TXT" | "MD";
     pageIndex: number;
+    chunkIndex: number;
     content: string;
   };
   type SearchResults = Record<RetrievalMode, SearchMatch[]>;
@@ -168,21 +170,23 @@
             <div class="result-meta">
               <span class="result-rank">#{index + 1}</span>
               <span class="result-title">{result.sourceTitle}</span>
-              {#if result.sourceType !== "DOCX"}
-                <span>Page {result.pageIndex + 1}</span>
+              {#if formatPositionLabel(result.sourceType, result.pageIndex, result.chunkIndex)}
+                <span>{formatPositionLabel(result.sourceType, result.pageIndex, result.chunkIndex)}</span>
               {/if}
             </div>
             <p class="result-content">{result.content}</p>
-            <div class="result-actions">
-              <a
-                class="btn btn-sm"
-                href={pdfHref(result)}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Show in PDF
-              </a>
-            </div>
+            {#if result.sourceType === "PDF"}
+              <div class="result-actions">
+                <a
+                  class="btn btn-sm"
+                  href={pdfHref(result)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Show in PDF
+                </a>
+              </div>
+            {/if}
           </div>
         {/each}
       {:else}

@@ -17,22 +17,37 @@ import type { RequestHandler } from "./$types";
 
 const DOCUMENTS_DIR = "documents";
 
-function detectKind(name: string, buffer: Buffer): "pdf" | "docx" | null {
+type UploadKind = "pdf" | "docx" | "pptx" | "csv" | "xlsx" | "txt" | "md";
+
+function isZip(buffer: Buffer): boolean {
+  // DOCX/PPTX/XLSX are ZIP archives (OOXML); their first bytes are "PK\x03\x04"
+  return buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04;
+}
+
+function detectKind(name: string, buffer: Buffer): UploadKind | null {
   const lower = name.toLowerCase();
 
   if (lower.endsWith(".pdf")) {
-    const isPdf = buffer.subarray(0, 5).toString() === "%PDF-";
-    return isPdf ? "pdf" : null;
+    return buffer.subarray(0, 5).toString() === "%PDF-" ? "pdf" : null;
   }
-
   if (lower.endsWith(".docx")) {
-    // DOCX is a ZIP archive; its first bytes are "PK\x03\x04"
-    const isZip =
-      buffer[0] === 0x50 &&
-      buffer[1] === 0x4b &&
-      buffer[2] === 0x03 &&
-      buffer[3] === 0x04;
-    return isZip ? "docx" : null;
+    return isZip(buffer) ? "docx" : null;
+  }
+  if (lower.endsWith(".pptx")) {
+    return isZip(buffer) ? "pptx" : null;
+  }
+  if (lower.endsWith(".xlsx")) {
+    return isZip(buffer) ? "xlsx" : null;
+  }
+  // CSV/TXT/MD are plain text with no magic-byte signature to check - trust the extension.
+  if (lower.endsWith(".csv")) {
+    return "csv";
+  }
+  if (lower.endsWith(".txt")) {
+    return "txt";
+  }
+  if (lower.endsWith(".md")) {
+    return "md";
   }
 
   return null;
@@ -45,12 +60,11 @@ async function ingestBuffer(
 ): Promise<DocumentIngestResult> {
   const kind = detectKind(originalName, buffer);
   if (!kind) {
-    throw new Error("Only PDF and DOCX uploads are supported.");
+    throw new Error("Only PDF, DOCX, PPTX, CSV, XLSX, TXT, and MD uploads are supported.");
   }
 
   const contentHash = createHash("sha256").update(buffer).digest("hex");
-  const savedName = `${contentHash.slice(0, 16)}.${kind}`;
-  const savedPath = join(DOCUMENTS_DIR, savedName);
+  const savedPath = join(DOCUMENTS_DIR, `${contentHash.slice(0, 16)}.${kind}`);
   const [existing] = await db
     .select({
       documentId: documents.id,
@@ -73,12 +87,27 @@ async function ingestBuffer(
   const result = await ingestDocument(
     {
       filePath: savedPath,
-      title: originalName.replace(/\.(pdf|docx)$/i, "").trim() || originalName,
+      title: originalName.replace(/\.(pdf|docx|pptx|csv|xlsx|txt|md)$/i, "").trim() || originalName,
     },
     onProgress,
   );
 
   return result;
+}
+
+async function ingestUpload(
+  request: Request,
+  onProgress: (progress: DocumentIngestProgress) => void,
+): Promise<DocumentIngestResult> {
+  const formData = await request.formData();
+  const file = formData.get("file");
+
+  if (!(file instanceof File)) {
+    throw new Error("No file included in upload.");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return ingestBuffer(file.name, buffer, onProgress);
 }
 
 async function ingestPath(
@@ -90,7 +119,7 @@ async function ingestPath(
   const fileStats = await stat(path);
 
   if (!containsPath(root, path) || !fileStats.isFile()) {
-    throw new Error("Select a PDF or DOCX file inside your home folder.");
+    throw new Error("Select a PDF, DOCX, PPTX, CSV, XLSX, TXT, or MD file inside your home folder.");
   }
 
   const [tracked] = await db
@@ -115,13 +144,21 @@ async function ingestPath(
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-  const { paths } = (await request.json()) as { paths?: unknown };
-  const selectedPaths = Array.isArray(paths)
-    ? paths.filter((path): path is string => typeof path === "string")
-    : [];
+  // A document arrives either as a server filesystem path (folder-browser flow) or raw
+  // bytes (pasted file) - the Clipboard API only ever gives JS bytes, never a path.
+  const isUpload = (request.headers.get("content-type") ?? "").includes("multipart/form-data");
 
-  if (selectedPaths.length !== 1) {
-    throw error(400, "Upload one PDF or DOCX file per request.");
+  let selectedPath: string | null = null;
+  if (!isUpload) {
+    const { paths } = (await request.json()) as { paths?: unknown };
+    const selectedPaths = Array.isArray(paths)
+      ? paths.filter((path): path is string => typeof path === "string")
+      : [];
+
+    if (selectedPaths.length !== 1) {
+      throw error(400, "Upload one PDF, DOCX, PPTX, CSV, XLSX, TXT, or MD file per request.");
+    }
+    selectedPath = selectedPaths[0];
   }
 
   await mkdir(DOCUMENTS_DIR, { recursive: true });
@@ -132,7 +169,11 @@ export const POST: RequestHandler = async ({ request }) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
 
-      void ingestPath(selectedPaths[0], (progress) => send({ status: "progress", ...progress }))
+      const run = isUpload
+        ? ingestUpload(request, (progress) => send({ status: "progress", ...progress }))
+        : ingestPath(selectedPath as string, (progress) => send({ status: "progress", ...progress }));
+
+      void run
         .then((result) => send({ status: "complete", result }))
         .catch((cause) => {
           send({

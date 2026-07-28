@@ -1,14 +1,35 @@
 import {
   buildChunkId,
   countWords,
+  minWordsFor,
   normalizeWhitespace,
   type ExtractedChunk,
   type ParsedChunk,
 } from "./parse-shared";
 import { RAG_CHUNK_CHARACTER_LIMIT } from "$lib/utils/contextLimits";
 
-const MIN_WORDS = 5;
 const OVERLAP_SENTENCES = 1;
+
+// TXT/MD pageIndex means "which line," and a paragraph's \n boundaries survive intact
+// (see cleanPageText) - so when a long paragraph splits into several chunks, each piece's
+// real starting line is recoverable by counting newlines before it. Other formats' pageIndex means something else entirely, so only TXT/MD get adjusted.
+function resolvePageIndex(page: ExtractedChunk, content: string, startChar: number): number {
+  if (page.source.type !== "TXT" && page.source.type !== "MD") return page.pageIndex;
+
+  // A span's stored start usually sits on whitespace/newline before the trimmed text
+  // begins - skip past it, or a chunk right after a line break undercounts that newline.
+  let contentStart = startChar;
+  while (contentStart < content.length && /\s/.test(content[contentStart])) {
+    contentStart += 1;
+  }
+
+  let lineOffset = 0;
+  for (let index = 0; index < contentStart; index += 1) {
+    if (content[index] === "\n") lineOffset += 1;
+  }
+
+  return page.pageIndex + lineOffset;
+}
 
 // Offsets point into the cleaned page text, not the original PDF bytes
 type SentenceSpan = {
@@ -198,13 +219,14 @@ function chunkSentenceSpans(
     const startChar = selected[0].start;
     const endChar = selected[selected.length - 1].end;
     const chunkContent = getChunkContent(content, startChar, endChar);
+    const pageIndex = resolvePageIndex(page, content, startChar);
 
-    if (chunkContent && countWords(chunkContent) >= MIN_WORDS) {
+    if (chunkContent && countWords(chunkContent) >= minWordsFor(page.source)) {
       chunks.push({
-        chunkId: buildChunkId(page, chunkIndex, chunkContent),
+        chunkId: buildChunkId({ ...page, pageIndex }, chunkIndex, chunkContent),
         chunkType: page.chunkType,
         source: page.source,
-        pageIndex: page.pageIndex,
+        pageIndex,
         chunkIndex,
         content: chunkContent,
       });
@@ -252,9 +274,61 @@ function chunkPage(page: ExtractedChunk): ParsedChunk[] {
   }
 
   const spans = splitSentencesWithOffsets(content);
+  if (spans.length === 0) {
+    const chunkContent = normalizeWhitespace(content);
+    if (!chunkContent || countWords(chunkContent) < minWordsFor(page.source)) {
+      return [];
+    }
+
+    return [{
+      chunkId: buildChunkId(page, 0, chunkContent),
+      chunkType: page.chunkType,
+      source: page.source,
+      pageIndex: page.pageIndex,
+      chunkIndex: 0,
+      content: chunkContent,
+    }];
+  }
+
   return chunkSentenceSpans(page, content, spans);
 }
 
+// A page ends cleanly if it stops right after sentence punctuation (one trailing
+// quote/paren/bracket allowed) - anything else is a sentence cut short by the page break.
+const ENDS_CLEANLY = /[.!?]['")\]]?$/;
+
+// PDF/DOCX pages are chunked independently, so a sentence spanning a page break would
+// otherwise become two disconnected chunks. This moves a page's dangling trailing
+// sentence onto the next page's content before chunking - a heuristic, not a guarantee.
+
+// PPTX/CSV/XLSX/TXT are excluded: those "pages" are genuinely separate units, so
+// stitching them would corrupt unrelated content instead of fixing anything.
+function stitchPageBreaks(pages: ExtractedChunk[]): ExtractedChunk[] {
+  if (pages[0]?.source.type !== "PDF" && pages[0]?.source.type !== "DOCX") {
+    return pages;
+  }
+
+  const stitched = pages.map((page) => ({ ...page }));
+
+  for (let index = 0; index < stitched.length - 1; index += 1) {
+    const page = stitched[index];
+    const next = stitched[index + 1];
+    if (page.chunkType !== "TEXT" || next.chunkType !== "TEXT") continue;
+
+    const cleaned = cleanPageText(page.content);
+    if (!cleaned || ENDS_CLEANLY.test(cleaned)) continue;
+
+    const spans = splitSentencesWithOffsets(cleaned);
+    const lastSpan = spans[spans.length - 1];
+    if (!lastSpan || lastSpan.start === 0) continue;
+
+    page.content = cleaned.slice(0, lastSpan.start).trimEnd();
+    next.content = `${lastSpan.text} ${next.content}`;
+  }
+
+  return stitched;
+}
+
 export function chunkPages(pages: ExtractedChunk[]): ParsedChunk[] {
-  return pages.flatMap(chunkPage);
+  return stitchPageBreaks(pages).flatMap(chunkPage);
 }

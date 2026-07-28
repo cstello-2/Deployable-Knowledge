@@ -52,8 +52,9 @@ async function ingestManagedCopy(
   managedPath: string,
   onProgress?: (progress: DocumentIngestProgress) => void,
 ) {
-  await copyFile(sourcePath, managedPath);
   try {
+    await copyFile(sourcePath, managedPath);
+
     const title = basename(sourcePath, extname(sourcePath)).trim() || basename(sourcePath);
     return await ingestDocument({ filePath: managedPath, title }, onProgress);
   } catch (error) {

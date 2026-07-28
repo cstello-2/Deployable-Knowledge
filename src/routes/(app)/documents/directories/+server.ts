@@ -9,8 +9,10 @@ import type { RequestHandler } from "./$types";
 type DirectoryItem = {
   name: string;
   path: string;
-  kind: "folder" | "pdf" | "docx";
+  kind: "folder" | "pdf" | "docx" | "pptx" | "csv" | "xlsx" | "txt" | "md";
 };
+
+const BROWSABLE_EXTENSIONS = new Set([".pdf", ".docx", ".pptx", ".csv", ".xlsx", ".txt", ".md"]);
 
 export const GET: RequestHandler = async ({ url }) => {
   const root = await realpath(homedir());
@@ -40,8 +42,9 @@ export const GET: RequestHandler = async ({ url }) => {
     if (entry.isDirectory()) items.push({ name: entry.name, path, kind: "folder" });
     if (entry.isFile()) {
       const ext = extname(entry.name).toLowerCase();
-      if (ext === ".pdf") items.push({ name: entry.name, path, kind: "pdf" });
-      if (ext === ".docx") items.push({ name: entry.name, path, kind: "docx" });
+      if (BROWSABLE_EXTENSIONS.has(ext)) {
+        items.push({ name: entry.name, path, kind: ext.slice(1) as DirectoryItem["kind"] });
+      }
     }
   }
 

@@ -13,6 +13,7 @@
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import { selectedDocumentIds } from "$lib/utils/documentSelection";
+  import { formatPositionLabel } from "$lib/utils/positionLabel";
   import {
     normalizeDocumentIds,
     type KnowledgeGraphStatusResponse,
@@ -38,8 +39,9 @@
   type SearchMatch = {
     chunkId: string;
     sourceTitle: string;
-    sourceType: "PDF" | "DOCX";
+    sourceType: "PDF" | "DOCX" | "PPTX" | "CSV" | "XLSX" | "TXT" | "MD";
     pageIndex: number;
+    chunkIndex: number;
     content: string;
   };
   type SearchResponse = {
@@ -940,8 +942,8 @@
                   <div class="result-meta">
                     <span class="result-rank">#{i + 1}</span>
                     <span class="result-title">{result.sourceTitle}</span>
-                    {#if result.sourceType !== "DOCX"}
-                      <span>Page {result.pageIndex + 1}</span>
+                    {#if formatPositionLabel(result.sourceType, result.pageIndex, result.chunkIndex)}
+                      <span>{formatPositionLabel(result.sourceType, result.pageIndex, result.chunkIndex)}</span>
                     {/if}
                   </div>
                   <p class="result-content">{result.content}</p>

@@ -1,10 +1,31 @@
 <script lang="ts">
   import Popup from "$lib/components/popups/Popup.svelte";
 
+  function fileKindLabel(kind: string) {
+    switch (kind) {
+      case "pdf":
+        return "[PDF]";
+      case "docx":
+        return "[DOCX]";
+      case "pptx":
+        return "[PPTX]";
+      case "csv":
+        return "[CSV]";
+      case "xlsx":
+        return "[XLSX]";
+      case "txt":
+        return "[TXT]";
+      case "md":
+        return "[MD]";
+      default:
+        return "[FILE]";
+    }
+  }
+
   type Props = {
     open: boolean;
     pathLabel: string;
-    items: Array<{ name: string; path: string; kind: "folder" | "pdf" | "docx" }>;
+    items: Array<{ name: string; path: string; kind: "folder" | "pdf" | "docx" | "pptx" | "csv" | "xlsx" | "txt" | "md" }>;
     busy?: boolean;
     canGoBack?: boolean;
     selectedPdfPaths: string[];
@@ -75,12 +96,12 @@
             onclick={() => onTogglePdf(item.path)}
           >
             <span class="file-picker-check">{selectedPdfPaths.includes(item.path) ? "[x]" : "[ ]"}</span>
-            <span class="file-picker-icon">[PDF]</span>
+            <span class="file-picker-icon">{fileKindLabel(item.kind)}</span>
             <span class="file-picker-name">{item.name}</span>
           </button>
         {/if}
       {:else}
-        <div class="empty-state">No folders or PDFs shown.</div>
+        <div class="empty-state">No folders or documents shown.</div>
       {/each}
     </div>
   </div>

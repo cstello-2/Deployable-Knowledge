@@ -65,7 +65,7 @@
     watching: boolean;
   };
 
-  type DirectoryItem = { name: string; path: string; kind: "folder" | "pdf" | "docx" };
+  type DirectoryItem = { name: string; path: string; kind: "folder" | "pdf" | "docx" | "pptx" | "csv" | "xlsx" | "txt" | "md" };
   type DirectoryResponse = {
     path: string;
     parentPath: string | null;
@@ -114,6 +114,11 @@
 
   onMount(() => {
     refreshAll().catch(() => showToast("Documents failed to load"));
+
+    // Pasting a file only ever gives the page bytes via the Clipboard API, never a
+    // filesystem path, so unlike every other add-document flow, this one has to upload.
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
   });
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -135,6 +140,42 @@
 
   function shortFolderName(path: string) {
     return path.split(/[\\/]+/).filter(Boolean).at(-1) || path;
+  }
+
+  function sourceTypeLabel(sourceType: string) {
+    switch (sourceType) {
+      case "DOCX":
+        return "Word document";
+      case "PPTX":
+        return "PowerPoint presentation";
+      case "CSV":
+        return "CSV spreadsheet";
+      case "XLSX":
+        return "Excel spreadsheet";
+      case "TXT":
+        return "Text file";
+      case "MD":
+        return "Markdown file";
+      default:
+        return "PDF";
+    }
+  }
+
+  function sourceTypeIcon(sourceType: string) {
+    switch (sourceType) {
+      case "DOCX":
+        return "description";
+      case "PPTX":
+        return "slideshow";
+      case "CSV":
+      case "XLSX":
+        return "table_chart";
+      case "TXT":
+      case "MD":
+        return "article";
+      default:
+        return "picture_as_pdf";
+    }
   }
 
   function formatDate(value: string) {
@@ -556,6 +597,76 @@
     }
   }
 
+  async function uploadFile(file: File): Promise<UploadResult> {
+    const body = new FormData();
+    body.append("file", file);
+
+    const response = await fetch("/documents", { method: "POST", body });
+    return readUpload(response, file.name);
+  }
+
+  async function addPastedFiles(files: File[]) {
+    if (files.length === 0 || working) return;
+
+    working = "upload";
+    openProgress(
+      `Ingesting ${files.length} document${files.length === 1 ? "" : "s"}`,
+      `Ingesting ${files[0].name}`,
+      files.map((file) => ({ path: file.name, name: file.name, status: "queued" })),
+    );
+
+    try {
+      const uploads: UploadResult[] = [];
+
+      for (const file of files) {
+        updateProgressFile(file.name, "ingesting");
+        progress = {
+          percent: 0,
+          label: `Ingesting ${files.length} document${files.length === 1 ? "" : "s"}`,
+          message: `Ingesting ${file.name}`,
+        };
+
+        try {
+          const result = await uploadFile(file);
+          uploads.push(result);
+          updateProgressFile(file.name, "success");
+        } catch (fileError) {
+          const message = fileError instanceof Error ? fileError.message : String(fileError);
+          uploads.push({ status: "error", filename: file.name, message });
+          updateProgressFile(file.name, "error", message);
+        }
+      }
+
+      const succeeded = uploads.filter((upload) => upload.status === "success");
+      const failed = uploads.filter((upload) => upload.status === "error");
+      for (const upload of succeeded) {
+        if (upload.documentId && !$selectedDocumentIds.includes(upload.documentId)) {
+          $selectedDocumentIds = [...$selectedDocumentIds, upload.documentId];
+        }
+      }
+
+      await refreshAll(
+        `Uploaded ${succeeded.length} document${succeeded.length === 1 ? "" : "s"}${failed.length ? `; ${failed.length} failed` : ""}.`,
+      );
+      if (failed.length) showToast(`${failed.length} upload${failed.length === 1 ? "" : "s"} failed`);
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+      showToast(message);
+    } finally {
+      working = null;
+      hideProgress();
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent) {
+    if (working) return;
+    const files = event.clipboardData?.files;
+    if (!files || files.length === 0) return;
+
+    event.preventDefault();
+    void addPastedFiles([...files]);
+  }
+
   async function openDirectory(path = "") {
     pickerOpen = true;
     try {
@@ -732,12 +843,9 @@
                   <div
                     class="docs-icon"
                     aria-hidden="true"
-                    title={document.sourceType === "DOCX" ? "Word document" : "PDF"}
+                    title={sourceTypeLabel(document.sourceType)}
                   >
-                    <Icon
-                      name={document.sourceType === "DOCX" ? "description" : "picture_as_pdf"}
-                      size={18}
-                    />
+                    <Icon name={sourceTypeIcon(document.sourceType)} size={18} />
                   </div>
                   <div class="docs-main">
                     <div class="docs-title" title={document.title}>{document.title}</div>

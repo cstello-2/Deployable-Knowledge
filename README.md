@@ -10,7 +10,7 @@ Deployable‑Knowledge bundles a local vector store, prompt management and a lig
 
 🚀 Key Features
  - Multi-Modal Ingestion: Supports high-efficiency extraction of text, tables, formulas, and images via OCR and specialized parsing engines like MinerU and Docling
-   - PDF, plaintext, .docx, and a few other formats
+   - PDF, .docx, .pptx, .csv, and .txt
  - Local Persistence: High-performance chunk storage and application state management utilizing a local SQLite backend
  - Triple Search Architecture: Performs three side-by-side searches to ensure comprehensive retrieval:
    - Semantic Search: Cosine similarity-based vector retrieval for capturing deep semantic meaning
@@ -39,6 +39,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and data�
 🛠️ Quick Start
 Installation
 Ensure you have the necessary environments for OCR and local LLM serving (e.g., vLLM or o-llama)
+
+DOCX ingestion requires [pandoc](https://pandoc.org) and [tectonic](https://tectonic-typesetting.github.io) on your PATH - it's rendered through LaTeX (pandoc converts it to LaTeX, tectonic typesets it to PDF) before the standard PDF pipeline ingests it, giving real, stable page numbers instead of an approximation. Layout won't match Word's own rendering exactly, since it's a different typesetting engine.
+
+PPTX/CSV/TXT don't go through PDF at all - they're parsed directly (PPTX/CSV via [officeparser](https://www.npmjs.com/package/officeparser), TXT natively) straight into the same chunker, since each already has a real, unambiguous position: slide number, row number, and line number respectively. Citations for these show "Slide N" / "Row N" / "Line N" instead of "Page N".
 
 # Install dependencies
 npm install

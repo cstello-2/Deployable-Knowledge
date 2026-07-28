@@ -11,6 +11,7 @@ import {
   searchKnowledgeGraph,
   type KnowledgeGraphPath,
 } from "$lib/server/knowledge-graph";
+import { formatPositionLabel } from "$lib/utils/positionLabel";
 
 const DEFAULT_RAG_TOP_K = 5; // Now adjustable in Assistant Settings
 const MAX_CONTEXT_CHARS = 1200; // Same as max chunk size for now
@@ -94,28 +95,30 @@ function buildSources(matches: RagMatch[], mode: RagRetrievalMode): RagSource[] 
   );
   const maximumBm25Score = Math.max(0, ...rawScores);
 
-  return matches.map((match, index) => ({
-    title: match.sourceTitle,
-    // DOCX pageIndex is a volume-based approximation, not a real page number
-    description: match.sourceType === "DOCX"
-      ? `Word Doc: ${compactText(match.content, MAX_PREVIEW_CHARS)}`
-      : `Page ${match.pageIndex + 1}: ${compactText(match.content, MAX_PREVIEW_CHARS)}`,
-    documentId: match.documentId,
-    chunkId: match.chunkId,
-    pageIndex: match.pageIndex,
-    chunkIndex: match.chunkIndex,
-    // Citation scores always use a [0, 1] UI contract. BM25 is unbounded, so
-    // it is normalized relative to the strongest returned result.
-    score: mode === "bm25"
-      ? maximumBm25Score > 0
-        ? clamp01(rawScores[index] / maximumBm25Score)
-        : 0
-      : clamp01(rawScores[index]),
-    rawScore: mode === "bm25" ? rawScores[index] : undefined,
-    content: match.content,
-    sourceTitle: match.sourceTitle,
-    chunkType: match.chunkType,
-  }));
+  return matches.map((match, index) => {
+    const positionLabel = formatPositionLabel(match.sourceType, match.pageIndex, match.chunkIndex);
+    const preview = compactText(match.content, MAX_PREVIEW_CHARS);
+
+    return {
+      title: match.sourceTitle,
+      description: positionLabel ? `${positionLabel}: ${preview}` : preview,
+      documentId: match.documentId,
+      chunkId: match.chunkId,
+      pageIndex: match.pageIndex,
+      chunkIndex: match.chunkIndex,
+      // Citation scores always use a [0, 1] UI contract. BM25 is unbounded, so
+      // it is normalized relative to the strongest returned result.
+      score: mode === "bm25"
+        ? maximumBm25Score > 0
+          ? clamp01(rawScores[index] / maximumBm25Score)
+          : 0
+        : clamp01(rawScores[index]),
+      rawScore: mode === "bm25" ? rawScores[index] : undefined,
+      content: match.content,
+      sourceTitle: match.sourceTitle,
+      chunkType: match.chunkType,
+    };
+  });
 }
 
 function clamp01(value: number): number {

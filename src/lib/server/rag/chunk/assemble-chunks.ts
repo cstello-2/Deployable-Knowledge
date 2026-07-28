@@ -3,16 +3,11 @@
 import {
   buildChunkId,
   countWords,
-  type ExtractedChunk,
+  minWordsFor,
   type ParsedChunk,
 } from "./parse-shared";
 
-const MIN_TEXT_CHUNK_WORDS = 5;
-
-export function assembleChunks(
-  pages: ExtractedChunk[],
-  chunks: ParsedChunk[],
-): ParsedChunk[] {
+export function assembleChunks(chunks: ParsedChunk[]): ParsedChunk[] {
   const chunksByPage = new Map<number, ParsedChunk[]>();
 
   for (const chunk of chunks) {
@@ -22,8 +17,11 @@ export function assembleChunks(
     chunksByPage.set(pageIndex, pageChunks);
   }
 
+  // Grouping keys come from the chunks themselves, not the pre-chunking page list - a
+  // chunk's pageIndex can diverge from its source page's (see resolvePageIndex in
+  // chunker.ts), and grouping from elsewhere would silently drop those chunks.
   const finalChunks: ParsedChunk[] = [];
-  const pageIndexes = [...new Set(pages.map((page) => page.pageIndex))];
+  const pageIndexes = [...chunksByPage.keys()];
 
   for (const pageIndex of pageIndexes) {
     const seenContent = new Set<string>();
@@ -32,7 +30,7 @@ export function assembleChunks(
     for (const chunk of chunksByPage.get(pageIndex) ?? []) {
       const content = chunk.content.trim();
       const wordCount = countWords(content);
-      const tooShort = chunk.chunkType === "TEXT" && wordCount < MIN_TEXT_CHUNK_WORDS;
+      const tooShort = chunk.chunkType === "TEXT" && wordCount < minWordsFor(chunk.source);
 
       if (!content || seenContent.has(content) || tooShort) continue;
 
