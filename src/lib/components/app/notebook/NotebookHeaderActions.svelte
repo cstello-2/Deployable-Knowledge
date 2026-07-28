@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Eye from '@lucide/svelte/icons/eye';
+	import Download from '@lucide/svelte/icons/download';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Search from '@lucide/svelte/icons/search';
@@ -11,6 +12,8 @@
 	interface Props {
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onExport: () => void;
+		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onSearch: () => void;
 		onTogglePreview: () => void;
@@ -23,6 +26,8 @@
 	let {
 		onClearSources,
 		onCreate,
+		onExport,
+		onInsertCitation,
 		onRemoveSource,
 		onSearch,
 		onTogglePreview,
@@ -38,6 +43,11 @@
 		><Search /></ActionIcon
 	>
 	{#if view === 'notebooks' || view === 'pages'}
+		{#if view === 'pages'}
+			<ActionIcon variant="ghost" class="size-8" label="Export notebook pages" onclick={onExport}
+				><Download /></ActionIcon
+			>
+		{/if}
 		<ActionIcon
 			variant="ghost"
 			class="size-8"
@@ -49,8 +59,12 @@
 			{sources}
 			loading={sourcesLoading}
 			onRemove={onRemoveSource}
+			{onInsertCitation}
 			onClear={onClearSources}
 		/>
+		<ActionIcon variant="ghost" class="size-8" label="Export notebook pages" onclick={onExport}
+			><Download /></ActionIcon
+		>
 		<ActionIcon
 			variant={previewMode ? 'secondary' : 'ghost'}
 			class="size-8"
