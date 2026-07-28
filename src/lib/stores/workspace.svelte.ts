@@ -60,6 +60,7 @@ class WorkspaceStore {
 	}
 
 	showWindow(id: string): void {
+		this.leftPaneCollapsed = false;
 		this.mutatePlacements((items) =>
 			items.map((item) =>
 				item.id === id
