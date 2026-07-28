@@ -7,12 +7,13 @@
 	import ContextSources from './ContextSources.svelte';
 
 	interface Props {
+		onSaveChunk?: (chunkId: string) => Promise<void> | void;
 		outputs?: AgentOutput[];
 		toolCalls?: StoredToolCall[];
 		trace?: AgentTraceItem[];
 	}
 
-	let { outputs = [], toolCalls = [], trace = [] }: Props = $props();
+	let { onSaveChunk, outputs = [], toolCalls = [], trace = [] }: Props = $props();
 
 	const displayTrace = $derived(
 		trace.length ? trace : toolCalls.map((call, index) => legacyToolCallTrace(call, index))
@@ -32,7 +33,7 @@
 <AgentTrace trace={displayTrace} />
 {#if outputs.length}
 	<Context label="Tool context">
-		<ContextSources {sources} />
+		<ContextSources {sources} {onSaveChunk} />
 		<ContextOutputs outputs={otherOutputs} />
 	</Context>
 {/if}

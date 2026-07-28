@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { toast } from 'svelte-sonner';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import * as Empty from '$lib/components/ui/empty';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { RetrievalMode } from '$lib/enums';
 	import { SearchService } from '$lib/services';
-	import { documentsStore, settingsStore } from '$lib/stores';
+	import { documentsStore, notebooksStore, settingsStore } from '$lib/stores';
 	import type { ApiSearchResults } from '$lib/types';
 	import SearchForm from './SearchForm.svelte';
 	import SearchResultCard from './SearchResultCard.svelte';
@@ -63,6 +64,15 @@
 			loading = false;
 		}
 	}
+
+	async function saveChunk(chunkId: string): Promise<void> {
+		try {
+			const notebookTitle = await notebooksStore.saveChunk(chunkId);
+			toast.success(`Chunk saved to Loaded Sources in ${notebookTitle}`);
+		} catch (saveError) {
+			toast.error(saveError instanceof Error ? saveError.message : 'Failed to save chunk');
+		}
+	}
 </script>
 
 <WorkspaceWindow
@@ -89,7 +99,7 @@
 					<Skeleton class="h-28" /><Skeleton class="h-28" />
 				{:else}
 					{#each activeResults as result, index (result.chunkId)}
-						<SearchResultCard {result} {index} />
+						<SearchResultCard {result} {index} onSaveChunk={(chunkId) => void saveChunk(chunkId)} />
 					{:else}
 						<Empty.Root>
 							<Empty.Header

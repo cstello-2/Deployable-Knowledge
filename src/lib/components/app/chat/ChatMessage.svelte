@@ -7,10 +7,11 @@
 
 	interface Props {
 		message: SessionMessage;
+		onSaveChunk: (chunkId: string) => Promise<void> | void;
 		onSendToNotebook: () => void;
 	}
 
-	let { message, onSendToNotebook }: Props = $props();
+	let { message, onSaveChunk, onSendToNotebook }: Props = $props();
 	const metadata = $derived(messageMetadata(message));
 	const trace = $derived(messageTrace(metadata.agent));
 </script>
@@ -26,7 +27,7 @@
 	{#if message.role === 'assistant'}
 		<ChatMessageContext {trace} />
 		<MarkdownContent content={message.content} />
-		<ChatMessageContext outputs={metadata.outputs ?? []} />
+		<ChatMessageContext outputs={metadata.outputs ?? []} {onSaveChunk} />
 		<ChatMessageToolbar
 			agent={metadata.agent}
 			contextCount={metadata.outputs?.length ?? 0}
