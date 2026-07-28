@@ -1,19 +1,12 @@
+import AdmZip from 'adm-zip';
 import type { NotebookWithPages } from '$lib/types';
 
 function heading(title: string): string {
 	return title.replace(/\s+/g, ' ').trim();
 }
 
-export function notebookMarkdown(notebook: NotebookWithPages): string {
-	const sections = [`# ${heading(notebook.title)}`];
-	for (const page of notebook.pages) {
-		sections.push(`## ${heading(page.title)}`, page.content.trimEnd());
-	}
-	return `${sections.join('\n\n').trimEnd()}\n`;
-}
-
-export function notebookMarkdownFilename(title: string): string {
-	const base =
+function filenameBase(title: string, fallback: string): string {
+	return (
 		title
 			.normalize('NFKD')
 			.replace(/[\u0300-\u036f]/g, '')
@@ -21,6 +14,35 @@ export function notebookMarkdownFilename(title: string): string {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-+|-+$/g, '')
 			.slice(0, 80)
-			.replace(/-+$/g, '') || 'notebook';
-	return `${base}.md`;
+			.replace(/-+$/g, '') || fallback
+	);
+}
+
+export function notebookZip(notebook: NotebookWithPages): ArrayBuffer {
+	const archive = new AdmZip();
+	const usedNames = new Set<string>();
+
+	notebook.pages.forEach((page, index) => {
+		const base = filenameBase(page.title, `page-${index + 1}`);
+		let filename = `${base}.md`;
+		let suffix = 2;
+
+		while (usedNames.has(filename.toLowerCase())) {
+			filename = `${base}-${suffix}.md`;
+			suffix += 1;
+		}
+
+		usedNames.add(filename.toLowerCase());
+
+		const content = page.content.trimEnd();
+		const markdown = content ? `${content}\n` : `# ${heading(page.title)}\n`;
+
+		archive.addFile(filename, Buffer.from(markdown, 'utf8'));
+	});
+
+	return Uint8Array.from(archive.toBuffer()).buffer;
+}
+
+export function notebookZipFilename(title: string): string {
+	return `${filenameBase(title, 'notebook')}.zip`;
 }

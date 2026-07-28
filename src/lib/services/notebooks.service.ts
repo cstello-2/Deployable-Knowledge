@@ -1,9 +1,10 @@
 import { API_NOTEBOOKS } from '$lib/constants';
 import type {
+	ApiNotebookCollectionImportRequest,
+	ApiNotebookMarkdownImportRequest,
 	ApiNotebookPageContentRequest,
 	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
-	ApiNotebookMarkdownImportRequest,
 	ApiNotebookSourcesRequest,
 	ApiNotebookTitleRequest,
 	NotebookSourceItem,
@@ -31,7 +32,7 @@ export class NotebooksService {
 	}
 
 	static exportNotebook(id: string) {
-		return apiDownload(API_NOTEBOOKS.export(id), 'notebook.md');
+		return apiDownload(API_NOTEBOOKS.export(id), 'notebook.zip');
 	}
 
 	static select(id: string) {
@@ -93,6 +94,13 @@ export class NotebooksService {
 
 	static removeSource(id: string, sourceId: string) {
 		return apiDelete<{ ok: true }>(API_NOTEBOOKS.source(id, sourceId));
+	}
+
+	static importCollection(path: string) {
+		return apiPost<NotebookStateResponse, ApiNotebookCollectionImportRequest>(
+			API_NOTEBOOKS.IMPORT_COLLECTION,
+			{ path }
+		);
 	}
 
 	static importMarkdown(id: string, path: string) {
