@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, max } from 'drizzle-orm';
 import type { NotebookStateResponse } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
@@ -30,6 +30,7 @@ export class NotebooksRepository {
 			userId: NOTEBOOK_USER_ID,
 			title: 'Notebook 1',
 			activePageId: pageId,
+			sortOrder: 0,
 			createdAt: timestamp,
 			updatedAt: timestamp
 		};
@@ -38,6 +39,7 @@ export class NotebooksRepository {
 			notebookId,
 			title: 'Page 1',
 			content: '',
+			sortOrder: 0,
 			createdAt: timestamp,
 			updatedAt: timestamp
 		};
@@ -69,6 +71,7 @@ export class NotebooksRepository {
 			.select()
 			.from(notebooks)
 			.where(and(eq(notebooks.id, id), eq(notebooks.userId, NOTEBOOK_USER_ID)))
+			.orderBy(asc(notebooks.sortOrder), asc(notebooks.createdAt))
 			.limit(1);
 		if (!notebook) return null;
 
@@ -76,18 +79,23 @@ export class NotebooksRepository {
 			.select()
 			.from(notebookPages)
 			.where(eq(notebookPages.notebookId, id))
-			.orderBy(asc(notebookPages.createdAt));
+			.orderBy(asc(notebookPages.sortOrder), asc(notebookPages.createdAt));
 		return { ...notebook, pages };
 	}
 
 	static async createPage(notebookId: string, title: string, content: string): Promise<string> {
 		const pageId = randomUUID();
 		const timestamp = new Date().toISOString();
+		const [result] = await db
+			.select({ maximum: max(notebookPages.sortOrder) })
+			.from(notebookPages)
+			.where(eq(notebookPages.notebookId, notebookId));
 		const page: NewNotebookPage = {
 			id: pageId,
 			notebookId,
 			title,
 			content,
+			sortOrder: (result?.maximum ?? -1) + 1,
 			createdAt: timestamp,
 			updatedAt: timestamp
 		};
@@ -112,6 +120,10 @@ export class NotebooksRepository {
 
 		const now = Date.now();
 		const notebookId = randomUUID();
+		const [result] = await db
+			.select({ maximum: max(notebooks.sortOrder) })
+			.from(notebooks)
+			.where(eq(notebooks.userId, NOTEBOOK_USER_ID));
 
 		const pageRows: NewNotebookPage[] = pages.map(({ title, content }, index) => {
 			const timestamp = new Date(now + index).toISOString();
@@ -121,6 +133,7 @@ export class NotebooksRepository {
 				notebookId,
 				title,
 				content,
+				sortOrder: index,
 				createdAt: timestamp,
 				updatedAt: timestamp
 			};
@@ -132,6 +145,7 @@ export class NotebooksRepository {
 			userId: NOTEBOOK_USER_ID,
 			title,
 			activePageId: pageRows[0].id,
+			sortOrder: (result?.maximum ?? -1) + 1,
 			createdAt: timestamp,
 			updatedAt: timestamp
 		};
@@ -157,12 +171,55 @@ export class NotebooksRepository {
 		return notebookId;
 	}
 
+	static async reorderNotebooks(orderedIds: readonly string[]): Promise<boolean> {
+		const current = await db
+			.select({ id: notebooks.id })
+			.from(notebooks)
+			.where(eq(notebooks.userId, NOTEBOOK_USER_ID));
+		if (!hasExactIds(current, orderedIds)) return false;
+
+		await db.transaction(async (transaction) => {
+			for (const [sortOrder, id] of orderedIds.entries()) {
+				await transaction
+					.update(notebooks)
+					.set({ sortOrder })
+					.where(and(eq(notebooks.id, id), eq(notebooks.userId, NOTEBOOK_USER_ID)));
+			}
+		});
+		return true;
+	}
+
+	static async reorderPages(notebookId: string, orderedIds: readonly string[]): Promise<boolean> {
+		const [notebook] = await db
+			.select({ id: notebooks.id })
+			.from(notebooks)
+			.where(and(eq(notebooks.id, notebookId), eq(notebooks.userId, NOTEBOOK_USER_ID)))
+			.limit(1);
+		if (!notebook) return false;
+
+		const current = await db
+			.select({ id: notebookPages.id })
+			.from(notebookPages)
+			.where(eq(notebookPages.notebookId, notebookId));
+		if (!hasExactIds(current, orderedIds)) return false;
+
+		await db.transaction(async (transaction) => {
+			for (const [sortOrder, id] of orderedIds.entries()) {
+				await transaction
+					.update(notebookPages)
+					.set({ sortOrder })
+					.where(and(eq(notebookPages.id, id), eq(notebookPages.notebookId, notebookId)));
+			}
+		});
+		return true;
+	}
+
 	static async loadState(): Promise<NotebookStateResponse> {
 		let notebookRows: Notebook[] = await db
 			.select()
 			.from(notebooks)
 			.where(eq(notebooks.userId, NOTEBOOK_USER_ID))
-			.orderBy(asc(notebooks.createdAt));
+			.orderBy(asc(notebooks.sortOrder), asc(notebooks.createdAt));
 
 		if (!notebookRows.length) {
 			await this.createDefault();
@@ -170,7 +227,7 @@ export class NotebooksRepository {
 				.select()
 				.from(notebooks)
 				.where(eq(notebooks.userId, NOTEBOOK_USER_ID))
-				.orderBy(asc(notebooks.createdAt));
+				.orderBy(asc(notebooks.sortOrder), asc(notebooks.createdAt));
 		}
 
 		const [state] = await db
@@ -185,7 +242,7 @@ export class NotebooksRepository {
 				.select()
 				.from(notebookPages)
 				.where(eq(notebookPages.notebookId, notebook.id))
-				.orderBy(asc(notebookPages.createdAt));
+				.orderBy(asc(notebookPages.sortOrder), asc(notebookPages.createdAt));
 			output.push({ ...notebook, pages });
 		}
 
@@ -195,6 +252,14 @@ export class NotebooksRepository {
 			null;
 		return { activeNotebookId, notebooks: output };
 	}
+}
+
+function hasExactIds(current: readonly { id: string }[], orderedIds: readonly string[]): boolean {
+	if (current.length !== orderedIds.length) return false;
+	const currentIds = new Set(current.map(({ id }) => id));
+	return (
+		new Set(orderedIds).size === orderedIds.length && orderedIds.every((id) => currentIds.has(id))
+	);
 }
 
 export const createDefaultNotebook = () => NotebooksRepository.createDefault();

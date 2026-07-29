@@ -35,6 +35,7 @@ export const API_DOCUMENTS = {
 export const API_NOTEBOOKS = {
 	BASE: '/notebooks',
 	IMPORT_COLLECTION: '/notebooks/import-collection',
+	REORDER: '/notebooks/reorder',
 	byId: (id: string) => `/notebooks/${segment(id)}`,
 	export: (id: string) => `/notebooks/${segment(id)}/export`,
 	exportPage: (id: string, pageId: string) =>
@@ -45,6 +46,7 @@ export const API_NOTEBOOKS = {
 	page: (id: string, pageId: string) => `/notebooks/${segment(id)}/pages/${segment(pageId)}`,
 	movePage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/move`,
+	reorderPages: (id: string) => `/notebooks/${segment(id)}/pages/reorder`,
 	selectPage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/select`,
 	sources: (id: string) => `/notebooks/${segment(id)}/sources`,

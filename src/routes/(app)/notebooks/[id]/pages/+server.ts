@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, max } from 'drizzle-orm';
 import type { ApiNotebookPageTitleRequest } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { notebooks, notebookPages, type NewNotebookPage } from '$lib/server/database/schema';
@@ -20,12 +20,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const timestamp = new Date().toISOString();
 	const pageId = randomUUID();
+	const [result] = await db
+		.select({ maximum: max(notebookPages.sortOrder) })
+		.from(notebookPages)
+		.where(eq(notebookPages.notebookId, notebookId));
 
 	const page: NewNotebookPage = {
 		id: pageId,
 		notebookId,
 		title,
 		content: '',
+		sortOrder: (result?.maximum ?? -1) + 1,
 		createdAt: timestamp,
 		updatedAt: timestamp
 	};

@@ -8,6 +8,7 @@ export { default as NotebookPageListItem } from './NotebookPageListItem.svelte';
 export { default as NotebookPreview } from './NotebookPreview.svelte';
 export { default as NotebookSearch } from './NotebookSearch.svelte';
 export { default as NotebookWindow } from './NotebookWindow.svelte';
+export { default as VerticalReorderList } from './VerticalReorderList.svelte';
 export * from './NotebookSourcesPanel';
 export * from './notebook-autosave';
 export * from './notebook-format';

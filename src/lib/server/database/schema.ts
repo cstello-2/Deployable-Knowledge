@@ -99,11 +99,12 @@ export const notebooks = sqliteTable(
 		userId: text('user_id').notNull().default(NOTEBOOK_USER_ID),
 		title: text('title').notNull(),
 		activePageId: text('active_page_id'),
+		sortOrder: integer('sort_order').notNull().default(0),
 		createdAt: text('created_at').notNull(),
 		updatedAt: text('updated_at').notNull()
 	},
 	(table) => [
-		index('notebooks_user_idx').on(table.userId),
+		index('notebooks_user_idx').on(table.userId, table.sortOrder),
 		index('notebooks_updated_idx').on(table.updatedAt)
 	]
 );
@@ -117,11 +118,12 @@ export const notebookPages = sqliteTable(
 			.references(() => notebooks.id, { onDelete: 'cascade' }),
 		title: text('title').notNull(),
 		content: text('content').notNull().default(''),
+		sortOrder: integer('sort_order').notNull().default(0),
 		createdAt: text('created_at').notNull(),
 		updatedAt: text('updated_at').notNull()
 	},
 	(table) => [
-		index('notebook_pages_notebook_idx').on(table.notebookId),
+		index('notebook_pages_notebook_idx').on(table.notebookId, table.sortOrder),
 		index('notebook_pages_updated_idx').on(table.updatedAt)
 	]
 );

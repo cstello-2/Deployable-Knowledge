@@ -13,6 +13,7 @@ class NotebooksStore {
 	exportingNotebookId = $state<string | null>(null);
 	exportingPageId = $state<string | null>(null);
 	loading = $state(false);
+	reordering = $state(false);
 	sourcesLoading = $state(false);
 	error = $state<string | null>(null);
 
@@ -69,6 +70,24 @@ class NotebooksStore {
 
 	async delete(id: string): Promise<void> {
 		this.apply(await NotebooksService.delete(id));
+	}
+
+	async moveNotebook(movingId: string, targetIndex: number): Promise<void> {
+		if (this.reordering) return;
+		const previous = this._notebooks;
+		const next = moveById(previous, movingId, targetIndex);
+		if (!next) return;
+
+		this.reordering = true;
+		this._notebooks = next;
+		try {
+			await NotebooksService.reorderNotebooks(next.map(({ id }) => id));
+		} catch (error) {
+			this._notebooks = previous;
+			throw error;
+		} finally {
+			this.reordering = false;
+		}
 	}
 
 	async exportNotebook(id: string): Promise<string | null> {
@@ -145,6 +164,32 @@ class NotebooksStore {
 		this.apply(await NotebooksService.movePage(notebookId, pageId, destinationNotebookId));
 	}
 
+	async reorderPage(notebookId: string, movingId: string, targetIndex: number): Promise<void> {
+		if (this.reordering) return;
+		const notebook = this._notebooks.find(({ id }) => id === notebookId);
+		if (!notebook) return;
+
+		const pages = moveById(notebook.pages, movingId, targetIndex);
+		if (!pages) return;
+
+		const previous = this._notebooks;
+		this.reordering = true;
+		this._notebooks = this._notebooks.map((candidate) =>
+			candidate.id === notebookId ? { ...candidate, pages } : candidate
+		);
+		try {
+			await NotebooksService.reorderPages(
+				notebookId,
+				pages.map(({ id }) => id)
+			);
+		} catch (error) {
+			this._notebooks = previous;
+			throw error;
+		} finally {
+			this.reordering = false;
+		}
+	}
+
 	async loadSources(): Promise<void> {
 		if (!this._activeNotebookId) {
 			this._sources = [];
@@ -183,6 +228,23 @@ class NotebooksStore {
 			this.error = message(error);
 		});
 	}
+}
+
+function moveById<T extends { id: string; sortOrder: number }>(
+	items: readonly T[],
+	movingId: string,
+	targetIndex: number
+): T[] | null {
+	const currentIndex = items.findIndex(({ id }) => id === movingId);
+	if (currentIndex < 0 || !Number.isInteger(targetIndex)) return null;
+
+	const insertIndex = Math.max(0, Math.min(targetIndex, items.length - 1));
+	if (insertIndex === currentIndex) return null;
+
+	const next = [...items];
+	const [moving] = next.splice(currentIndex, 1);
+	next.splice(insertIndex, 0, moving);
+	return next.map((item, sortOrder) => ({ ...item, sortOrder }));
 }
 
 function message(error: unknown): string {

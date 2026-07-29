@@ -3,6 +3,7 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import type { NotebookPage } from '$lib/types';
 	import NotebookPageListItem from './NotebookPageListItem.svelte';
+	import VerticalReorderList from './VerticalReorderList.svelte';
 
 	interface Props {
 		activeId: string | null;
@@ -13,7 +14,9 @@
 		onMove: (page: NotebookPage) => void;
 		onOpen: (page: NotebookPage) => void;
 		onRename: (page: NotebookPage) => void;
-		pages: NotebookPage[];
+		onReorder: (pageId: string, targetIndex: number) => Promise<void> | void;
+		pages: readonly NotebookPage[];
+		reorderDisabled?: boolean;
 	}
 
 	let {
@@ -25,13 +28,20 @@
 		onMove,
 		onOpen,
 		onRename,
-		pages
+		onReorder,
+		pages,
+		reorderDisabled = false
 	}: Props = $props();
 </script>
 
 <ScrollArea class="min-h-0" scrollbarYClasses="hidden">
-	<nav aria-label="Notebook pages" class="grid content-start gap-2 p-3">
-		{#each pages as page (page.id)}
+	<VerticalReorderList
+		ariaLabel="Notebook pages"
+		disabled={reorderDisabled}
+		items={pages}
+		onMove={onReorder}
+	>
+		{#snippet item(page, reorderHandleProps)}
 			<NotebookPageListItem
 				active={page.id === activeId}
 				{exportDisabled}
@@ -42,8 +52,11 @@
 				onOpen={() => onOpen(page)}
 				onRename={() => onRename(page)}
 				{page}
+				reorderDisabled={reorderDisabled || pages.length < 2}
+				{reorderHandleProps}
 			/>
-		{:else}
+		{/snippet}
+		{#snippet empty()}
 			<Empty.Root class="border border-dashed"
 				><Empty.Header
 					><Empty.Title>No pages</Empty.Title><Empty.Description
@@ -51,6 +64,6 @@
 					></Empty.Header
 				></Empty.Root
 			>
-		{/each}
-	</nav>
+		{/snippet}
+	</VerticalReorderList>
 </ScrollArea>

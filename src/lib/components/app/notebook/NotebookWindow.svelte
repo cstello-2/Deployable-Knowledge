@@ -173,6 +173,25 @@
 		}
 	}
 
+	async function moveNotebook(notebookId: string, targetIndex: number): Promise<void> {
+		try {
+			await notebooksStore.moveNotebook(notebookId, targetIndex);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
+	async function reorderPage(pageId: string, targetIndex: number): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook) return;
+
+		try {
+			await notebooksStore.reorderPage(notebook.id, pageId, targetIndex);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	function openCreate(): void {
 		if (view === 'notebooks') {
 			textDialogMode = 'create-notebook';
@@ -228,7 +247,7 @@
 			notebooksStore.notebooks.find(({ id }) => id !== notebooksStore.activeNotebookId)?.id ?? '';
 	}
 
-	async function movePage(): Promise<void> {
+	async function movePageToNotebook(): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook || !movePageTarget || !moveDestinationId) return;
 		await autosave.flush();
@@ -465,8 +484,10 @@
 					notebooks={notebooksStore.notebooks}
 					onDelete={openDeleteNotebook}
 					onExport={(notebook) => void exportNotebook(notebook)}
+					onMove={moveNotebook}
 					onOpen={(notebook) => void openNotebook(notebook)}
 					onRename={(notebook) => openRename(notebook, 'notebook')}
+					reorderDisabled={notebooksStore.reordering}
 				/>
 			</NotebookSearch>
 		{:else if view === 'pages'}
@@ -485,7 +506,9 @@
 					onMove={openMovePage}
 					onOpen={(page) => void openPage(page)}
 					onRename={(page) => openRename(page, 'page')}
+					onReorder={reorderPage}
 					pages={notebooksStore.activeNotebook?.pages ?? []}
+					reorderDisabled={notebooksStore.reordering}
 				/>
 			</NotebookSearch>
 		{:else if previewMode}
@@ -562,7 +585,9 @@
 		</select>
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => (movePageTarget = null)}>Cancel</Button>
-			<Button disabled={!moveDestinationId} onclick={() => void movePage()}>Move page</Button>
+			<Button disabled={!moveDestinationId} onclick={() => void movePageToNotebook()}
+				>Move page</Button
+			>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

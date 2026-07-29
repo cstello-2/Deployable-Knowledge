@@ -8,6 +8,8 @@ import type {
 	ApiNotebookPageTitleRequest,
 	ApiNotebookSourcesRequest,
 	ApiNotebookTitleRequest,
+	ApiReorderRequest,
+	ApiReorderResponse,
 	NotebookSourceItem,
 	NotebookStateResponse
 } from '$lib/types';
@@ -42,6 +44,10 @@ export class NotebooksService {
 
 	static delete(id: string) {
 		return apiDelete<NotebookStateResponse>(API_NOTEBOOKS.byId(id));
+	}
+
+	static reorderNotebooks(orderedIds: string[]) {
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.REORDER, { orderedIds });
 	}
 
 	static exportNotebook(id: string) {
@@ -81,6 +87,12 @@ export class NotebooksService {
 			API_NOTEBOOKS.movePage(id, pageId),
 			{ destinationNotebookId }
 		);
+	}
+
+	static reorderPages(id: string, orderedIds: string[]) {
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.reorderPages(id), {
+			orderedIds
+		});
 	}
 
 	static selectPage(id: string, pageId: string) {

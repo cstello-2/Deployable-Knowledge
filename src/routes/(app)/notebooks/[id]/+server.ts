@@ -32,7 +32,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		.select()
 		.from(notebooks)
 		.where(eq(notebooks.userId, NOTEBOOK_USER_ID))
-		.orderBy(asc(notebooks.createdAt));
+		.orderBy(asc(notebooks.sortOrder), asc(notebooks.createdAt));
 
 	if (remaining.length) await setActiveNotebook(remaining[0].id);
 	else await createDefaultNotebook();

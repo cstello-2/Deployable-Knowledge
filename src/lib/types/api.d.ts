@@ -168,6 +168,14 @@ export interface ApiNotebookPageMoveRequest {
 	destinationNotebookId: string;
 }
 
+export interface ApiReorderRequest {
+	orderedIds: string[];
+}
+
+export interface ApiReorderResponse {
+	ok: true;
+}
+
 export interface ApiNotebookSourcesRequest {
 	chunk_ids: string[];
 }

@@ -85,7 +85,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		.select()
 		.from(notebookPages)
 		.where(eq(notebookPages.notebookId, notebookId))
-		.orderBy(asc(notebookPages.createdAt));
+		.orderBy(asc(notebookPages.sortOrder), asc(notebookPages.createdAt));
 
 	let activePageId = remaining[0]?.id;
 	if (!activePageId) {
@@ -95,6 +95,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
 			notebookId,
 			title: 'Page 1',
 			content: '',
+			sortOrder: 0,
 			createdAt: timestamp,
 			updatedAt: timestamp
 		};
