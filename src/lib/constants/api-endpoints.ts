@@ -38,6 +38,8 @@ export const API_NOTEBOOKS = {
 	select: (id: string) => `/notebooks/${segment(id)}/select`,
 	pages: (id: string) => `/notebooks/${segment(id)}/pages`,
 	page: (id: string, pageId: string) => `/notebooks/${segment(id)}/pages/${segment(pageId)}`,
+	movePage: (id: string, pageId: string) =>
+		`/notebooks/${segment(id)}/pages/${segment(pageId)}/move`,
 	selectPage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/select`,
 	sources: (id: string) => `/notebooks/${segment(id)}/sources`,

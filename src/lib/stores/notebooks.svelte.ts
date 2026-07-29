@@ -93,6 +93,10 @@ class NotebooksStore {
 		this.apply(await NotebooksService.deletePage(notebookId, pageId));
 	}
 
+	async movePage(notebookId: string, pageId: string, destinationNotebookId: string): Promise<void> {
+		this.apply(await NotebooksService.movePage(notebookId, pageId, destinationNotebookId));
+	}
+
 	async loadSources(): Promise<void> {
 		if (!this._activeNotebookId) {
 			this._sources = [];

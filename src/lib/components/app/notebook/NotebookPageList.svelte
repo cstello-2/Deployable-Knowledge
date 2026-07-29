@@ -7,12 +7,13 @@
 	interface Props {
 		activeId: string | null;
 		onDelete: (page: NotebookPage) => void;
+		onMove: (page: NotebookPage) => void;
 		onOpen: (page: NotebookPage) => void;
 		onRename: (page: NotebookPage) => void;
 		pages: NotebookPage[];
 	}
 
-	let { activeId, onDelete, onOpen, onRename, pages }: Props = $props();
+	let { activeId, onDelete, onMove, onOpen, onRename, pages }: Props = $props();
 </script>
 
 <ScrollArea class="min-h-0" scrollbarYClasses="hidden">
@@ -23,6 +24,7 @@
 				active={page.id === activeId}
 				onOpen={() => onOpen(page)}
 				onRename={() => onRename(page)}
+				onMove={() => onMove(page)}
 				onDelete={() => onDelete(page)}
 			/>
 		{:else}

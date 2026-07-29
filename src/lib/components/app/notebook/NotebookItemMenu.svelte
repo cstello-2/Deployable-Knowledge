@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import Pencil from '@lucide/svelte/icons/pencil';
+	import MoveRight from '@lucide/svelte/icons/move-right';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -8,10 +9,11 @@
 	interface Props {
 		label: string;
 		onDelete: () => void;
+		onMove?: () => void;
 		onRename: () => void;
 	}
 
-	let { label, onDelete, onRename }: Props = $props();
+	let { label, onDelete, onMove, onRename }: Props = $props();
 </script>
 
 <DropdownMenu.Root>
@@ -33,6 +35,12 @@
 			<Pencil />
 			Rename
 		</DropdownMenu.Item>
+		{#if onMove}
+			<DropdownMenu.Item onclick={onMove}>
+				<MoveRight />
+				Move to notebook
+			</DropdownMenu.Item>
+		{/if}
 		<DropdownMenu.Item onclick={onDelete} variant="destructive">
 			<Trash2 />
 			Delete

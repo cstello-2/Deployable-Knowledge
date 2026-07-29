@@ -1,6 +1,7 @@
 import { API_NOTEBOOKS } from '$lib/constants';
 import type {
 	ApiNotebookPageContentRequest,
+	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
 	ApiNotebookSourcesRequest,
 	ApiNotebookTitleRequest,
@@ -54,6 +55,13 @@ export class NotebooksService {
 
 	static deletePage(id: string, pageId: string) {
 		return apiDelete<NotebookStateResponse>(API_NOTEBOOKS.page(id, pageId));
+	}
+
+	static movePage(id: string, pageId: string, destinationNotebookId: string) {
+		return apiPatch<NotebookStateResponse, ApiNotebookPageMoveRequest>(
+			API_NOTEBOOKS.movePage(id, pageId),
+			{ destinationNotebookId }
+		);
 	}
 
 	static selectPage(id: string, pageId: string) {

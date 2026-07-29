@@ -154,6 +154,10 @@ export interface ApiNotebookPageContentRequest {
 	content: string;
 }
 
+export interface ApiNotebookPageMoveRequest {
+	destinationNotebookId: string;
+}
+
 export interface ApiNotebookSourcesRequest {
 	chunk_ids: string[];
 }

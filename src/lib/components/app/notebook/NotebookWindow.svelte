@@ -56,6 +56,8 @@
 	let textDialogValue = $state('');
 	let renameTarget = $state<NotebookRenameTarget | null>(null);
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
+	let movePageTarget = $state<NotebookPage | null>(null);
+	let moveDestinationId = $state('');
 
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
@@ -195,6 +197,25 @@
 		}
 	}
 
+	function openMovePage(page: NotebookPage): void {
+		movePageTarget = page;
+		moveDestinationId =
+			notebooksStore.notebooks.find(({ id }) => id !== notebooksStore.activeNotebookId)?.id ?? '';
+	}
+
+	async function movePage(): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook || !movePageTarget || !moveDestinationId) return;
+		await autosave.flush();
+		try {
+			await notebooksStore.movePage(notebook.id, movePageTarget.id, moveDestinationId);
+			movePageTarget = null;
+			toast.success('Page moved');
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	async function submitTextDialog(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const value = textDialogValue.trim();
@@ -325,6 +346,7 @@
 					activeId={notebooksStore.activePage?.id ?? null}
 					onOpen={(page) => void openPage(page)}
 					onRename={(page) => openRename(page, 'page')}
+					onMove={openMovePage}
 					onDelete={openDeletePage}
 				/>
 			</NotebookSearch>
@@ -374,6 +396,27 @@
 				></Dialog.Footer
 			>
 		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root
+	open={Boolean(movePageTarget)}
+	onOpenChange={(open) => !open && (movePageTarget = null)}
+>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>Move {movePageTarget?.title ?? 'page'}</Dialog.Title>
+			<Dialog.Description>Choose another notebook for this page and its notes.</Dialog.Description>
+		</Dialog.Header>
+		<select class="dk-field h-9 px-3 text-sm" bind:value={moveDestinationId}>
+			{#each notebooksStore.notebooks.filter(({ id }) => id !== notebooksStore.activeNotebookId) as notebook (notebook.id)}
+				<option value={notebook.id}>{notebook.title}</option>
+			{/each}
+		</select>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (movePageTarget = null)}>Cancel</Button>
+			<Button disabled={!moveDestinationId} onclick={() => void movePage()}>Move page</Button>
+		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
 
