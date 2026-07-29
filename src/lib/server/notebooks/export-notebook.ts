@@ -1,10 +1,6 @@
 import AdmZip from 'adm-zip';
 import type { NotebookPage, NotebookWithPages } from '$lib/types';
 
-function heading(title: string): string {
-	return title.replace(/\s+/g, ' ').trim();
-}
-
 function filenameBase(title: string, fallback: string): string {
 	return (
 		title
@@ -20,7 +16,7 @@ function filenameBase(title: string, fallback: string): string {
 
 export function notebookPageMarkdown(page: Pick<NotebookPage, 'content' | 'title'>): string {
 	const content = page.content.trimEnd();
-	return content ? `${content}\n` : `# ${heading(page.title)}\n`;
+	return content ? `${content}\n` : '';
 }
 
 export function notebookPageMarkdownFilename(title: string): string {

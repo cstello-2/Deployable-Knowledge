@@ -47,7 +47,7 @@ export class NotebooksService {
 	}
 
 	static reorderNotebooks(orderedIds: string[]) {
-		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.REORDER, { orderedIds });
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.BASE, { orderedIds });
 	}
 
 	static exportNotebook(id: string) {
@@ -90,7 +90,7 @@ export class NotebooksService {
 	}
 
 	static reorderPages(id: string, orderedIds: string[]) {
-		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.reorderPages(id), {
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.pages(id), {
 			orderedIds
 		});
 	}
@@ -123,14 +123,14 @@ export class NotebooksService {
 
 	static importCollection(path: string) {
 		return apiPost<NotebookStateResponse, ApiNotebookCollectionImportRequest>(
-			API_NOTEBOOKS.IMPORT_COLLECTION,
+			API_NOTEBOOKS.IMPORT,
 			{ path }
 		);
 	}
 
 	static importMarkdown(id: string, path: string) {
 		return apiPost<NotebookStateResponse, ApiNotebookMarkdownImportRequest>(
-			API_NOTEBOOKS.importMarkdown(id),
+			API_NOTEBOOKS.importPages(id),
 			{ path }
 		);
 	}
