@@ -15,11 +15,8 @@
 	let online = $state(false);
 	let checking = false;
 
-	const label = $derived(
-		!checked ? 'Checking engine' : online ? 'Engine online' : 'Engine offline'
-	);
 	const title = $derived(
-		`${label}${lastCheckedAt ? `. Last checked ${new Date(lastCheckedAt).toLocaleTimeString()}.` : ''}`
+		`Engine offline${lastCheckedAt ? `. Last checked ${new Date(lastCheckedAt).toLocaleTimeString()}.` : ''}`
 	);
 
 	async function checkHeartbeat(): Promise<void> {
@@ -69,25 +66,22 @@
 	});
 </script>
 
-<div
-	class={[
-		'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-semibold',
-		checked && online
-			? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400'
-			: 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400'
-	]}
-	role="status"
-	aria-live="polite"
-	{title}
->
-	<span
-		class={[
-			'size-2 rounded-full',
-			checked && online
-				? 'bg-green-500 shadow-[0_0_0_3px_rgb(34_197_94_/_0.15)]'
-				: 'bg-red-500 shadow-[0_0_0_3px_rgb(239_68_68_/_0.15)]'
-		]}
-		aria-hidden="true"
-	></span>
-	<span class="hidden sm:inline">{label}</span>
-</div>
+{#if checked && !online}
+	<div
+		class="fixed right-4 bottom-4 left-4 z-[var(--layer-toast,1000001)] mx-auto flex max-w-xl items-start gap-3 rounded-lg border border-red-500/50 bg-red-50 px-4 py-3 text-red-950 shadow-lg dark:bg-red-950 dark:text-red-50"
+		role="alert"
+		aria-live="assertive"
+		{title}
+	>
+		<span
+			class="mt-1 size-2.5 shrink-0 rounded-full bg-red-500 shadow-[0_0_0_3px_rgb(239_68_68_/_0.18)]"
+			aria-hidden="true"
+		></span>
+		<div class="min-w-0">
+			<p class="m-0 text-sm font-semibold">Engine disconnected</p>
+			<p class="m-0 text-xs opacity-80">
+				The server cannot be reached. Reconnecting automatically…
+			</p>
+		</div>
+	</div>
+{/if}
