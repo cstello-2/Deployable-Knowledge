@@ -18,20 +18,20 @@ export function insertNotebookSourceCitation(
 	const title = escapeLabel(source.documentTitle.trim() || 'Source');
 	const href = `${API_DOCUMENT_FILES.byId(source.documentId)}#page=${page}`;
 	const citation = `([${title}, p. ${page}](${href}))`;
-	const start = clamp(selectionStart, 0, text.length);
-	const end = clamp(selectionEnd, start, text.length);
-	const before = text.slice(0, start);
-	const after = text.slice(end);
+	const existingRows = extractRows(text);
+	const content = removeTable(text).trimEnd();
+	const start = clamp(selectionStart, 0, content.length);
+	const end = clamp(selectionEnd, start, content.length);
+	const before = content.slice(0, start);
+	const after = content.slice(end);
 	const prefix = before && !/[\s([{]$/.test(before) ? ' ' : '';
 	const suffix = after && !/^[\s.,;:!?)}\]]/.test(after) ? ' ' : '';
 	const insertion = `${prefix}${citation}${suffix}`;
 	const body = `${before}${insertion}${after}`.trimEnd();
 	const row = `| [${escapeTable(source.documentTitle)}](${href}) | ${page} |`;
-	const existingRows = extractRows(body);
-	const withoutTable = removeTable(body);
 	const rows = existingRows.includes(row) ? existingRows : [...existingRows, row];
 	return {
-		text: `${withoutTable.trimEnd()}\n\n${TABLE_HEADER}\n${rows.join('\n')}`.trimStart(),
+		text: `${body}\n\n${TABLE_HEADER}\n${rows.join('\n')}`,
 		cursor: before.length + insertion.length
 	};
 }
