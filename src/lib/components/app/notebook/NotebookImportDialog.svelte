@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import CheckSquare2 from '@lucide/svelte/icons/square-check-big';
-	import FileArchive from '@lucide/svelte/icons/file-archive';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderInput from '@lucide/svelte/icons/folder-input';
@@ -43,21 +42,14 @@
 	}: Props = $props();
 
 	const items = $derived(
-		(directory?.items ?? []).filter(
-			(item) =>
-				item.kind === 'folder' ||
-				(mode === 'collection'
-					? item.kind === 'archive'
-					: item.kind === 'markdown' || item.kind === 'text')
-		)
+		(directory?.items ?? []).filter((item) => {
+			if (item.kind === 'folder') return true;
+			if (mode === 'collection') return false;
+			return item.kind === 'markdown' || item.kind === 'text';
+		})
 	);
 
 	function togglePath(path: string): void {
-		if (mode === 'collection') {
-			onSelectedPathsChange(selectedPaths.includes(path) ? [] : [path]);
-			return;
-		}
-
 		onSelectedPathsChange(
 			selectedPaths.includes(path)
 				? selectedPaths.filter((selectedPath) => selectedPath !== path)
@@ -74,7 +66,7 @@
 			</Dialog.Title>
 			<Dialog.Description>
 				{mode === 'collection'
-					? 'Choose a ZIP file or import the current folder as a new notebook.'
+					? 'Navigate to the folder you want to import as a new notebook.'
 					: 'Choose one or more Markdown or text files to add to the active notebook.'}
 			</Dialog.Description>
 		</Dialog.Header>
@@ -135,20 +127,14 @@
 										<Square class="size-4 shrink-0" />
 									{/if}
 
-									{#if item.kind === 'archive'}
-										<FileArchive class="size-4 shrink-0" />
-									{:else}
-										<FileText class="size-4 shrink-0" />
-									{/if}
+									<FileText class="size-4 shrink-0" />
 
 									<span class="truncate">{item.name}</span>
 								</button>
 							{/if}
 						{:else}
 							<p class="p-4 text-sm text-muted-foreground">
-								{mode === 'collection'
-									? 'No ZIP files or folders here.'
-									: 'No Markdown or text files here.'}
+								{mode === 'collection' ? 'No folders here.' : 'No Markdown or text files here.'}
 							</p>
 						{/each}
 					{/if}
@@ -157,35 +143,40 @@
 		</div>
 
 		<Dialog.Footer>
-			<span class="mr-auto text-xs text-muted-foreground">
-				{selectedPaths.length
-					? `${selectedPaths.length} selected`
-					: mode === 'collection'
-						? 'Select a ZIP or import this folder'
-						: 'No pages selected'}
-			</span>
-
-			<Button onclick={() => onOpenChange(false)} variant="outline">Cancel</Button>
-
 			{#if mode === 'collection'}
+				<span class="mr-auto text-xs text-muted-foreground">
+					Import the current folder as a new notebook
+				</span>
+
+				<Button onclick={() => onOpenChange(false)} variant="outline">Cancel</Button>
+
 				<Button
 					disabled={disabled || loading || !directory}
 					onclick={() => directory && onImportFolder(directory.path)}
-					variant="outline"
 				>
-					<FolderInput /> Import this folder
+					<FolderInput />
+					Import this folder
+				</Button>
+			{:else}
+				<span class="mr-auto text-xs text-muted-foreground">
+					{#if selectedPaths.length}
+						{selectedPaths.length} selected
+					{:else}
+						No pages selected
+					{/if}
+				</span>
+
+				<Button onclick={() => onOpenChange(false)} variant="outline">Cancel</Button>
+
+				<Button
+					disabled={disabled || loading || !selectedPaths.length}
+					onclick={() => onSubmitPaths(selectedPaths)}
+				>
+					<Upload />
+					Import {selectedPaths.length}
+					{selectedPaths.length === 1 ? 'page' : 'pages'}
 				</Button>
 			{/if}
-
-			<Button
-				disabled={disabled || loading || !selectedPaths.length}
-				onclick={() => onSubmitPaths(selectedPaths)}
-			>
-				<Upload />
-				{mode === 'collection'
-					? 'Import ZIP'
-					: `Import ${selectedPaths.length} page${selectedPaths.length === 1 ? '' : 's'}`}
-			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

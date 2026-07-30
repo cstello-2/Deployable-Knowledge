@@ -48,11 +48,7 @@
 		<ActionIcon
 			class="size-8"
 			disabled={importing}
-			label={importing
-				? 'Importing notebook content'
-				: view === 'notebooks'
-					? 'Import notebook from folder or ZIP'
-					: 'Import Markdown or text pages'}
+			label={view === 'notebooks' ? 'Import notebook from folder' : 'Import Markdown or text file'}
 			onclick={onImport}
 			variant="ghost"><Upload /></ActionIcon
 		>

@@ -41,8 +41,6 @@ export const GET: RequestHandler = async ({ url }) => {
 					items.push({ kind: 'markdown', name: entry.name, path });
 				} else if (extension === '.txt') {
 					items.push({ kind: 'text', name: entry.name, path });
-				} else if (extension === '.zip') {
-					items.push({ kind: 'archive', name: entry.name, path });
 				}
 			} else {
 				const handler = handlerForPath(entry.name);

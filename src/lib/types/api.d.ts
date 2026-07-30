@@ -91,7 +91,7 @@ export interface ApiTranscriptResponse {
 }
 
 export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf' | 'audio' | 'markdown' | 'text' | 'archive';
+	kind: 'folder' | 'pdf' | 'audio' | 'markdown' | 'text';
 	name: string;
 	path: string;
 }

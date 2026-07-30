@@ -16,7 +16,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		.catch(() => null)) as ApiNotebookCollectionImportRequest | null;
 
 	if (typeof body?.path !== 'string' || !body.path.trim()) {
-		throw error(400, 'Select a folder or ZIP archive.');
+		throw error(400, 'Select a folder');
 	}
 
 	try {

@@ -1,7 +1,6 @@
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, relative, resolve } from 'node:path';
-import AdmZip from 'adm-zip';
 import { NOTEBOOK_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 import { containsPath } from '$lib/server/documents/remove-document';
 import {
@@ -9,7 +8,6 @@ import {
 	parseNotebookPageContent
 } from '$lib/server/notebooks/import-notebook-page';
 
-const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
 const MAX_COLLECTION_BYTES = NOTEBOOK_TEXT_CHARACTER_LIMIT * 4;
 const MAX_PAGE_COUNT = 100;
 
@@ -92,11 +90,11 @@ async function validatedSourcePath(inputPath: string): Promise<string> {
 	try {
 		sourcePath = await realpath(resolve(inputPath));
 	} catch {
-		throw new NotebookCollectionImportError('The selected folder or ZIP does not exist.');
+		throw new NotebookCollectionImportError('The selected folder does not exist.');
 	}
 
 	if (!containsPath(homeRoot, sourcePath)) {
-		throw new NotebookCollectionImportError('Select a folder or ZIP inside your home folder.', 403);
+		throw new NotebookCollectionImportError('Select a folder inside your home folder.', 403);
 	}
 
 	return sourcePath;
@@ -159,121 +157,6 @@ async function loadFolder(sourcePath: string): Promise<ImportedNotebookCollectio
 	};
 }
 
-function safeZipEntryName(entryName: string): string {
-	const normalized = normalizedPath(entryName);
-	const segments = normalized.split('/');
-
-	if (
-		normalized.startsWith('/') ||
-		segments.includes('..') ||
-		segments.some((segment) => segment === '')
-	) {
-		throw new NotebookCollectionImportError(`Unsafe ZIP entry: ${entryName}`);
-	}
-
-	return normalized;
-}
-
-function removeCommonZipRoot(names: string[]): string[] {
-	if (!names.length) return names;
-
-	const root = names[0].split('/')[0];
-	const prefix = `${root}/`;
-
-	if (!names.every((name) => name.startsWith(prefix))) {
-		return names;
-	}
-
-	return names.map((name) => name.slice(prefix.length));
-}
-
-async function loadArchive(sourcePath: string): Promise<ImportedNotebookCollection> {
-	const archiveStats = await stat(sourcePath);
-
-	if (!archiveStats.size) {
-		throw new NotebookCollectionImportError('The ZIP archive is empty.');
-	}
-
-	if (archiveStats.size > MAX_ARCHIVE_BYTES) {
-		throw new NotebookCollectionImportError('The ZIP archive is too large.', 413);
-	}
-
-	let archive: AdmZip;
-
-	try {
-		archive = new AdmZip(await readFile(sourcePath));
-	} catch {
-		throw new NotebookCollectionImportError('Unable to read the ZIP archive.');
-	}
-
-	const rawEntries = archive
-		.getEntries()
-		.filter((entry) => !entry.isDirectory)
-		.map((entry) => ({
-			entry,
-			sourceName: safeZipEntryName(entry.entryName)
-		}))
-		.filter(({ sourceName }) => isNotebookPageImportPath(sourceName))
-		.filter(
-			({ sourceName }) =>
-				!sourceName.split('/').some((segment) => segment.startsWith('.') || segment === '__MACOSX')
-		);
-
-	const displayNames = removeCommonZipRoot(rawEntries.map(({ sourceName }) => sourceName));
-
-	const entries = rawEntries
-		.map((value, index) => ({
-			...value,
-			sourceName: displayNames[index]
-		}))
-		.sort((left, right) =>
-			left.sourceName.localeCompare(right.sourceName, undefined, {
-				numeric: true,
-				sensitivity: 'base'
-			})
-		);
-
-	if (entries.length > MAX_PAGE_COUNT) {
-		throw new NotebookCollectionImportError(
-			`A notebook can import at most ${MAX_PAGE_COUNT} pages.`,
-			413
-		);
-	}
-
-	const declaredBytes = entries.reduce((total, { entry }) => total + entry.header.size, 0);
-
-	if (declaredBytes > MAX_COLLECTION_BYTES) {
-		throw new NotebookCollectionImportError(
-			'The uncompressed notebook collection is too large.',
-			413
-		);
-	}
-
-	const pages: ImportedNotebookPage[] = [];
-
-	for (const { entry, sourceName } of entries) {
-		let data: Buffer;
-
-		try {
-			data = entry.getData();
-		} catch {
-			throw new NotebookCollectionImportError(`Unable to read ${entry.entryName}.`);
-		}
-
-		pages.push({
-			content: importedPageContent(data, sourceName),
-			title: pageTitle(sourceName)
-		});
-	}
-
-	validatePages(pages);
-
-	return {
-		pages,
-		title: basename(sourcePath, extname(sourcePath)).trim() || 'Imported notebook'
-	};
-}
-
 export async function loadNotebookCollection(
 	inputPath: string
 ): Promise<ImportedNotebookCollection> {
@@ -288,12 +171,8 @@ export async function loadNotebookCollection(
 		return loadFolder(sourcePath);
 	}
 
-	if (sourceStats.isFile() && extname(sourcePath).toLowerCase() === '.zip') {
-		return loadArchive(sourcePath);
-	}
-
 	throw new NotebookCollectionImportError(
-		'Select a folder or ZIP containing Markdown or text files.',
+		'Select a folder containing Markdown or text files.',
 		415
 	);
 }
