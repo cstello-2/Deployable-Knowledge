@@ -4,7 +4,6 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Globe from '@lucide/svelte/icons/globe';
-	import { Button } from '$lib/components/ui/button';
 	import { documentViewerHref } from '$lib/constants';
 	import type { AgentOutput } from '$lib/types';
 
@@ -43,11 +42,13 @@
 	<ol class="grid list-inside gap-1 text-xs text-muted-foreground">
 		{#each sources as source (`source-${source.id}`)}
 			{@const href = hrefFor(source)}
-			<li class="flex items-start justify-between gap-2">
-				<div class="min-w-0">
+			<li class="flex">
+				<div
+					class="flex min-w-0 items-start gap-1 rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
+				>
 					{#if href}
 						<a
-							class="inline-flex items-start gap-1 rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
+							class="inline-flex min-w-0 items-start gap-1"
 							{href}
 							rel="external noopener noreferrer"
 							target="_blank"
@@ -56,21 +57,22 @@
 							<ExternalLink class="mt-0.5 size-3 shrink-0" />
 						</a>
 					{:else}
-						<span class="inline-flex items-start gap-1 px-1 py-0.5">
+						<span class="inline-flex min-w-0 items-start gap-1">
 							{@render sourceLabel(source)}
 						</span>
 					{/if}
+					{#if source.data.chunkId && onSaveChunk}
+						<button
+							type="button"
+							class="mt-0.5 flex size-3 shrink-0 cursor-pointer rounded-xs outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/40"
+							title="Save chunk"
+							aria-label="Save chunk"
+							onclick={() => onSaveChunk?.(source.data.chunkId!)}
+						>
+							<BookmarkPlus class="size-3 translate-y-[0.5px]" />
+						</button>
+					{/if}
 				</div>
-				{#if source.data.chunkId && onSaveChunk}
-					<Button
-						class="h-7 shrink-0 px-2 text-xs"
-						size="sm"
-						variant="outline"
-						onclick={() => onSaveChunk?.(source.data.chunkId!)}
-					>
-						<BookmarkPlus /> Save chunk
-					</Button>
-				{/if}
 			</li>
 		{/each}
 	</ol>
