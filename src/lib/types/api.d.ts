@@ -91,7 +91,7 @@ export interface ApiTranscriptResponse {
 }
 
 export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf' | 'audio';
+	kind: 'folder' | 'pdf' | 'audio' | 'markdown' | 'text';
 	name: string;
 	path: string;
 }
@@ -166,6 +166,14 @@ export interface ApiNotebookPageContentRequest {
 
 export interface ApiNotebookPageMoveRequest {
 	destinationNotebookId: string;
+}
+
+export interface ApiReorderRequest {
+	orderedIds: string[];
+}
+
+export interface ApiReorderResponse {
+	ok: true;
 }
 
 export interface ApiNotebookSourcesRequest {
@@ -265,6 +273,14 @@ export interface ApiNotebookChatMessageRequest extends ApiChatMessageBase {
 	conversational: true;
 	context: string;
 	notebook_id: string | null;
+}
+
+export interface ApiNotebookCollectionImportRequest {
+	path: string;
+}
+
+export interface ApiNotebookMarkdownImportRequest {
+	path: string;
 }
 
 export type ApiChatMessageRequest = ApiDocumentChatMessageRequest | ApiNotebookChatMessageRequest;

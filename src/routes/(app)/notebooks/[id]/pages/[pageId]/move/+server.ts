@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, max } from 'drizzle-orm';
 import type { ApiNotebookPageMoveRequest } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { notebookPages, notebooks, type NewNotebookPage } from '$lib/server/database/schema';
@@ -55,9 +55,18 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	const timestamp = new Date().toISOString();
 
 	await db.transaction(async (transaction) => {
+		const [destinationOrder] = await transaction
+			.select({ maximum: max(notebookPages.sortOrder) })
+			.from(notebookPages)
+			.where(eq(notebookPages.notebookId, destinationNotebookId));
 		await transaction
 			.update(notebookPages)
-			.set({ notebookId: destinationNotebookId, title: movedTitle, updatedAt: timestamp })
+			.set({
+				notebookId: destinationNotebookId,
+				sortOrder: (destinationOrder?.maximum ?? -1) + 1,
+				title: movedTitle,
+				updatedAt: timestamp
+			})
 			.where(and(eq(notebookPages.id, pageId), eq(notebookPages.notebookId, sourceNotebookId)));
 		await transaction
 			.update(notebooks)
@@ -68,7 +77,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			.select({ id: notebookPages.id })
 			.from(notebookPages)
 			.where(eq(notebookPages.notebookId, sourceNotebookId))
-			.orderBy(asc(notebookPages.createdAt));
+			.orderBy(asc(notebookPages.sortOrder), asc(notebookPages.createdAt));
 		let sourceActivePageId = sourceNotebook.activePageId;
 		if (!remainingPages.length) {
 			sourceActivePageId = randomUUID();
@@ -77,6 +86,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 				notebookId: sourceNotebookId,
 				title: 'Page 1',
 				content: '',
+				sortOrder: 0,
 				createdAt: timestamp,
 				updatedAt: timestamp
 			};

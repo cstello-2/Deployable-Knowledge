@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { access, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { error, json } from '@sveltejs/kit';
 import type { ApiDocumentDirectoryItem, ApiDocumentDirectoryResponse } from '$lib/types';
 import { containsPath } from '$lib/server/documents/remove-document';
@@ -11,6 +11,11 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
 	const root = await realpath(homedir());
 	const requested = url.searchParams.get('path')?.trim() || root;
+	const purpose = url.searchParams.get('purpose') ?? 'documents';
+
+	if (purpose !== 'documents' && purpose !== 'notebook') {
+		throw error(400, 'Unsupported directory browsing purpose.');
+	}
 
 	let directory: string;
 	try {
@@ -30,8 +35,17 @@ export const GET: RequestHandler = async ({ url }) => {
 		const path = join(directory, entry.name);
 		if (entry.isDirectory()) items.push({ name: entry.name, path, kind: 'folder' });
 		if (entry.isFile()) {
-			const handler = handlerForPath(entry.name);
-			if (handler) items.push({ kind: handler.kind, name: entry.name, path });
+			const extension = extname(entry.name).toLowerCase();
+			if (purpose === 'notebook') {
+				if (extension === '.md') {
+					items.push({ kind: 'markdown', name: entry.name, path });
+				} else if (extension === '.txt') {
+					items.push({ kind: 'text', name: entry.name, path });
+				}
+			} else {
+				const handler = handlerForPath(entry.name);
+				if (handler) items.push({ kind: handler.kind, name: entry.name, path });
+			}
 		}
 	}
 

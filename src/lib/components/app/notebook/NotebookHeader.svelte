@@ -6,9 +6,11 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
+		importing?: boolean;
 		onBack: () => void;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
+		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onTogglePreview: () => void;
@@ -20,9 +22,11 @@
 	}
 
 	let {
+		importing = false,
 		onBack,
 		onClearSources,
 		onCreate,
+		onImport,
 		onInsertCitation,
 		onRemoveSource,
 		onTogglePreview,
@@ -39,20 +43,22 @@
 		<ActionIcon
 			class="size-8"
 			label={view === 'editor' ? 'Back to pages' : 'Back to notebooks'}
-			variant="ghost"
-			onclick={onBack}><ArrowLeft /></ActionIcon
+			onclick={onBack}
+			variant="ghost"><ArrowLeft /></ActionIcon
 		>
 	{/if}
 	<h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
 	<NotebookHeaderActions
+		{importing}
+		{onClearSources}
+		{onCreate}
+		{onImport}
+		{onInsertCitation}
+		{onRemoveSource}
+		{onTogglePreview}
 		{previewMode}
 		{sources}
 		{sourcesLoading}
 		{view}
-		{onInsertCitation}
-		{onClearSources}
-		{onCreate}
-		{onRemoveSource}
-		{onTogglePreview}
 	/>
 </header>

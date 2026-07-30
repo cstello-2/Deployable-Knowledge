@@ -34,7 +34,12 @@ export const API_DOCUMENTS = {
 
 export const API_NOTEBOOKS = {
 	BASE: '/notebooks',
+	IMPORT: '/notebooks/import',
 	byId: (id: string) => `/notebooks/${segment(id)}`,
+	export: (id: string) => `/notebooks/${segment(id)}/export`,
+	exportPage: (id: string, pageId: string) =>
+		`/notebooks/${segment(id)}/pages/${segment(pageId)}/export`,
+	importPages: (id: string) => `/notebooks/${segment(id)}/import`,
 	select: (id: string) => `/notebooks/${segment(id)}/select`,
 	pages: (id: string) => `/notebooks/${segment(id)}/pages`,
 	page: (id: string, pageId: string) => `/notebooks/${segment(id)}/pages/${segment(pageId)}`,

@@ -1,16 +1,33 @@
-import { API_NOTEBOOKS } from '$lib/constants';
+import { API_DOCUMENTS, API_NOTEBOOKS } from '$lib/constants';
 import type {
+	ApiDocumentDirectoryResponse,
+	ApiNotebookCollectionImportRequest,
+	ApiNotebookMarkdownImportRequest,
 	ApiNotebookPageContentRequest,
 	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
 	ApiNotebookSourcesRequest,
 	ApiNotebookTitleRequest,
+	ApiReorderRequest,
+	ApiReorderResponse,
 	NotebookSourceItem,
 	NotebookStateResponse
 } from '$lib/types';
-import { apiDelete, apiFetch, apiPatch, apiPost } from '$lib/utils';
+import { apiDelete, apiDownload, apiFetch, apiPatch, apiPost } from '$lib/utils';
 
 export class NotebooksService {
+	static browseImportDirectory(path = '') {
+		const query = new URLSearchParams({ purpose: 'notebook' });
+
+		if (path) {
+			query.set('path', path);
+		}
+
+		return apiFetch<ApiDocumentDirectoryResponse>(
+			`${API_DOCUMENTS.DIRECTORIES}?${query.toString()}`
+		);
+	}
+
 	static list() {
 		return apiFetch<NotebookStateResponse>(API_NOTEBOOKS.BASE);
 	}
@@ -27,6 +44,14 @@ export class NotebooksService {
 
 	static delete(id: string) {
 		return apiDelete<NotebookStateResponse>(API_NOTEBOOKS.byId(id));
+	}
+
+	static reorderNotebooks(orderedIds: string[]) {
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.BASE, { orderedIds });
+	}
+
+	static exportNotebook(id: string) {
+		return apiDownload(API_NOTEBOOKS.export(id), 'notebook.zip');
 	}
 
 	static select(id: string) {
@@ -64,6 +89,12 @@ export class NotebooksService {
 		);
 	}
 
+	static reorderPages(id: string, orderedIds: string[]) {
+		return apiPatch<ApiReorderResponse, ApiReorderRequest>(API_NOTEBOOKS.pages(id), {
+			orderedIds
+		});
+	}
+
 	static selectPage(id: string, pageId: string) {
 		return apiPost<NotebookStateResponse, Record<string, never>>(
 			API_NOTEBOOKS.selectPage(id, pageId),
@@ -88,5 +119,23 @@ export class NotebooksService {
 
 	static removeSource(id: string, sourceId: string) {
 		return apiDelete<{ ok: true }>(API_NOTEBOOKS.source(id, sourceId));
+	}
+
+	static importCollection(path: string) {
+		return apiPost<NotebookStateResponse, ApiNotebookCollectionImportRequest>(
+			API_NOTEBOOKS.IMPORT,
+			{ path }
+		);
+	}
+
+	static importMarkdown(id: string, path: string) {
+		return apiPost<NotebookStateResponse, ApiNotebookMarkdownImportRequest>(
+			API_NOTEBOOKS.importPages(id),
+			{ path }
+		);
+	}
+
+	static exportPage(notebookId: string, pageId: string) {
+		return apiDownload(API_NOTEBOOKS.exportPage(notebookId, pageId), 'notebook-page.md');
 	}
 }
