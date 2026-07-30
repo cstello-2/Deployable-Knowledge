@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
-	optimizeDeps: { exclude: ['node-llama-cpp'] },
-	ssr: { external: ['node-llama-cpp'] },
+	optimizeDeps: { exclude: ['node-llama-cpp', '@matbee/libreoffice-converter', 'exceljs'] },
+	ssr: { external: ['node-llama-cpp', '@matbee/libreoffice-converter', 'exceljs'] },
 	server: {}
 });

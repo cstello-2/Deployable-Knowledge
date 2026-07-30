@@ -16,6 +16,13 @@
 
 	// Transcript chunks have no pages and no file to open, unlike PDF chunks
 	const isTranscript = $derived(result.sourceType === 'AUDIO');
+	const locationLabel = $derived(
+		isTranscript
+			? 'Transcript'
+			: result.sourceType === 'XLSX'
+				? `Sheet ${result.pageIndex + 1}`
+				: `Page ${result.pageIndex + 1}`
+	);
 	const viewerHref = $derived(documentViewerHref(result.sourceType, result.documentId, result));
 </script>
 
@@ -23,7 +30,7 @@
 	<div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 		<span class="font-semibold text-primary">#{index + 1}</span>
 		<strong class="text-foreground">{result.sourceTitle}</strong>
-		<span>{isTranscript ? 'Transcript' : `Page ${result.pageIndex + 1}`}</span>
+		<span>{locationLabel}</span>
 	</div>
 	<p class="m-0 whitespace-pre-wrap text-sm leading-relaxed">{result.content}</p>
 	<div class="flex flex-wrap gap-2">
@@ -42,7 +49,7 @@
 				target="_blank"
 				rel="noopener noreferrer"
 			>
-				<ExternalLink /> Show in PDF
+				<ExternalLink /> Open document
 			</Button>
 		{/if}
 	</div>

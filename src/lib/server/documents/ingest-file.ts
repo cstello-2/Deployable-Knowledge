@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import { count, eq } from 'drizzle-orm';
@@ -8,6 +8,7 @@ import { db } from '$lib/server/database/database';
 import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
 import { handlerForPath, SOURCE_TYPE_HANDLERS, type SourceTypeHandler } from './source-types';
+import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts';
 import { containsPath, removeManagedDocumentFile } from './remove-document';
 
 const DOCUMENTS_DIR = 'documents';
@@ -52,14 +53,20 @@ export async function ingestFileBuffer(
 	const contentHash = createHash('sha256').update(buffer).digest('hex');
 	const savedPath = join(
 		DOCUMENTS_DIR,
-		`${contentHash.slice(0, 16)}${extname(originalName).toLowerCase()}`
+		`${contentHash.slice(0, 16)}${managedExtensionFor(handler, originalName)}`
 	);
 	const existing = await existingDocument(savedPath);
 	if (existing) return existing;
 
-	await writeFile(savedPath, buffer);
+	if (handler.convert) {
+		onProgress?.({ percent: 0, label: handler.progressLabel, message: handler.startMessage });
+	}
+	await writeManagedArtifacts(handler, buffer, savedPath);
 	try {
-		return await ingestDocument({ filePath: savedPath, title: titleFor(originalName) }, onProgress);
+		return await ingestDocument(
+			{ filePath: savedPath, title: titleFor(originalName), sourceType: handler.type },
+			onProgress
+		);
 	} catch (error) {
 		await removeManagedDocumentFile(savedPath);
 		throw error;

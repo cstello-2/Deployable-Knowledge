@@ -2,6 +2,7 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import AudioLines from '@lucide/svelte/icons/audio-lines';
 	import CheckSquare2 from '@lucide/svelte/icons/square-check-big';
+	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderSync from '@lucide/svelte/icons/folder-sync';
@@ -112,6 +113,8 @@
 									{/if}
 									{#if item.kind === 'audio'}
 										<AudioLines class="size-4 shrink-0" />
+									{:else if item.kind === 'xlsx' || item.kind === 'csv'}
+										<FileSpreadsheet class="size-4 shrink-0" />
 									{:else}
 										<FileText class="size-4 shrink-0" />
 									{/if}
@@ -119,7 +122,9 @@
 								</button>
 							{/if}
 						{:else}
-							<p class="p-4 text-sm text-muted-foreground">No folders or files here.</p>
+							<p class="p-4 text-sm text-muted-foreground">
+								No folders or supported documents here.
+							</p>
 						{/each}
 					{/if}
 				</div>

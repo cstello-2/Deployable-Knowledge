@@ -1,4 +1,4 @@
-import { API_DOCUMENT_FILES } from '$lib/constants';
+import { APP_PREVIEW } from '$lib/constants';
 import type { NotebookSourceItem } from '$lib/types';
 
 export interface CitationInsertion {
@@ -16,7 +16,7 @@ export function insertNotebookSourceCitation(
 ): CitationInsertion {
 	const page = source.pageIndex + 1;
 	const title = escapeLabel(source.documentTitle.trim() || 'Source');
-	const href = `${API_DOCUMENT_FILES.byId(source.documentId)}#page=${page}`;
+	const href = APP_PREVIEW.page(source.documentId, source.pageIndex);
 	const citation = `([${title}, p. ${page}](${href}))`;
 	const existingRows = extractRows(text);
 	const content = removeTable(text).trimEnd();

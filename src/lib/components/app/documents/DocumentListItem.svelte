@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AudioLines from '@lucide/svelte/icons/audio-lines';
+	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Power from '@lucide/svelte/icons/power';
 	import PowerOff from '@lucide/svelte/icons/power-off';
@@ -34,7 +35,13 @@
 		tags
 	}: Props = $props();
 
-	const SourceIcon = $derived(document.sourceType === 'AUDIO' ? AudioLines : FileText);
+	const SourceIcon = $derived(
+		document.sourceType === 'AUDIO'
+			? AudioLines
+			: document.sourceType === 'XLSX' || document.sourceType === 'CSV'
+				? FileSpreadsheet
+				: FileText
+	);
 </script>
 
 <div

@@ -53,7 +53,11 @@ export function buildSources(matches: SearchMatchBase[]): RagSource[] {
 			title: match.sourceTitle,
 			// Transcripts have no pages, so only paged sources get a page reference
 			description:
-				match.sourceType === 'AUDIO' ? preview : `Page ${match.pageIndex + 1}: ${preview}`,
+				match.sourceType === 'AUDIO'
+					? preview
+					: match.sourceType === 'XLSX'
+						? `Sheet ${match.pageIndex + 1}: ${preview}`
+						: `Page ${match.pageIndex + 1}: ${preview}`,
 			documentId: match.documentId,
 			chunkId: match.chunkId,
 			sourceType: match.sourceType,

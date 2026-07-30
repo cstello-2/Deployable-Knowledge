@@ -37,9 +37,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		if (entry.isFile()) {
 			const extension = extname(entry.name).toLowerCase();
 			if (purpose === 'notebook') {
-				if (extension === '.md') {
-					items.push({ kind: 'markdown', name: entry.name, path });
-				} else if (extension === '.txt') {
+				if (extension === '.md' || extension === '.txt') {
 					items.push({ kind: 'text', name: entry.name, path });
 				}
 			} else {

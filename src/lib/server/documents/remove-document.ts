@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
+import { previewPathFor } from './managed-artifacts';
 
 export type SyncedFileDisposition = 'ignore' | 'remove';
 
@@ -21,15 +22,20 @@ function isManagedDocumentPath(filePath: string): boolean {
 	return path !== root && containsPath(root, path);
 }
 
-export async function removeManagedDocumentFile(filePath: string): Promise<void> {
-	if (!isManagedDocumentPath(filePath)) return;
-
+async function unlinkIfPresent(filePath: string): Promise<void> {
 	try {
 		await unlink(filePath);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
 		throw error;
 	}
+}
+
+export async function removeManagedDocumentFile(filePath: string): Promise<void> {
+	if (!isManagedDocumentPath(filePath)) return;
+
+	await unlinkIfPresent(filePath);
+	await unlinkIfPresent(previewPathFor(filePath));
 }
 
 export async function removeDocument(

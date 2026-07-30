@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type {
@@ -11,6 +11,7 @@ import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
+import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts';
 import { removeDocument, removeManagedDocumentFile } from './remove-document';
 import { handlerForPath, isSyncableFile } from './source-types';
 
@@ -36,10 +37,14 @@ async function findFiles(directory: string): Promise<SyncFile[]> {
 }
 
 async function managedPathFor(sourcePath: string): Promise<string> {
+	const handler = handlerForPath(sourcePath);
+	const extension = handler
+		? managedExtensionFor(handler, sourcePath)
+		: extname(sourcePath).toLowerCase();
 	const contentHash = createHash('sha256')
 		.update(await readFile(sourcePath))
 		.digest('hex');
-	return join('documents', `${contentHash.slice(0, 16)}${extname(sourcePath).toLowerCase()}`);
+	return join('documents', `${contentHash.slice(0, 16)}${extension}`);
 }
 
 async function ingestManagedCopy(
@@ -47,10 +52,16 @@ async function ingestManagedCopy(
 	managedPath: string,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
 ) {
-	await copyFile(sourcePath, managedPath);
+	const handler = handlerForPath(sourcePath);
+	if (!handler) throw new Error('Unsupported document type.');
+
+	await writeManagedArtifacts(handler, await readFile(sourcePath), managedPath);
 	try {
 		const title = basename(sourcePath, extname(sourcePath)).trim() || basename(sourcePath);
-		return await ingestDocument({ filePath: managedPath, title }, onProgress);
+		return await ingestDocument(
+			{ filePath: managedPath, title, sourceType: handler.type },
+			onProgress
+		);
 	} catch (error) {
 		await removeManagedDocumentFile(managedPath);
 		throw error;

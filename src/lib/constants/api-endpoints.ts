@@ -12,13 +12,18 @@ export const APP_TRANSCRIPTS = {
 		`/transcripts/${segment(id)}?chunk=${segment(String(chunkIndex))}`
 };
 
+export const APP_PREVIEW = {
+	byId: (id: string) => `/preview/${segment(id)}`,
+	page: (id: string, pageIndex: number) => `/preview/${segment(id)}#page=${pageIndex + 1}`
+};
+
 export function documentViewerHref(
 	sourceType: Document['sourceType'] | undefined,
 	documentId: string,
 	location: { chunkIndex?: number | null; pageIndex?: number | null }
 ): string {
 	if (sourceType === 'AUDIO') return APP_TRANSCRIPTS.chunk(documentId, location.chunkIndex ?? 0);
-	return `${API_DOCUMENT_FILES.byId(documentId)}#page=${(location.pageIndex ?? 0) + 1}`;
+	return APP_PREVIEW.page(documentId, location.pageIndex ?? 0);
 }
 
 export const API_DOCUMENTS = {

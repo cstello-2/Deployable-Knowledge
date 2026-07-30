@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	let ingest: IngestTask;
 	if (request.headers.get('content-type')?.includes('multipart/form-data')) {
 		const upload = (await request.formData()).get('file');
-		if (!(upload instanceof File)) throw error(400, 'Upload a PDF file.');
+		if (!(upload instanceof File)) throw error(400, 'Upload a supported document file.');
 		const name = upload.name || 'document.pdf';
 		const buffer = Buffer.from(await upload.arrayBuffer());
 		ingest = (onProgress) => ingestFileBuffer(name, buffer, onProgress);

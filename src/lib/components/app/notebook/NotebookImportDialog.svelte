@@ -45,7 +45,7 @@
 		(directory?.items ?? []).filter((item) => {
 			if (item.kind === 'folder') return true;
 			if (mode === 'collection') return false;
-			return item.kind === 'markdown' || item.kind === 'text';
+			return item.kind === 'text';
 		})
 	);
 
