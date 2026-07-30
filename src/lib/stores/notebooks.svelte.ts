@@ -116,6 +116,14 @@ class NotebooksStore {
 		await this.loadSources();
 	}
 
+	async saveChunk(chunkId: string): Promise<string> {
+		await this.load();
+		const notebook = this.activeNotebook;
+		if (!notebook) throw new Error('Create or open a notebook first.');
+		await this.addSources([chunkId]);
+		return notebook.title;
+	}
+
 	async removeSource(sourceId: string): Promise<void> {
 		if (!this._activeNotebookId) return;
 		await NotebooksService.removeSource(this._activeNotebookId, sourceId);

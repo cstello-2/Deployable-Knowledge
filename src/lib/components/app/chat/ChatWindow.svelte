@@ -170,6 +170,15 @@
 			toast.error(error instanceof Error ? error.message : 'Failed to send to notebook');
 		}
 	}
+
+	async function saveChunk(chunkId: string): Promise<void> {
+		try {
+			const notebookTitle = await notebooksStore.saveChunk(chunkId);
+			toast.success(`Chunk saved to Loaded Sources in ${notebookTitle}`);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to save chunk');
+		}
+	}
 </script>
 
 <WorkspaceWindow
@@ -192,6 +201,7 @@
 			trace={chatStore.liveTrace}
 			status={chatStore.agentStatus}
 			error={chatStore.error ?? ''}
+			onSaveChunk={(chunkId) => void saveChunk(chunkId)}
 			onSendToNotebook={(message) => void sendToNotebook(message)}
 		/>
 		<ChatForm
