@@ -24,6 +24,8 @@ These instructions apply to the entire repository. Preserve them when adding or 
   with no props do not need an empty interface.
 - Prefer explicit domain and API types over inline anonymous payload shapes.
 - Keep functions small and named around user intent. Return early for invalid or no-op state.
+- Do not nest ternary expressions. Use a lookup object, an early-returning function, or `if`/`else`
+  instead. A single ternary is fine; a ternary inside another ternary is not.
 - Avoid single-use helpers that only wrap a primitive type check, property access, coercion, or one
   built-in call. Keep the operation inline when that is clearer; extract a helper only when it
   captures reused logic, non-trivial behavior, or a meaningful domain rule.

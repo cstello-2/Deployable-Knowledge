@@ -142,6 +142,17 @@
 		return 0;
 	}
 
+	function tabTransform(
+		dragging: boolean,
+		settleDx: number | null,
+		shift: number
+	): string | undefined {
+		if (dragging) return `translateX(${drag?.dx ?? 0}px)`;
+		if (settleDx !== null) return `translateX(${settleDx}px)`;
+		if (shift) return `translateX(${shift}px)`;
+		return undefined;
+	}
+
 	function handleTabClick(presetId: string): void {
 		if (suppressNextClick) {
 			suppressNextClick = false;
@@ -190,13 +201,7 @@
 									? 'border-border bg-background text-foreground shadow-sm'
 									: 'border-transparent bg-transparent text-muted-foreground hover:bg-card/75 hover:text-foreground'
 							]}
-							style:transform={dragging
-								? `translateX(${drag?.dx ?? 0}px)`
-								: settleDx !== null
-									? `translateX(${settleDx}px)`
-									: shift
-										? `translateX(${shift}px)`
-										: undefined}
+							style:transform={tabTransform(dragging, settleDx, shift)}
 							onpointercancel={(event) => handleTabPointerEnd(event, false)}
 							onpointerdown={(event) => handleTabPointerDown(event, index, preset.id)}
 							onpointermove={handleTabPointerMove}

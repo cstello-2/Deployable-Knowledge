@@ -26,6 +26,11 @@
 		if (open) void loadProviders();
 	});
 
+	function apiKeyStatus(provider: ApiProviderInfo): string {
+		if (!provider.apiKeyRequired) return 'Local provider';
+		return provider.hasApiKey ? 'API key saved' : 'API key required';
+	}
+
 	async function loadProviders(): Promise<void> {
 		loading = true;
 		try {
@@ -83,13 +88,7 @@
 					>
 						<div>
 							<p class="font-medium">{provider.name}</p>
-							<p class="text-xs text-muted-foreground">
-								{provider.apiKeyRequired
-									? provider.hasApiKey
-										? 'API key saved'
-										: 'API key required'
-									: 'Local provider'}
-							</p>
+							<p class="text-xs text-muted-foreground">{apiKeyStatus(provider)}</p>
 						</div>
 						{#if provider.apiKeyRequired}
 							<div class="flex min-w-0 gap-2">

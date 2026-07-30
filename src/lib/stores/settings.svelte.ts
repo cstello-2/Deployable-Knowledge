@@ -1,12 +1,18 @@
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
-import { ProfilesService, PromptTemplatesService, ProvidersService } from '$lib/services';
+import {
+	ProfilesService,
+	PromptTemplatesService,
+	ProvidersService,
+	ToolsService
+} from '$lib/services';
 import type {
 	AssistantConfig,
 	AssistantProfile,
 	AssistantProfileCreateValues,
 	AssistantProfileUpdateValues,
 	AssistantProfileValues,
+	ApiAgentTool,
 	ApiPromptTemplateRequest,
 	ApiProviderModelGroup,
 	PromptTemplate
@@ -18,6 +24,7 @@ class SettingsStore {
 	profiles = $state<AssistantProfile[]>([]);
 	promptTemplates = $state<PromptTemplate[]>([]);
 	providerModelGroups = $state<ApiProviderModelGroup[]>([]);
+	availableTools = $state<ApiAgentTool[]>([]);
 	activeProfileId = $state<string | null>(null);
 	loading = $state(false);
 	ready = $state(false);
@@ -42,6 +49,7 @@ class SettingsStore {
 		this.ready = false;
 		this.error = null;
 		try {
+			await this.loadTools();
 			await this.loadActiveProfile();
 			await Promise.all([this.loadProfiles(), this.loadPromptTemplates(), this.loadProviders()]);
 			this.initialized = true;
@@ -131,6 +139,17 @@ class SettingsStore {
 		await this.saveActive();
 	}
 
+	async loadTools(): Promise<void> {
+		this.availableTools = await ToolsService.list();
+		this.updateConfig({ enabledTools: this.knownToolIds(this._config.enabledTools) });
+	}
+
+	private knownToolIds(value: unknown): string[] {
+		const ids = this.availableTools.map(({ id }) => id);
+		if (!Array.isArray(value)) return ids;
+		return ids.filter((id) => value.includes(id));
+	}
+
 	async loadProviders(): Promise<void> {
 		this.providerModelGroups = await ProvidersService.listModelGroups();
 		const selected = this.providerModelGroups.find(({ id }) => id === this._config.provider);
@@ -153,7 +172,8 @@ class SettingsStore {
 			ragTopK: profile.ragTopK,
 			agentMaxTurns: profile.agentMaxTurns,
 			promptTemplateId: profile.promptTemplateId,
-			persona: profile.persona ?? ''
+			persona: profile.persona ?? '',
+			enabledTools: this.knownToolIds(profile.enabledTools)
 		};
 	}
 

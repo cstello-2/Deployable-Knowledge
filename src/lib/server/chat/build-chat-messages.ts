@@ -5,7 +5,6 @@ import {
 	AGENT_SYSTEM_PROMPT,
 	CONVERSATIONAL_SYSTEM_PROMPT,
 	DOCUMENT_CONTEXT_SYSTEM_PROMPT,
-	DOCUMENT_SEARCH_SYSTEM_PROMPT,
 	REFERENCE_MATERIAL_INSTRUCTION
 } from '$lib/server/agent/prompts';
 
@@ -13,17 +12,22 @@ export function createConversationalMessages({
 	messages,
 	userMessage,
 	context = '',
-	toolsEnabled = true
+	toolsEnabled = true,
+	toolInstructions = []
 }: {
 	messages: SessionMessage[];
 	userMessage: string;
 	context?: string;
 	toolsEnabled?: boolean;
+	toolInstructions?: readonly string[];
 }): ProviderChatMessage[] {
 	const output: ProviderChatMessage[] = [
 		{
 			role: 'system',
-			content: joinPrompts([CONVERSATIONAL_SYSTEM_PROMPT, toolsEnabled ? AGENT_SYSTEM_PROMPT : ''])
+			content: joinPrompts([
+				CONVERSATIONAL_SYSTEM_PROMPT,
+				...(toolsEnabled ? [AGENT_SYSTEM_PROMPT, ...toolInstructions] : [])
+			])
 		}
 	];
 	appendRecentHistory(output, messages);
@@ -43,7 +47,9 @@ export function createDocumentMessages({
 	systemPrompt = '',
 	persona = '',
 	context = '',
-	toolsEnabled = true
+	toolsEnabled = true,
+	toolInstructions = [],
+	searchToolEnabled = toolsEnabled
 }: {
 	messages: SessionMessage[];
 	userMessage: string;
@@ -51,13 +57,17 @@ export function createDocumentMessages({
 	persona?: string;
 	context?: string;
 	toolsEnabled?: boolean;
+	toolInstructions?: readonly string[];
+	searchToolEnabled?: boolean;
 }): ProviderChatMessage[] {
 	const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : '';
-	// Tools off means the search tool already ran for this prompt, so the model
-	// works from the retrieved context instead of being told to search.
-	const retrievalPolicy = toolsEnabled
-		? [AGENT_SYSTEM_PROMPT, DOCUMENT_SEARCH_SYSTEM_PROMPT]
-		: [DOCUMENT_CONTEXT_SYSTEM_PROMPT];
+	// Each enabled tool contributes its own policy block. Without the search
+	// tool the search already ran for this prompt, so the model works from the
+	// retrieved context instead of being told to search.
+	const retrievalPolicy = [
+		...(toolsEnabled ? [AGENT_SYSTEM_PROMPT, ...toolInstructions] : []),
+		...(searchToolEnabled ? [] : [DOCUMENT_CONTEXT_SYSTEM_PROMPT])
+	];
 	const systemContent = joinPrompts([systemPrompt, personaBlock, ...retrievalPolicy]);
 	const output: ProviderChatMessage[] = [];
 	if (systemContent) output.push({ role: 'system', content: systemContent });

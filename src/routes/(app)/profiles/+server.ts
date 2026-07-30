@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { error, json } from '@sveltejs/kit';
 
+import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
 import { seedLocalUser } from '$lib/server/database/seed';
 import { profiles, type AssistantProfileCreateValues } from '$lib/server/database/schema';
@@ -43,6 +44,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			retrievalMode: body.retrievalMode,
 			ragTopK: body.ragTopK,
 			agentMaxTurns: body.agentMaxTurns,
+			enabledTools: toolRegistry.filterIds(body.enabledTools),
 			promptTemplateId: body.promptTemplateId,
 			persona: body.persona,
 			createdAt: timestamp,

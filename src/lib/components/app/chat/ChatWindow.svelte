@@ -10,6 +10,13 @@
 		settingsStore
 	} from '$lib/stores';
 	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
+	import { CONTEXT_OVERHEAD_TOKENS, CONTEXT_WINDOW_TOKENS_MAX } from '$lib/constants';
+	import {
+		estimateHistoryTokens,
+		estimateMessageTokens,
+		estimateSystemPromptTokens,
+		estimateTokens
+	} from '$lib/utils';
 	import ChatForm from './ChatForm.svelte';
 	import ChatMessageList from './ChatMessageList.svelte';
 	import { sourceChunkIds } from './chat-message';
@@ -37,6 +44,39 @@
 	let logElement = $state<HTMLDivElement | null>(null);
 	let draft = $state('');
 	let notebookMode = $state(false);
+
+	let notebooksRequested = false;
+	$effect(() => {
+		if (!notebookMode || notebooksRequested) return;
+		notebooksRequested = true;
+		void notebooksStore.load();
+	});
+
+	let notebookContextTokens = $derived(
+		notebookMode
+			? estimateTokens(
+					notebooksStore.activeNotebook?.pages
+						.map(({ content }) => content)
+						.filter(Boolean)
+						.join('\n\n') ?? ''
+				)
+			: 0
+	);
+
+	let contextUsed = $derived(
+		estimateSystemPromptTokens({ notebookMode, toolsEnabled: chatStore.toolsEnabled }) +
+			estimateHistoryTokens(chatStore.messages) +
+			notebookContextTokens +
+			estimateMessageTokens(draft)
+	);
+
+	let contextReserved = $derived(
+		settingsStore.config.maxTokens +
+			Math.max(0, settingsStore.config.reasoningBudget) +
+			CONTEXT_OVERHEAD_TOKENS
+	);
+
+	let retrievalPending = $derived(!notebookMode && chatStore.toolsEnabled);
 
 	async function notebookContext(): Promise<string> {
 		await notebooksStore.load();
@@ -88,7 +128,8 @@
 				top_k: config.topK,
 				reasoning_budget: config.reasoningBudget,
 				agent_max_turns: config.agentMaxTurns,
-				tools_enabled: chatStore.toolsEnabled
+				tools_enabled: chatStore.toolsEnabled,
+				enabled_tools: config.enabledTools
 			};
 			const request: ApiChatMessageRequest = notebookMode
 				? {
@@ -156,12 +197,16 @@
 		<ChatForm
 			bind:draft
 			busy={chatStore.isStreaming}
+			contextLimit={CONTEXT_WINDOW_TOKENS_MAX}
+			{contextReserved}
+			{contextUsed}
 			{notebookMode}
-			toolsEnabled={chatStore.toolsEnabled}
-			onToggleNotebookMode={() => (notebookMode = !notebookMode)}
-			onToggleTools={() => (chatStore.toolsEnabled = !chatStore.toolsEnabled)}
 			onNewChat={() => void startNewChat()}
 			onSubmit={() => void send()}
+			onToggleNotebookMode={() => (notebookMode = !notebookMode)}
+			onToggleTools={() => (chatStore.toolsEnabled = !chatStore.toolsEnabled)}
+			{retrievalPending}
+			toolsEnabled={chatStore.toolsEnabled}
 		/>
 	</div>
 </WorkspaceWindow>

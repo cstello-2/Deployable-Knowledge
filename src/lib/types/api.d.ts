@@ -21,6 +21,16 @@ export interface AssistantConfig {
 	agentMaxTurns: number;
 	promptTemplateId: string | null;
 	persona: string;
+	enabledTools: string[];
+}
+
+export type ChatMode = 'document' | 'notebook';
+
+export interface ApiAgentTool {
+	id: string;
+	label: string;
+	description: string;
+	modes: readonly ChatMode[];
 }
 
 export interface ApiDocumentTagRequest {
@@ -240,6 +250,7 @@ interface ApiChatMessageBase {
 	reasoning_budget?: number;
 	agent_max_turns: number;
 	tools_enabled?: boolean;
+	enabled_tools?: string[];
 }
 
 export interface ApiDocumentChatMessageRequest extends ApiChatMessageBase {
@@ -269,6 +280,7 @@ export type ApiChatStreamEvent =
 			toolTurns: number;
 			toolCalls: number;
 			contextItems: number;
+			saved?: boolean;
 	  }
 	| { type: 'error'; message: string };
 

@@ -61,6 +61,12 @@
 	let moveDestinationId = $state('');
 	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
 
+	function textDialogTitle(): string {
+		if (textDialogMode === 'create-notebook') return 'New notebook';
+		if (textDialogMode === 'create-page') return 'New page';
+		return `Rename ${renameTarget?.kind ?? 'item'}`;
+	}
+
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
 			(total, page) =>
@@ -390,13 +396,7 @@
 	<Dialog.Content>
 		<form class="grid gap-4" onsubmit={submitTextDialog}>
 			<Dialog.Header>
-				<Dialog.Title
-					>{textDialogMode === 'create-notebook'
-						? 'New notebook'
-						: textDialogMode === 'create-page'
-							? 'New page'
-							: `Rename ${renameTarget?.kind ?? 'item'}`}</Dialog.Title
-				>
+				<Dialog.Title>{textDialogTitle()}</Dialog.Title>
 				<Dialog.Description>Choose a clear, descriptive title.</Dialog.Description>
 			</Dialog.Header>
 			<div class="grid gap-2">

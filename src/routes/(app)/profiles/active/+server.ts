@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 
+import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
 import { seedLocalUser } from '$lib/server/database/seed';
 import { profiles, type AssistantProfileValues } from '$lib/server/database/schema';
@@ -34,6 +35,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
 			retrievalMode: body.retrievalMode,
 			ragTopK: body.ragTopK,
 			agentMaxTurns: body.agentMaxTurns,
+			enabledTools: toolRegistry.filterIds(body.enabledTools),
 			promptTemplateId: body.promptTemplateId,
 			persona: body.persona,
 			updatedAt: new Date()

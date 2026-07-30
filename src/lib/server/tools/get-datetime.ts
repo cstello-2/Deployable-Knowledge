@@ -9,23 +9,23 @@ type GetDatetimeResult = {
 };
 
 export const getDatetimeTool: AgentTool<GetDatetimeResult> = {
+	id: 'get_datetime',
+	label: 'Date & time',
+	description: 'Reads the current date and time instead of guessing it.',
+	modes: ['document', 'notebook'],
 	definition: {
-		type: 'function',
-		function: {
-			name: 'get_datetime',
-			description:
-				'Get the current date and time. Use this instead of guessing whenever the request depends on the current date, time, day, or timezone.',
-			parameters: {
-				type: 'object',
-				properties: {
-					timezone: {
-						type: 'string',
-						description:
-							'Optional IANA timezone such as America/New_York. Defaults to the server timezone.'
-					}
-				},
-				additionalProperties: false
-			}
+		description:
+			'Get the current date and time. Use this instead of guessing whenever the request depends on the current date, time, day, or timezone.',
+		parameters: {
+			type: 'object',
+			properties: {
+				timezone: {
+					type: 'string',
+					description:
+						'Optional IANA timezone such as America/New_York. Defaults to the server timezone.'
+				}
+			},
+			additionalProperties: false
 		}
 	},
 

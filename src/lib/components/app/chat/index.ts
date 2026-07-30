@@ -1,4 +1,5 @@
 export * from './ChatHistory';
+export { default as ChatContextMeter } from './ChatContextMeter.svelte';
 export { default as ChatForm } from './ChatForm.svelte';
 export { default as ChatMessage } from './ChatMessage.svelte';
 export { default as ChatMessageList } from './ChatMessageList.svelte';

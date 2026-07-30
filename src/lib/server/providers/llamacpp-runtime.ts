@@ -22,15 +22,30 @@ const MODEL_FILE_PATTERN = /^[\w][\w.-]*\.gguf$/i;
 // tokens of reference material, so a low ceiling silently truncates context.
 const CONTEXT_SIZE_MAX = 32768;
 
+type LlamaModuleState = {
+	nlc?: Promise<typeof import('node-llama-cpp')>;
+	llamaInstance?: Promise<Llama>;
+	runtime: Runtime | null;
+	opQueue: Promise<unknown>;
+	activeDownload: { fileName: string; downloader: ModelDownloader | null } | null;
+};
+
+// Dev hot reloads re-instantiate this module. Keeping the state on globalThis
+// (same pattern as hooks.server.ts) makes a reloaded module reuse the already
+// loaded model instead of leaking a full model copy per reload.
+const state = ((
+	globalThis as typeof globalThis & { deployableKnowledgeLlamaState?: LlamaModuleState }
+).deployableKnowledgeLlamaState ??= {
+	runtime: null,
+	opQueue: Promise.resolve(),
+	activeDownload: null
+});
+
 // The native binary must only load on demand (chat/download/hardware probe),
 // never when the provider registry is merely listed.
-let nlc: Promise<typeof import('node-llama-cpp')> | undefined;
+const loadNlc = () => (state.nlc ??= import('node-llama-cpp'));
 
-const loadNlc = () => (nlc ??= import('node-llama-cpp'));
-
-let llamaInstance: Promise<Llama> | undefined;
-
-const getLlamaInstance = () => (llamaInstance ??= loadNlc().then((mod) => mod.getLlama()));
+const getLlamaInstance = () => (state.llamaInstance ??= loadNlc().then((mod) => mod.getLlama()));
 
 export async function listLocalModelFiles(): Promise<string[]> {
 	if (!existsSync(MODELS_DIR)) return [];
@@ -55,19 +70,17 @@ export function resolveLocalModelPath(fileName: string): string {
 	return path;
 }
 
-let activeDownload: { fileName: string; downloader: ModelDownloader | null } | null = null;
-
-export const getActiveDownloadFile = (): string | null => activeDownload?.fileName ?? null;
+export const getActiveDownloadFile = (): string | null => state.activeDownload?.fileName ?? null;
 
 export async function downloadLocalModel(
 	model: LocalModel,
 	onProgress: (loaded: number, total: number) => void
 ): Promise<string> {
-	if (activeDownload) {
-		throw new Error(`A model download is already in progress (${activeDownload.fileName}).`);
+	if (state.activeDownload) {
+		throw new Error(`A model download is already in progress (${state.activeDownload.fileName}).`);
 	}
 
-	activeDownload = { fileName: model.fileName, downloader: null };
+	state.activeDownload = { fileName: model.fileName, downloader: null };
 
 	try {
 		await mkdir(MODELS_DIR, { recursive: true });
@@ -82,17 +95,17 @@ export async function downloadLocalModel(
 			onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
 		});
 
-		activeDownload.downloader = downloader;
+		state.activeDownload.downloader = downloader;
 		await downloader.download();
 
 		return model.fileName;
 	} finally {
-		activeDownload = null;
+		state.activeDownload = null;
 	}
 }
 
 export function cancelActiveDownload(): void {
-	void activeDownload?.downloader?.cancel({ deleteTempFile: false });
+	void state.activeDownload?.downloader?.cancel({ deleteTempFile: false });
 }
 
 type Runtime = {
@@ -103,28 +116,25 @@ type Runtime = {
 	modelPath: string;
 };
 
-let runtime: Runtime | null = null;
-let opQueue: Promise<unknown> = Promise.resolve();
-
 // All model operations share one context sequence, so they must never overlap.
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
-	const run = opQueue.then(fn, fn);
-	opQueue = run.catch(() => undefined);
+	const run = state.opQueue.then(fn, fn);
+	state.opQueue = run.catch(() => undefined);
 	return run;
 }
 
 async function disposeRuntimeUnlocked(): Promise<void> {
-	if (!runtime) return;
+	if (!state.runtime) return;
 
-	const { model, context } = runtime;
-	runtime = null;
+	const { model, context } = state.runtime;
+	state.runtime = null;
 
 	await context.dispose();
 	await model.dispose();
 }
 
 async function getRuntime(modelPath: string): Promise<Runtime> {
-	if (runtime?.modelPath === modelPath) return runtime;
+	if (state.runtime?.modelPath === modelPath) return state.runtime;
 
 	await disposeRuntimeUnlocked();
 
@@ -137,14 +147,20 @@ async function getRuntime(modelPath: string): Promise<Runtime> {
 		autoDisposeSequence: false
 	});
 
-	runtime = { llama, model, context, chat, modelPath };
+	state.runtime = { llama, model, context, chat, modelPath };
 
-	return runtime;
+	return state.runtime;
 }
 
 export interface LocalFunctionCall {
 	functionName: string;
 	params: unknown;
+}
+
+function resolveThoughtTokens(reasoningBudget: number | undefined): number | undefined {
+	if (reasoningBudget === undefined) return undefined;
+	if (reasoningBudget < 0) return Infinity;
+	return reasoningBudget;
 }
 
 export function generateChatResponse(params: {
@@ -155,27 +171,35 @@ export function generateChatResponse(params: {
 	topK?: number;
 	maxTokens?: number;
 	reasoningBudget?: number;
+	signal?: AbortSignal;
 	onText: (text: string) => void;
 	onReasoning: (text: string) => void;
 }): Promise<{ functionCalls: LocalFunctionCall[] }> {
 	return withLock(async () => {
+		params.signal?.throwIfAborted();
 		const { chat } = await getRuntime(params.modelPath);
 
-		const thoughtTokens =
-			params.reasoningBudget === undefined
-				? undefined
-				: params.reasoningBudget < 0
-					? Infinity
-					: params.reasoningBudget;
+		const thoughtTokens = resolveThoughtTokens(params.reasoningBudget);
+		// generateResponse counts thought tokens against maxTokens, so a thinking
+		// model can burn the whole response budget mid-thought and end the turn
+		// with no visible answer. Mirror llama.cpp's --reasoning-budget semantics
+		// instead: thinking gets its own headroom on top of the response budget.
+		const maxTokens =
+			params.maxTokens !== undefined && thoughtTokens !== undefined && thoughtTokens !== Infinity
+				? params.maxTokens + thoughtTokens
+				: params.maxTokens;
 
 		const result = await chat.generateResponse(params.history, {
 			...(params.functions ? { functions: params.functions, documentFunctionParams: true } : {}),
 			...(thoughtTokens === undefined ? {} : { budgets: { thoughtTokens } }),
 			temperature: params.temperature,
 			topK: params.topK,
-			maxTokens: params.maxTokens,
+			maxTokens,
+			signal: params.signal,
 			onResponseChunk(chunk) {
-				if (chunk.type === 'segment' && chunk.segmentType === 'thought') {
+				if (chunk.type === 'segment') {
+					// Thought and comment segments both belong in the reasoning
+					// trace; dropping segment text makes the model look stuck.
 					if (chunk.text) params.onReasoning(chunk.text);
 				} else if (chunk.type == null && chunk.text) {
 					params.onText(chunk.text);
@@ -200,7 +224,7 @@ export function deleteLocalModel(fileName: string): Promise<void> {
 	const path = resolveLocalModelPath(fileName);
 
 	return withLock(async () => {
-		if (runtime?.modelPath === path) await disposeRuntimeUnlocked();
+		if (state.runtime?.modelPath === path) await disposeRuntimeUnlocked();
 		if (existsSync(path)) await unlink(path);
 	});
 }

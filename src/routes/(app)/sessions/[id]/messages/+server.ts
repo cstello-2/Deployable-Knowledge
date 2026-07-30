@@ -2,12 +2,7 @@ import { json } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 import type { ApiChatMessageRequest, ApiChatStreamEvent } from '$lib/types';
 import { db } from '$lib/server/database/database';
-import {
-	promptTemplates,
-	type SessionMessage,
-	sessions,
-	sessionMessages
-} from '$lib/server/database/schema';
+import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
 import { seedLocalUser } from '$lib/server/database/seed';
 import { getProvider } from '$lib/server/providers/registry';
 import type { ProviderChatOptions } from '$lib/server/providers/provider';
@@ -42,16 +37,18 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const message = body.message.trim();
 	const modelId = body.model_id.trim();
 	const providerId = body.provider_id.trim();
-	const storedRetrievalMode = profile?.retrievalMode;
+	const supportedRetrievalModes: readonly RagRetrievalMode[] = [
+		RetrievalMode.SEMANTIC,
+		RetrievalMode.BM25,
+		RetrievalMode.HYBRID
+	];
+	const storedRetrievalMode = profile?.retrievalMode as RagRetrievalMode | undefined;
 	const retrievalMode: RagRetrievalMode =
-		storedRetrievalMode === RetrievalMode.SEMANTIC
-			? RetrievalMode.SEMANTIC
-			: storedRetrievalMode === RetrievalMode.BM25
-				? RetrievalMode.BM25
-				: storedRetrievalMode === RetrievalMode.HYBRID
-					? RetrievalMode.HYBRID
-					: DEFAULT_ASSISTANT_CONFIG.retrievalMode;
+		storedRetrievalMode && supportedRetrievalModes.includes(storedRetrievalMode)
+			? storedRetrievalMode
+			: DEFAULT_ASSISTANT_CONFIG.retrievalMode;
 
+	const abortController = new AbortController();
 	const options: ProviderChatOptions = {
 		temperature: body.temperature,
 		topK: body.top_k,
@@ -59,7 +56,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		reasoningBudget:
 			typeof body.reasoning_budget === 'number'
 				? Math.max(-1, Math.floor(body.reasoning_budget))
-				: undefined
+				: undefined,
+		signal: abortController.signal
 	};
 
 	const existing = await SessionsRepository.find(params.id);
@@ -101,30 +99,48 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const context = [pageContext, sourceExcerpts].filter(Boolean).join('\n\n');
 
-	const toolsEnabled = body.tools_enabled !== false;
-	const toolNames = toolsEnabled
-		? body.conversational
-			? ['get_datetime', 'python']
-			: ['get_datetime', 'search', 'python']
-		: [];
+	const modeTools = toolRegistry.idsForMode(body.conversational ? 'notebook' : 'document');
+	const enabledTools = toolRegistry.filterIds(body.enabled_tools ?? profile?.enabledTools);
+	const toolNames =
+		body.tools_enabled !== false ? modeTools.filter((name) => enabledTools.includes(name)) : [];
+	const toolsEnabled = toolNames.length > 0;
+	const searchToolEnabled = toolNames.includes('search');
+	const toolInstructions = toolRegistry.instructions(toolNames);
 	const ragTopK = body.conversational
 		? (profile?.ragTopK ?? DEFAULT_ASSISTANT_CONFIG.ragTopK)
 		: body.rag_top_k;
 	const documentIds = body.conversational ? undefined : body.document_ids;
 	const toolContext: ToolExecutionContext = { documentIds, retrievalMode, ragTopK };
-	// Document chat without tool calling still has to reach the corpus, so the
-	// search tool runs automatically for every prompt.
-	const autoSearchEnabled = !toolsEnabled && !body.conversational;
+	// Document chat without the search tool still has to reach the corpus, so
+	// the search runs automatically for every prompt.
+	const autoSearchEnabled = !body.conversational && !searchToolEnabled;
 
 	const timestamp = new Date();
+
+	let closed = false;
+
+	const persistTurn = (assistantContent: string, metadata: unknown) =>
+		SessionsRepository.appendTurn({
+			sessionId: params.id,
+			userMessage: message,
+			assistantContent,
+			metadata,
+			createdAt: timestamp
+		});
 
 	const stream = new ReadableStream({
 		async start(controller) {
 			const encoder = new TextEncoder();
-			let closed = false;
 			const send = (event: ApiChatStreamEvent) => {
 				if (closed) return;
-				controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+				try {
+					controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+				} catch {
+					// The client is gone; stop emitting and let the abort below
+					// wind down the generation.
+					closed = true;
+					abortController.abort();
+				}
 			};
 
 			try {
@@ -139,14 +155,22 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					: null;
 
 				const chatMessages = body.conversational
-					? createConversationalMessages({ messages, userMessage: message, context, toolsEnabled })
+					? createConversationalMessages({
+							messages,
+							userMessage: message,
+							context,
+							toolsEnabled,
+							toolInstructions
+						})
 					: createDocumentMessages({
 							messages,
 							userMessage: message,
 							systemPrompt: promptTemplate?.systemPrompt || '',
 							persona,
 							context: autoSearch?.context ?? '',
-							toolsEnabled
+							toolsEnabled,
+							toolInstructions,
+							searchToolEnabled
 						});
 
 				const agentResult = await runAgent({
@@ -173,33 +197,36 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				const outputs = [...(autoSearch?.outputs ?? []), ...agentResult.outputs];
 				const toolCallCount = agentResult.toolExecutions.length + (autoSearch ? 1 : 0);
 
-				await db.insert(sessionMessages).values([
-					{
-						sessionId: params.id,
-						role: 'user',
-						content: message,
-						metadata: null,
-						createdAt: timestamp
-					},
-					{
-						sessionId: params.id,
-						role: 'assistant',
-						content: agentResult.content,
-						metadata: {
-							agent: {
-								providerId,
-								modelId,
-								modelTurns: agentResult.modelTurns,
-								toolTurns: agentResult.toolTurns,
-								trace
-							},
-							...(outputs.length ? { outputs } : {})
+				let saved = false;
+				try {
+					saved = await persistTurn(agentResult.content, {
+						agent: {
+							providerId,
+							modelId,
+							modelTurns: agentResult.modelTurns,
+							toolTurns: agentResult.toolTurns,
+							trace
 						},
-						createdAt: timestamp
-					}
-				]);
+						...(outputs.length ? { outputs } : {})
+					});
+				} catch (error) {
+					console.error('Failed to persist chat turn:', error);
+				}
 
-				if (shouldGenerateTitle) {
+				// The turn is over for the user once the messages are persisted. Title
+				// generation is a second model call, so `complete` has to go out
+				// before it — otherwise the client holds the composer disabled for
+				// the length of another generation with the answer already on screen.
+				send({
+					type: 'complete',
+					modelTurns: agentResult.modelTurns,
+					toolTurns: agentResult.toolTurns,
+					toolCalls: toolCallCount,
+					contextItems: outputs.length,
+					saved
+				});
+
+				if (shouldGenerateTitle && saved) {
 					try {
 						const title = await generateChatTitle(message, provider, modelId, options);
 						await db
@@ -211,23 +238,28 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						console.error('Title generation error:', error);
 					}
 				}
-
-				send({
-					type: 'complete',
-					modelTurns: agentResult.modelTurns,
-					toolTurns: agentResult.toolTurns,
-					toolCalls: toolCallCount,
-					contextItems: outputs.length
-				});
-				controller.close();
-				closed = true;
 			} catch (error) {
-				console.error('Streaming error:', error);
-				const message = error instanceof Error ? error.message : String(error);
-				send({ type: 'error', message });
+				if (!abortController.signal.aborted) {
+					console.error('Streaming error:', error);
+					const message = error instanceof Error ? error.message : String(error);
+					send({ type: 'error', message });
+				}
 			} finally {
-				if (!closed) controller.close();
+				if (!closed) {
+					closed = true;
+					try {
+						controller.close();
+					} catch {
+						// The stream was cancelled between the last send and here.
+					}
+				}
 			}
+		},
+		cancel() {
+			// The client disconnected. Abort the generation so it stops consuming
+			// the model runtime instead of blocking every following request.
+			closed = true;
+			abortController.abort();
 		}
 	});
 

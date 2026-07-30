@@ -76,6 +76,7 @@ export async function runAgent({
 	let modelTurns = 0;
 
 	while (true) {
+		chatOptions.signal?.throwIfAborted();
 		const toolsAvailable = toolTurns < maxTurns && definitions.length > 0;
 		onProgress?.({
 			kind: 'model',
@@ -163,6 +164,7 @@ export async function runAgent({
 		});
 
 		for (const call of turn.toolCalls) {
+			chatOptions.signal?.throwIfAborted();
 			const parsedArguments = parseJson(call.function.arguments);
 			const runningTrace = createToolTrace({
 				id: call.id,

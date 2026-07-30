@@ -44,6 +44,7 @@ export class LlamaCpp extends Provider {
 			topK: options.topK,
 			maxTokens: options.maxTokens,
 			reasoningBudget: options.reasoningBudget,
+			signal: options.signal,
 			onText: (text) => queue.push({ content: text }),
 			onReasoning: (text) => queue.push({ reasoningContent: text })
 		}).then(

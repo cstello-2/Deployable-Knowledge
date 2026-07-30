@@ -186,6 +186,10 @@ export const profiles = sqliteTable(
 		agentMaxTurns: integer('agent_max_turns')
 			.notNull()
 			.default(DEFAULT_ASSISTANT_CONFIG.agentMaxTurns),
+		enabledTools: text('enabled_tools', { mode: 'json' })
+			.$type<string[]>()
+			.notNull()
+			.default(DEFAULT_ASSISTANT_CONFIG.enabledTools),
 		promptTemplateId: text('prompt_template_id').references(() => promptTemplates.id, {
 			onDelete: 'set null'
 		}),
@@ -361,6 +365,7 @@ export type AssistantProfileValues = Pick<
 	| 'retrievalMode'
 	| 'ragTopK'
 	| 'agentMaxTurns'
+	| 'enabledTools'
 	| 'promptTemplateId'
 	| 'persona'
 >;

@@ -11,6 +11,9 @@ export type ProviderChatOptions = {
 	tools?: ProviderToolDefinition[];
 	toolChoice?: 'auto' | 'none';
 	parallelToolCalls?: boolean;
+	// Aborting stops the underlying generation, not just the response stream.
+	// Without it an abandoned request keeps generating and blocks later ones.
+	signal?: AbortSignal;
 };
 
 export type ProviderToolDefinition = {

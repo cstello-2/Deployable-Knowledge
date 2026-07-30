@@ -14,7 +14,12 @@ const MAX_CODE_CHARS = 24_000;
 const MAX_TEXT_CHARS = 32_000;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-const EXECUTION_TIMEOUT_MS = 10_000;
+// Pyodide runs WebAssembly-speed Python, so pandas-style data work needs more
+// headroom than native Python would.
+const EXECUTION_TIMEOUT_MS = 20_000;
+
+const RETRY_HINT =
+	'The code did not run to completion. Read the error, fix the code (or make it faster if it timed out), and call python again with the complete corrected script. Small errors are expected and fixable — do not give up after a failed attempt.';
 
 const PYTHON_RUNNER = String.raw`
 import ast
@@ -22,6 +27,7 @@ import base64
 import contextlib
 import io
 import json
+import linecache
 import traceback
 
 import matplotlib
@@ -36,6 +42,19 @@ def _dk_json_default(value):
         return value.item()
     return repr(value)
 
+def _dk_format_error(exc):
+    # Keep only the frames from the agent's own code plus the final error
+    # line, so the model sees a short, fixable error instead of a full
+    # traceback through the runner internals.
+    frames = [
+        frame
+        for frame in traceback.extract_tb(exc.__traceback__)
+        if frame.filename == "agent.py"
+    ]
+    lines = traceback.format_list(frames) if frames else []
+    lines += traceback.format_exception_only(type(exc), exc)
+    return "".join(lines).strip()
+
 def _dk_execute(code):
     stdout = io.StringIO()
     stderr = io.StringIO()
@@ -44,6 +63,8 @@ def _dk_execute(code):
     images = []
     namespace = {"__name__": "__main__"}
     plt.close("all")
+    # Seed linecache so tracebacks quote the offending source line.
+    linecache.cache["agent.py"] = (len(code), None, code.splitlines(True), "agent.py")
 
     try:
         tree = ast.parse(code, filename="agent.py", mode="exec")
@@ -66,10 +87,11 @@ def _dk_execute(code):
                 bbox_inches="tight",
             )
             images.append(base64.b64encode(buffer.getvalue()).decode("ascii"))
-    except BaseException:
-        error = traceback.format_exc()
+    except BaseException as exc:
+        error = _dk_format_error(exc)
     finally:
         plt.close("all")
+        linecache.cache.pop("agent.py", None)
 
     return json.dumps(
         {
@@ -94,12 +116,17 @@ async function start() {
   const { loadPyodide } = await import("pyodide");
   const pyodide = await loadPyodide({
     indexURL: workerData.indexURL,
-    packages: ["numpy", "matplotlib"],
+    packages: ["numpy", "pandas", "matplotlib"],
     packageCacheDir: workerData.packageCacheDir,
     jsglobals: Object.create(null),
     stdout() {},
     stderr() {},
   });
+  // Pre-warm the heavy imports during startup so their cost never counts
+  // against a per-execution timeout.
+  await pyodide.runPythonAsync(
+    'import matplotlib\nmatplotlib.use("Agg")\nimport matplotlib.pyplot, numpy, pandas'
+  );
   const interruptBuffer = new Int32Array(workerData.interruptBuffer);
   pyodide.setInterruptBuffer(interruptBuffer);
   parentPort.postMessage({ type: "ready" });
@@ -149,6 +176,7 @@ type PythonToolData = {
 	stderr: string;
 	result: unknown;
 	error?: string;
+	hint?: string;
 	images: Array<Pick<ImageArtifact, 'id' | 'mimeType' | 'alt'>>;
 };
 
@@ -173,48 +201,73 @@ type WorkerState = {
 	pending: Map<string, PendingExecution>;
 };
 
-let workerState: WorkerState | undefined;
-let executionQueue = Promise.resolve();
+type PythonModuleState = {
+	workerState?: WorkerState;
+	executionQueue: Promise<unknown>;
+};
+
+const moduleState = ((
+	globalThis as typeof globalThis & { deployableKnowledgePythonState?: PythonModuleState }
+).deployableKnowledgePythonState ??= { executionQueue: Promise.resolve() });
 
 export const pythonTool: AgentTool<PythonToolData> = {
+	id: 'python',
+	label: 'Python',
+	description: 'Runs Python with NumPy, pandas, and Matplotlib for calculations and charts.',
+	modes: ['document', 'notebook'],
+	instructions: `PYTHON TOOL POLICY:
+- Use the python tool for exact calculations, data transformations, statistics, or requested visualizations instead of doing substantial arithmetic manually. Python runs in the backend through Pyodide and includes NumPy, pandas, and Matplotlib.
+- You can create visualizations with normal Pyodide/Matplotlib code. Any open Matplotlib figures are automatically sent to the user as images. A request for a chart, plot, graph, or data visualization is incomplete until you successfully create it with the python tool; do not substitute an ASCII chart or text-only table unless the user asks for one.
+- If a python call returns an error, do not apologize or give up: read the reported error, fix the code, and call python again with the complete corrected script. Small mistakes such as typos, missing imports, or wrong variable names are normal and easy to fix.`,
 	definition: {
-		type: 'function',
-		function: {
-			name: 'python',
-			description:
-				'Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, NumPy operations, and visualizations. NumPy and Matplotlib are installed. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself.',
-			parameters: {
-				type: 'object',
-				properties: {
-					code: {
-						type: 'string',
-						description:
-							'Complete Python code. NumPy is available as numpy and Matplotlib as matplotlib. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.'
-					}
-				},
-				required: ['code'],
-				additionalProperties: false
-			}
+		description:
+			'Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, and visualizations. NumPy, pandas, and Matplotlib are installed. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself. If a call fails, fix the code and call again with the corrected script.',
+		parameters: {
+			type: 'object',
+			properties: {
+				code: {
+					type: 'string',
+					description:
+						'Complete Python code. NumPy is available as numpy, pandas as pandas, and Matplotlib as matplotlib. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.'
+				}
+			},
+			required: ['code'],
+			additionalProperties: false
 		}
 	},
 	async execute(argumentsValue) {
 		const args = readObject(argumentsValue);
 		const code = clampText(args.code, MAX_CODE_CHARS + 1);
 
-		if (!code) throw new Error('python requires non-empty code');
+		if (!code) {
+			return pythonErrorResult('python requires non-empty code in the "code" argument.');
+		}
 		if (code.length > MAX_CODE_CHARS) {
-			throw new Error(`python code exceeds ${MAX_CODE_CHARS} characters`);
+			return pythonErrorResult(
+				`python code exceeds ${MAX_CODE_CHARS} characters. Send a shorter script.`
+			);
 		}
 
-		const envelope = parseEnvelope(await enqueueExecution(code));
+		let envelope: PythonEnvelope;
+		try {
+			envelope = parseEnvelope(await enqueueExecution(code));
+		} catch (error) {
+			envelope = {
+				status: 'error',
+				error: error instanceof Error ? error.message : String(error)
+			};
+		}
+
 		const images = collectImages(envelope.images);
 		const error = readText(envelope.error);
+		const status = envelope.status === 'ok' && !error ? 'ok' : 'error';
 		const data: PythonToolData = {
-			status: envelope.status === 'ok' && !error ? 'ok' : 'error',
+			status,
 			stdout: readText(envelope.stdout),
 			stderr: readText(envelope.stderr),
 			result: toJsonValue(envelope.result),
 			...(error ? { error } : {}),
+			...(status === 'error' ? { hint: RETRY_HINT } : {}),
 			images: images.map(({ id, mimeType, alt }) => ({ id, mimeType, alt }))
 		};
 
@@ -225,9 +278,16 @@ export const pythonTool: AgentTool<PythonToolData> = {
 	}
 };
 
+function pythonErrorResult(error: string) {
+	return createToolResult<PythonToolData>(
+		{ status: 'error', stdout: '', stderr: '', result: null, error, hint: RETRY_HINT, images: [] },
+		{ isError: true }
+	);
+}
+
 function enqueueExecution(code: string): Promise<string> {
-	const execution = executionQueue.then(() => executeInWorker(code));
-	executionQueue = execution.then(
+	const execution = moduleState.executionQueue.then(() => executeInWorker(code));
+	moduleState.executionQueue = execution.then(
 		() => undefined,
 		() => undefined
 	);
@@ -248,7 +308,7 @@ async function executeInWorker(code: string): Promise<string> {
 			Atomics.store(state.interruptBuffer, 0, 2);
 			pending.forcedTermination = setTimeout(() => {
 				state.pending.delete(id);
-				if (workerState === state) workerState = undefined;
+				if (moduleState.workerState === state) moduleState.workerState = undefined;
 				reject(new Error(`Python execution exceeded ${EXECUTION_TIMEOUT_MS / 1000} seconds`));
 				void state.worker.terminate();
 			}, 1_000);
@@ -265,7 +325,7 @@ async function executeInWorker(code: string): Promise<string> {
 }
 
 function getWorkerState(): WorkerState {
-	if (workerState) return workerState;
+	if (moduleState.workerState) return moduleState.workerState;
 
 	const sharedBuffer = new SharedArrayBuffer(4);
 	const interruptBuffer = new Int32Array(sharedBuffer);
@@ -296,7 +356,7 @@ function getWorkerState(): WorkerState {
 		rejectReady,
 		pending: new Map()
 	};
-	workerState = state;
+	moduleState.workerState = state;
 
 	worker.on('message', (message: WorkerMessage) => {
 		if (message.type === 'ready') {
@@ -328,7 +388,7 @@ function getWorkerState(): WorkerState {
 		failWorker(state, error instanceof Error ? error : new Error(String(error)))
 	);
 	worker.on('exit', (code) => {
-		if (workerState === state) {
+		if (moduleState.workerState === state) {
 			failWorker(state, new Error(`Pyodide worker exited with code ${code}`));
 		}
 	});
@@ -337,7 +397,7 @@ function getWorkerState(): WorkerState {
 }
 
 function failWorker(state: WorkerState, error: Error) {
-	if (workerState === state) workerState = undefined;
+	if (moduleState.workerState === state) moduleState.workerState = undefined;
 	state.rejectReady(error);
 
 	for (const pending of state.pending.values()) {

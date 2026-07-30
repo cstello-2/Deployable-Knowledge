@@ -32,35 +32,43 @@ const SEARCH_MODES = new Set<SearchMode>([
 ]);
 
 export const searchTool: AgentTool<SearchToolData> = {
+	id: 'search',
+	label: 'Document search',
+	description: 'Retrieves relevant chunks from the document knowledge base during document chat.',
+	modes: ['document'],
+	instructions: `DOCUMENT SEARCH POLICY:
+- The search tool is how document context is obtained; no search context exists until you call it.
+- For any factual question that may relate to the user's documents, files, or knowledge base, call search in the current turn before answering.
+- Never treat the initially empty context as proof that the documents lack an answer.
+- Use a focused standalone query. If the first results are empty or insufficient, try a shorter query, different keywords, or a more specific query before giving up while turns remain.
+- Base document-specific claims only on search results. Only after searching may you say that the available documents do not answer the question.
+- Do not use search for synthetic data, creative work, calculations, time, or visualization requests unless the user also asks for facts from their documents. Use the tool that directly matches the task.
+- Never use search as generic recovery for uncertainty or another tool's failure.`,
 	definition: {
-		type: 'function',
-		function: {
-			name: 'search',
-			description:
-				"Search the user's local document knowledge base and return relevant source chunks. You MUST use this before answering document-related factual questions or saying that you do not know, lack context, cannot find an answer, or need more information. If results are insufficient, refine the query and call search again.",
-			parameters: {
-				type: 'object',
-				properties: {
-					query: {
-						type: 'string',
-						description:
-							'A focused standalone search query. Preserve important names and technical terms.'
-					},
-					mode: {
-						type: 'string',
-						enum: ['semantic', 'bm25', 'hybrid'],
-						description: 'Optional retrieval method. Defaults to the configured method.'
-					},
-					top_k: {
-						type: 'integer',
-						minimum: 1,
-						maximum: 20,
-						description: 'Optional number of chunks. Defaults to the configured search limit.'
-					}
+		description:
+			"Search the user's local document knowledge base and return relevant source chunks. You MUST use this before answering document-related factual questions or saying that you do not know, lack context, cannot find an answer, or need more information. If results are insufficient, refine the query and call search again.",
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description:
+						'A focused standalone search query. Preserve important names and technical terms.'
 				},
-				required: ['query'],
-				additionalProperties: false
-			}
+				mode: {
+					type: 'string',
+					enum: ['semantic', 'bm25', 'hybrid'],
+					description: 'Optional retrieval method. Defaults to the configured method.'
+				},
+				top_k: {
+					type: 'integer',
+					minimum: 1,
+					maximum: 20,
+					description: 'Optional number of chunks. Defaults to the configured search limit.'
+				}
+			},
+			required: ['query'],
+			additionalProperties: false
 		}
 	},
 

@@ -5,27 +5,36 @@
 	import Wrench from '@lucide/svelte/icons/wrench';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import ChatContextMeter from './ChatContextMeter.svelte';
 
 	interface Props {
 		busy?: boolean;
+		contextLimit: number;
+		contextReserved: number;
+		contextUsed: number;
 		draft: string;
 		notebookMode?: boolean;
 		onNewChat: () => void;
 		onSubmit: () => void;
 		onToggleNotebookMode: () => void;
 		onToggleTools: () => void;
+		retrievalPending?: boolean;
 		toolsEnabled?: boolean;
 	}
 
 	let {
 		busy = false,
+		contextLimit,
+		contextReserved,
+		contextUsed,
 		draft = $bindable(),
 		notebookMode = false,
 		onNewChat,
 		onSubmit,
 		onToggleNotebookMode,
 		onToggleTools,
-		toolsEnabled = true
+		retrievalPending = false,
+		toolsEnabled = false
 	}: Props = $props();
 
 	function handleKeydown(event: KeyboardEvent): void {
@@ -91,14 +100,22 @@
 					<MessageSquarePlus />
 				</ActionIcon>
 			</div>
-			<ActionIcon
-				class="size-8 rounded-full shadow-sm"
-				disabled={busy || !draft.trim()}
-				label="Send message"
-				type="submit"
-			>
-				<ArrowUp />
-			</ActionIcon>
+			<div class="flex items-center gap-2">
+				<ChatContextMeter
+					limit={contextLimit}
+					reserved={contextReserved}
+					{retrievalPending}
+					used={contextUsed}
+				/>
+				<ActionIcon
+					class="size-8 rounded-full shadow-sm"
+					disabled={busy || !draft.trim()}
+					label="Send message"
+					type="submit"
+				>
+					<ArrowUp />
+				</ActionIcon>
+			</div>
 		</div>
 	</div>
 </form>

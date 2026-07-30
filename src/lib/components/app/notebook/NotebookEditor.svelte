@@ -24,6 +24,12 @@
 		pageLimit,
 		ref = $bindable(null)
 	}: Props = $props();
+
+	function limitSuffix(): string {
+		if (atLimit) return ' · limit reached';
+		if (nearLimit) return ` · ${charactersRemaining.toLocaleString()} remaining`;
+		return '';
+	}
 </script>
 
 <div class="relative min-h-0">
@@ -45,10 +51,6 @@
 		role="status"
 		aria-live="polite"
 	>
-		{characterCount.toLocaleString()} / {characterLimit.toLocaleString()} characters{atLimit
-			? ' · limit reached'
-			: nearLimit
-				? ` · ${charactersRemaining.toLocaleString()} remaining`
-				: ''}
+		{characterCount.toLocaleString()} / {characterLimit.toLocaleString()} characters{limitSuffix()}
 	</div>
 </div>

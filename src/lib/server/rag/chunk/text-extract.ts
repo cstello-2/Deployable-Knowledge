@@ -8,6 +8,8 @@ import {
 	type Source
 } from './parse-shared.ts';
 
+const MIN_OCR_CONFIDENCE = 80;
+
 function tableToText(table: TableArray): string {
 	return table
 		.map((row) => row.map(normalizeWhitespace).filter(Boolean).join(' | '))
@@ -40,7 +42,7 @@ async function ocrEmbeddedImages(
 						langPath: process.cwd()
 					});
 					await worker.setParameters({
-						tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+						tessedit_pageseg_mode: PSM.AUTO,
 						user_defined_dpi: '300',
 						debug_file: '/dev/null'
 					});
@@ -49,9 +51,14 @@ async function ocrEmbeddedImages(
 				try {
 					const result = await worker.recognize(Buffer.from(image.data));
 					const text = normalizeWhitespace(result.data.text);
+					const confidence = result.data.confidence;
 
-					if (text) {
+					if (text && confidence >= MIN_OCR_CONFIDENCE) {
 						textByPage.set(pageNumber, [...(textByPage.get(pageNumber) ?? []), text]);
+					} else if (text) {
+						console.log(
+							`[OCR] Page ${pageNumber}: discarded ${image.name} at ${Math.round(confidence)}% confidence.`
+						);
 					}
 				} catch (error) {
 					console.warn(`[OCR] Could not read an image on page ${pageNumber}.`, error);

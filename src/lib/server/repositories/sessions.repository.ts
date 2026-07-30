@@ -24,6 +24,39 @@ export class SessionsRepository {
 			.orderBy(asc(sessionMessages.id));
 	}
 
+	static async appendTurn(turn: {
+		sessionId: string;
+		userMessage: string;
+		assistantContent: string;
+		metadata: unknown;
+		createdAt: Date;
+	}): Promise<boolean> {
+		if (!(await this.find(turn.sessionId))) return false;
+
+		await db.insert(sessionMessages).values([
+			{
+				sessionId: turn.sessionId,
+				role: 'user' as const,
+				content: turn.userMessage,
+				metadata: null,
+				createdAt: turn.createdAt
+			},
+			...(turn.assistantContent
+				? [
+						{
+							sessionId: turn.sessionId,
+							role: 'assistant' as const,
+							content: turn.assistantContent,
+							metadata: turn.metadata,
+							createdAt: turn.createdAt
+						}
+					]
+				: [])
+		]);
+
+		return true;
+	}
+
 	static async delete(id: string) {
 		await db.delete(sessionMessages).where(eq(sessionMessages.sessionId, id));
 		await db.delete(sessions).where(eq(sessions.id, id));

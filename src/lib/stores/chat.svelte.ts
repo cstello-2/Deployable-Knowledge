@@ -1,4 +1,6 @@
+import { STORAGE_KEYS } from '$lib/constants';
 import { ChatService } from '$lib/services';
+import { persisted } from './persisted.svelte';
 import type {
 	AgentProgressEvent,
 	AgentTraceItem,
@@ -16,7 +18,15 @@ class ChatStore {
 	agentStatus = $state('Thinking…');
 	error = $state<string | null>(null);
 	isStreaming = $state(false);
-	toolsEnabled = $state(true);
+	private _toolsEnabled = persisted(STORAGE_KEYS.CHAT_TOOLS_ENABLED, false);
+
+	get toolsEnabled(): boolean {
+		return this._toolsEnabled.value;
+	}
+
+	set toolsEnabled(value: boolean) {
+		this._toolsEnabled.value = value;
+	}
 
 	async loadMessages(sessionId = this.session?.id): Promise<void> {
 		this.error = null;
@@ -25,6 +35,7 @@ class ChatStore {
 
 	async sendMessage(request: ApiChatMessageRequest): Promise<void> {
 		if (!this.session) throw new Error('A chat session is required.');
+
 		this.messages = [
 			...this.messages,
 			{
@@ -36,11 +47,24 @@ class ChatStore {
 				createdAt: new Date()
 			}
 		];
+
 		this.isStreaming = true;
 		this.streamedText = '';
 		this.liveTrace = [];
 		this.error = null;
 		this.agentStatus = 'Thinking…';
+
+		let finishing: Promise<void> | null = null;
+
+		const finish = (saved = true) =>
+			(finishing ??= (async () => {
+				try {
+					if (saved) await this.loadMessages();
+				} finally {
+					if (saved) this.streamedText = '';
+					this.isStreaming = false;
+				}
+			})());
 
 		try {
 			await ChatService.streamMessage(this.session.id, request, {
@@ -48,16 +72,21 @@ class ChatStore {
 				onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
 				onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
 				onTitle: (title) => this.applyStreamEvent({ type: 'title', title }),
-				onComplete: (event) => this.applyStreamEvent(event)
+				onComplete: (event) => {
+					this.applyStreamEvent(event);
+					void finish(event.saved !== false).catch(() => undefined);
+				}
 			});
-			await this.loadMessages();
+			await finish();
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 			this.agentStatus = 'Agent run failed';
 			throw error;
 		} finally {
-			this.isStreaming = false;
-			this.streamedText = '';
+			if (!finishing) {
+				this.isStreaming = false;
+				this.streamedText = '';
+			}
 		}
 	}
 
@@ -73,7 +102,10 @@ class ChatStore {
 				this.session = { ...this.session, title: event.title, updatedAt: new Date() };
 			}
 		} else if (event.type === 'complete') {
-			this.agentStatus = `Finished · ${event.modelTurns} model turn${event.modelTurns === 1 ? '' : 's'}, ${event.toolCalls} tool call${event.toolCalls === 1 ? '' : 's'}`;
+			this.agentStatus =
+				event.saved === false
+					? 'Finished · not saved (the conversation was removed)'
+					: `Finished · ${event.modelTurns} model turn${event.modelTurns === 1 ? '' : 's'}, ${event.toolCalls} tool call${event.toolCalls === 1 ? '' : 's'}`;
 		} else {
 			this.error = event.message;
 			this.agentStatus = 'Agent run failed';
@@ -81,17 +113,13 @@ class ChatStore {
 	}
 
 	private applyAgentProgress(progress: AgentProgressEvent): void {
-		if (progress.kind === 'model') {
-			if (progress.trace) this.upsertTrace(progress.trace);
-			this.agentStatus =
-				progress.status === 'started'
-					? 'Thinking…'
-					: progress.requestedTools?.length
-						? 'Starting tools…'
-						: 'Writing response…';
-		} else {
+		if (progress.kind !== 'model') {
 			this.upsertTrace(progress.trace);
+			return;
 		}
+
+		if (progress.trace) this.upsertTrace(progress.trace);
+		this.agentStatus = modelStatus(progress);
 	}
 
 	private upsertTrace(item: AgentTraceItem): void {
@@ -101,6 +129,12 @@ class ChatStore {
 				? [...this.liveTrace, item]
 				: this.liveTrace.map((entry, current) => (current === index ? item : entry));
 	}
+}
+
+function modelStatus(progress: Extract<AgentProgressEvent, { kind: 'model' }>): string {
+	if (progress.status === 'started') return 'Thinking…';
+	if (progress.requestedTools?.length) return 'Starting tools…';
+	return 'Writing response…';
 }
 
 export const chatStore = new ChatStore();

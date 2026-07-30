@@ -6,7 +6,7 @@ interface PersistedValue<T> {
 }
 
 export function persisted<T>(key: string, initialValue: T): PersistedValue<T> {
-	let value = initialValue;
+	let value = $state(initialValue);
 	if (browser) {
 		try {
 			const stored = localStorage.getItem(key);

@@ -2,6 +2,7 @@
 	import Bot from '@lucide/svelte/icons/bot';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Palette from '@lucide/svelte/icons/palette';
+	import Wrench from '@lucide/svelte/icons/wrench';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 
@@ -9,6 +10,7 @@
 	// comparison must use the plain pathname, not the resolved href.
 	const items = [
 		{ label: 'Agent', path: '/settings/agent', icon: Bot },
+		{ label: 'Tools', path: '/settings/tools', icon: Wrench },
 		{ label: 'Models', path: '/settings/models', icon: HardDrive },
 		{ label: 'Theme', path: '/settings/theme', icon: Palette }
 	] as const;

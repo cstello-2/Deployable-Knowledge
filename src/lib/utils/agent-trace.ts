@@ -102,13 +102,8 @@ function formatSearchResults(resultValue: unknown): string {
 		return result.context.trim() || 'No results';
 	}
 
-	const matches = Array.isArray(result.hybrid)
-		? result.hybrid
-		: Array.isArray(result.results)
-			? result.results
-			: Array.isArray(result.sources)
-				? result.sources
-				: [];
+	const matches =
+		[result.hybrid, result.results, result.sources].find((value) => Array.isArray(value)) ?? [];
 
 	if (matches.length) {
 		return matches.map((match, index) => formatSearchMatch(match, index)).join('\n\n');
@@ -118,21 +113,16 @@ function formatSearchResults(resultValue: unknown): string {
 	return 'No results';
 }
 
+function firstString(values: unknown[]): string {
+	const found = values.find((value) => typeof value === 'string');
+	return typeof found === 'string' ? found : '';
+}
+
 function formatSearchMatch(value: unknown, index: number): string {
 	const match = readObject(value);
-	const title =
-		typeof match.sourceTitle === 'string'
-			? match.sourceTitle
-			: typeof match.title === 'string'
-				? match.title
-				: 'Document';
+	const title = firstString([match.sourceTitle, match.title]) || 'Document';
 	const page = typeof match.pageIndex === 'number' ? `, page ${match.pageIndex + 1}` : '';
-	const text =
-		typeof match.content === 'string'
-			? match.content
-			: typeof match.description === 'string'
-				? match.description
-				: '';
+	const text = firstString([match.content, match.description]);
 
 	return `${index + 1}. ${title}${page}${text ? `\n${text}` : ''}`;
 }

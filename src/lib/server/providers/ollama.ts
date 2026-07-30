@@ -40,7 +40,8 @@ export class Ollama extends Provider {
 					num_predict: options.maxTokens
 				},
 				stream: true
-			})
+			}),
+			signal: options.signal
 		});
 
 		const resp = await fetch(req);

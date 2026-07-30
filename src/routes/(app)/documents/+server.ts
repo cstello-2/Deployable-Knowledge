@@ -33,11 +33,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		ingest = (onProgress) => ingestFilePath(path, onProgress);
 	}
 
+	let closed = false;
+
 	const stream = new ReadableStream({
 		start(controller) {
 			const encoder = new TextEncoder();
 			const send = (event: ApiDocumentIngestEvent) => {
-				controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+				if (closed) return;
+				try {
+					controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+				} catch {
+					closed = true;
+				}
 			};
 
 			void (async () => {
@@ -64,9 +71,20 @@ export const POST: RequestHandler = async ({ request }) => {
 						message: cause instanceof Error ? cause.message : 'Document ingestion failed'
 					});
 				} finally {
-					controller.close();
+					if (!closed) {
+						try {
+							controller.close();
+						} catch {
+							closed = true;
+						}
+					}
 				}
-			})();
+			})().catch((cause) => {
+				console.error('Document ingestion stream failed', cause);
+			});
+		},
+		cancel() {
+			closed = true;
 		}
 	});
 

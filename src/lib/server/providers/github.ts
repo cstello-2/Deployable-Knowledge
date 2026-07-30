@@ -51,7 +51,8 @@ export class Github extends Provider {
 						}
 					: {}),
 				stream: true
-			})
+			}),
+			signal: options.signal
 		});
 
 		const resp = await fetch(req);

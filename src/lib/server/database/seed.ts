@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import { profiles, sessions, users, type User } from '$lib/server/database/schema';
 import { LEGACY_LOCAL_USER_ID, LOCAL_USER_ID } from '$lib/server/database/constants';
+import { toolRegistry } from '$lib/server/tools';
 
 export const localUsername = LOCAL_USER_ID;
 
@@ -40,6 +41,7 @@ export async function seedLocalUser(): Promise<User> {
 					id: randomUUID(),
 					userId: user.id,
 					name: 'Default',
+					enabledTools: toolRegistry.ids(),
 					createdAt: new Date(),
 					updatedAt: new Date()
 				})

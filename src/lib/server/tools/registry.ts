@@ -1,5 +1,6 @@
 import type { ProviderToolCall, ProviderToolDefinition } from '../providers/provider';
 import type { AgentTool, ToolExecutionContext, ToolExecutionResult } from './types';
+import type { ApiAgentTool, ChatMode } from '$lib/types';
 import { createToolResult } from './result';
 
 export class ToolRegistry {
@@ -10,18 +11,51 @@ export class ToolRegistry {
 	}
 
 	register(tool: AgentTool): this {
-		const name = tool.definition.function.name;
-
-		if (!name || this.#tools.has(name)) {
-			throw new Error(`Tool name is missing or already registered: ${name}`);
+		if (!tool.id || this.#tools.has(tool.id)) {
+			throw new Error(`Tool id is missing or already registered: ${tool.id}`);
 		}
 
-		this.#tools.set(name, tool);
+		this.#tools.set(tool.id, tool);
 		return this;
 	}
 
+	catalog(): ApiAgentTool[] {
+		return [...this.#tools.values()].map(({ id, label, description, modes }) => ({
+			id,
+			label,
+			description,
+			modes
+		}));
+	}
+
+	ids(): string[] {
+		return [...this.#tools.keys()];
+	}
+
+	idsForMode(mode: ChatMode): string[] {
+		return [...this.#tools.values()]
+			.filter((tool) => tool.modes.includes(mode))
+			.map(({ id }) => id);
+	}
+
+	filterIds(value: unknown): string[] {
+		if (!Array.isArray(value)) return this.ids();
+		return this.ids().filter((id) => value.includes(id));
+	}
+
 	definitions(names?: readonly string[]): ProviderToolDefinition[] {
-		return this.select(names).map((tool) => tool.definition);
+		return this.select(names).map((tool) => ({
+			type: 'function',
+			function: {
+				name: tool.id,
+				description: tool.definition.description,
+				parameters: tool.definition.parameters
+			}
+		}));
+	}
+
+	instructions(names?: readonly string[]): string[] {
+		return this.select(names).flatMap((tool) => (tool.instructions ? [tool.instructions] : []));
 	}
 
 	async execute(

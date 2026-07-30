@@ -7,12 +7,10 @@ import { RetrievalMode } from '$lib/enums';
 import { compactText } from '$lib/server/utils/values';
 
 const MAX_PREVIEW_CHARS = 200;
+const ENV_RETRIEVAL_MODES: readonly RetrievalMode[] = [RetrievalMode.BM25, RetrievalMode.SEMANTIC];
 const DEFAULT_RETRIEVAL_MODE =
-	process.env.RAG_RETRIEVAL_MODE === RetrievalMode.BM25
-		? RetrievalMode.BM25
-		: process.env.RAG_RETRIEVAL_MODE === RetrievalMode.SEMANTIC
-			? RetrievalMode.SEMANTIC
-			: DEFAULT_ASSISTANT_CONFIG.retrievalMode;
+	ENV_RETRIEVAL_MODES.find((mode) => mode === process.env.RAG_RETRIEVAL_MODE) ??
+	DEFAULT_ASSISTANT_CONFIG.retrievalMode;
 
 export type RagRetrievalMode = RetrievalMode;
 
