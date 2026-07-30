@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FileStack from '@lucide/svelte/icons/files';
+	import Quote from '@lucide/svelte/icons/quote';
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
@@ -13,10 +14,11 @@
 		loading?: boolean;
 		onClear: () => Promise<void> | void;
 		onRemove: (id: string) => Promise<void> | void;
+		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		sources: readonly NotebookSourceItem[];
 	}
 
-	let { loading = false, onClear, onRemove, sources }: Props = $props();
+	let { loading = false, onClear, onInsertCitation, onRemove, sources }: Props = $props();
 	let clearOpen = $state(false);
 </script>
 
@@ -66,6 +68,14 @@
 						<p class="m-0 line-clamp-3 min-w-0 break-words text-xs text-muted-foreground">
 							{source.preview}
 						</p>
+						<Button
+							class="mt-1 justify-self-start"
+							size="sm"
+							variant="outline"
+							onclick={() => onInsertCitation(source)}
+						>
+							<Quote /> Insert citation
+						</Button>
 					</article>
 				{:else}
 					<p class="text-sm text-muted-foreground">

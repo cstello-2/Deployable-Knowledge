@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { ApiError } from '$lib/utils';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
@@ -13,7 +13,7 @@
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
 	import { notebooksStore } from '$lib/stores';
-	import type { NotebookPage, NotebookWithPages } from '$lib/types';
+	import type { NotebookPage, NotebookSourceItem, NotebookWithPages } from '$lib/types';
 	import { createNotebookAutosave } from './notebook-autosave';
 	import { notebookCountLabel } from './notebook-format';
 	import type { NotebookDeleteTarget, NotebookRenameTarget, NotebookView } from './notebook-types';
@@ -24,6 +24,7 @@
 	import NotebookPreview from './NotebookPreview.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
+	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
 
 	interface Props {
 		collapsed?: boolean;
@@ -58,6 +59,7 @@
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
 	let movePageTarget = $state<NotebookPage | null>(null);
 	let moveDestinationId = $state('');
+	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
 
 	const otherPageCharacters = $derived(
 		notebooksStore.activeNotebook?.pages.reduce(
@@ -285,6 +287,18 @@
 		}
 	}
 
+	async function insertCitation(source: NotebookSourceItem): Promise<void> {
+		const start = notesTextarea?.selectionStart ?? notes.length;
+		const end = notesTextarea?.selectionEnd ?? start;
+		const insertion = insertNotebookSourceCitation(notes, source, start, end);
+		notes = insertion.text;
+		autosave.schedule();
+		await tick();
+		notesTextarea?.focus();
+		notesTextarea?.setSelectionRange(insertion.cursor, insertion.cursor);
+		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -317,6 +331,7 @@
 			sourcesLoading={notebooksStore.sourcesLoading}
 			onBack={goBack}
 			onCreate={openCreate}
+			onInsertCitation={insertCitation}
 			onTogglePreview={() => (previewMode = !previewMode)}
 			onRemoveSource={removeSource}
 			onClearSources={clearSources}
@@ -354,6 +369,7 @@
 			<NotebookPreview content={notes} />
 		{:else}
 			<NotebookEditor
+				bind:ref={notesTextarea}
 				bind:notes
 				{pageLimit}
 				{characterCount}
