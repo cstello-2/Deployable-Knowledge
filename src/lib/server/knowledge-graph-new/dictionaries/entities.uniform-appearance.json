@@ -1,0 +1,92 @@
+{
+  "entities": [
+    {
+      "label": "Airman",
+      "type": "role",
+      "aliases": ["Airmen", "assigned Airmen", "male Airmen", "female Airmen"],
+      "description": "Air Force member addressed by dress, appearance, or conduct policy.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 5
+    },
+    {
+      "label": "Guardian",
+      "type": "role",
+      "aliases": ["Guardians", "Space Force Guardian"],
+      "description": "Space Force member addressed by dress, appearance, or conduct policy.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Operational Camouflage Pattern Uniform",
+      "type": "uniform",
+      "aliases": ["OCP", "OCP uniform", "utility uniform", "camouflage uniform"],
+      "description": "Operational Camouflage Pattern utility uniform.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 5
+    },
+    {
+      "label": "Service Dress Uniform",
+      "type": "uniform",
+      "aliases": ["service dress", "dress uniform"],
+      "description": "Formal service dress uniform.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Physical Training Gear",
+      "type": "uniform",
+      "aliases": ["PTG", "PT gear", "physical training uniform"],
+      "description": "Uniform or gear worn for physical training.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 3
+    },
+    {
+      "label": "Uniform of the Day",
+      "type": "uniform_policy",
+      "aliases": ["UOD", "prescribed uniform"],
+      "description": "Uniform prescribed for a given day, event, or duty context.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Civilian Attire",
+      "type": "attire",
+      "aliases": ["civilian clothes", "civilian clothing"],
+      "description": "Non-uniform clothing worn by personnel.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 3
+    },
+    {
+      "label": "Earrings",
+      "type": "appearance_item",
+      "aliases": ["earring", "ear rings"],
+      "description": "Jewelry worn on the ear.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Hijab",
+      "type": "religious_accommodation_item",
+      "aliases": ["head scarf", "headscarf", "religious head covering"],
+      "description": "Religious head covering that may be addressed by accommodation policy.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Religious Accommodation",
+      "type": "policy_process",
+      "aliases": ["faith accommodation", "accommodation permitting faith practices"],
+      "description": "Accommodation process for religious or faith practices.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    },
+    {
+      "label": "Military Event",
+      "type": "event",
+      "aliases": ["military ceremony", "official military event"],
+      "description": "Military event or ceremony addressed by uniform policy.",
+      "source": "DAFI36-2903 corpus",
+      "priority": 2
+    }
+  ]
+}

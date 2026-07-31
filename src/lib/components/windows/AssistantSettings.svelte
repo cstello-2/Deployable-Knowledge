@@ -12,6 +12,11 @@
   } from "$lib/components/popups";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
+  import { selectedDocumentIds } from "$lib/utils/documentSelection";
+  import {
+    normalizeDocumentIds,
+    type KnowledgeGraphStatusResponse,
+  } from "$lib/utils/knowledgeGraphState";
   import type { Provider } from "$lib/server/providers/provider";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import type {
@@ -36,6 +41,13 @@
     pageIndex: number;
     content: string;
   };
+  type SearchResponse = {
+    bm25?: SearchMatch[];
+    semantic?: SearchMatch[];
+    hybrid?: SearchMatch[];
+    graph?: SearchMatch[];
+    graphStatus?: KnowledgeGraphStatusResponse | null;
+  };
   let {
     id,
     title,
@@ -51,6 +63,7 @@
     { id: "semantic", label: "Semantic" },
     { id: "bm25", label: "BM25" },
     { id: "hybrid", label: "Hybrid" },
+    { id: "graph", label: "Knowledge Graph" },
   ];
 
   let providerModelGroups = $state<ProviderModelGroup[]>([]);
@@ -69,6 +82,9 @@
   let bm25Results = $state<SearchMatch[]>([]);
   let semanticResults = $state<SearchMatch[]>([]);
   let hybridResults = $state<SearchMatch[]>([]);
+  let graphResults = $state<SearchMatch[]>([]);
+  let searchError = $state("");
+  let graphComparisonStatus = $state("");
   let apiKeyPopupOpen = $state(false);
   let templatePopupOpen = $state(false);
   let modelMenuOpen = $state(false);
@@ -112,6 +128,7 @@
     appState.topK = topK ?? 8;
     appState.maxTokens = maxTokens ?? 512;
     appState.persona = persona;
+    appState.retrievalMode = retrievalMode;
   }
 
   function applyProfile(profile: ActiveAssistantProfile) {
@@ -119,12 +136,17 @@
 
     if (!profile) return;
 
+    applyProfileValues(profile);
+  }
+
+  function applyProfileValues(profile: AssistantProfileValues) {
     appState.currentProviderId = profile.provider;
     appState.currentModelId = profile.model;
     appState.maxTokens = profile.maxTokens;
     appState.temperature = profile.temperature;
     appState.topK = profile.topK;
     retrievalMode = profile.retrievalMode;
+    appState.retrievalMode = profile.retrievalMode;
     appState.ragTopK = profile.ragTopK;
     appState.promptTemplateId = profile.promptTemplateId || "";
     appState.persona = profile.persona || "";
@@ -150,7 +172,14 @@
     });
     const profile = (await resp.json()) as ActiveAssistantProfile;
 
-    applyProfile(profile);
+    if (profile) {
+      applyProfile(profile);
+    } else {
+      appState.activeProfileId = null;
+      const settingsResponse = await fetch("/settings", { method: "GET" });
+      const settings = (await settingsResponse.json()) as AssistantProfileValues;
+      applyProfileValues(settings);
+    }
     syncProfileFields();
   }
 
@@ -412,10 +441,9 @@
     applyProfileFieldsToState();
     appState.ragTopK = ragTopK ?? 5;
 
-    if (!currentProfile) return;
-
     busy = true;
-    const resp = await fetch("/profiles/active", {
+    const hasActiveProfile = Boolean(currentProfile);
+    const resp = await fetch(hasActiveProfile ? "/profiles/active" : "/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(getProfileValues()),
@@ -428,7 +456,12 @@
     }
 
     const profile = (await resp.json()) as AssistantProfile;
-    applyProfile(profile);
+    if (hasActiveProfile) {
+      applyProfile(profile);
+    } else {
+      appState.activeProfileId = null;
+      applyProfileValues(profile);
+    }
     syncProfileFields();
     busy = false;
     showToast(message);
@@ -450,6 +483,7 @@
     if (busy || retrievalMode === mode) return;
 
     retrievalMode = mode;
+    appState.retrievalMode = mode;
     await saveActiveProfile("Search settings updated");
   }
 
@@ -486,6 +520,27 @@
     bm25Results = [];
     semanticResults = [];
     hybridResults = [];
+    graphResults = [];
+    searchError = "";
+    graphComparisonStatus = "";
+  }
+
+  function formatGraphComparisonStatus(
+    status: KnowledgeGraphStatusResponse | null | undefined,
+  ) {
+    if (!status || status.status === "built") return "";
+    if (status.status === "building") {
+      return "Knowledge Graph is currently building.";
+    }
+    if (status.status === "failed") {
+      return status.error
+        ? `Knowledge Graph build failed: ${status.error}`
+        : "Knowledge Graph build failed.";
+    }
+
+    return status.needsRebuild
+      ? "Knowledge Graph needs to be rebuilt for the current documents."
+      : "Knowledge Graph has not been built for the current documents.";
   }
 
   async function runSearchComparison() {
@@ -495,18 +550,37 @@
     bm25Results = [];
     semanticResults = [];
     hybridResults = [];
+    graphResults = [];
+    searchError = "";
+    graphComparisonStatus = "";
 
     const params = new URLSearchParams({
       query: searchQuery,
       topK: String(ragTopK ?? appState.ragTopK),
     });
+    for (const documentId of normalizeDocumentIds($selectedDocumentIds)) {
+      params.append("documentIds", documentId);
+    }
 
-    const resp = await fetch(`/search?${params}`);
-    const data = await resp.json();
-    bm25Results = data.bm25;
-    semanticResults = data.semantic;
-    hybridResults = data.hybrid;
-    searchLoading = false;
+    try {
+      const resp = await fetch(`/search?${params}`);
+      if (!resp.ok) {
+        throw new Error(`Search comparison failed (${resp.status})`);
+      }
+
+      const data = (await resp.json()) as SearchResponse;
+      bm25Results = data.bm25 ?? [];
+      semanticResults = data.semantic ?? [];
+      hybridResults = data.hybrid ?? [];
+      graphResults = data.graph ?? [];
+      graphComparisonStatus = formatGraphComparisonStatus(data.graphStatus);
+    } catch (error) {
+      searchError = error instanceof Error
+        ? error.message
+        : "Search comparison failed.";
+    } finally {
+      searchLoading = false;
+    }
   }
 </script>
 
@@ -852,7 +926,12 @@
         </div>
 
         <div class="search-panes">
-          {#each [{ label: "BM25", results: bm25Results }, { label: "Semantic", results: semanticResults }, { label: "Hybrid", results: hybridResults }] as pane}
+          {#each [
+            { label: "BM25", results: bm25Results, emptyMessage: searchError },
+            { label: "Semantic", results: semanticResults, emptyMessage: searchError },
+            { label: "Hybrid", results: hybridResults, emptyMessage: searchError },
+            { label: "Graph", results: graphResults, emptyMessage: graphComparisonStatus || searchError },
+          ] as pane}
             <div class="search-pane">
               <div class="pane-label">{pane.label}</div>
               {#each pane.results as result, i (result.chunkId)}
@@ -866,7 +945,7 @@
                 </div>
               {:else}
                 {#if !searchLoading}
-                  <p class="no-results">No results</p>
+                  <p class="no-results">{pane.emptyMessage || "No results"}</p>
                 {/if}
               {/each}
             </div>
@@ -1188,12 +1267,6 @@
     gap: 0;
   }
 
-  .profile-empty {
-    padding: 8px;
-    color: var(--muted);
-    font-size: 12px;
-  }
-
   .dropdown-action-button {
     display: inline-grid;
     width: 34px;
@@ -1389,7 +1462,7 @@
     display: grid;
     min-height: 0;
     overflow: hidden;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
 

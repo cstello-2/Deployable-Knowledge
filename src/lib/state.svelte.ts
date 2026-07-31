@@ -11,6 +11,9 @@ export class AppState {
   activeNotebookId = $state<string | null>(null);
   activeNotebook = $state<NotebookWithPages | null>(null);
   activePage = $state<NotebookPage | null>(null);
+  notebookContextNotebookIds = $state<string[]>([]);
+  notebookContextPageIds = $state<string[]>([]);
+  assistantRequestInFlight = $state(false);
   activeProfileId = $state<string | null>(null);
   currentProviderId = $state("ollama");
   currentModelId = $state("granite4:350m");
@@ -20,6 +23,7 @@ export class AppState {
   promptTemplateId = $state("");
   promptTemplates = $state<PromptTemplate[]>([]);
   persona = $state("");
+  retrievalMode = $state<"semantic" | "bm25" | "hybrid" | "graph">("hybrid");
   ragTopK = $state(5);
   lastQuery = $state("");
 }

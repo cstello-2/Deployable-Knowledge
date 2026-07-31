@@ -3,12 +3,35 @@
     ChatMessageRequest,
     NotebookSourcesRequest,
   } from "$lib/requestTypes";
-  import { getContext, tick } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import NotebookContextDialog from "$lib/components/notebooks/NotebookContextDialog.svelte";
+  import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
-  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
+  import {
+    getSelectedDocumentIds,
+    selectedDocumentIds,
+  } from "$lib/utils/documentSelection";
+  import { documentPdfPageUrl } from "$lib/utils/documentReferences";
+  import {
+    knowledgeGraphState,
+    knowledgeGraphStateMatches,
+    refreshKnowledgeGraphStatus,
+  } from "$lib/utils/knowledgeGraphState";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import { withAssistantRequestLock } from "$lib/utils/assistantRequestState";
+  import { isWindowVisible, showWindow } from "$lib/utils/workspaceState";
+  import {
+    getNotebookContextSelectionSnapshot,
+    getNotebookContextSummary,
+    hasNotebookContextSelection,
+    restoreNotebookContextPageIds,
+  } from "$lib/utils/notebookContextSelection";
+  import {
+    applyNotebookState,
+    attachChunkToNotebookDestination,
+  } from "$lib/utils/notebookState";
   import type { WindowInstanceProps } from "./index";
   import type { AppState } from "$lib/state.svelte";
   import type {
@@ -22,15 +45,65 @@
     url?: string;
     title?: string;
     description?: string;
+    score?: number;
+    rawScore?: number;
+    documentId?: string;
+    sourceType?: "PDF" | "NOTEBOOK";
     chunkId?: string;
+    nodeId?: string;
+    pageIndex?: number;
+    chunkIndex?: number;
+    chunkType?: string;
+    content?: string;
+    sourceTitle?: string;
   };
 
-  // dk:send-to-notebook carries fully-composed text — the notebook just
-  // appends it as plain text.
-  type SendToNotebookDetail = { text: string };
+  type AssistantMetadata = {
+    sources?: ChatSource[];
+    retrievalMode?: string;
+    query?: string;
+    documentIds?: string[];
+    graphDocumentIds?: string[];
+    graphChunkIds?: string[];
+    graphTopK?: number;
+    graphPrepared?: boolean;
+    notebookContext?: boolean;
+    notebookContextPages?: Array<{
+      notebookId: string;
+      notebookTitle: string;
+      pageId: string;
+      pageTitle: string;
+    }>;
+  };
+
+  type QueryGraphContext = {
+    sessionId: string;
+    query: string;
+    topK: number;
+  };
+
+  type PendingResultChunk = {
+    source: ChatSource;
+  };
 
   function getMessageSources(message: SessionMessage): ChatSource[] {
-    return (message.metadata as { sources?: ChatSource[] } | null)?.sources ?? [];
+    return (message.metadata as AssistantMetadata | null)?.sources ?? [];
+  }
+
+  function getAssistantMetadata(message: SessionMessage): AssistantMetadata {
+    return (message.metadata as AssistantMetadata | null) ?? {};
+  }
+
+  function getSourcePdfUrl(source: ChatSource): string | null {
+    if (
+      !source.documentId ||
+      source.pageIndex === undefined ||
+      source.sourceType === "NOTEBOOK"
+    ) {
+      return null;
+    }
+
+    return documentPdfPageUrl(source.documentId, source.pageIndex);
   }
 
   let {
@@ -47,60 +120,147 @@
 
   let logElement = $state<HTMLElement | null>(null);
   let draft = $state("");
-  let busy = $state(false);
+  let status = $state("");
+  let busy = $derived(appState.assistantRequestInFlight);
+  let loadingSession = $state(false);
   let messages = $state<SessionMessage[]>([]);
   let messageStream = $state("");
-  let sendDisabled = $derived(busy || draft.trim().length === 0);
+  let hasSubmittedQuery = $derived(
+    messages.some((message) => message.role === "user"),
+  );
+  let hasNotebookContext = $derived(
+    hasNotebookContextSelection(appState),
+  );
+  let notebookContextSummary = $derived(getNotebookContextSummary(appState));
+  let sendDisabled = $derived(
+    busy || loadingSession || hasSubmittedQuery || draft.trim().length === 0,
+  );
   let loadedSessionId: string | undefined;
+  let graphRequestId = 0;
+  let queryGraphContext = $state<QueryGraphContext | null>(null);
+  let selectedResultChunkId = $state<string | null>(null);
+  let galaxySelectedChunkId = $state<string | null>(null);
+  let notebookDestinationOpen = $state(false);
+  let chunkDestinationOpen = $state(false);
+  let notebookContextOpen = $state(false);
+  let pendingNotebookMessage = $state<SessionMessage | null>(null);
+  let pendingResultChunk = $state<PendingResultChunk | null>(null);
+  let graphReadinessMessage = $derived(
+    appState.retrievalMode === "graph" &&
+      knowledgeGraphStateMatches($knowledgeGraphState, $selectedDocumentIds) &&
+      ($knowledgeGraphState.status === "building" ||
+        $knowledgeGraphState.status === "checking")
+      ? "The Knowledge Graph is preparing for this question."
+      : "",
+  );
 
-  // Notebook mode: RAG off, context = the entire open notebook (all its pages)
-  // instead of retrieved document chunks.
-  let notebookMode = $state(false);
-  function toggleNotebookMode() {
-    notebookMode = !notebookMode;
-  }
-
-  // Fetch the currently open notebook fresh (rather than trusting appState,
-  // which can lag behind saves) and flatten all of its pages into one context blob.
-  async function fetchNotebookContext(): Promise<string> {
-    const res = await fetch("/notebooks");
-    const data = (await res.json()) as {
-      activeNotebookId: string | null;
-      notebooks: NotebookWithPages[];
-    };
-    const notebook = data.notebooks.find((nb) => nb.id === data.activeNotebookId);
-    if (!notebook) return "";
-    return notebook.pages.map((p) => p.content).filter(Boolean).join("\n\n");
+  function openNotebookContextPicker() {
+    if (busy || loadingSession || hasSubmittedQuery) return;
+    notebookContextOpen = true;
   }
 
   // Send an assistant reply to the currently open notebook page (visible,
   // plain text), and separately attach the RAG chunks behind it to the
   // notebook server-side — hidden from the page text, but usable by
   // notebook-mode chat and viewable via the notebook's Sources panel.
-  async function sendToNotebook(message: SessionMessage) {
-    const detail: SendToNotebookDetail = { text: message.content };
-    window.dispatchEvent(new CustomEvent("dk:send-to-notebook", { detail }));
+  function openSendToNotebook(message: SessionMessage) {
+    pendingNotebookMessage = message;
+    notebookDestinationOpen = true;
+  }
 
-    const chunkIds = getMessageSources(message)
-      .filter((s) => s.chunkId)
-      .map((s) => s.chunkId as string);
+  function closeSendToNotebook() {
+    notebookDestinationOpen = false;
+    pendingNotebookMessage = null;
+  }
 
-    if (chunkIds.length && appState.activeNotebookId) {
-      await fetch(`/notebooks/${appState.activeNotebookId}/sources`, {
+  function formatAssistantNotebookEntry(message: SessionMessage) {
+    const query =
+      messages.find((candidate) => candidate.role === "user")?.content ??
+      appState.lastQuery;
+    const entryId = `assistant-response:${message.sessionId}:${message.id}`;
+    const createdAt = message.createdAt ? new Date(message.createdAt) : null;
+    return {
+      entryId,
+      text: [
+        "[Assistant Response]",
+        query ? `Query: ${query}` : null,
+        `Session ID: ${message.sessionId}`,
+        `Assistant Message ID: ${message.id}`,
+        `Assistant Response ID: ${entryId}`,
+        `Chunk ID: ${entryId}`,
+        !createdAt || Number.isNaN(createdAt.getTime())
+          ? null
+          : `Generated: ${createdAt.toISOString()}`,
+        "",
+        message.content.trim(),
+      ].filter((line): line is string => line !== null).join("\n"),
+    };
+  }
+
+  async function saveAssistantToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
+    const message = pendingNotebookMessage;
+    if (!message) throw new Error("Choose an assistant response to save.");
+
+    const entry = formatAssistantNotebookEntry(message);
+    const response = await fetch(
+      `/notebooks/${destination.notebookId}/pages/${destination.pageId}/chunks`,
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chunk_ids: chunkIds,
-        } satisfies NotebookSourcesRequest),
-      });
-      window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+          chunkId: entry.entryId,
+          text: entry.text,
+        }),
+      },
+    );
+    const data = await response.json() as {
+      message?: string;
+      activeNotebookId: string | null;
+      notebooks: NotebookWithPages[];
+      duplicate?: boolean;
+    };
+    if (!response.ok) {
+      throw new Error(data.message || "The assistant response could not be saved.");
     }
 
+    applyNotebookState(appState, data);
+    const chunkIds = getMessageSources(message)
+      .map((source) => source.chunkId)
+      .filter((value): value is string => Boolean(value));
+    if (chunkIds.length) {
+      const sourcesResponse = await fetch(
+        `/notebooks/${destination.notebookId}/sources`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chunk_ids: chunkIds,
+          } satisfies NotebookSourcesRequest),
+        },
+      );
+      if (!sourcesResponse.ok) {
+        throw new Error(
+          "The response was saved, but its source links could not be attached.",
+        );
+      }
+    }
+
+    showWindow("notebook-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+    window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+    const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
     showToast(
-      chunkIds.length
-        ? `Sent to notebook (+${chunkIds.length} source${chunkIds.length === 1 ? "" : "s"})`
-        : "Sent to notebook",
+      data.duplicate
+        ? `Assistant response already exists in ${label}`
+        : `Assistant response saved to ${label}`,
     );
+    closeSendToNotebook();
   }
 
   // Reload when the current session changes (e.g. picked in Chat History).
@@ -108,14 +268,39 @@
     const sessionId = appState.currentSession?.id;
     if (busy || sessionId === loadedSessionId) return;
     loadedSessionId = sessionId;
+    loadingSession = Boolean(sessionId);
+    messages = [];
+    messageStream = "";
+    status = "";
+    queryGraphContext = null;
+    selectedResultChunkId = null;
+    galaxySelectedChunkId = null;
+    clearGraphGalaxy();
     if (sessionId) {
       loadMessages(sessionId)
-        .then((m) => { if (sessionId === appState.currentSession?.id) messages = m; })
-        .catch(() => {});
+        .then(async (loadedMessages) => {
+          if (sessionId !== appState.currentSession?.id) return;
+          messages = loadedMessages;
+          rememberQueryGraph(sessionId, loadedMessages);
+          loadingSession = false;
+          await tick();
+          if (logElement) logElement.scrollTop = 0;
+        })
+        .catch(() => {
+          if (sessionId !== appState.currentSession?.id) return;
+          loadingSession = false;
+          status = "This historical chat could not be loaded.";
+        });
     } else {
       messages = [];
       messageStream = "";
+      loadingSession = false;
     }
+  });
+
+  $effect(() => {
+    if (appState.retrievalMode !== "graph") return;
+    void refreshKnowledgeGraphStatus($selectedDocumentIds);
   });
 
   async function loadMessages(sessionId: string): Promise<SessionMessage[]> {
@@ -140,84 +325,280 @@
     if (logElement) logElement.scrollTop = logElement.scrollHeight;
   }
 
+  async function assistantErrorMessage(response: Response) {
+    try {
+      const body = await response.json() as { message?: unknown; error?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) return body.message;
+      if (typeof body.error === "string" && body.error.trim()) return body.error;
+    } catch {
+      // Fall back to the HTTP status.
+    }
+    return `Assistant request failed (${response.status})`;
+  }
+
+  function rememberQueryGraph(
+    sessionId: string,
+    sessionMessages: SessionMessage[],
+  ) {
+    const userMessage = sessionMessages.find((message) => message.role === "user");
+    const assistantMessage = [...sessionMessages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    const metadata = assistantMessage?.metadata as AssistantMetadata | null;
+    if (!userMessage) return;
+
+    appState.lastQuery = metadata?.query?.trim() || userMessage.content;
+    queryGraphContext = {
+      sessionId,
+      query: appState.lastQuery,
+      topK: metadata?.graphTopK ?? appState.ragTopK,
+    };
+  }
+
+  function clearGraphGalaxy() {
+    window.dispatchEvent(new CustomEvent("dk:clear-graph", {
+      detail: { requestId: ++graphRequestId },
+    }));
+  }
+
+  async function selectResultChunk(source: ChatSource) {
+    if (!source.chunkId && !source.nodeId) return;
+    selectedResultChunkId = source.chunkId ?? source.nodeId ?? null;
+    if (appState.retrievalMode !== "graph") return;
+    if (!isWindowVisible("graph-galaxy-window")) return;
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:focus-galaxy-chunk", {
+      detail: { chunkId: source.chunkId, nodeId: source.nodeId },
+    }));
+  }
+
+  function saveResultChunk(source: ChatSource) {
+    if (!source.chunkId) return;
+    selectedResultChunkId = source.chunkId;
+    pendingResultChunk = { source };
+    chunkDestinationOpen = true;
+  }
+
+  function closeChunkDestination() {
+    chunkDestinationOpen = false;
+    pendingResultChunk = null;
+  }
+
+  async function saveResultChunkToDestination(destination: {
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }) {
+    const item = pendingResultChunk;
+    const chunkId = item?.source.chunkId;
+    if (!item || !chunkId) throw new Error("Choose a result chunk to save.");
+
+    const result = await attachChunkToNotebookDestination(
+      appState,
+      destination,
+      chunkId,
+    );
+
+    showWindow("notebook-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
+    window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
+    const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
+    showToast(
+      result.duplicate
+        ? `Chunk already exists in Loaded Sources for ${label}`
+        : `Chunk added to Loaded Sources for ${label}`,
+    );
+    closeChunkDestination();
+  }
+
+  async function openGraphGalaxy() {
+    if (appState.retrievalMode !== "graph") {
+      status = "Enable KG search in Settings to use Graph Galaxy.";
+      return;
+    }
+    const context = queryGraphContext;
+    if (!context) {
+      status = "Ask a question before visualizing its Knowledge Graph.";
+      return;
+    }
+    showWindow("graph-galaxy-window");
+    await tick();
+    window.dispatchEvent(new CustomEvent("dk:visualize-graph", {
+      detail: {
+        sessionId: context.sessionId,
+        query: context.query,
+        // Match the Graph Galaxy's Visualize button: selected documents when
+        // present, or the complete collection when selection is empty.
+        documentIds: getSelectedDocumentIds(),
+        chunkIds: [],
+        requestId: ++graphRequestId,
+        topK: context.topK,
+      },
+    }));
+  }
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || hasSubmittedQuery) {
+      if (hasSubmittedQuery) {
+        status = "This chat already has a question. Start a new chat to ask another one.";
+      }
+      return;
+    }
     const text = draft.trim();
     if (!text) return;
 
-    draft = "";
-    busy = true;
-    appState.lastQuery = text;
+    await withAssistantRequestLock(appState, async () => {
+      const notebookContextSnapshot =
+        getNotebookContextSelectionSnapshot(appState);
+      const useNotebookContext =
+        notebookContextSnapshot.notebookIds.length > 0 ||
+        notebookContextSnapshot.pageIds.length > 0;
 
-    const session = appState.currentSession ?? (await createSession());
+      draft = "";
+      status = "";
+      appState.lastQuery = text;
+      const documentIds = getSelectedDocumentIds();
 
-    messages = [...messages, {
-      id: (messages.at(-1)?.id ?? 0) + 1,
-      role: "user",
-      content: text,
-      createdAt: new Date(),
-      sessionId: session.id,
-      metadata: null,
-    }];
-    await scrollToBottom();
+      try {
+        const session = appState.currentSession ?? (await createSession());
 
-    const requestBase = {
-      message: text,
-      model_id: appState.currentModelId,
-      provider_id: appState.currentProviderId,
-      max_tokens: appState.maxTokens,
-      temperature: appState.temperature,
-      top_k: appState.topK,
-    };
+        messages = [...messages, {
+          id: (messages.at(-1)?.id ?? 0) + 1,
+          role: "user",
+          content: text,
+          createdAt: new Date(),
+          sessionId: session.id,
+          metadata: null,
+        }];
+        await scrollToBottom();
 
-    const requestBody: ChatMessageRequest = notebookMode
-      ? {
-          ...requestBase,
-          conversational: true,
-          context: await fetchNotebookContext(),
-          notebook_id: appState.activeNotebookId,
-        }
-      : {
-          ...requestBase,
-          conversational: false,
-          prompt_template_id: appState.promptTemplateId || null,
-          persona: appState.persona,
-          document_ids: getSelectedDocumentIds(),
-          rag_top_k: appState.ragTopK,
+        const requestBase = {
+          message: text,
+          model_id: appState.currentModelId,
+          provider_id: appState.currentProviderId,
+          retrieval_mode: appState.retrievalMode,
+          max_tokens: appState.maxTokens,
+          temperature: appState.temperature,
+          top_k: appState.topK,
         };
 
-    const res = await fetch(
-      `/sessions/${encodeURIComponent(session.id)}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      },
-    );
+        const requestBody: ChatMessageRequest = useNotebookContext
+          ? {
+              ...requestBase,
+              conversational: true,
+              notebook_id: null,
+              notebook_context_notebook_ids: [
+                ...notebookContextSnapshot.notebookIds,
+              ],
+              notebook_context_page_ids: [
+                ...notebookContextSnapshot.pageIds,
+              ],
+              document_ids: documentIds,
+              rag_top_k: appState.ragTopK,
+            }
+          : {
+              ...requestBase,
+              conversational: false,
+              prompt_template_id: appState.promptTemplateId || null,
+              persona: appState.persona,
+              document_ids: documentIds,
+              rag_top_k: appState.ragTopK,
+            };
 
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      messageStream += decoder.decode(value, { stream: true });
-      await scrollToBottom();
-    }
+        const response = await fetch(
+          `/sessions/${encodeURIComponent(session.id)}/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          },
+        );
+        if (!response.ok) throw new Error(await assistantErrorMessage(response));
+        if (!response.body) {
+          throw new Error("Assistant returned an empty response stream");
+        }
+        void refreshKnowledgeGraphStatus(documentIds);
 
-    messages = await loadMessages(session.id);
-    loadedSessionId = session.id;
-    busy = false;
-    messageStream = "";
-    await scrollToBottom();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          messageStream += decoder.decode(value, { stream: true });
+          await scrollToBottom();
+        }
+
+        messages = await loadMessages(session.id);
+        loadedSessionId = session.id;
+        rememberQueryGraph(session.id, messages);
+        await scrollToBottom();
+      } catch (error) {
+        status =
+          error instanceof Error ? error.message : "Assistant request failed.";
+      } finally {
+        messageStream = "";
+      }
+    });
   }
 
   async function createNewChat() {
     if (busy) return;
+    status = "";
     messages = [];
     messageStream = "";
+    queryGraphContext = null;
+    clearGraphGalaxy();
     appState.currentSession = await createSession();
   }
+
+  onMount(() => {
+    restoreNotebookContextPageIds(appState);
+    const handleSendToChat = async (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (!text) return;
+      if (busy) {
+        status = "Wait for the current response to finish before sending notebook text.";
+        return;
+      }
+      if (hasSubmittedQuery) await createNewChat();
+      draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+      showWindow("chat-window");
+    };
+    const handleGalaxySelection = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sessionId?: string | null;
+        chunkId?: string | null;
+      }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      galaxySelectedChunkId = detail?.chunkId ?? null;
+    };
+    const handleGalaxyFocusResult = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sessionId?: string | null;
+        found?: boolean;
+      }>).detail;
+      if (detail?.sessionId && detail.sessionId !== appState.currentSession?.id) return;
+      if (detail?.found === false) {
+        status = "The selected assistant result is not present in this saved Galaxy view.";
+      } else if (
+        status === "The selected assistant result is not present in this saved Galaxy view."
+      ) {
+        status = "";
+      }
+    };
+
+    window.addEventListener("dk:send-to-chat", handleSendToChat);
+    window.addEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+    window.addEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
+    return () => {
+      window.removeEventListener("dk:send-to-chat", handleSendToChat);
+      window.removeEventListener("dk:galaxy-chunk-selection", handleGalaxySelection);
+      window.removeEventListener("dk:galaxy-focus-result", handleGalaxyFocusResult);
+    };
+  });
 
 </script>
 
@@ -232,12 +613,23 @@
   contentLabel="Assistant chat"
 >
   {#snippet subtitle()}
-    {notebookMode
-      ? `Using ${appState.activeNotebook?.title ?? "Notebook"} for Context`
-      : "Using Documents for Context"}
+    {notebookContextSummary}
   {/snippet}
 
   <div class="chat-window">
+    {#if status}
+      <div class="chat-status li-subtle" role="status">{status}</div>
+    {/if}
+    {#if graphReadinessMessage}
+      <div class="chat-status chat-graph-status li-subtle" role="status">
+        {graphReadinessMessage}
+      </div>
+    {/if}
+    {#if loadingSession}
+      <div class="chat-status li-subtle" role="status">
+        Loading historical chat...
+      </div>
+    {/if}
     <div class="chat-log" bind:this={logElement} aria-live="polite">
       {#each messages as message (message.id)}
         <div
@@ -246,7 +638,22 @@
           class:assistant={message.role === "assistant"}
         >
           {#if message.role === "assistant"}
+            {@const assistantMetadata = getAssistantMetadata(message)}
             <div class="msg-md">{@html renderMarkdown(message.content)}</div>
+            {#if assistantMetadata.notebookContext}
+              <div class="historical-notebook-context">
+                <strong>Notebook context used</strong>
+                {#if assistantMetadata.notebookContextPages?.length}
+                  <ul>
+                    {#each assistantMetadata.notebookContextPages as contextPage (`${contextPage.notebookId}:${contextPage.pageId}`)}
+                      <li>{contextPage.notebookTitle} → {contextPage.pageTitle}</li>
+                    {/each}
+                  </ul>
+                {:else}
+                  <span>Notebook context was included with this historical query.</span>
+                {/if}
+              </div>
+            {/if}
             {@const sources = getMessageSources(message)}
             <div class="msg-citations">
               <div class="msg-citations-header">
@@ -255,7 +662,7 @@
                 {:else}
                   <span></span>
                 {/if}
-                <button class="send-to-notebook-btn" type="button" onclick={() => sendToNotebook(message)}>
+                <button class="send-to-notebook-btn" type="button" onclick={() => openSendToNotebook(message)}>
                   Send to Notebook
                 </button>
               </div>
@@ -263,12 +670,22 @@
               {#if sources.length}
                 <ol class="chat-source-list">
                   {#each sources as source, index (index)}
-                    <li class="chat-source-row">
+                    {@const pdfUrl = getSourcePdfUrl(source)}
+                    <li
+                      class="chat-source-row"
+                      class:selected={(source.chunkId ?? source.nodeId) === selectedResultChunkId}
+                      class:galaxy-match={source.chunkId === galaxySelectedChunkId}
+                    >
                       <div class="chat-source-main">
-                        <div class="chat-source-text-block">
+                        <button
+                          class="chat-source-text-block chat-source-select"
+                          type="button"
+                          disabled={!source.chunkId && !source.nodeId}
+                          onclick={() => selectResultChunk(source)}
+                        >
                           <span class="chat-source-num">{index + 1}.</span>
                           <span class="chat-source-text">{source.description ?? source.title ?? ""}</span>
-                        </div>
+                        </button>
                         <div class="chat-source-action-line">
                           <div class="chat-source-action-left">
                             {#if source.url}
@@ -276,6 +693,20 @@
                                 {source.title ?? source.url}
                               </a>
                             {/if}
+                            {#if pdfUrl}
+                              <a class="btn btn-sm chat-source-btn" href={pdfUrl} target="_blank" rel="noopener noreferrer">
+                                Open PDF page {Math.max(1, (source.pageIndex ?? 0) + 1)}
+                              </a>
+                            {/if}
+                            <button
+                              class="btn btn-sm chat-source-btn"
+                              type="button"
+                              disabled={!source.chunkId}
+                              title="Save this result chunk to a notebook"
+                              onclick={() => saveResultChunk(source)}
+                            >
+                              Save chunk
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -306,41 +737,63 @@
       {/if}
     </div>
 
+    {#if hasSubmittedQuery}
+      <div class="chat-query-complete" role="status">
+        This chat is complete. Start a new chat to ask another question.
+      </div>
+    {/if}
+
     <form
       class="chat-input inline-action-control"
-      style="--inline-action-count: 3;"
+      style="--inline-action-count: 4;"
       onsubmit={handleSubmit}
     >
       <input
         class="input"
         type="text"
         name="message"
-        placeholder="Type a message..."
+        placeholder={hasSubmittedQuery
+          ? "Start a new chat to ask another question."
+          : "Type a message..."}
         bind:value={draft}
         aria-label="Message"
-        disabled={busy}
+        disabled={busy || loadingSession || hasSubmittedQuery}
       />
       <button
-        class="inline-action-button chat-mode-toggle"
-        class:active={notebookMode}
+        class="inline-action-button chat-mode-toggle context-toggle"
+        class:active={hasNotebookContext}
         type="button"
-        disabled={busy}
-        aria-label="Chat About Your Notebook"
-        aria-pressed={notebookMode}
-        title="Chat About Your Notebook"
-        onclick={toggleNotebookMode}
+        disabled={busy || loadingSession || hasSubmittedQuery}
+        aria-label="Choose notebooks and pages for context"
+        aria-pressed={hasNotebookContext}
+        title={hasNotebookContext
+          ? notebookContextSummary
+          : "Choose notebooks and pages for context"}
+        onclick={openNotebookContextPicker}
       >
         <Icon name="menu_book" size={16} />
       </button>
       <button
         class="inline-action-button chat-new-button"
         type="button"
-        disabled={busy}
+        disabled={busy || loadingSession}
         aria-label="Start a new chat"
         title="Start a new chat"
         onclick={createNewChat}
       >
         <Icon name="add_comment" size={16} />
+      </button>
+      <button
+        class="inline-action-button chat-graph-button"
+        type="button"
+        aria-label="Visualize knowledge graph"
+        title={appState.retrievalMode === "graph"
+          ? "Visualize knowledge graph"
+          : "Enable KG search in Settings to use Graph Galaxy"}
+        disabled={appState.retrievalMode !== "graph" || !queryGraphContext}
+        onclick={openGraphGalaxy}
+      >
+        <Icon name="hub" size={16} />
       </button>
       <button
         class="inline-action-button chat-send-button"
@@ -352,6 +805,33 @@
         <Icon name="send" size={16} />
       </button>
     </form>
+
+    <NotebookContextDialog
+      open={notebookContextOpen}
+      onClose={() => notebookContextOpen = false}
+    />
+
+    <NotebookDestinationDialog
+      open={notebookDestinationOpen}
+      kindLabel="Send to Notebook"
+      itemTitle="Assistant-generated response"
+      actionLabel="Save Response"
+      ariaLabel="Save assistant response destination"
+      onClose={closeSendToNotebook}
+      onSave={saveAssistantToDestination}
+    />
+
+    <NotebookDestinationDialog
+      open={chunkDestinationOpen}
+      kindLabel="Save Chunk"
+      itemTitle={pendingResultChunk?.source.sourceTitle ??
+        pendingResultChunk?.source.title ??
+        "Selected chunk"}
+      actionLabel="Save Chunk"
+      ariaLabel="Save result chunk destination"
+      onClose={closeChunkDestination}
+      onSave={saveResultChunkToDestination}
+    />
   </div>
 </BaseWindow>
 
@@ -371,6 +851,28 @@
     height: 100%;
     min-height: 0;
     flex-direction: column;
+  }
+
+  .chat-status {
+    margin-bottom: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-graph-status {
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+  }
+
+  .chat-query-complete {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in oklab, var(--accent) 34%, var(--border));
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--accent) 9%, transparent);
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .chat-log {
@@ -469,6 +971,27 @@
   .msg-md :global(td) { border: 1px solid var(--border); padding: 0.35em 0.6em; text-align: left; }
   .msg-md :global(img) { max-width: 100%; height: auto; }
 
+  .historical-notebook-context {
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(var(--h) var(--sat) calc(var(--l-bg) + 2%));
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .historical-notebook-context strong {
+    color: var(--text);
+  }
+
+  .historical-notebook-context ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+
   .msg-pending {
     display: inline-flex;
     align-items: center;
@@ -538,6 +1061,17 @@
     background: hsl(var(--h) var(--sat) var(--l-panel));
   }
 
+  .chat-source-row.selected {
+    border-color: color-mix(in oklab, var(--accent) 58%, var(--border));
+    background: color-mix(in oklab, var(--accent) 10%, hsl(var(--h) var(--sat) var(--l-panel)));
+  }
+
+  .chat-source-row.galaxy-match {
+    border-color: color-mix(in oklab, #a78bfa 78%, var(--border));
+    background: color-mix(in oklab, #8b5cf6 18%, hsl(var(--h) var(--sat) var(--l-panel)));
+    box-shadow: inset 3px 0 0 #a78bfa, 0 0 0 1px rgb(167 139 250 / 18%);
+  }
+
   .chat-source-main { display: grid; min-width: 0; gap: 6px; }
 
   .chat-source-text-block {
@@ -546,6 +1080,20 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 6px;
     align-items: start;
+  }
+
+  .chat-source-select {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .chat-source-select:disabled {
+    cursor: default;
   }
 
   .chat-source-num { color: var(--text); font-size: 13px; font-weight: 700; }
@@ -594,12 +1142,6 @@
   .chat-input {
     flex-shrink: 0;
     margin-top: 10px;
-  }
-
-  .chat-mode-toggle.active,
-  .chat-mode-toggle.active:hover {
-    background: color-mix(in oklab, var(--accent) 18%, transparent);
-    color: var(--text);
   }
 
   @media (max-width: 680px) {

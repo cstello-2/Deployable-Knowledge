@@ -175,7 +175,7 @@ export const settings = sqliteTable(
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
     retrievalMode: text("retrieval_mode", {
-      enum: ["semantic", "bm25", "hybrid"],
+      enum: ["semantic", "bm25", "hybrid", "graph"],
     })
       .notNull()
       .default("hybrid"),
@@ -205,7 +205,7 @@ export const profiles = sqliteTable(
     temperature: real().notNull().default(0.2),
     topK: integer("top_k").notNull().default(8),
     retrievalMode: text("retrieval_mode", {
-      enum: ["semantic", "bm25", "hybrid"],
+      enum: ["semantic", "bm25", "hybrid", "graph"],
     })
       .notNull()
       .default("hybrid"),
@@ -230,7 +230,7 @@ export const documents = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     sourcePath: text("source_path").notNull(),
-    sourceType: text("source_type", { enum: ["PDF"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PDF", "NOTEBOOK"] }).notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -289,6 +289,48 @@ export const document_chunks = sqliteTable(
   ],
 );
 
+export const graph_nodes = sqliteTable(
+  "graph_nodes",
+  {
+    id: text("id").primaryKey(),
+    label: text("label").notNull(),
+    kind: text("kind", { enum: ["document", "chunk", "entity"] }).notNull(),
+    entityKind: text("entity_kind"),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    chunkIds: text("chunk_ids", { mode: "json" }).$type<string[] | null>(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("graph_nodes_kind_idx").on(table.kind),
+    index("graph_nodes_document_idx").on(table.documentId),
+    index("graph_nodes_chunk_idx").on(table.chunkId),
+  ],
+);
+
+export const graph_edges = sqliteTable(
+  "graph_edges",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    target: text("target").notNull().references(() => graph_nodes.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull(),
+    weight: real("weight").notNull().default(1),
+    evidence: text("evidence").notNull().default(""),
+    documentId: text("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    chunkId: text("chunk_id").references(() => document_chunks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("graph_edges_source_idx").on(table.source),
+    index("graph_edges_target_idx").on(table.target),
+    index("graph_edges_document_idx").on(table.documentId),
+    index("graph_edges_chunk_idx").on(table.chunkId),
+    uniqueIndex("graph_edges_unique_idx").on(table.source, table.target, table.relation, table.chunkId),
+  ],
+);
+
 export const synced_folders = sqliteTable(
   "synced_folders",
   {
@@ -319,6 +361,24 @@ export const synced_files = sqliteTable(
     uniqueIndex("synced_files_document_idx").on(table.documentId),
   ],
 );
+
+// Compressed, versioned Knowledge Graph snapshots let a valid graph survive
+// application/server restarts without rebuilding entity and relationship data.
+export const knowledge_graph_snapshots = sqliteTable("knowledge_graph_snapshots", {
+  scopeKey: text("scope_key").primaryKey(),
+  documentIds: text("document_ids", { mode: "json" }).$type<string[]>().notNull(),
+  signature: text("signature").notNull(),
+  buildVersion: text("build_version").notNull(),
+  payload: blob("payload", { mode: "buffer" }).notNull(),
+  stats: text("stats", { mode: "json" }).$type<{
+    documents: number;
+    chunks: number;
+    nodes: number;
+    edges: number;
+  }>().notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
@@ -367,6 +427,12 @@ export type NewDocumentTag = typeof document_tags.$inferInsert;
 
 export type DocumentChunk = typeof document_chunks.$inferSelect;
 export type NewDocumentChunk = typeof document_chunks.$inferInsert;
+
+export type GraphNodeRow = typeof graph_nodes.$inferSelect;
+export type NewGraphNodeRow = typeof graph_nodes.$inferInsert;
+
+export type GraphEdgeRow = typeof graph_edges.$inferSelect;
+export type NewGraphEdgeRow = typeof graph_edges.$inferInsert;
 
 export type SyncedFolder = typeof synced_folders.$inferSelect;
 

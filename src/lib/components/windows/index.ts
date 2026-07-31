@@ -1,6 +1,7 @@
 import AssistantChatWindow from "./AssistantChatWindow.svelte";
 import AssistantSettings from "./AssistantSettings.svelte";
 import DocumentsWindow from "./DocumentsWindow.svelte";
+import GraphGalaxyWindow from "./GraphGalaxyWindow.svelte";
 import ChatHistoryWindow from "./ChatHistoryWindow.svelte";
 import NotebookWindow from "./NotebookWindow.svelte";
 import SearchWindow from "./SearchWindow.svelte";
@@ -22,6 +23,7 @@ export type WindowInstanceProps = {
 export type WindowDefinition = WindowInstanceProps & {
   column: WindowColumn;
   component: Component<WindowInstanceProps>;
+  defaultVisible?: boolean;
 };
 
 export const windowDefinitions = [
@@ -42,6 +44,13 @@ export const windowDefinitions = [
     title: "Settings",
     column: "right",
     component: AssistantSettings,
+  },
+  {
+    id: "graph-galaxy-window",
+    title: "Graph Galaxy",
+    column: "right",
+    component: GraphGalaxyWindow,
+    defaultVisible: true,
   },
   {
     id: "search-context-window",

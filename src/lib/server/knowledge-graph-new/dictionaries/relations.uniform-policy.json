@@ -1,0 +1,40 @@
+{
+  "relations": [
+    {
+      "name": "authorizes",
+      "description": "Subject policy, accommodation, commander, or document permits the object attire, uniform, item, or action.",
+      "aliases": ["authorized to wear", "are authorized to wear", "is authorized to wear", "may wear", "permitted to wear", "allowed to wear"],
+      "subjectTypes": ["document", "policy_area", "uniform_policy", "policy_process", "organization", "role"],
+      "objectTypes": ["uniform", "attire", "appearance_item", "religious_accommodation_item", "process"],
+      "source": "DAFI36-2903 corpus",
+      "priority": 5
+    },
+    {
+      "name": "prohibits",
+      "description": "Subject policy, document, or role forbids the object attire, uniform, item, or action.",
+      "aliases": ["not authorized to wear", "are not authorized to wear", "is not authorized to wear", "may not wear", "will not wear", "prohibited from wearing"],
+      "subjectTypes": ["document", "policy_area", "uniform_policy", "organization", "role"],
+      "objectTypes": ["uniform", "attire", "appearance_item", "religious_accommodation_item", "process"],
+      "source": "DAFI36-2903 corpus",
+      "priority": 5
+    },
+    {
+      "name": "requires",
+      "description": "Subject policy, organization, event, or duty context requires the object attire, uniform, standard, or action.",
+      "aliases": ["will wear", "must wear", "shall wear", "required to wear", "must adhere to", "shall adhere to"],
+      "subjectTypes": ["document", "policy_area", "uniform_policy", "organization", "event", "role"],
+      "objectTypes": ["uniform", "attire", "appearance_item", "religious_accommodation_item", "standard", "process"],
+      "source": "DAFI36-2903 corpus",
+      "priority": 5
+    },
+    {
+      "name": "applies_to",
+      "description": "Subject policy, uniform standard, or accommodation applies to a role, person group, event, or situation.",
+      "aliases": ["applies to", "for airmen", "for guardians", "while in uniform", "while attending"],
+      "subjectTypes": ["document", "policy_area", "uniform_policy", "policy_process", "uniform"],
+      "objectTypes": ["role", "person", "event", "location", "situation"],
+      "source": "DAFI36-2903 corpus",
+      "priority": 4
+    }
+  ]
+}

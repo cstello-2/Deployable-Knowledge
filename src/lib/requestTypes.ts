@@ -62,7 +62,7 @@ export type SettingsUpdateRequest = {
   maxTokens: number;
   temperature: number;
   topK: number;
-  retrievalMode: "semantic" | "bm25" | "hybrid";
+  retrievalMode: "semantic" | "bm25" | "hybrid" | "graph";
   ragTopK: number;
   promptTemplateId: string | null;
   persona: string;
@@ -88,6 +88,7 @@ type ChatMessageBase = {
   message: string;
   model_id: string;
   provider_id: string;
+  retrieval_mode: "semantic" | "bm25" | "hybrid" | "graph";
   max_tokens: number;
   temperature: number;
   top_k: number;
@@ -103,8 +104,18 @@ type DocumentChatMessageRequest = ChatMessageBase & {
 
 type NotebookChatMessageRequest = ChatMessageBase & {
   conversational: true;
-  context: string;
+  context?: string;
   notebook_id: string | null;
+  notebook_context_notebook_ids?: string[];
+  notebook_context_page_ids?: string[];
+  notebook_context_pages?: Array<{
+    notebookId: string;
+    notebookTitle: string;
+    pageId: string;
+    pageTitle: string;
+  }>;
+  document_ids: string[];
+  rag_top_k: number;
 };
 
 export type ChatMessageRequest =

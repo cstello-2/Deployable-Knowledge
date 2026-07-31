@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/database/database";
 import { documents, synced_files } from "$lib/server/database/schema";
+import { invalidateKnowledgeGraphCache } from "$lib/server/knowledge-graph/graph-index";
 
 export type SyncedFileDisposition = "ignore" | "remove";
 
@@ -63,6 +64,7 @@ export async function removeDocument(
 
   const managedPath = syncedFile?.managedPath ?? document?.sourcePath;
   if (managedPath) await removeManagedDocumentFile(managedPath);
+  if (document || syncedFile) invalidateKnowledgeGraphCache();
 
   return Boolean(document);
 }
