@@ -1,26 +1,25 @@
-import { redirect } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
-import { createSession } from "$lib/server/auth/utils";
-import {
-  seedLocalUser,
-  localUsername,
-} from "$lib/server/database/seed";
+import { redirect } from '@sveltejs/kit';
+import { dev } from '$app/environment';
+import type { RequestHandler } from './$types';
+import { createSession } from '$lib/server/auth/utils';
+import { seedLocalUser, localUsername } from '$lib/server/database/seed';
 
 export const GET: RequestHandler = async ({ cookies }) => {
-  // In the future we would take username and password from the body
-  // const body = await request.json();
+	// In the future we would take username and password from the body
+	// const body = await request.json();
 
-  // For now we just give session tokens to our local user
-  await seedLocalUser();
-  let session = await createSession(localUsername);
+	// For now we just give session tokens to our local user
+	await seedLocalUser();
+	const session = await createSession(localUsername);
 
-  cookies.delete("session_token", { path: "/" });
+	cookies.delete('session_token', { path: '/' });
 
-  cookies.set("session_token", session.token!, {
-    httpOnly: true,
-    secure: true,
-    path: "/",
-  });
+	cookies.set('session_token', session.token!, {
+		httpOnly: true,
+		// `vite dev` serves plain http, where Secure cookies are dropped.
+		secure: !dev,
+		path: '/'
+	});
 
-  throw redirect(303, "/");
+	throw redirect(303, '/');
 };

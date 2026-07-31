@@ -2,7 +2,7 @@ import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { databaseClient, db } from "$lib/server/database/database";
-import { knowledge_graph_snapshots } from "$lib/server/database/schema";
+import { knowledgeGraphSnapshots } from "$lib/server/database/schema";
 import { GraphStore } from "./graph-store";
 import type {
   KnowledgeGraphBuildScope,
@@ -47,7 +47,7 @@ export async function saveKnowledgeGraphSnapshot(
   const now = new Date().toISOString();
 
   await db
-    .insert(knowledge_graph_snapshots)
+    .insert(knowledgeGraphSnapshots)
     .values({
       scopeKey: scope.scopeKey,
       documentIds: scope.documentIds,
@@ -59,7 +59,7 @@ export async function saveKnowledgeGraphSnapshot(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: knowledge_graph_snapshots.scopeKey,
+      target: knowledgeGraphSnapshots.scopeKey,
       set: {
         documentIds: scope.documentIds,
         signature: scope.signature,
@@ -79,8 +79,8 @@ export async function loadKnowledgeGraphSnapshot(
   await ensureSnapshotTable();
   const row = await db
     .select()
-    .from(knowledge_graph_snapshots)
-    .where(eq(knowledge_graph_snapshots.scopeKey, scope.scopeKey))
+    .from(knowledgeGraphSnapshots)
+    .where(eq(knowledgeGraphSnapshots.scopeKey, scope.scopeKey))
     .get();
   if (!row) return null;
 
@@ -117,8 +117,8 @@ export async function loadKnowledgeGraphSnapshot(
   } catch (error) {
     console.warn("Discarding an unreadable Knowledge Graph snapshot:", error);
     await db
-      .delete(knowledge_graph_snapshots)
-      .where(eq(knowledge_graph_snapshots.scopeKey, scope.scopeKey));
+      .delete(knowledgeGraphSnapshots)
+      .where(eq(knowledgeGraphSnapshots.scopeKey, scope.scopeKey));
     return null;
   }
 }

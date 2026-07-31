@@ -9,11 +9,11 @@ node_modules
 *.env.*
 .envrc
 .direnv/
-.venv/
 
 # operating systems
 .DS_Store
 Thumbs.db
+*.log
 
 # editors 
 .vscode/
@@ -25,12 +25,17 @@ app.db-*
 drizzle/
 
 # --- Model cache or sentence-transformers ---
-models/
+/models/
 tmp_model/ 
 .cache/
-knowledge-graph-*.json
-knowledge-graph-*.csv
-*.log
 
 
 /documents/
+
+# --- Third-party modules ---
+/third_party/
+/third_party/whisper.cpp/
+
+# --- Third-party module resources ---
+resources/whisper/models/
+resources/whisper/bin/

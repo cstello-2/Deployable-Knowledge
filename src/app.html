@@ -6,10 +6,26 @@
 		<meta name="text-scale" content="scale" />
 		<script>
 			(() => {
-				const mode = localStorage.getItem('theme_mode') || 'Light';
-				const color = localStorage.getItem('theme_color') || 'Classic';
-				document.documentElement.setAttribute('data-theme-mode', mode.toLowerCase());
-				document.documentElement.setAttribute('data-theme-color', color.toLowerCase());
+				const root = document.documentElement;
+				const storedMode = (localStorage.getItem('theme_mode') || 'system').toLowerCase();
+				const storedColor = (localStorage.getItem('theme_color') || 'classic')
+					.toLowerCase()
+					.replaceAll(' ', '-');
+				const mode = ['light', 'dark', 'system'].includes(storedMode) ? storedMode : 'system';
+				const color = ['classic', 'purple', 'blue', 'yellow', 'green', 'high-contrast'].includes(
+					storedColor
+				)
+					? storedColor
+					: 'classic';
+				const dark =
+					mode === 'dark' ||
+					(mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+				localStorage.setItem('theme_mode', mode);
+				localStorage.setItem('theme_color', color);
+				root.dataset.theme = color;
+				root.classList.toggle('dark', dark);
+				root.style.colorScheme = dark ? 'dark' : 'light';
 			})();
 		</script>
 		%sveltekit.head%

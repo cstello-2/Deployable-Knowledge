@@ -159,8 +159,11 @@
       maxTokens: appState.maxTokens,
       temperature: appState.temperature,
       topK: appState.topK,
+      reasoningBudget: 512,
       retrievalMode,
       ragTopK: appState.ragTopK,
+      agentMaxTurns: 4,
+      enabledTools: [],
       promptTemplateId: appState.promptTemplateId || null,
       persona: appState.persona,
     };

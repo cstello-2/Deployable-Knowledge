@@ -1,13 +1,9 @@
 <script lang="ts">
-  import { getContext, onMount, tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
-  import NotebookDestinationDialog from "$lib/components/notebooks/NotebookDestinationDialog.svelte";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
-  import type { AppState } from "$lib/state.svelte";
-  import { getSelectedDocumentIds } from "$lib/utils/documentSelection";
-  import { showWindow } from "$lib/utils/workspaceState";
-  import { attachChunkToNotebookDestination } from "$lib/utils/notebookState";
+  import { documentsStore, notebooksStore, settingsStore, workspaceStore } from "$lib/stores";
   import type { WindowInstanceProps } from "./index";
 
   type VisualNode = {
@@ -99,8 +95,7 @@
     onClose = () => {},
   }: WindowInstanceProps = $props();
 
-  const appState = getContext<AppState>("appState");
-  const graphEnabled = $derived(appState.retrievalMode === "graph");
+  const graphEnabled = $derived(settingsStore.config.retrievalMode === "graph");
   const GRAPH_DISABLED_MESSAGE =
     "Graph Galaxy is available only when KG search is enabled in Settings.";
   const MIN_ZOOM = 0.18;
@@ -120,7 +115,6 @@
   let selectedEdge = $state<VisualEdge | null>(null);
   let inspectorExpanded = $state(false);
   let savingChunkId = $state<string | null>(null);
-  let saveDialogOpen = $state(false);
   let pendingChunk = $state<VisualNode | null>(null);
   let yaw = $state(0.42);
   let pitch = $state(-0.18);
@@ -139,7 +133,7 @@
   let activeSessionId = $state<string | null>(null);
   let activeDocumentIds: string[] = [];
   let activeChunkIds: string[] = [];
-  let activeTopK = appState.ragTopK || 8;
+  let activeTopK = settingsStore.config.ragTopK || 8;
   let cameraAnimation: CameraAnimation | null = null;
   let pendingFocusRequest: { chunkId?: string; nodeId?: string } | null = null;
 
@@ -154,7 +148,7 @@
   );
 
   $effect(() => {
-    if (appState.retrievalMode === "graph") return;
+    if (settingsStore.config.retrievalMode === "graph") return;
     graphAbortController?.abort();
     loading = false;
   });
@@ -185,7 +179,7 @@
       activeSessionId = detail?.sessionId ?? activeSessionId;
       activeDocumentIds = [...(detail?.documentIds ?? [])];
       activeChunkIds = [...(detail?.chunkIds ?? [])];
-      activeTopK = detail?.topK ?? appState.ragTopK ?? 8;
+      activeTopK = detail?.topK ?? settingsStore.config.ragTopK ?? 8;
       query = nextQuery;
       if (detail?.phase === "loading") {
         beginGraphQuery(nextQuery);
@@ -220,15 +214,13 @@
       activeSessionId = detail.sessionId;
       activeDocumentIds = [...detail.documentIds];
       activeChunkIds = [...(detail.chunkIds ?? [])];
-      activeTopK = detail.topK ?? appState.ragTopK ?? 8;
-      closeSaveDialog();
-
+      activeTopK = detail.topK ?? settingsStore.config.ragTopK ?? 8;
       const stored = readGraphSnapshot(detail.sessionId);
       if (stored && stored.query === detail.query) {
         graphAbortController?.abort();
         activeDocumentIds = [...(stored.documentIds ?? detail.documentIds)];
         activeChunkIds = [...(stored.chunkIds ?? detail.chunkIds ?? [])];
-        activeTopK = stored.topK ?? detail.topK ?? appState.ragTopK ?? 8;
+        activeTopK = stored.topK ?? detail.topK ?? settingsStore.config.ragTopK ?? 8;
         query = stored.query;
         graph = stored.graph;
         nodes = layoutNodes(stored.graph.nodes);
@@ -291,7 +283,6 @@
       panX = 0;
       panY = 0;
       savingChunkId = null;
-      closeSaveDialog();
       emitChunkSelection();
     }
 
@@ -326,7 +317,6 @@
     panX = 0;
     panY = 0;
     savingChunkId = null;
-    closeSaveDialog();
     status = `Building or updating the graph for “${nextQuery}”…`;
   }
 
@@ -383,22 +373,22 @@
 
   async function visualizeManualQuery(nextQuery = query) {
     if (!graphEnabled) return;
-    const focus = nextQuery.trim() || appState.lastQuery.trim();
+    const focus = nextQuery.trim() || settingsStore.lastQuery.trim();
     query = focus;
-    activeSessionId = activeSessionId ?? appState.currentSession?.id ?? null;
+    activeSessionId = activeSessionId ?? null;
     // Re-read the current selection on every manual visualization. An empty
     // selection is intentionally sent as an empty array, which the server
     // interprets as the complete document collection.
-    activeDocumentIds = getSelectedDocumentIds();
+    activeDocumentIds = [...documentsStore.selectedIds];
     activeChunkIds = [];
-    activeTopK = appState.ragTopK || activeTopK || 8;
+    activeTopK = settingsStore.config.ragTopK || activeTopK || 8;
     const requestId = ++latestRequestId;
     beginGraphQuery(focus);
     await loadGraph(focus, activeDocumentIds, activeChunkIds, requestId);
   }
 
   function visualizeLastQuery() {
-    void visualizeManualQuery(appState.lastQuery);
+    void visualizeManualQuery(settingsStore.lastQuery);
   }
 
   function handleQueryKeydown(event: KeyboardEvent) {
@@ -890,49 +880,17 @@
 
   async function openSaveChunkDialogFor(node: VisualNode) {
     pendingChunk = node;
-    saveDialogOpen = true;
-  }
-
-  function closeSaveDialog() {
-    if (savingChunkId) return;
-    saveDialogOpen = false;
-    pendingChunk = null;
-  }
-
-  function notifyNotebookChanged() {
-    window.dispatchEvent(new CustomEvent("dk:notebooks-updated"));
-  }
-
-  async function saveChunkToDestination(destination: {
-    notebookId: string;
-    notebookTitle: string;
-    pageId: string;
-    pageTitle: string;
-  }) {
-    const node = pendingChunk;
-    if (node?.kind !== "chunk") return;
     const saveKey = node.chunkId;
     if (!saveKey) throw new Error("This graph chunk has no stored source ID.");
     if (savingChunkId) return;
 
     savingChunkId = saveKey;
     try {
-      const result = await attachChunkToNotebookDestination(
-        appState,
-        destination,
-        saveKey,
-      );
-      showWindow("notebook-window");
+      const notebookTitle = await notebooksStore.saveChunk(saveKey);
+      workspaceStore.showWindow("notebook-window");
       await tick();
-      notifyNotebookChanged();
       window.dispatchEvent(new CustomEvent("notebook-sources:refresh"));
-      const label = `${destination.notebookTitle} → ${destination.pageTitle}`;
-      showToast(
-        result.duplicate
-          ? `Chunk already exists in Loaded Sources for ${label}`
-          : `Chunk added to Loaded Sources for ${label}`,
-      );
-      saveDialogOpen = false;
+      showToast(`Chunk added to ${notebookTitle}`);
       pendingChunk = null;
     } catch (error) {
       throw error instanceof Error
@@ -942,6 +900,7 @@
       savingChunkId = null;
     }
   }
+
 
   function nodeColor(node: VisualNode) {
     if (node.kind === "document") return "rgb(125, 211, 252)";
@@ -1246,16 +1205,6 @@
         </aside>
       {/if}
     </div>
-
-    <NotebookDestinationDialog
-      open={saveDialogOpen}
-      kindLabel="Save Chunk"
-      itemTitle={pendingChunk?.label ?? "Selected chunk"}
-      actionLabel="Save Chunk"
-      ariaLabel="Save chunk destination"
-      onClose={closeSaveDialog}
-      onSave={saveChunkToDestination}
-    />
   </div>
 </BaseWindow>
 

@@ -1,77 +1,101 @@
-import { Provider, type ProviderChatOptions } from "./provider.ts";
+import {
+	Provider,
+	type ProviderChatChunk,
+	type ProviderChatMessage,
+	type ProviderChatOptions
+} from './provider';
+import { createChatCodec } from './chat-codec';
+import { readObject } from '$lib/server/utils/values';
 
-const LLAMA_API_URL = "http://localhost:11434";
+const LLAMA_API_URL = 'http://localhost:11434';
+const chatCodec = createChatCodec({
+	assistantNullContent: 'empty',
+	reasoningField: 'thinking',
+	toolArguments: 'json',
+	toolCallChunks: 'snapshot',
+	toolResultNameField: 'tool_name'
+});
 
 export class Ollama extends Provider {
-  override id = "ollama";
-  override name = "Ollama";
-  override apiKeyRequired = false;
+	override id = 'ollama';
+	override name = 'Ollama';
+	override apiKeyRequired = false;
 
-  override async *chat(
-    prompt: string,
-    model: string,
-    options: ProviderChatOptions = {},
-  ): AsyncGenerator<string> {
-    let req = new Request(`${LLAMA_API_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        options: {
-          temperature: options.temperature,
-          top_k: options.topK,
-          num_predict: options.maxTokens,
-        },
-        format: options.format,
-        stream: true,
-      }),
-    });
+	override async *streamChat(
+		messages: ProviderChatMessage[],
+		model: string,
+		options: ProviderChatOptions = {}
+	): AsyncGenerator<ProviderChatChunk> {
+		const tools = options.toolChoice === 'none' ? undefined : options.tools;
+		const req = new Request(`${LLAMA_API_URL}/api/chat`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				model,
+				messages: messages.map(chatCodec.encodeMessage),
+				...(tools?.length ? { tools } : {}),
+				options: {
+					temperature: options.temperature,
+					top_k: options.topK,
+					num_predict: options.maxTokens
+				},
+				stream: true
+			}),
+			signal: options.signal
+		});
 
-    const resp = await fetch(req);
-    if (!resp.ok) {
-      throw new Error(
-        `Ollama chat failed (${resp.status}): ${await resp.text()}`,
-      );
-    }
-    const reader = resp.body?.getReader();
-    const decoder = new TextDecoder();
+		const resp = await fetch(req);
 
-    if (!reader) throw new Error("reader could not be created.");
+		if (!resp.ok) {
+			throw new Error(`Ollama chat failed (${resp.status}): ${await resp.text()}`);
+		}
 
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+		const reader = resp.body?.getReader();
+		const decoder = new TextDecoder();
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const data = JSON.parse(line);
+		if (!reader) throw new Error('reader could not be created.');
 
-        if (data.message?.content) yield data.message.content;
-      }
+		let buffer = '';
 
-      if (done) break;
-    }
+		while (true) {
+			const { done, value } = await reader.read();
+			buffer += decoder.decode(value, { stream: !done });
+			const lines = buffer.split('\n');
+			buffer = lines.pop() ?? '';
 
-    if (buffer.trim()) {
-      const data = JSON.parse(buffer);
-      if (data.message?.content) yield data.message.content;
-    }
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				const data = readObject(JSON.parse(line) as unknown);
+				const chunk = chatCodec.decodeChunk(data.message);
 
-    reader.releaseLock();
-  }
+				if (chunk) yield chunk;
+			}
 
-  override async listModels(): Promise<string[]> {
-    let req = new Request(`${LLAMA_API_URL}/api/tags`, {
-      method: "GET",
-    });
+			if (done) break;
+		}
 
-    const resp = await fetch(req);
-    const data = await resp.json();
+		if (buffer.trim()) {
+			const data = readObject(JSON.parse(buffer) as unknown);
+			const chunk = chatCodec.decodeChunk(data.message);
 
-    return data.models.map((x: any) => x.model) ?? [];
-  }
+			if (chunk) yield chunk;
+		}
+
+		reader.releaseLock();
+	}
+
+	override async listModels(): Promise<string[]> {
+		const req = new Request(`${LLAMA_API_URL}/api/tags`, {
+			method: 'GET'
+		});
+
+		const resp = await fetch(req);
+		const data = readObject(await resp.json());
+		const models = Array.isArray(data.models) ? data.models : [];
+
+		return models.flatMap((value) => {
+			const model = readObject(value).model;
+			return typeof model === 'string' ? [model] : [];
+		});
+	}
 }
