@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import BaseWindow from "$lib/components/windows/BaseWindow.svelte";
+  import { WorkspaceWindow } from "$lib/components/app/workspace/WorkspaceWindow";
   import Icon from "$lib/components/utils/Icon.svelte";
   import { showToast } from "$lib/components/utils/ToastHost.svelte";
   import { documentsStore, notebooksStore, settingsStore, workspaceStore } from "$lib/stores";
-  import type { WindowInstanceProps } from "./index";
+  import type { WindowInstanceProps } from "$lib/components/app/workspace/window-registry";
 
   type VisualNode = {
     id: string;
@@ -957,7 +957,7 @@
   }
 </script>
 
-<BaseWindow
+<WorkspaceWindow
   {id}
   {title}
   {closable}
@@ -966,6 +966,7 @@
   {onToggleCollapse}
   onClose={closeGraphGalaxy}
   contentLabel="Knowledge graph galaxy"
+  contentClass="h-full overflow-hidden"
 >
   <div class="galaxy-window" class:locked={!graphEnabled}>
     <div class="toolbar">
@@ -1206,7 +1207,7 @@
       {/if}
     </div>
   </div>
-</BaseWindow>
+</WorkspaceWindow>
 
 <style>
   :global(.miniwin[data-window-id="graph-galaxy-window"]:not(.collapsed)) {
