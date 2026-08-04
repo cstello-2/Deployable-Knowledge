@@ -4,7 +4,6 @@ import { withTimeout } from '$lib/server/utils/with-timeout';
 export type OfficeInputFormat = 'docx' | 'pptx' | 'xlsx';
 
 const IDLE_TEARDOWN_MS = 5 * 60 * 1000;
-// LibreOffice can wedge on pathological inputs; time out and rebuild the worker
 const CONVERSION_TIMEOUT_MS = 2 * 60 * 1000;
 const TEARDOWN_TIMEOUT_MS = 5 * 1000;
 
@@ -31,7 +30,6 @@ async function destroyConverter(): Promise<void> {
 	}
 	if (!pending) return;
 	try {
-		// A wedged worker can hang its own destroy call too
 		await withTimeout(
 			pending.then((converter) => converter.destroy()),
 			TEARDOWN_TIMEOUT_MS,

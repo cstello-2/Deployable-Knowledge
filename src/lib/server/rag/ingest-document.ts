@@ -24,7 +24,6 @@ function elapsed(started: number): string {
 	return `${((Date.now() - started) / 1000).toFixed(1)}s`;
 }
 
-// Shared ingest path for both terminal commands (testing) and UI routes
 export async function ingestDocument(
 	{ filePath, title, sourceType }: IngestDocumentInput,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
@@ -38,7 +37,6 @@ export async function ingestDocument(
 		onProgress?.({ percent, label: identity.progressLabel, message });
 	};
 
-	// Keep source info together so every downstream chunk can carry the same document identity
 	const source: Source = {
 		title: title?.trim() || basename(filePath),
 		type: sourceType ?? handler.type,
@@ -55,7 +53,6 @@ export async function ingestDocument(
 	const assembled = assembleChunks(extraction.chunks, rawChunks);
 	const chunks = handler.finalize?.(assembled, extraction) ?? assembled;
 
-	// Silent, empty, or too short sources leave nothing worth embedding
 	if (chunks.length === 0) throw new Error(identity.emptyResultMessage);
 
 	console.log(

@@ -11,13 +11,14 @@ import {
 } from './parse-shared.ts';
 
 const MIN_OCR_CONFIDENCE = 80;
-// Pages with no native text depend entirely on OCR, so accept lower-confidence reads
 const MIN_OCR_ONLY_CONFIDENCE = 50;
-// Beyond this pixel count tesseract grinds for minutes on a single image
 const MAX_OCR_PIXELS = 50_000_000;
 const OCR_IMAGE_TIMEOUT_MS = 120_000;
+const OCR_STARTUP_TIMEOUT_MS = 60_000;
 const PAGE_IMAGE_TIMEOUT_MS = 60_000;
 const TABLE_DETECTION_TIMEOUT_MS = 120_000;
+const CLEANUP_TIMEOUT_MS = 10_000;
+const MAX_OCR_FAILURES = 3;
 
 function seconds(started: number): string {
 	return `${((Date.now() - started) / 1000).toFixed(1)}s`;
@@ -30,34 +31,58 @@ function tableToText(table: TableArray): string {
 		.join('\n');
 }
 
-// getImage never releases pdf.js page caches, so decoded image data accumulates until cleared
 async function releasePageCaches(parser: PDFParse): Promise<void> {
 	const doc = (parser as unknown as { doc?: { cleanup?: () => Promise<unknown> } }).doc;
-	try {
-		await doc?.cleanup?.();
-	} catch {
-		// Cleanup can reject while a parse task is pending; caches then live until destroy()
-	}
+	await withTimeout(
+		Promise.resolve(doc?.cleanup?.()),
+		CLEANUP_TIMEOUT_MS,
+		'Page cache cleanup timed out.'
+	).catch(() => undefined);
 }
 
-async function createOcrWorker(): Promise<Worker> {
-	const worker = await createWorker('eng', OEM.LSTM_ONLY, {
+type OcrSession = {
+	worker: Worker;
+	exited: Promise<never>;
+};
+
+async function createOcrSession(): Promise<OcrSession> {
+	const creation = createWorker('eng', OEM.LSTM_ONLY, {
 		cacheMethod: 'readOnly',
 		cachePath: process.cwd(),
 		gzip: false,
-		langPath: process.cwd()
+		langPath: process.cwd(),
+		errorHandler: (error: unknown) => console.error('[OCR] Worker error.', error)
+	}).then(async (worker) => {
+		await worker.setParameters({
+			tessedit_pageseg_mode: PSM.AUTO,
+			user_defined_dpi: '300',
+			debug_file: '/dev/null'
+		});
+		return worker;
 	});
-	await worker.setParameters({
-		tessedit_pageseg_mode: PSM.AUTO,
-		user_defined_dpi: '300',
-		debug_file: '/dev/null'
+
+	let worker: Worker;
+	try {
+		worker = await withTimeout(creation, OCR_STARTUP_TIMEOUT_MS, 'OCR worker startup timed out.');
+	} catch (error) {
+		void creation.then((late) => late.terminate()).catch(() => undefined);
+		throw error;
+	}
+
+	const thread = (worker as unknown as { worker?: NodeJS.EventEmitter }).worker;
+	const exited = new Promise<never>((_, reject) => {
+		thread?.once?.('exit', (code: unknown) => {
+			reject(new Error(`OCR worker exited unexpectedly (code ${String(code)}).`));
+		});
 	});
-	return worker;
+	exited.catch(() => undefined);
+
+	return { worker, exited };
 }
 
-function recognizeImage(worker: Worker, image: EmbeddedImage) {
+function recognizeImage(session: OcrSession, image: EmbeddedImage) {
 	return withTimeout(
-		worker.recognize(Buffer.from(image.data)),
+		Promise.race([session.worker.recognize(Buffer.from(image.data)), session.exited]),
 		OCR_IMAGE_TIMEOUT_MS,
 		`OCR timed out after ${OCR_IMAGE_TIMEOUT_MS / 1000}s.`
 	);
@@ -70,7 +95,8 @@ async function ocrEmbeddedImages(
 	onPageProgress?: (current: number, total: number) => void
 ): Promise<Map<number, string[]>> {
 	const textByPage = new Map<number, string[]>();
-	let worker: Worker | undefined;
+	let session: OcrSession | undefined;
+	let failures = 0;
 
 	try {
 		for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
@@ -80,7 +106,8 @@ async function ocrEmbeddedImages(
 				: MIN_OCR_ONLY_CONFIDENCE;
 
 			if (images.length > 0) {
-				console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s)`);
+				const sizes = images.map((image) => `${image.name} ${image.width}x${image.height}`);
+				console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s): ${sizes.join(', ')}`);
 			}
 
 			for (const image of images) {
@@ -91,13 +118,14 @@ async function ocrEmbeddedImages(
 					continue;
 				}
 
-				worker ??= await createOcrWorker();
-
 				try {
+					session ??= await createOcrSession();
+
 					const recognizeStarted = Date.now();
-					const result = await recognizeImage(worker, image);
+					const result = await recognizeImage(session, image);
 					const text = normalizeWhitespace(result.data.text);
 					const confidence = result.data.confidence;
+					failures = 0;
 
 					if (Date.now() - recognizeStarted > 15_000) {
 						console.log(
@@ -113,10 +141,20 @@ async function ocrEmbeddedImages(
 						);
 					}
 				} catch (error) {
-					console.warn(`[OCR] Could not read an image on page ${pageNumber}.`, error);
-					// A failed or timed-out worker may be wedged; replace it before the next image
-					await worker.terminate().catch(() => undefined);
-					worker = undefined;
+					failures += 1;
+					console.warn(
+						`[OCR] Page ${pageNumber}: ${image.name} failed (${failures}/${MAX_OCR_FAILURES}); replacing the worker.`,
+						error
+					);
+					await session?.worker.terminate().catch(() => undefined);
+					session = undefined;
+
+					if (failures >= MAX_OCR_FAILURES) {
+						console.error(
+							`[OCR] Giving up after ${failures} consecutive failures; continuing without further image text.`
+						);
+						return textByPage;
+					}
 				}
 			}
 
@@ -125,7 +163,7 @@ async function ocrEmbeddedImages(
 			await yieldEventLoop();
 		}
 	} finally {
-		await worker?.terminate();
+		await session?.worker.terminate().catch(() => undefined);
 	}
 
 	return textByPage;
@@ -177,7 +215,6 @@ export async function extractText(
 			`[PDF] ${file.title}: OCR pass added text on ${ocrTextByPage.size} page(s) in ${seconds(ocrStarted)}.`
 		);
 
-		// Tables are supplemental; detection failing or stalling must not sink the document
 		let tablePages: TableResult['pages'] = [];
 		const tableStarted = Date.now();
 		try {

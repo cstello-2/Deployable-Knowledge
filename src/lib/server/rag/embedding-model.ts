@@ -16,7 +16,6 @@ const EMBEDDING_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
 
 type EmbeddingType = 'search_document' | 'search_query';
 
-// Keep model files inside the repo so setup works the same across machines
 env.cacheDir = EMBEDDING_CACHE_DIR;
 env.localModelPath = EMBEDDING_CACHE_DIR;
 env.allowRemoteModels = true;
@@ -34,7 +33,6 @@ export function installEmbeddingModel(onProgress: ProgressCallback) {
 	return getEmbeddingPipeline(onProgress);
 }
 
-// Load the transformer once and reuse it across ingest/search calls
 async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
 	if (!embeddingPipeline) {
 		const started = Date.now();
