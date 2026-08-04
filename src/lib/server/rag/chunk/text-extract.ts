@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { PDFParse, type EmbeddedImage, type TableArray } from 'pdf-parse';
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import {
@@ -9,6 +10,9 @@ import {
 } from './parse-shared.ts';
 
 const MIN_OCR_CONFIDENCE = 80;
+// Beyond this pixel count tesseract grinds for minutes on a single image
+const MAX_OCR_PIXELS = 50_000_000;
+const OCR_IMAGE_TIMEOUT_MS = 120_000;
 
 function tableToText(table: TableArray): string {
 	return table
@@ -17,8 +21,48 @@ function tableToText(table: TableArray): string {
 		.join('\n');
 }
 
+// getImage never releases pdf.js page caches, so decoded image data accumulates until cleared
+async function releasePageCaches(parser: PDFParse): Promise<void> {
+	const doc = (parser as unknown as { doc?: { cleanup?: () => Promise<unknown> } }).doc;
+	try {
+		await doc?.cleanup?.();
+	} catch {
+		// Cleanup can reject while a parse task is pending; caches then live until destroy()
+	}
+}
+
+async function createOcrWorker(): Promise<Worker> {
+	const worker = await createWorker('eng', OEM.LSTM_ONLY, {
+		cacheMethod: 'readOnly',
+		cachePath: process.cwd(),
+		gzip: false,
+		langPath: process.cwd()
+	});
+	await worker.setParameters({
+		tessedit_pageseg_mode: PSM.AUTO,
+		user_defined_dpi: '300',
+		debug_file: '/dev/null'
+	});
+	return worker;
+}
+
+async function recognizeImage(worker: Worker, image: EmbeddedImage) {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`OCR timed out after ${OCR_IMAGE_TIMEOUT_MS / 1000}s.`)),
+			OCR_IMAGE_TIMEOUT_MS
+		);
+	});
+	try {
+		return await Promise.race([worker.recognize(Buffer.from(image.data)), timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 async function ocrEmbeddedImages(
-	data: Uint8Array,
+	parser: PDFParse,
 	pageCount: number,
 	onPageProgress?: (current: number, total: number) => void
 ): Promise<Map<number, string[]>> {
@@ -27,29 +71,24 @@ async function ocrEmbeddedImages(
 
 	try {
 		for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-			const images = await getPageImages(data, pageNumber);
+			const images = await getPageImages(parser, pageNumber);
 
 			if (images.length > 0) {
 				console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s)`);
 			}
 
 			for (const image of images) {
-				if (!worker) {
-					worker = await createWorker('eng', OEM.LSTM_ONLY, {
-						cacheMethod: 'readOnly',
-						cachePath: process.cwd(),
-						gzip: false,
-						langPath: process.cwd()
-					});
-					await worker.setParameters({
-						tessedit_pageseg_mode: PSM.AUTO,
-						user_defined_dpi: '300',
-						debug_file: '/dev/null'
-					});
+				if (image.width * image.height > MAX_OCR_PIXELS) {
+					console.warn(
+						`[OCR] Page ${pageNumber}: skipped ${image.name} at ${image.width}x${image.height}; too large to OCR.`
+					);
+					continue;
 				}
 
+				worker ??= await createOcrWorker();
+
 				try {
-					const result = await worker.recognize(Buffer.from(image.data));
+					const result = await recognizeImage(worker, image);
 					const text = normalizeWhitespace(result.data.text);
 					const confidence = result.data.confidence;
 
@@ -62,10 +101,15 @@ async function ocrEmbeddedImages(
 					}
 				} catch (error) {
 					console.warn(`[OCR] Could not read an image on page ${pageNumber}.`, error);
+					// A failed or timed-out worker may be wedged; replace it before the next image
+					await worker.terminate().catch(() => undefined);
+					worker = undefined;
 				}
 			}
 
+			await releasePageCaches(parser);
 			onPageProgress?.(pageNumber, pageCount);
+			await yieldEventLoop();
 		}
 	} finally {
 		await worker?.terminate();
@@ -74,17 +118,13 @@ async function ocrEmbeddedImages(
 	return textByPage;
 }
 
-async function getPageImages(data: Uint8Array, pageNumber: number): Promise<EmbeddedImage[]> {
-	const parser = new PDFParse({ data });
-
+async function getPageImages(parser: PDFParse, pageNumber: number): Promise<EmbeddedImage[]> {
 	try {
 		const result = await parser.getImage({ partial: [pageNumber], imageDataUrl: false });
 		return result.pages[0]?.images ?? [];
 	} catch (error) {
 		console.warn(`[OCR] Could not extract images from page ${pageNumber}; skipping it.`, error);
 		return [];
-	} finally {
-		await parser.destroy();
 	}
 }
 
@@ -97,7 +137,7 @@ export async function extractText(
 
 	try {
 		const textResult = await parser.getText();
-		const ocrTextByPage = await ocrEmbeddedImages(data, textResult.total, onPageProgress);
+		const ocrTextByPage = await ocrEmbeddedImages(parser, textResult.total, onPageProgress);
 		const tableResult = await parser.getTable();
 		const chunks: Chunk[] = [];
 

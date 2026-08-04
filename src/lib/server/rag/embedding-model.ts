@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import {
 	env,
 	ModelRegistry,
@@ -48,11 +49,11 @@ export async function embedTexts(
 	texts: string[],
 	type: EmbeddingType,
 	onProgress?: (current: number, total: number) => void
-): Promise<number[][]> {
+): Promise<Float32Array[]> {
 	if (texts.length === 0) return [];
 
 	const extractor = await getEmbeddingPipeline();
-	const embeddings: number[][] = [];
+	const embeddings: Float32Array[] = [];
 
 	for (let index = 0; index < texts.length; index += EMBEDDING_BATCH_SIZE) {
 		const batch = texts
@@ -60,9 +61,15 @@ export async function embedTexts(
 			.map((text) => `${type}: ${text}`);
 
 		const output = await extractor(batch, { pooling: 'mean', normalize: true });
-		embeddings.push(...(output.tolist() as number[][]));
+		const values = output.data as Float32Array;
+		const [rows, dims] = output.dims as [number, number];
+		for (let row = 0; row < rows; row += 1) {
+			embeddings.push(Float32Array.from(values.subarray(row * dims, (row + 1) * dims)));
+		}
+		output.dispose();
 
 		onProgress?.(Math.min(index + EMBEDDING_BATCH_SIZE, texts.length), texts.length);
+		await yieldEventLoop();
 	}
 
 	return embeddings;

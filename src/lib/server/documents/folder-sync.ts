@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, stat } from 'node:fs/promises';
-import { basename, extname, join, resolve } from 'node:path';
+import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import { basename, extname, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type {
 	ApiDocumentIngestProgress,
@@ -11,6 +10,7 @@ import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
+import { hashFileContents, managedPathForHash } from './ingest-file';
 import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts';
 import { removeDocument, removeManagedDocumentFile } from './remove-document';
 import { handlerForPath, isSyncableFile } from './source-types';
@@ -41,10 +41,7 @@ async function managedPathFor(sourcePath: string): Promise<string> {
 	const extension = handler
 		? managedExtensionFor(handler, sourcePath)
 		: extname(sourcePath).toLowerCase();
-	const contentHash = createHash('sha256')
-		.update(await readFile(sourcePath))
-		.digest('hex');
-	return join('documents', `${contentHash.slice(0, 16)}${extension}`);
+	return managedPathForHash(await hashFileContents(sourcePath), extension);
 }
 
 async function ingestManagedCopy(
@@ -55,7 +52,12 @@ async function ingestManagedCopy(
 	const handler = handlerForPath(sourcePath);
 	if (!handler) throw new Error('Unsupported document type.');
 
-	await writeManagedArtifacts(handler, await readFile(sourcePath), managedPath);
+	// Converted artifacts need the original bytes in memory; plain formats copy without buffering
+	if (handler.convert || handler.preview) {
+		await writeManagedArtifacts(handler, await readFile(sourcePath), managedPath);
+	} else {
+		await copyFile(sourcePath, managedPath);
+	}
 	try {
 		const title = basename(sourcePath, extname(sourcePath)).trim() || basename(sourcePath);
 		return await ingestDocument(

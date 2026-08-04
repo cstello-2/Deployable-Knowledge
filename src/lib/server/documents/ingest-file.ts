@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { copyFile, mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import { count, eq } from 'drizzle-orm';
@@ -12,6 +13,32 @@ import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts'
 import { containsPath, removeManagedDocumentFile } from './remove-document';
 
 const DOCUMENTS_DIR = 'documents';
+// Handlers only need the leading bytes to recognize a format
+const VALIDATION_HEADER_BYTES = 8192;
+
+// Hash without loading the file into memory; corpus files can be far larger than the heap
+export async function hashFileContents(path: string): Promise<string> {
+	const hash = createHash('sha256');
+	for await (const chunk of createReadStream(path)) {
+		hash.update(chunk as Buffer);
+	}
+	return hash.digest('hex');
+}
+
+export function managedPathForHash(contentHash: string, extension: string): string {
+	return join(DOCUMENTS_DIR, `${contentHash.slice(0, 16)}${extension}`);
+}
+
+async function readFileHeader(path: string, size: number): Promise<Buffer> {
+	const handle = await open(path, 'r');
+	try {
+		const headerSize = Math.min(size, VALIDATION_HEADER_BYTES);
+		const { buffer, bytesRead } = await handle.read(Buffer.alloc(headerSize), 0, headerSize, 0);
+		return buffer.subarray(0, bytesRead);
+	} finally {
+		await handle.close();
+	}
+}
 
 async function existingDocument(sourcePath: string): Promise<ApiDocumentIngestResult | null> {
 	const [existing] = await db
@@ -51,10 +78,7 @@ export async function ingestFileBuffer(
 
 	await mkdir(DOCUMENTS_DIR, { recursive: true });
 	const contentHash = createHash('sha256').update(buffer).digest('hex');
-	const savedPath = join(
-		DOCUMENTS_DIR,
-		`${contentHash.slice(0, 16)}${managedExtensionFor(handler, originalName)}`
-	);
+	const savedPath = managedPathForHash(contentHash, managedExtensionFor(handler, originalName));
 	const existing = await existingDocument(savedPath);
 	if (existing) return existing;
 
@@ -119,5 +143,30 @@ export async function ingestFilePath(
 		if (existing) return existing;
 	}
 
-	return ingestFileBuffer(basename(path), await readFile(path), onProgress);
+	// Converted artifacts need the original bytes in memory; those formats stay small
+	if (handler.convert || handler.preview) {
+		return ingestFileBuffer(basename(path), await readFile(path), onProgress);
+	}
+
+	handler.validateFile?.({ path, size: fileStats.size });
+	handler.validateBuffer?.(await readFileHeader(path, fileStats.size));
+
+	await mkdir(DOCUMENTS_DIR, { recursive: true });
+	const savedPath = managedPathForHash(
+		await hashFileContents(path),
+		managedExtensionFor(handler, path)
+	);
+	const existing = await existingDocument(savedPath);
+	if (existing) return existing;
+
+	await copyFile(path, savedPath);
+	try {
+		return await ingestDocument(
+			{ filePath: savedPath, title: titleFor(path), sourceType: handler.type },
+			onProgress
+		);
+	} catch (error) {
+		await removeManagedDocumentFile(savedPath);
+		throw error;
+	}
 }
