@@ -20,6 +20,10 @@ export type IngestDocumentResult = {
 	chunkCount: number;
 };
 
+function elapsed(started: number): string {
+	return `${((Date.now() - started) / 1000).toFixed(1)}s`;
+}
+
 // Shared ingest path for both terminal commands (testing) and UI routes
 export async function ingestDocument(
 	{ filePath, title, sourceType }: IngestDocumentInput,
@@ -43,6 +47,8 @@ export async function ingestDocument(
 
 	report(0, handler.startMessage);
 
+	const started = Date.now();
+	console.log(`[Ingest] ${source.title}: extracting (${source.type})...`);
 	const extraction = await extract(source, (ratio, message) => report(ratio * 50, message));
 
 	const rawChunks = chunkPages(extraction.chunks);
@@ -52,13 +58,26 @@ export async function ingestDocument(
 	// Silent, empty, or too short sources leave nothing worth embedding
 	if (chunks.length === 0) throw new Error(identity.emptyResultMessage);
 
+	console.log(
+		`[Ingest] ${source.title}: extracted ${extraction.pageCount} page(s) in ${elapsed(started)}; embedding ${chunks.length} chunk(s)...`
+	);
 	report(50, `Embedding 0 of ${chunks.length} chunks`);
 
+	let lastMilestone = 0;
 	const stored = await storeDocumentChunks(chunks, ({ stage, current, total }) => {
 		if (stage !== 'embedding') return;
 		const ratio = total > 0 ? current / total : 1;
+		const milestone = Math.floor(ratio * 4);
+		if (milestone > lastMilestone && milestone < 4) {
+			lastMilestone = milestone;
+			console.log(`[Ingest] ${source.title}: embedded ${current}/${total} chunk(s)`);
+		}
 		report(50 + ratio * 50, `Embedding ${current} of ${total} chunks`);
 	});
+
+	console.log(
+		`[Ingest] ${source.title}: stored ${stored.chunkCount} chunk(s); done in ${elapsed(started)}.`
+	);
 
 	return {
 		documentId: stored.documentId,

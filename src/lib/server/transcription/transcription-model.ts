@@ -29,6 +29,9 @@ export type TranscriptionResult = {
 export async function transcribeAudio(audioData: Float32Array): Promise<TranscriptionResult> {
 	transcriptionPipeline ??= pipeline('automatic-speech-recognition', TRANSCRIPTION_MODEL, {
 		cache_dir: TRANSFORMERS_CACHE_DIR
+	}).catch((error) => {
+		transcriptionPipeline = undefined;
+		throw error;
 	});
 
 	const transcriber = await transcriptionPipeline;

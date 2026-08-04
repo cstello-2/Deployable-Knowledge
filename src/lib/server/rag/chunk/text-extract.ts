@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
-import { PDFParse, type EmbeddedImage, type TableArray } from 'pdf-parse';
+import { PDFParse, type EmbeddedImage, type TableArray, type TableResult } from 'pdf-parse';
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
+import { withTimeout } from '$lib/server/utils/with-timeout';
 import {
 	normalizeWhitespace,
 	type ExtractedChunk as Chunk,
@@ -10,9 +11,17 @@ import {
 } from './parse-shared.ts';
 
 const MIN_OCR_CONFIDENCE = 80;
+// Pages with no native text depend entirely on OCR, so accept lower-confidence reads
+const MIN_OCR_ONLY_CONFIDENCE = 50;
 // Beyond this pixel count tesseract grinds for minutes on a single image
 const MAX_OCR_PIXELS = 50_000_000;
 const OCR_IMAGE_TIMEOUT_MS = 120_000;
+const PAGE_IMAGE_TIMEOUT_MS = 60_000;
+const TABLE_DETECTION_TIMEOUT_MS = 120_000;
+
+function seconds(started: number): string {
+	return `${((Date.now() - started) / 1000).toFixed(1)}s`;
+}
 
 function tableToText(table: TableArray): string {
 	return table
@@ -46,24 +55,18 @@ async function createOcrWorker(): Promise<Worker> {
 	return worker;
 }
 
-async function recognizeImage(worker: Worker, image: EmbeddedImage) {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(
-			() => reject(new Error(`OCR timed out after ${OCR_IMAGE_TIMEOUT_MS / 1000}s.`)),
-			OCR_IMAGE_TIMEOUT_MS
-		);
-	});
-	try {
-		return await Promise.race([worker.recognize(Buffer.from(image.data)), timeout]);
-	} finally {
-		clearTimeout(timer);
-	}
+function recognizeImage(worker: Worker, image: EmbeddedImage) {
+	return withTimeout(
+		worker.recognize(Buffer.from(image.data)),
+		OCR_IMAGE_TIMEOUT_MS,
+		`OCR timed out after ${OCR_IMAGE_TIMEOUT_MS / 1000}s.`
+	);
 }
 
 async function ocrEmbeddedImages(
 	parser: PDFParse,
 	pageCount: number,
+	pagesWithText: ReadonlySet<number>,
 	onPageProgress?: (current: number, total: number) => void
 ): Promise<Map<number, string[]>> {
 	const textByPage = new Map<number, string[]>();
@@ -72,6 +75,9 @@ async function ocrEmbeddedImages(
 	try {
 		for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
 			const images = await getPageImages(parser, pageNumber);
+			const minConfidence = pagesWithText.has(pageNumber)
+				? MIN_OCR_CONFIDENCE
+				: MIN_OCR_ONLY_CONFIDENCE;
 
 			if (images.length > 0) {
 				console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s)`);
@@ -88,11 +94,18 @@ async function ocrEmbeddedImages(
 				worker ??= await createOcrWorker();
 
 				try {
+					const recognizeStarted = Date.now();
 					const result = await recognizeImage(worker, image);
 					const text = normalizeWhitespace(result.data.text);
 					const confidence = result.data.confidence;
 
-					if (text && confidence >= MIN_OCR_CONFIDENCE) {
+					if (Date.now() - recognizeStarted > 15_000) {
+						console.log(
+							`[OCR] Page ${pageNumber}: ${image.name} took ${seconds(recognizeStarted)} at ${Math.round(confidence)}% confidence.`
+						);
+					}
+
+					if (text && confidence >= minConfidence) {
 						textByPage.set(pageNumber, [...(textByPage.get(pageNumber) ?? []), text]);
 					} else if (text) {
 						console.log(
@@ -120,7 +133,11 @@ async function ocrEmbeddedImages(
 
 async function getPageImages(parser: PDFParse, pageNumber: number): Promise<EmbeddedImage[]> {
 	try {
-		const result = await parser.getImage({ partial: [pageNumber], imageDataUrl: false });
+		const result = await withTimeout(
+			parser.getImage({ partial: [pageNumber], imageDataUrl: false }),
+			PAGE_IMAGE_TIMEOUT_MS,
+			`Image extraction timed out after ${PAGE_IMAGE_TIMEOUT_MS / 1000}s.`
+		);
 		return result.pages[0]?.images ?? [];
 	} catch (error) {
 		console.warn(`[OCR] Could not extract images from page ${pageNumber}; skipping it.`, error);
@@ -136,9 +153,47 @@ export async function extractText(
 	const parser = new PDFParse({ data });
 
 	try {
+		const textStarted = Date.now();
 		const textResult = await parser.getText();
-		const ocrTextByPage = await ocrEmbeddedImages(parser, textResult.total, onPageProgress);
-		const tableResult = await parser.getTable();
+
+		const pagesWithText = new Set<number>();
+		for (let pageNumber = 1; pageNumber <= textResult.total; pageNumber += 1) {
+			if (normalizeWhitespace(textResult.getPageText(pageNumber))) {
+				pagesWithText.add(pageNumber);
+			}
+		}
+		console.log(
+			`[PDF] ${file.title}: ${textResult.total} page(s), native text on ${pagesWithText.size}, in ${seconds(textStarted)}.`
+		);
+
+		const ocrStarted = Date.now();
+		const ocrTextByPage = await ocrEmbeddedImages(
+			parser,
+			textResult.total,
+			pagesWithText,
+			onPageProgress
+		);
+		console.log(
+			`[PDF] ${file.title}: OCR pass added text on ${ocrTextByPage.size} page(s) in ${seconds(ocrStarted)}.`
+		);
+
+		// Tables are supplemental; detection failing or stalling must not sink the document
+		let tablePages: TableResult['pages'] = [];
+		const tableStarted = Date.now();
+		try {
+			const tableResult = await withTimeout(
+				parser.getTable(),
+				TABLE_DETECTION_TIMEOUT_MS,
+				`Table detection timed out after ${TABLE_DETECTION_TIMEOUT_MS / 1000}s.`
+			);
+			tablePages = tableResult.pages;
+			console.log(
+				`[PDF] ${file.title}: ${tablePages.reduce((sum, page) => sum + page.tables.length, 0)} table(s) in ${seconds(tableStarted)}.`
+			);
+		} catch (error) {
+			console.warn(`[PDF] ${file.title}: continuing without tables.`, error);
+		}
+
 		const chunks: Chunk[] = [];
 
 		for (let pageNumber = 1; pageNumber <= textResult.total; pageNumber += 1) {
@@ -153,7 +208,7 @@ export async function extractText(
 				chunks.push({ chunkType: 'IMAGE', source: file, pageIndex, content });
 			}
 
-			const tables = tableResult.pages.find((page) => page.num === pageNumber)?.tables ?? [];
+			const tables = tablePages.find((page) => page.num === pageNumber)?.tables ?? [];
 
 			for (const table of tables) {
 				const content = tableToText(table);

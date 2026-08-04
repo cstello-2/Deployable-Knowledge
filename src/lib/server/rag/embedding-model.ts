@@ -36,11 +36,24 @@ export function installEmbeddingModel(onProgress: ProgressCallback) {
 
 // Load the transformer once and reuse it across ingest/search calls
 async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
-	embeddingPipeline ??= pipeline('feature-extraction', EMBEDDING_MODEL, {
-		dtype: EMBEDDING_DTYPE,
-		cache_dir: EMBEDDING_CACHE_DIR,
-		progress_callback: onProgress
-	});
+	if (!embeddingPipeline) {
+		const started = Date.now();
+		console.log(`[Embedding] Loading ${EMBEDDING_MODEL}...`);
+		embeddingPipeline = pipeline('feature-extraction', EMBEDDING_MODEL, {
+			dtype: EMBEDDING_DTYPE,
+			cache_dir: EMBEDDING_CACHE_DIR,
+			progress_callback: onProgress
+		})
+			.then((loaded) => {
+				console.log(`[Embedding] Model ready in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+				return loaded;
+			})
+			.catch((error) => {
+				console.error('[Embedding] Model failed to load.', error);
+				embeddingPipeline = undefined;
+				throw error;
+			});
+	}
 
 	return embeddingPipeline;
 }
