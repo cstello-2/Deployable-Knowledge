@@ -35,7 +35,7 @@
 	<p class="m-0 whitespace-pre-wrap text-sm leading-relaxed">{result.content}</p>
 	<div class="flex flex-wrap gap-2">
 		<Button variant="outline" size="sm" onclick={() => onSaveChunk(result.chunkId)}>
-			<BookmarkPlus /> Save chunk
+			<BookmarkPlus /> Send to Notebook
 		</Button>
 		{#if isTranscript}
 			<Button variant="outline" size="sm" href={viewerHref}>

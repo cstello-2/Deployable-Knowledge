@@ -65,8 +65,8 @@
 						<button
 							type="button"
 							class="mt-0.5 flex size-3 shrink-0 cursor-pointer rounded-xs outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/40"
-							title="Save chunk"
-							aria-label="Save chunk"
+							title="Send to Notebook"
+							aria-label="Send to Notebook"
 							onclick={() => onSaveChunk?.(source.data.chunkId!)}
 						>
 							<BookmarkPlus class="size-3 translate-y-[0.5px]" />

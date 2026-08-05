@@ -68,9 +68,9 @@
 	async function saveChunk(chunkId: string): Promise<void> {
 		try {
 			const notebookTitle = await notebooksStore.saveChunk(chunkId);
-			toast.success(`Chunk saved to Loaded Sources in ${notebookTitle}`);
+			toast.success(`Sent to ${notebookTitle}`);
 		} catch (saveError) {
-			toast.error(saveError instanceof Error ? saveError.message : 'Failed to save chunk');
+			toast.error(saveError instanceof Error ? saveError.message : 'Failed to send to notebook');
 		}
 	}
 </script>
