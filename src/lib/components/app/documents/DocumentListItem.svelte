@@ -1,12 +1,16 @@
 <script lang="ts">
 	import AudioLines from '@lucide/svelte/icons/audio-lines';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Power from '@lucide/svelte/icons/power';
 	import PowerOff from '@lucide/svelte/icons/power-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { ActionIcon } from '$lib/components/app/actions';
+	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { documentViewerHref } from '$lib/constants';
 	import type { DocumentRow } from '$lib/types';
 	import DocumentTagChip from './DocumentTagChip.svelte';
 	import TagFilterMenu from './TagFilterMenu.svelte';
@@ -42,6 +46,7 @@
 				? FileSpreadsheet
 				: FileText
 	);
+	const viewerHref = $derived(documentViewerHref(document.sourceType, document.id, {}));
 </script>
 
 <div
@@ -63,8 +68,27 @@
 			{#if !document.active}
 				<span class="shrink-0 text-xs text-muted-foreground">· inactive</span>
 			{/if}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							aria-label={`Open ${document.title}`}
+							class="ml-auto border-0 bg-transparent shadow-none"
+							href={viewerHref}
+							rel="noopener noreferrer"
+							size="icon-sm"
+							target="_blank"
+							variant="ghost"
+						>
+							<ExternalLink />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="bottom">Open document</Tooltip.Content>
+			</Tooltip.Root>
 			<ActionIcon
-				class="ml-auto border-0 bg-transparent shadow-none"
+				class="border-0 bg-transparent shadow-none"
 				disabled={busy}
 				label={document.active ? `Deactivate ${document.title}` : `Activate ${document.title}`}
 				size="icon-sm"
