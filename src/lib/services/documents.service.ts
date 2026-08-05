@@ -5,6 +5,7 @@ import type {
 	ApiDocumentIngestProgress,
 	ApiDocumentIngestResult,
 	ApiDocumentDirectoryResponse,
+	ApiDocumentFailuresResponse,
 	ApiDocumentFolderRequest,
 	ApiDocumentFoldersResponse,
 	ApiDocumentFolderSyncEvent,
@@ -49,6 +50,18 @@ export class DocumentsService {
 
 	static removeAllDocuments() {
 		return apiDelete<{ removed: number }>(API_DOCUMENTS.BASE);
+	}
+
+	static listFailures() {
+		return apiFetch<ApiDocumentFailuresResponse>(API_DOCUMENTS.FAILURES);
+	}
+
+	static dismissFailure(id: string) {
+		return apiDelete<{ ok: true }>(API_DOCUMENTS.failure(id));
+	}
+
+	static clearFailures() {
+		return apiDelete<{ ok: true }>(API_DOCUMENTS.FAILURES);
 	}
 
 	static async ingestPath(

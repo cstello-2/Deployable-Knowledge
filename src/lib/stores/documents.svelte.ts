@@ -6,13 +6,15 @@ import type {
 	ApiDocumentIngestProgress,
 	ApiDocumentSyncFileProgress,
 	ApiSyncedFolder,
-	DocumentRow
+	DocumentRow,
+	IngestFailure
 } from '$lib/types';
 
 class DocumentsStore {
 	private _documents = $state<DocumentRow[]>([]);
 	private _tags = $state<string[]>([]);
 	private _folders = $state<ApiSyncedFolder[]>([]);
+	private _failures = $state<IngestFailure[]>([]);
 	private _selectedIds = $state(new SvelteSet<string>());
 	private _syncFiles = $state<ApiDocumentSyncFileProgress[]>([]);
 	progress = $state<ApiDocumentIngestProgress | null>(null);
@@ -33,6 +35,10 @@ class DocumentsStore {
 		return this._folders;
 	}
 
+	get failures(): IngestFailure[] {
+		return this._failures;
+	}
+
 	get syncFiles(): ApiDocumentSyncFileProgress[] {
 		return this._syncFiles;
 	}
@@ -45,13 +51,15 @@ class DocumentsStore {
 		this.loading = true;
 		this.error = null;
 		try {
-			const [result, folderResult] = await Promise.all([
+			const [result, folderResult, failuresResult] = await Promise.all([
 				DocumentsService.list(),
-				DocumentsService.listFolders()
+				DocumentsService.listFolders(),
+				DocumentsService.listFailures()
 			]);
 			this._documents = result.documents;
 			this._tags = result.tags;
 			this._folders = folderResult.folders;
+			this._failures = failuresResult.failures;
 			const validIds = new Set(result.documents.map(({ id }) => id));
 			for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 		} catch (error) {
@@ -59,6 +67,16 @@ class DocumentsStore {
 		} finally {
 			this.loading = false;
 		}
+	}
+
+	async dismissFailure(id: string): Promise<void> {
+		await DocumentsService.dismissFailure(id);
+		this._failures = this._failures.filter((failure) => failure.id !== id);
+	}
+
+	async clearFailures(): Promise<void> {
+		await DocumentsService.clearFailures();
+		this._failures = [];
 	}
 
 	select(id: string): void {

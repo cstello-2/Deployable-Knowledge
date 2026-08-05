@@ -10,6 +10,7 @@ export type {
 	Document,
 	DocumentChunk,
 	DocumentTag,
+	IngestFailure,
 	NewApiKey,
 	NewAssistantProfile,
 	NewDocument,

@@ -21,6 +21,7 @@
 	import { fuzzyDocumentScore } from '$lib/utils';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
+	import DocumentIngestFailures from './DocumentIngestFailures.svelte';
 	import DocumentList from './DocumentList.svelte';
 	import DocumentModeBar, { type DocumentListMode } from './DocumentModeBar.svelte';
 
@@ -301,6 +302,22 @@
 		}
 	}
 
+	async function dismissFailure(id: string): Promise<void> {
+		try {
+			await documentsStore.dismissFailure(id);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function clearFailures(): Promise<void> {
+		try {
+			await documentsStore.clearFailures();
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	function openBulkPicker(mode: TagPickerMode): void {
 		if (!documentsStore.tags.length) {
 			toast.info('Create a tag first');
@@ -353,6 +370,11 @@
 			onRemoveAll={() => (pendingRemoveAll = true)}
 		/>
 		{#if status}<p class="text-xs text-muted-foreground">{status}</p>{/if}
+		<DocumentIngestFailures
+			failures={documentsStore.failures}
+			onClearAll={clearFailures}
+			onDismiss={dismissFailure}
+		/>
 		<div class="text-xs text-muted-foreground">
 			{selectedCount} selected. With none selected, chat searches all documents.
 		</div>

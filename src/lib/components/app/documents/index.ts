@@ -1,5 +1,6 @@
 export { default as DocumentBulkActionsBar } from './DocumentBulkActionsBar.svelte';
 export { default as DocumentFilterBar } from './DocumentFilterBar.svelte';
+export { default as DocumentIngestFailures } from './DocumentIngestFailures.svelte';
 export { default as DocumentList } from './DocumentList.svelte';
 export { default as DocumentListItem } from './DocumentListItem.svelte';
 export { default as DocumentModeBar } from './DocumentModeBar.svelte';
