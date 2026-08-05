@@ -5,6 +5,7 @@ export { default as NotebookList } from './NotebookList.svelte';
 export { default as NotebookListItem } from './NotebookListItem.svelte';
 export { default as NotebookPageList } from './NotebookPageList.svelte';
 export { default as NotebookPageListItem } from './NotebookPageListItem.svelte';
+export { default as NotebookPageSearch } from './NotebookPageSearch.svelte';
 export { default as NotebookPreview } from './NotebookPreview.svelte';
 export { default as NotebookSearch } from './NotebookSearch.svelte';
 export { default as NotebookWindow } from './NotebookWindow.svelte';

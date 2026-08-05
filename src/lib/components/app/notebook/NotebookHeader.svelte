@@ -13,8 +13,10 @@
 		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
+		onToggleSearch: () => void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
+		searchOpen?: boolean;
 		sources: readonly NotebookSourceItem[];
 		sourcesLoading?: boolean;
 		title: string;
@@ -29,8 +31,10 @@
 		onImport,
 		onInsertCitation,
 		onRemoveSource,
+		onToggleSearch,
 		onTogglePreview,
 		previewMode = false,
+		searchOpen = false,
 		sources,
 		sourcesLoading = false,
 		title,
@@ -55,8 +59,10 @@
 		{onImport}
 		{onInsertCitation}
 		{onRemoveSource}
+		{onToggleSearch}
 		{onTogglePreview}
 		{previewMode}
+		{searchOpen}
 		{sources}
 		{sourcesLoading}
 		{view}

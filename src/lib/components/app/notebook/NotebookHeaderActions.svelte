@@ -2,6 +2,7 @@
 	import Eye from '@lucide/svelte/icons/eye';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
+	import Search from '@lucide/svelte/icons/search';
 	import Upload from '@lucide/svelte/icons/upload';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import type { NotebookSourceItem } from '$lib/types';
@@ -15,8 +16,10 @@
 		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
+		onToggleSearch: () => void;
 		onTogglePreview: () => void;
 		previewMode?: boolean;
+		searchOpen?: boolean;
 		sources: readonly NotebookSourceItem[];
 		sourcesLoading?: boolean;
 		view: NotebookView;
@@ -29,8 +32,10 @@
 		onImport,
 		onInsertCitation,
 		onRemoveSource,
+		onToggleSearch,
 		onTogglePreview,
 		previewMode = false,
+		searchOpen = false,
 		sources,
 		sourcesLoading = false,
 		view
@@ -60,6 +65,15 @@
 			onRemove={onRemoveSource}
 			{sources}
 		/>
+		<ActionIcon
+			class="size-8"
+			label="Search this page"
+			onclick={onToggleSearch}
+			pressed={searchOpen}
+			variant={searchOpen ? 'secondary' : 'ghost'}
+		>
+			<Search />
+		</ActionIcon>
 		<ActionIcon
 			class="size-8"
 			label={previewMode ? 'Edit notes' : 'Preview Markdown'}

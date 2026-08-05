@@ -33,6 +33,7 @@
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookPreview from './NotebookPreview.svelte';
 	import NotebookImportDialog from './NotebookImportDialog.svelte';
+	import NotebookPageSearch from './NotebookPageSearch.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
 	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
@@ -78,6 +79,10 @@
 	let moveDestinationId = $state('');
 	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
 	let notesPreviewViewport = $state<HTMLDivElement | null>(null);
+	let pageSearchOpen = $state(false);
+	let pageSearchQuery = $state('');
+	let pageSearchIndex = $state(0);
+	let rootElement = $state<HTMLDivElement | null>(null);
 	let importDialogOpen = $state(false);
 	let importDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
 	let importLoading = $state(false);
@@ -145,6 +150,31 @@
 		if (notebooksStore.error) toast.error(notebooksStore.error);
 		if (!notebooksStore.activeNotebook) view = 'notebooks';
 		else if (!notebooksStore.activePage) view = 'pages';
+	});
+
+	// Ctrl/Cmd+F only makes sense to intercept while focus is somewhere inside this
+	// window - browser find-in-page can't search inside a <textarea> anyway, and
+	// scoping the listener to this element (rather than window) leaves the shortcut
+	// alone everywhere else in the app. Escape lives here too, not just in
+	// NotebookPageSearch's own bar, because jumping to a match moves focus into the
+	// textarea/preview - outside the search bar - so a listener scoped to the bar
+	// alone would stop seeing Escape the moment you navigate to a result.
+	onMount(() => {
+		const handleKeydown = (event: KeyboardEvent) => {
+			if (
+				(event.ctrlKey || event.metaKey) &&
+				event.key.toLowerCase() === 'f' &&
+				view === 'editor'
+			) {
+				event.preventDefault();
+				pageSearchOpen = true;
+			} else if (event.key === 'Escape' && pageSearchOpen) {
+				event.preventDefault();
+				closePageSearch();
+			}
+		};
+		rootElement?.addEventListener('keydown', handleKeydown);
+		return () => rootElement?.removeEventListener('keydown', handleKeydown);
 	});
 
 	onDestroy(() => autosave.destroy());
@@ -472,6 +502,71 @@
 		}
 	}
 
+	type PageSearchMatch = { start: number; end: number; line: number };
+
+	function findPageSearchMatches(text: string, query: string): PageSearchMatch[] {
+		const trimmed = query.trim();
+		if (!trimmed) return [];
+
+		const matches: PageSearchMatch[] = [];
+		const lowerText = text.toLowerCase();
+		const lowerQuery = trimmed.toLowerCase();
+		let fromIndex = 0;
+		let found = lowerText.indexOf(lowerQuery, fromIndex);
+		while (found !== -1) {
+			const line = text.slice(0, found).split('\n').length - 1;
+			matches.push({ start: found, end: found + trimmed.length, line });
+			fromIndex = found + trimmed.length;
+			found = lowerText.indexOf(lowerQuery, fromIndex);
+		}
+		return matches;
+	}
+
+	const pageSearchMatches = $derived(findPageSearchMatches(notes, pageSearchQuery));
+
+	// Jump to the first match whenever the query (or its results) change, rather
+	// than leaving the index pointing at a match that no longer exists.
+	$effect(() => {
+		pageSearchIndex = 0;
+		if (pageSearchMatches.length) void jumpToPageSearchMatch(0);
+	});
+
+	async function jumpToPageSearchMatch(index: number): Promise<void> {
+		const match = pageSearchMatches[index];
+		if (!match) return;
+		await tick();
+		if (previewMode) {
+			if (notesPreviewViewport) scrollPreviewToLine(notesPreviewViewport, match.line);
+		} else if (notesTextarea) {
+			notesTextarea.focus();
+			notesTextarea.setSelectionRange(match.start, match.end);
+			scrollTextareaToLine(notesTextarea, notes, match.line);
+		}
+	}
+
+	function nextPageSearchMatch(): void {
+		if (!pageSearchMatches.length) return;
+		pageSearchIndex = (pageSearchIndex + 1) % pageSearchMatches.length;
+		void jumpToPageSearchMatch(pageSearchIndex);
+	}
+
+	function prevPageSearchMatch(): void {
+		if (!pageSearchMatches.length) return;
+		pageSearchIndex = (pageSearchIndex - 1 + pageSearchMatches.length) % pageSearchMatches.length;
+		void jumpToPageSearchMatch(pageSearchIndex);
+	}
+
+	function togglePageSearch(): void {
+		pageSearchOpen = !pageSearchOpen;
+		if (!pageSearchOpen) pageSearchQuery = '';
+	}
+
+	function closePageSearch(): void {
+		pageSearchOpen = false;
+		pageSearchQuery = '';
+		notesTextarea?.focus();
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -495,7 +590,10 @@
 	contentClass="overflow-hidden"
 	contentLabel="Notebook content"
 >
-	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
+	<div
+		bind:this={rootElement}
+		class="grid h-full min-h-0 grid-rows-[auto_auto_1fr] overflow-hidden"
+	>
 		<NotebookHeader
 			{importing}
 			onBack={goBack}
@@ -504,71 +602,85 @@
 			onImport={openImportDialog}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
+			onToggleSearch={togglePageSearch}
 			onTogglePreview={() => void togglePreviewMode()}
 			{previewMode}
+			searchOpen={pageSearchOpen}
 			sources={notebooksStore.sources}
 			sourcesLoading={notebooksStore.sourcesLoading}
 			title={headerTitle()}
 			{view}
 		/>
-		{#if view === 'notebooks'}
-			<NotebookSearch
-				notebooks={notebooksStore.notebooks}
-				onOpenResult={openSearchResult}
-				placeholder="Search notebooks..."
-			>
-				<NotebookList
-					activeId={notebooksStore.activeNotebookId}
-					addingToMasterCorpusId={notebooksStore.addingToMasterCorpusId}
-					exportDisabled={notebooksStore.exportingNotebookId !== null ||
-						notebooksStore.exportingPageId !== null}
-					exportingId={notebooksStore.exportingNotebookId}
-					notebooks={notebooksStore.notebooks}
-					onAddToMasterCorpus={(notebook) => void addNotebookToMasterCorpus(notebook)}
-					onDelete={openDeleteNotebook}
-					onExport={(notebook) => void exportNotebook(notebook)}
-					onMove={moveNotebook}
-					onOpen={(notebook) => void openNotebook(notebook)}
-					onRename={(notebook) => openRename(notebook, 'notebook')}
-					reorderDisabled={notebooksStore.reordering}
-				/>
-			</NotebookSearch>
-		{:else if view === 'pages'}
-			<NotebookSearch
-				notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
-				onOpenResult={openSearchResult}
-				placeholder="Search pages..."
-			>
-				<NotebookPageList
-					activeId={notebooksStore.activePage?.id ?? null}
-					exportDisabled={notebooksStore.exportingNotebookId !== null ||
-						notebooksStore.exportingPageId !== null}
-					exportingId={notebooksStore.exportingPageId}
-					onDelete={openDeletePage}
-					onExport={(page) => void exportPage(page)}
-					onMove={openMovePage}
-					onOpen={(page) => void openPage(page)}
-					onRename={(page) => openRename(page, 'page')}
-					onReorder={reorderPage}
-					pages={notebooksStore.activeNotebook?.pages ?? []}
-					reorderDisabled={notebooksStore.reordering}
-				/>
-			</NotebookSearch>
-		{:else if previewMode}
-			<NotebookPreview content={notes} bind:viewportRef={notesPreviewViewport} />
-		{:else}
-			<NotebookEditor
-				bind:ref={notesTextarea}
-				bind:notes
-				{pageLimit}
-				{characterCount}
-				characterLimit={NOTEBOOK_TEXT_CHARACTER_LIMIT}
-				{charactersRemaining}
-				{nearLimit}
-				{atLimit}
-				onInput={autosave.schedule}
+		{#if pageSearchOpen && view === 'editor'}
+			<NotebookPageSearch
+				bind:query={pageSearchQuery}
+				currentIndex={pageSearchIndex}
+				matchCount={pageSearchMatches.length}
+				onClose={closePageSearch}
+				onNext={nextPageSearchMatch}
+				onPrev={prevPageSearchMatch}
 			/>
 		{/if}
+		<div class="row-start-3 grid min-h-0 min-w-0 overflow-hidden">
+			{#if view === 'notebooks'}
+				<NotebookSearch
+					notebooks={notebooksStore.notebooks}
+					onOpenResult={openSearchResult}
+					placeholder="Search notebooks..."
+				>
+					<NotebookList
+						activeId={notebooksStore.activeNotebookId}
+						addingToMasterCorpusId={notebooksStore.addingToMasterCorpusId}
+						exportDisabled={notebooksStore.exportingNotebookId !== null ||
+							notebooksStore.exportingPageId !== null}
+						exportingId={notebooksStore.exportingNotebookId}
+						notebooks={notebooksStore.notebooks}
+						onAddToMasterCorpus={(notebook) => void addNotebookToMasterCorpus(notebook)}
+						onDelete={openDeleteNotebook}
+						onExport={(notebook) => void exportNotebook(notebook)}
+						onMove={moveNotebook}
+						onOpen={(notebook) => void openNotebook(notebook)}
+						onRename={(notebook) => openRename(notebook, 'notebook')}
+						reorderDisabled={notebooksStore.reordering}
+					/>
+				</NotebookSearch>
+			{:else if view === 'pages'}
+				<NotebookSearch
+					notebooks={notebooksStore.activeNotebook ? [notebooksStore.activeNotebook] : []}
+					onOpenResult={openSearchResult}
+					placeholder="Search pages..."
+				>
+					<NotebookPageList
+						activeId={notebooksStore.activePage?.id ?? null}
+						exportDisabled={notebooksStore.exportingNotebookId !== null ||
+							notebooksStore.exportingPageId !== null}
+						exportingId={notebooksStore.exportingPageId}
+						onDelete={openDeletePage}
+						onExport={(page) => void exportPage(page)}
+						onMove={openMovePage}
+						onOpen={(page) => void openPage(page)}
+						onRename={(page) => openRename(page, 'page')}
+						onReorder={reorderPage}
+						pages={notebooksStore.activeNotebook?.pages ?? []}
+						reorderDisabled={notebooksStore.reordering}
+					/>
+				</NotebookSearch>
+			{:else if previewMode}
+				<NotebookPreview content={notes} bind:viewportRef={notesPreviewViewport} />
+			{:else}
+				<NotebookEditor
+					bind:ref={notesTextarea}
+					bind:notes
+					{pageLimit}
+					{characterCount}
+					characterLimit={NOTEBOOK_TEXT_CHARACTER_LIMIT}
+					{charactersRemaining}
+					{nearLimit}
+					{atLimit}
+					onInput={autosave.schedule}
+				/>
+			{/if}
+		</div>
 	</div>
 </WorkspaceWindow>
 
