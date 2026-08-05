@@ -172,8 +172,19 @@
 
 	function handlePaste(event: ClipboardEvent): void {
 		if (busy) return;
-		const files = event.clipboardData?.files;
-		if (!files || files.length === 0) return;
+		if (!event.clipboardData) return;
+		const files = event.clipboardData.files;
+		if (files.length === 0) {
+			// Only warn when the clipboard actually had *something* - otherwise a
+			// completely unrelated Ctrl+V (e.g. pasting text into another window)
+			// would trigger a confusing toast every time.
+			if (event.clipboardData.types.length > 0) {
+				toast.error(
+					'Nothing to upload from the clipboard - copy the file itself (Ctrl+C in your file browser), not a path or a shortcut to it.'
+				);
+			}
+			return;
+		}
 
 		event.preventDefault();
 		void uploadFiles([...files]);
