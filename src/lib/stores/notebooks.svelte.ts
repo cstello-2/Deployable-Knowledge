@@ -1,11 +1,20 @@
+import { APP_PREVIEW } from '$lib/constants';
 import { NotebooksService } from '$lib/services';
 import type {
 	ApiNotebookMasterCorpusResponse,
+	ApiNotebookSourceContent,
 	NotebookPage,
 	NotebookSourceItem,
 	NotebookStateResponse,
 	NotebookWithPages
 } from '$lib/types';
+
+function formatChunkForPage(source: ApiNotebookSourceContent): string {
+	const title = source.documentTitle.trim() || 'Source';
+	const page = source.pageIndex + 1;
+	const href = APP_PREVIEW.page(source.documentId, source.pageIndex);
+	return `${source.content.trim()}\n\n([${title}, p. ${page}](${href}))`;
+}
 
 class NotebooksStore {
 	private _notebooks = $state<NotebookWithPages[]>([]);
@@ -219,17 +228,22 @@ class NotebooksStore {
 		}
 	}
 
-	async addSources(chunkIds: string[]): Promise<void> {
-		if (!this._activeNotebookId || !chunkIds.length) return;
-		await NotebooksService.addSources(this._activeNotebookId, chunkIds);
+	async addSources(chunkIds: string[]): Promise<ApiNotebookSourceContent[]> {
+		if (!this._activeNotebookId || !chunkIds.length) return [];
+		const response = await NotebooksService.addSources(this._activeNotebookId, chunkIds);
 		await this.loadSources();
+		return response.sources;
 	}
 
+	// Attaches the chunk as a background source (for notebook-mode chat) *and* drops its
+	// actual text into the open page, so "Save chunk" leaves something you can see, not
+	// just a silent reference.
 	async saveChunk(chunkId: string): Promise<string> {
 		await this.load();
 		const notebook = this.activeNotebook;
 		if (!notebook) throw new Error('Create or open a notebook first.');
-		await this.addSources([chunkId]);
+		const [source] = await this.addSources([chunkId]);
+		if (source && this.activePage) await this.appendToActivePage(formatChunkForPage(source));
 		return notebook.title;
 	}
 

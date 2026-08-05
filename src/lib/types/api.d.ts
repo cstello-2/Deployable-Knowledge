@@ -185,6 +185,21 @@ export interface ApiNotebookSourcesRequest {
 	chunk_ids: string[];
 }
 
+export interface ApiNotebookSourceContent {
+	chunkId: string;
+	documentId: string;
+	documentTitle: string;
+	pageIndex: number;
+	sourceType: Document['sourceType'];
+	content: string;
+}
+
+export interface ApiNotebookSourcesResponse {
+	added: number;
+	ok: true;
+	sources: ApiNotebookSourceContent[];
+}
+
 export interface ApiNotebookMasterCorpusRequest {
 	pageIds: string[];
 }

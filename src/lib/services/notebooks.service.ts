@@ -9,6 +9,7 @@ import type {
 	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
 	ApiNotebookSourcesRequest,
+	ApiNotebookSourcesResponse,
 	ApiNotebookTitleRequest,
 	ApiReorderRequest,
 	ApiReorderResponse,
@@ -116,7 +117,7 @@ export class NotebooksService {
 	}
 
 	static addSources(id: string, chunkIds: string[]) {
-		return apiPost<{ ok: true; added: number }, ApiNotebookSourcesRequest>(
+		return apiPost<ApiNotebookSourcesResponse, ApiNotebookSourcesRequest>(
 			API_NOTEBOOKS.sources(id),
 			{ chunk_ids: chunkIds }
 		);
