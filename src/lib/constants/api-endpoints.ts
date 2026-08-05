@@ -55,7 +55,9 @@ export const API_NOTEBOOKS = {
 	selectPage: (id: string, pageId: string) =>
 		`/notebooks/${segment(id)}/pages/${segment(pageId)}/select`,
 	sources: (id: string) => `/notebooks/${segment(id)}/sources`,
-	source: (id: string, sourceId: string) => `/notebooks/${segment(id)}/sources/${segment(sourceId)}`
+	source: (id: string, sourceId: string) =>
+		`/notebooks/${segment(id)}/sources/${segment(sourceId)}`,
+	masterCorpus: (id: string) => `/notebooks/${segment(id)}/master-corpus`
 };
 
 export const API_LOCAL_MODELS = {

@@ -185,6 +185,17 @@ export interface ApiNotebookSourcesRequest {
 	chunk_ids: string[];
 }
 
+export interface ApiNotebookMasterCorpusRequest {
+	pageIds: string[];
+}
+
+export interface ApiNotebookMasterCorpusResponse {
+	chunkCount: number;
+	documentId: string;
+	pageCount: number;
+	title: string;
+}
+
 export interface NotebookStateResponse {
 	activeNotebookId: string | null;
 	notebooks: NotebookWithPages[];

@@ -7,9 +7,11 @@
 
 	interface Props {
 		activeId: string | null;
+		addingToMasterCorpusId?: string | null;
 		exportDisabled?: boolean;
 		exportingId: string | null;
 		notebooks: readonly NotebookWithPages[];
+		onAddToMasterCorpus?: (notebook: NotebookWithPages) => Promise<void> | void;
 		onDelete: (notebook: NotebookWithPages) => void;
 		onExport: (notebook: NotebookWithPages) => Promise<void> | void;
 		onMove: (notebookId: string, targetIndex: number) => Promise<void> | void;
@@ -20,9 +22,11 @@
 
 	let {
 		activeId,
+		addingToMasterCorpusId = null,
 		exportDisabled = false,
 		exportingId,
 		notebooks,
+		onAddToMasterCorpus,
 		onDelete,
 		onExport,
 		onMove,
@@ -37,9 +41,11 @@
 		{#snippet item(notebook, reorderHandleProps)}
 			<NotebookListItem
 				active={notebook.id === activeId}
+				addingToMasterCorpus={notebook.id === addingToMasterCorpusId}
 				{exportDisabled}
 				exporting={notebook.id === exportingId}
 				{notebook}
+				onAddToMasterCorpus={onAddToMasterCorpus && (() => onAddToMasterCorpus(notebook))}
 				onDelete={() => onDelete(notebook)}
 				onExport={() => onExport(notebook)}
 				onOpen={() => onOpen(notebook)}

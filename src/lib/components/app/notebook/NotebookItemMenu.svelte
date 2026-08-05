@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DatabaseZap from '@lucide/svelte/icons/database-zap';
 	import Download from '@lucide/svelte/icons/download';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -8,10 +9,12 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 
 	interface Props {
+		addingToMasterCorpus?: boolean;
 		exportDisabled?: boolean;
 		exporting?: boolean;
 		kind: 'notebook' | 'page';
 		label: string;
+		onAddToMasterCorpus?: () => Promise<void> | void;
 		onDelete: () => void;
 		onExport: () => Promise<void> | void;
 		onMove?: () => void;
@@ -19,10 +22,12 @@
 	}
 
 	let {
+		addingToMasterCorpus = false,
 		exportDisabled = false,
 		exporting = false,
 		kind,
 		label,
+		onAddToMasterCorpus,
 		onDelete,
 		onExport,
 		onMove,
@@ -59,6 +64,12 @@
 			<Download />
 			{exporting ? 'Exporting…' : kind === 'notebook' ? 'Export as ZIP' : 'Export as Markdown'}
 		</DropdownMenu.Item>
+		{#if onAddToMasterCorpus}
+			<DropdownMenu.Item disabled={addingToMasterCorpus} onclick={onAddToMasterCorpus}>
+				<DatabaseZap />
+				{addingToMasterCorpus ? 'Adding…' : 'Add to search index'}
+			</DropdownMenu.Item>
+		{/if}
 		<DropdownMenu.Item onclick={onDelete} variant="destructive">
 			<Trash2 />
 			Delete

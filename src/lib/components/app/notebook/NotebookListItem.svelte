@@ -9,9 +9,11 @@
 
 	interface Props {
 		active?: boolean;
+		addingToMasterCorpus?: boolean;
 		exportDisabled?: boolean;
 		exporting?: boolean;
 		notebook: NotebookWithPages;
+		onAddToMasterCorpus?: () => Promise<void> | void;
 		onDelete: () => void;
 		onExport: () => Promise<void> | void;
 		onOpen: () => void;
@@ -22,9 +24,11 @@
 
 	let {
 		active = false,
+		addingToMasterCorpus = false,
 		exportDisabled = false,
 		exporting = false,
 		notebook,
+		onAddToMasterCorpus,
 		onDelete,
 		onExport,
 		onOpen,
@@ -64,10 +68,12 @@
 		>
 	</button>
 	<NotebookItemMenu
+		{addingToMasterCorpus}
 		{exportDisabled}
 		{exporting}
 		kind="notebook"
 		label={notebook.title}
+		{onAddToMasterCorpus}
 		{onDelete}
 		{onExport}
 		{onRename}

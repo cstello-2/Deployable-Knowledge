@@ -1,5 +1,6 @@
 import { NotebooksService } from '$lib/services';
 import type {
+	ApiNotebookMasterCorpusResponse,
 	NotebookPage,
 	NotebookSourceItem,
 	NotebookStateResponse,
@@ -12,6 +13,7 @@ class NotebooksStore {
 	private _sources = $state<NotebookSourceItem[]>([]);
 	exportingNotebookId = $state<string | null>(null);
 	exportingPageId = $state<string | null>(null);
+	addingToMasterCorpusId = $state<string | null>(null);
 	loading = $state(false);
 	reordering = $state(false);
 	sourcesLoading = $state(false);
@@ -111,6 +113,20 @@ class NotebooksStore {
 			return await NotebooksService.exportPage(notebookId, pageId);
 		} finally {
 			this.exportingPageId = null;
+		}
+	}
+
+	async addToMasterCorpus(
+		notebookId: string,
+		pageIds: string[]
+	): Promise<ApiNotebookMasterCorpusResponse | null> {
+		if (this.addingToMasterCorpusId || pageIds.length === 0) return null;
+
+		this.addingToMasterCorpusId = notebookId;
+		try {
+			return await NotebooksService.addToMasterCorpus(notebookId, pageIds);
+		} finally {
+			this.addingToMasterCorpusId = null;
 		}
 	}
 

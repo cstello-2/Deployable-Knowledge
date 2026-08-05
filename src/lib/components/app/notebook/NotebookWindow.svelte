@@ -12,7 +12,7 @@
 		NOTEBOOK_TEXT_CHARACTER_LIMIT,
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
-	import { notebooksStore } from '$lib/stores';
+	import { documentsStore, notebooksStore } from '$lib/stores';
 	import type {
 		ApiDocumentDirectoryResponse,
 		NotebookPage,
@@ -365,6 +365,23 @@
 		}
 	}
 
+	async function addNotebookToMasterCorpus(notebook: NotebookWithPages): Promise<void> {
+		if (!(await prepareExport())) return;
+		try {
+			const result = await notebooksStore.addToMasterCorpus(
+				notebook.id,
+				notebook.pages.map((page) => page.id)
+			);
+			if (!result) return;
+			await documentsStore.load();
+			toast.success(
+				`Added ${result.pageCount} page${result.pageCount === 1 ? '' : 's'} to the search index as ${result.chunkCount} chunk${result.chunkCount === 1 ? '' : 's'}`
+			);
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	async function exportPage(page: NotebookPage): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook || !(await prepareExport())) return;
@@ -502,10 +519,12 @@
 			>
 				<NotebookList
 					activeId={notebooksStore.activeNotebookId}
+					addingToMasterCorpusId={notebooksStore.addingToMasterCorpusId}
 					exportDisabled={notebooksStore.exportingNotebookId !== null ||
 						notebooksStore.exportingPageId !== null}
 					exportingId={notebooksStore.exportingNotebookId}
 					notebooks={notebooksStore.notebooks}
+					onAddToMasterCorpus={(notebook) => void addNotebookToMasterCorpus(notebook)}
 					onDelete={openDeleteNotebook}
 					onExport={(notebook) => void exportNotebook(notebook)}
 					onMove={moveNotebook}

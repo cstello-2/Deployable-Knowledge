@@ -3,6 +3,8 @@ import type {
 	ApiDocumentDirectoryResponse,
 	ApiNotebookCollectionImportRequest,
 	ApiNotebookMarkdownImportRequest,
+	ApiNotebookMasterCorpusRequest,
+	ApiNotebookMasterCorpusResponse,
 	ApiNotebookPageContentRequest,
 	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
@@ -52,6 +54,13 @@ export class NotebooksService {
 
 	static exportNotebook(id: string) {
 		return apiDownload(API_NOTEBOOKS.export(id), 'notebook.zip');
+	}
+
+	static addToMasterCorpus(id: string, pageIds: string[]) {
+		return apiPost<ApiNotebookMasterCorpusResponse, ApiNotebookMasterCorpusRequest>(
+			API_NOTEBOOKS.masterCorpus(id),
+			{ pageIds }
+		);
 	}
 
 	static select(id: string) {
