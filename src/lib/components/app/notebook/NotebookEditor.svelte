@@ -57,7 +57,7 @@
 	}
 </script>
 
-<div class="relative min-h-0">
+<div class="relative min-h-0 min-w-0">
 	{#if selectionButtonVisible}
 		<Button
 			class="absolute top-2 right-3 z-10"
