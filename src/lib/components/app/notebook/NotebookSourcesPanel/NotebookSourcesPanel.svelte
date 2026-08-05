@@ -2,12 +2,14 @@
 	import FileStack from '@lucide/svelte/icons/files';
 	import Quote from '@lucide/svelte/icons/quote';
 	import X from '@lucide/svelte/icons/x';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { cn } from '$lib/components/ui/utils';
 	import type { NotebookSourceItem } from '$lib/types';
 
 	interface Props {
@@ -20,6 +22,11 @@
 
 	let { loading = false, onClear, onInsertCitation, onRemove, sources }: Props = $props();
 	let clearOpen = $state(false);
+	const expandedIds = new SvelteSet<string>();
+
+	function toggleExpanded(id: string): void {
+		if (!expandedIds.delete(id)) expandedIds.add(id);
+	}
 </script>
 
 <Popover.Root>
@@ -65,17 +72,34 @@
 								class="shrink-0 text-muted-foreground">Page {source.pageIndex + 1}</span
 							>
 						</div>
-						<p class="m-0 line-clamp-3 min-w-0 break-words text-xs text-muted-foreground">
-							{source.preview}
-						</p>
-						<Button
-							class="mt-1 justify-self-start"
-							size="sm"
-							variant="outline"
-							onclick={() => onInsertCitation(source)}
+						<p
+							class={cn(
+								'm-0 min-w-0 text-xs text-muted-foreground',
+								expandedIds.has(source.id)
+									? 'max-h-48 overflow-y-auto whitespace-pre-wrap break-words'
+									: 'line-clamp-3 break-words'
+							)}
 						>
-							<Quote /> Insert citation
-						</Button>
+							{expandedIds.has(source.id) ? source.content : source.preview}
+						</p>
+						<div class="mt-1 flex min-w-0 items-center gap-2">
+							<Button
+								class="h-auto justify-self-start px-1.5 py-0.5 text-xs"
+								onclick={() => toggleExpanded(source.id)}
+								size="sm"
+								variant="ghost"
+							>
+								{expandedIds.has(source.id) ? 'Show less' : 'Show full chunk'}
+							</Button>
+							<Button
+								class="justify-self-start"
+								size="sm"
+								variant="outline"
+								onclick={() => onInsertCitation(source)}
+							>
+								<Quote /> Insert citation
+							</Button>
+						</div>
 					</article>
 				{:else}
 					<p class="text-sm text-muted-foreground">
