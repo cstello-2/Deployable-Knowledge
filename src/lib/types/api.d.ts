@@ -217,7 +217,7 @@ export interface NotebookStateResponse {
 }
 
 export type NotebookSourceItem = Pick<NotebookSource, 'id' | 'chunkId' | 'createdAt'> &
-	Pick<DocumentChunk, 'pageIndex' | 'content'> & {
+	Pick<DocumentChunk, 'pageIndex'> & {
 		documentId: Document['id'];
 		documentTitle: Document['title'];
 		preview: string;

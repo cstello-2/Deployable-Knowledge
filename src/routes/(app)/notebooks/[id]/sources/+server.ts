@@ -22,7 +22,7 @@ function preview(text: string, limit = PREVIEW_CHARS): string {
 // Every real field is derived from the schema types (not hand-typed) — only
 // `preview` is computed and has no column of its own.
 export type NotebookSourceItem = Pick<NotebookSource, 'id' | 'chunkId' | 'createdAt'> &
-	Pick<DocumentChunk, 'pageIndex' | 'content'> & {
+	Pick<DocumentChunk, 'pageIndex'> & {
 		documentId: Document['id'];
 		documentTitle: Document['title'];
 		preview: string;
@@ -58,7 +58,6 @@ export const GET: RequestHandler = async ({ params }) => {
 				documentId: row.documentId,
 				documentTitle: row.documentTitle,
 				pageIndex: row.pageIndex,
-				content: row.content,
 				preview: preview(row.content),
 				createdAt: row.createdAt
 			})
