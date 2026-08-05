@@ -1,13 +1,16 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import {
 		chatStore,
 		documentsStore,
 		notebooksStore,
 		sessionsStore,
-		settingsStore
+		settingsStore,
+		workspaceStore
 	} from '$lib/stores';
 	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
 	import { CONTEXT_OVERHEAD_TOKENS, CONTEXT_WINDOW_TOKENS_MAX } from '$lib/constants';
@@ -179,6 +182,19 @@
 			toast.error(error instanceof Error ? error.message : 'Failed to save chunk');
 		}
 	}
+
+	onMount(() => {
+		const handleSendToChat = (event: Event): void => {
+			const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+			if (!text) return;
+			draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+			workspaceStore.showWindow(id);
+			void goto(resolve('/'));
+		};
+
+		window.addEventListener('dk:send-to-chat', handleSendToChat);
+		return () => window.removeEventListener('dk:send-to-chat', handleSendToChat);
+	});
 </script>
 
 <WorkspaceWindow
