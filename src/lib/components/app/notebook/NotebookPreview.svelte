@@ -5,12 +5,13 @@
 
 	interface Props {
 		content: string;
+		viewportRef?: HTMLDivElement | null;
 	}
 
-	let { content }: Props = $props();
+	let { content, viewportRef = $bindable(null) }: Props = $props();
 </script>
 
-<ScrollArea class="min-h-0" aria-label="Notebook preview">
+<ScrollArea class="min-h-0" aria-label="Notebook preview" bind:viewportRef>
 	<div class="p-4 pr-6">
 		{#if content.trim()}
 			<MarkdownContent {content} />

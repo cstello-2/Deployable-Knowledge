@@ -303,6 +303,27 @@ export const syncedFiles = sqliteTable(
 	]
 );
 
+// Failed ingests are persisted instead of dropped, so a failed upload stays
+// visible until it's fixed (cleared automatically once the same source path
+// ingests successfully) or dismissed.
+export const ingestFailures = sqliteTable(
+	'ingest_failures',
+	{
+		id: text('id').primaryKey(),
+		sourcePath: text('source_path').notNull(),
+		title: text('title').notNull(),
+		sourceType: text('source_type'),
+		stage: text('stage'),
+		message: text('message').notNull(),
+		stack: text('stack'),
+		createdAt: text('created_at').notNull()
+	},
+	(table) => [
+		index('ingest_failures_source_path_idx').on(table.sourcePath),
+		index('ingest_failures_created_idx').on(table.createdAt)
+	]
+);
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
@@ -353,6 +374,9 @@ export type NewSyncedFolder = typeof syncedFolders.$inferInsert;
 
 export type SyncedFile = typeof syncedFiles.$inferSelect;
 export type NewSyncedFile = typeof syncedFiles.$inferInsert;
+
+export type IngestFailure = typeof ingestFailures.$inferSelect;
+export type NewIngestFailure = typeof ingestFailures.$inferInsert;
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;

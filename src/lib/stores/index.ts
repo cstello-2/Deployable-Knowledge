@@ -6,5 +6,6 @@ export { sessionsStore } from './sessions.svelte';
 export { settingsStore } from './settings.svelte';
 export { setupStore } from './setup.svelte';
 export { themeStore, THEME_COLORS, THEME_MODES } from './theme.svelte';
+export { welcomeStore } from './welcome.svelte';
 export { workspaceStore } from './workspace.svelte';
 export type { ThemeColor, ThemeMode } from './theme.svelte';

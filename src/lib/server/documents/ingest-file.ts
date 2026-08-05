@@ -7,7 +7,8 @@ import { count, eq } from 'drizzle-orm';
 import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
-import { ingestDocument } from '$lib/server/rag/ingest-document';
+import { ingestDocument, type IngestDocumentInput } from '$lib/server/rag/ingest-document';
+import { clearIngestFailures, recordIngestFailure } from './ingest-failures';
 import { handlerForPath, SOURCE_TYPE_HANDLERS, type SourceTypeHandler } from './source-types';
 import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts';
 import { containsPath, removeManagedDocumentFile } from './remove-document';
@@ -60,6 +61,27 @@ function titleFor(name: string): string {
 	return basename(name, extname(name)).trim() || name;
 }
 
+// Persists a failure log entry instead of letting it vanish once the request errors out,
+// and clears any prior failure for the same source path once it ingests cleanly.
+async function trackedIngest(
+	input: IngestDocumentInput,
+	onProgress?: (progress: ApiDocumentIngestProgress) => void
+): Promise<ApiDocumentIngestResult> {
+	try {
+		const result = await ingestDocument(input, onProgress);
+		await clearIngestFailures(input.filePath);
+		return result;
+	} catch (error) {
+		await recordIngestFailure({
+			sourcePath: input.filePath,
+			title: input.title ?? basename(input.filePath),
+			sourceType: input.sourceType,
+			error
+		});
+		throw error;
+	}
+}
+
 export async function ingestFileBuffer(
 	originalName: string,
 	buffer: Buffer,
@@ -87,7 +109,7 @@ export async function ingestFileBuffer(
 	}
 	await writeManagedArtifacts(handler, buffer, savedPath);
 	try {
-		return await ingestDocument(
+		return await trackedIngest(
 			{ filePath: savedPath, title: titleFor(originalName), sourceType: handler.type },
 			onProgress
 		);
@@ -110,7 +132,7 @@ async function ingestInPlace(
 	const existing = await existingDocument(path);
 	if (existing) return existing;
 
-	return ingestDocument({ filePath: path, title: titleFor(path) }, onProgress);
+	return trackedIngest({ filePath: path, title: titleFor(path) }, onProgress);
 }
 
 export async function ingestFilePath(
@@ -161,7 +183,7 @@ export async function ingestFilePath(
 
 	await copyFile(path, savedPath);
 	try {
-		return await ingestDocument(
+		return await trackedIngest(
 			{ filePath: savedPath, title: titleFor(path), sourceType: handler.type },
 			onProgress
 		);

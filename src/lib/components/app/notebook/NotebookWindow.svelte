@@ -36,6 +36,12 @@
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
 	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
+	import {
+		lineAtPreviewScrollTop,
+		lineAtTextareaScrollTop,
+		scrollPreviewToLine,
+		scrollTextareaToLine
+	} from '$lib/utils/scroll-line-sync';
 
 	interface Props {
 		collapsed?: boolean;
@@ -71,6 +77,7 @@
 	let movePageTarget = $state<NotebookPage | null>(null);
 	let moveDestinationId = $state('');
 	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
+	let notesPreviewViewport = $state<HTMLDivElement | null>(null);
 	let importDialogOpen = $state(false);
 	let importDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
 	let importLoading = $state(false);
@@ -431,6 +438,23 @@
 		}
 	}
 
+	// Keep the edit/preview toggle on the same part of the document instead of
+	// jumping to the top, by matching source line rather than scroll fraction
+	// (rendered HTML doesn't scale 1:1 with raw line count).
+	async function togglePreviewMode(): Promise<void> {
+		if (!previewMode) {
+			const line = notesTextarea ? lineAtTextareaScrollTop(notesTextarea, notes) : 0;
+			previewMode = true;
+			await tick();
+			if (notesPreviewViewport) scrollPreviewToLine(notesPreviewViewport, line);
+		} else {
+			const line = notesPreviewViewport ? lineAtPreviewScrollTop(notesPreviewViewport) : 0;
+			previewMode = false;
+			await tick();
+			if (notesTextarea) scrollTextareaToLine(notesTextarea, notes, line);
+		}
+	}
+
 	function headerTitle(): string {
 		if (notebooksStore.loading) return 'Loading notebook…';
 		if (view === 'notebooks') return 'Notebooks';
@@ -463,7 +487,7 @@
 			onImport={openImportDialog}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
-			onTogglePreview={() => (previewMode = !previewMode)}
+			onTogglePreview={() => void togglePreviewMode()}
 			{previewMode}
 			sources={notebooksStore.sources}
 			sourcesLoading={notebooksStore.sourcesLoading}
@@ -512,7 +536,7 @@
 				/>
 			</NotebookSearch>
 		{:else if previewMode}
-			<NotebookPreview content={notes} />
+			<NotebookPreview content={notes} bind:viewportRef={notesPreviewViewport} />
 		{:else}
 			<NotebookEditor
 				bind:ref={notesTextarea}

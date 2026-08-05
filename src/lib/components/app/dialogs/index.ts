@@ -5,4 +5,5 @@ export { default as DialogDocumentSyncProgress } from './DialogDocumentSyncProgr
 export { default as DialogDocumentTagPicker } from './DialogDocumentTagPicker.svelte';
 export { default as DialogProgress } from './DialogProgress.svelte';
 export { default as DialogPromptTemplate } from './DialogPromptTemplate.svelte';
+export { default as DialogWelcome } from './DialogWelcome.svelte';
 export * from './prompt-template-presets';

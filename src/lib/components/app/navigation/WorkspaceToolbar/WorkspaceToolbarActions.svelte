@@ -6,6 +6,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { welcomeStore } from '$lib/stores';
 </script>
 
 <div class="ml-1 flex shrink-0 items-center gap-1 border-l pl-1" aria-label="Application controls">
@@ -37,6 +38,9 @@
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Content align="end" class="w-48" side="bottom" sideOffset={8}>
 			<DropdownMenu.Label>local-user</DropdownMenu.Label>
+			<DropdownMenu.Item onclick={() => welcomeStore.show()}>
+				Welcome / Setup Guide
+			</DropdownMenu.Item>
 			<DropdownMenu.Item disabled>Logout</DropdownMenu.Item>
 		</DropdownMenu.Content>
 	</DropdownMenu.Root>

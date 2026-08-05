@@ -5,5 +5,6 @@ export const STORAGE_KEYS = {
 	WINDOW_PLACEMENTS: 'layout:windowPlacements',
 	LAYOUT_PRESET_STATE: 'layout:presetState',
 	LEGACY_LAYOUT_PRESETS: 'layout:presets',
-	LEGACY_ACTIVE_LAYOUT_PRESET: 'layout:activePreset'
+	LEGACY_ACTIVE_LAYOUT_PRESET: 'layout:activePreset',
+	WELCOME_SEEN: 'welcome_seen'
 } as const;
