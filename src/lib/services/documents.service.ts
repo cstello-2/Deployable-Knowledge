@@ -64,6 +64,17 @@ export class DocumentsService {
 		return this.readIngestStream(response, onProgress, signal);
 	}
 
+	static async uploadFile(
+		file: File,
+		onProgress?: (progress: ApiDocumentIngestProgress) => void,
+		signal?: AbortSignal
+	): Promise<ApiDocumentIngestResult> {
+		const body = new FormData();
+		body.append('file', file);
+		const response = await apiStream(API_DOCUMENTS.BASE, { method: 'POST', body, signal });
+		return this.readIngestStream(response, onProgress, signal);
+	}
+
 	static async addFolder(
 		path: string,
 		onProgress?: (progress: ApiDocumentSyncFileProgress) => void,

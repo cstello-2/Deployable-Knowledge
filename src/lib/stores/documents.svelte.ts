@@ -114,6 +114,18 @@ class DocumentsStore {
 		return result;
 	}
 
+	async uploadFile(file: File) {
+		this.progress = { percent: 0, label: 'Ingesting file', message: 'Preparing file' };
+		const result = await DocumentsService.uploadFile(
+			file,
+			(progress) => (this.progress = progress)
+		);
+		this._selectedIds.add(result.documentId);
+		this.progress = null;
+		await this.load();
+		return result;
+	}
+
 	async addFolder(path: string): Promise<ApiDocumentFolderSyncResponse> {
 		return this.runFolderSync((onProgress) => DocumentsService.addFolder(path, onProgress));
 	}

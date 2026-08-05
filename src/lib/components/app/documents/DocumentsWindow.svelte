@@ -84,7 +84,11 @@
 			.map(({ document }) => document);
 	});
 
-	onMount(() => void reloadLibrary());
+	onMount(() => {
+		void reloadLibrary();
+		window.addEventListener('paste', handlePaste);
+		return () => window.removeEventListener('paste', handlePaste);
+	});
 
 	async function reloadLibrary(): Promise<void> {
 		await documentsStore.load();
@@ -138,6 +142,40 @@
 			pickerSelectedPaths = [];
 			documentsStore.progress = null;
 		}
+	}
+
+	// Lets a file copied in the OS file browser (Ctrl+C) be pasted straight into the
+	// window (Ctrl+V) instead of requiring the folder picker.
+	async function uploadFiles(files: File[]): Promise<void> {
+		if (!files.length || busy) return;
+		uploading = true;
+		let succeeded = 0;
+		let failed = 0;
+		try {
+			for (const file of files) {
+				try {
+					await documentsStore.uploadFile(file);
+					succeeded += 1;
+				} catch (error) {
+					failed += 1;
+					toast.error(error instanceof Error ? error.message : String(error));
+				}
+			}
+			status = `Added ${succeeded} file${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
+			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
+		} finally {
+			uploading = false;
+			documentsStore.progress = null;
+		}
+	}
+
+	function handlePaste(event: ClipboardEvent): void {
+		if (busy) return;
+		const files = event.clipboardData?.files;
+		if (!files || files.length === 0) return;
+
+		event.preventDefault();
+		void uploadFiles([...files]);
 	}
 
 	function syncSummary(result: ApiDocumentFolderSyncResponse): string {
