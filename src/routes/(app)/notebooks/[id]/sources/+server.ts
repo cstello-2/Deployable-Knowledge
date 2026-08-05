@@ -25,6 +25,7 @@ export type NotebookSourceItem = Pick<NotebookSource, 'id' | 'chunkId' | 'create
 	Pick<DocumentChunk, 'pageIndex'> & {
 		documentId: Document['id'];
 		documentTitle: Document['title'];
+		sourceType: Document['sourceType'];
 		preview: string;
 	};
 
@@ -40,6 +41,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			chunkId: notebookSources.chunkId,
 			documentId: documents.id,
 			documentTitle: documents.title,
+			sourceType: documents.sourceType,
 			pageIndex: documentChunks.pageIndex,
 			content: documentChunks.content,
 			createdAt: notebookSources.createdAt
@@ -57,6 +59,7 @@ export const GET: RequestHandler = async ({ params }) => {
 				chunkId: row.chunkId,
 				documentId: row.documentId,
 				documentTitle: row.documentTitle,
+				sourceType: row.sourceType,
 				pageIndex: row.pageIndex,
 				preview: preview(row.content),
 				createdAt: row.createdAt
