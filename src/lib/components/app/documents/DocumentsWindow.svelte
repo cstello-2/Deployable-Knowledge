@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ClipboardPaste from '@lucide/svelte/icons/clipboard-paste';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -7,6 +8,7 @@
 		DialogDocumentFilePicker,
 		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
+		DialogPasteText,
 		DialogProgress
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
@@ -58,6 +60,7 @@
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
+	let pasteTextOpen = $state(false);
 	let pickerDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
 	let pickerLoading = $state(false);
 	let pickerSelectedPaths = $state<string[]>([]);
@@ -170,6 +173,19 @@
 			uploading = false;
 			documentsStore.progress = null;
 		}
+	}
+
+	async function submitPastedText({
+		title,
+		content
+	}: {
+		title: string;
+		content: string;
+	}): Promise<void> {
+		if (!content.trim()) return;
+		pasteTextOpen = false;
+		const name = (title || 'Pasted text').replace(/[\\/:*?"<>|]+/g, '-');
+		await uploadFiles([new File([content], `${name}.txt`, { type: 'text/plain' })]);
 	}
 
 	// .files is the common case, but some Chromium builds only populate .items for an
@@ -482,9 +498,17 @@
 				tags={documentsStore.tags}
 			/>
 		</div>
-		<div class="border-t pt-3">
-			<Button class="w-full" disabled={busy} onclick={() => void openFilePicker()}>
+		<div class="flex gap-2 border-t pt-3">
+			<Button class="flex-[3]" disabled={busy} onclick={() => void openFilePicker()}>
 				<FolderPlus /> Add files
+			</Button>
+			<Button
+				class="flex-1"
+				disabled={busy}
+				onclick={() => (pasteTextOpen = true)}
+				variant="outline"
+			>
+				<ClipboardPaste /> Paste text
 			</Button>
 		</div>
 	</div>
@@ -508,6 +532,11 @@
 	open={tagPickerOpen}
 	tags={documentsStore.tags}
 	title={tagPickerMode === 'add' ? 'Tag to apply' : 'Tag to remove'}
+/>
+<DialogPasteText
+	onOpenChange={(open) => (pasteTextOpen = open)}
+	onSubmit={submitPastedText}
+	open={pasteTextOpen}
 />
 <DialogProgress open={uploading} progress={documentsStore.progress} title="Ingesting file" />
 <DialogDocumentSyncProgress
