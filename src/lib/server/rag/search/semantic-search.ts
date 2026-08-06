@@ -1,16 +1,14 @@
-// Exact semantic search over the stored chunk embeddings in SQLite
-
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { db } from '../../database/database';
 import { documentChunks, documents } from '../../database/schema';
 import { embedTexts } from '../embedding-model';
+import { getVectorIndex } from './vector-index';
 import {
 	cleanFilterValues,
 	type ScoredSearchMatch,
-	type SearchChunkType,
-	type SearchMatchBase,
 	type SearchOptionsBase,
 	type SearchResult
 } from './search-shared';
@@ -18,20 +16,18 @@ import {
 export type SemanticSearchMatch = ScoredSearchMatch;
 export type SemanticSearchResult = SearchResult<SemanticSearchMatch>;
 
-type CandidateRow = {
-	chunkId: string;
-	documentId: string;
-	sourcePath: string;
-	sourceTitle: string;
-	sourceType: SearchMatchBase['sourceType'];
-	pageIndex: number;
-	chunkIndex: number;
-	chunkType: SearchChunkType;
-	content: string;
-	embedding: Uint8Array | ArrayBuffer | null;
-};
+const SCORE_BLOCK_SIZE = 16_384;
 
-// Semantic search scores the query against stored chunk embeddings already in SQLite
+type TopCandidate = { row: number; score: number };
+
+function addTopCandidate(list: TopCandidate[], limit: number, row: number, score: number): void {
+	if (list.length === limit && score <= list[list.length - 1].score) return;
+	let index = list.length;
+	while (index > 0 && list[index - 1].score < score) index -= 1;
+	list.splice(index, 0, { row, score });
+	if (list.length > limit) list.pop();
+}
+
 export async function searchSemantic(options: SearchOptionsBase): Promise<SemanticSearchResult> {
 	const query = options.query.trim();
 	// Keeps topK as a non-negative integer before using it as a result limit
@@ -42,31 +38,52 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 
 	// Empty queries should not run embedding/model work.
 	if (!query || topK === 0) {
-		return {
-			query,
-			results: []
-		};
+		return { query, results: [] };
 	}
 
 	// Same embedding path as chunking/storage so query vectors stay in sync with the corpus
-	const queryEmbedding = (await embedTexts([query], 'search_query'))[0] ?? new Float32Array(0);
+	const [queryEmbedding, index] = await Promise.all([
+		embedTexts([query], 'search_query').then((vectors) => vectors[0] ?? new Float32Array(0)),
+		getVectorIndex()
+	]);
+	if (index.count === 0 || queryEmbedding.length !== index.dimensions) {
+		return { query, results: [] };
+	}
+
 	// Deactivated documents never surface in retrieval, even when explicitly requested
-	const filters: SQL[] = [eq(documents.active, true)];
+	const documentFilters: SQL[] = [eq(documents.active, true)];
+	if (documentIds.length > 0) documentFilters.push(inArray(documents.id, documentIds));
+	if (sourcePaths.length > 0) documentFilters.push(inArray(documents.sourcePath, sourcePaths));
+	const allowedRows = await db
+		.select({ id: documents.id })
+		.from(documents)
+		.where(and(...documentFilters));
+	const allowedDocuments = new Set(allowedRows.map(({ id }) => id));
+	const allowedTypes = chunkTypes.length > 0 ? new Set(chunkTypes) : null;
 
-	if (documentIds.length > 0) {
-		filters.push(inArray(documentChunks.documentId, documentIds));
+	const { matrix, dimensions } = index;
+	const top: TopCandidate[] = [];
+
+	for (let row = 0; row < index.count; row += 1) {
+		if (row > 0 && row % SCORE_BLOCK_SIZE === 0) await yieldEventLoop();
+		if (!allowedDocuments.has(index.documentIds[row])) continue;
+		if (allowedTypes && !allowedTypes.has(index.chunkTypes[row])) continue;
+
+		// Embeddings are normalized, so dot product is the cosine score
+		let score = 0;
+		const base = row * dimensions;
+		for (let dim = 0; dim < dimensions; dim += 1) {
+			score += queryEmbedding[dim] * matrix[base + dim];
+		}
+		addTopCandidate(top, topK, row, score);
 	}
 
-	if (sourcePaths.length > 0) {
-		filters.push(inArray(documents.sourcePath, sourcePaths));
+	if (top.length === 0) {
+		return { query, results: [] };
 	}
 
-	if (chunkTypes.length > 0) {
-		filters.push(inArray(documentChunks.chunkType, chunkTypes));
-	}
-
-	// Use Drizzle for the row query, then do vector math in TS
-	const candidateRows = (await db
+	const winnerIds = top.map(({ row }) => index.chunkIds[row]);
+	const winnerRows = await db
 		.select({
 			chunkId: documentChunks.id,
 			documentId: documentChunks.documentId,
@@ -76,72 +93,18 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 			pageIndex: documentChunks.pageIndex,
 			chunkIndex: documentChunks.chunkIndex,
 			chunkType: documentChunks.chunkType,
-			content: documentChunks.content,
-			embedding: documentChunks.embedding
+			content: documentChunks.content
 		})
 		.from(documentChunks)
 		.innerJoin(documents, eq(documents.id, documentChunks.documentId))
-		.where(filters.length ? and(...filters) : undefined)) as CandidateRow[];
+		.where(inArray(documentChunks.id, winnerIds));
+	const rowsByChunkId = new Map(winnerRows.map((row) => [row.chunkId, row]));
 
-	// Stored vectors are Float32 bytes. Decode them once before scoring
-	const decodedCandidates = candidateRows.map((row) => {
-		const rawEmbedding = row.embedding;
-
-		if (!rawEmbedding) {
-			throw new Error(`Chunk ${row.chunkId} is missing its embedding bytes.`);
-		}
-
-		let bytes: Uint8Array;
-		if (rawEmbedding instanceof Uint8Array) {
-			bytes = rawEmbedding;
-		} else if (rawEmbedding instanceof ArrayBuffer) {
-			bytes = new Uint8Array(rawEmbedding);
-		} else {
-			throw new Error(`Chunk ${row.chunkId} returned an unsupported embedding shape.`);
-		}
-
-		const vector = new Float32Array(
-			bytes.buffer,
-			bytes.byteOffset,
-			Math.floor(bytes.byteLength / Float32Array.BYTES_PER_ELEMENT)
-		);
-
-		return {
-			row,
-			vector
-		};
-	});
-
-	const scoredRows: SemanticSearchMatch[] = [];
-
-	for (const candidate of decodedCandidates) {
-		const { row, vector } = candidate;
-
-		let score = 0;
-
-		// Embeddings are normalized, so dot product is the cosine score
-		for (let index = 0; index < queryEmbedding.length; index += 1) {
-			score += queryEmbedding[index] * vector[index]; // dot product
-		}
-		scoredRows.push({
-			chunkId: row.chunkId,
-			documentId: row.documentId,
-			sourcePath: row.sourcePath,
-			sourceTitle: row.sourceTitle,
-			sourceType: row.sourceType,
-			pageIndex: row.pageIndex,
-			chunkIndex: row.chunkIndex,
-			chunkType: row.chunkType,
-			content: row.content,
-			score
-		});
+	const results: SemanticSearchMatch[] = [];
+	for (const { row, score } of top) {
+		const match = rowsByChunkId.get(index.chunkIds[row]);
+		if (match) results.push({ ...match, score });
 	}
 
-	scoredRows.sort((left, right) => right.score - left.score);
-	const results = scoredRows.slice(0, topK);
-
-	return {
-		query,
-		results
-	};
+	return { query, results };
 }

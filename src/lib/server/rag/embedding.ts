@@ -9,6 +9,7 @@ import {
 } from '../database/schema';
 import type { ParsedChunk } from './chunk/parse-shared';
 import { embedTexts } from './embedding-model';
+import { invalidateVectorIndex } from './search/vector-index';
 
 const INSERT_BATCH_SIZE = 100; //Can adjust later
 // Embed in bounded slices so a huge document never holds every raw vector at once
@@ -123,6 +124,8 @@ export async function storeDocumentChunks(
 			});
 		}
 	});
+
+	invalidateVectorIndex();
 
 	return {
 		documentId: documentRow.id,

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
-import { PDFParse, type EmbeddedImage, type TableArray, type TableResult } from 'pdf-parse';
+import { PDFParse, type TableArray } from 'pdf-parse';
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
-import { withTimeout } from '$lib/server/utils/with-timeout';
+import { TimeoutError, withTimeout } from '$lib/server/utils/with-timeout';
+import { extractPageImages, type PageImage, type PdfDocument } from './page-images.ts';
 import {
 	normalizeWhitespace,
 	type ExtractedChunk as Chunk,
@@ -17,7 +18,7 @@ const OCR_IMAGE_TIMEOUT_MS = 120_000;
 const OCR_STARTUP_TIMEOUT_MS = 60_000;
 const PAGE_IMAGE_TIMEOUT_MS = 60_000;
 const TABLE_DETECTION_TIMEOUT_MS = 120_000;
-const CLEANUP_TIMEOUT_MS = 10_000;
+const PARSER_TEARDOWN_TIMEOUT_MS = 10_000;
 const MAX_OCR_FAILURES = 3;
 
 function seconds(started: number): string {
@@ -31,13 +32,25 @@ function tableToText(table: TableArray): string {
 		.join('\n');
 }
 
-async function releasePageCaches(parser: PDFParse): Promise<void> {
-	const doc = (parser as unknown as { doc?: { cleanup?: () => Promise<unknown> } }).doc;
+type PdfSession = {
+	data: Buffer;
+	parser: PDFParse;
+};
+
+function documentOf(parser: PDFParse): PdfDocument {
+	const document = (parser as unknown as { doc?: PdfDocument }).doc;
+	if (!document) throw new Error('The PDF document was not loaded.');
+	return document;
+}
+
+async function replaceParser(session: PdfSession): Promise<void> {
+	const stalled = session.parser;
+	session.parser = new PDFParse({ data: session.data });
 	await withTimeout(
-		Promise.resolve(doc?.cleanup?.()),
-		CLEANUP_TIMEOUT_MS,
-		'Page cache cleanup timed out.'
-	).catch(() => undefined);
+		stalled.destroy(),
+		PARSER_TEARDOWN_TIMEOUT_MS,
+		'Parser teardown timed out.'
+	).catch((error) => console.warn('[PDF] Teardown of the replaced parser failed.', error));
 }
 
 type OcrSession = {
@@ -80,16 +93,16 @@ async function createOcrSession(): Promise<OcrSession> {
 	return { worker, exited };
 }
 
-function recognizeImage(session: OcrSession, image: EmbeddedImage) {
+function recognizeImage(session: OcrSession, image: PageImage) {
 	return withTimeout(
-		Promise.race([session.worker.recognize(Buffer.from(image.data)), session.exited]),
+		Promise.race([session.worker.recognize(image.data), session.exited]),
 		OCR_IMAGE_TIMEOUT_MS,
 		`OCR timed out after ${OCR_IMAGE_TIMEOUT_MS / 1000}s.`
 	);
 }
 
 async function ocrEmbeddedImages(
-	parser: PDFParse,
+	document: PdfDocument,
 	pageCount: number,
 	pagesWithText: ReadonlySet<number>,
 	onPageProgress?: (current: number, total: number) => void
@@ -100,14 +113,16 @@ async function ocrEmbeddedImages(
 
 	try {
 		for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-			const images = await getPageImages(parser, pageNumber);
+			const images = await getPageImages(document, pageNumber);
 			const minConfidence = pagesWithText.has(pageNumber)
 				? MIN_OCR_CONFIDENCE
 				: MIN_OCR_ONLY_CONFIDENCE;
 
 			if (images.length > 0) {
 				const sizes = images.map((image) => `${image.name} ${image.width}x${image.height}`);
-				console.log(`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s): ${sizes.join(', ')}`);
+				console.log(
+					`[OCR] Page ${pageNumber}/${pageCount}: ${images.length} image(s): ${sizes.join(', ')}`
+				);
 			}
 
 			for (const image of images) {
@@ -158,7 +173,6 @@ async function ocrEmbeddedImages(
 				}
 			}
 
-			await releasePageCaches(parser);
 			onPageProgress?.(pageNumber, pageCount);
 			await yieldEventLoop();
 		}
@@ -169,18 +183,51 @@ async function ocrEmbeddedImages(
 	return textByPage;
 }
 
-async function getPageImages(parser: PDFParse, pageNumber: number): Promise<EmbeddedImage[]> {
+async function getPageImages(document: PdfDocument, pageNumber: number): Promise<PageImage[]> {
 	try {
-		const result = await withTimeout(
-			parser.getImage({ partial: [pageNumber], imageDataUrl: false }),
+		return await withTimeout(
+			extractPageImages(document, pageNumber),
 			PAGE_IMAGE_TIMEOUT_MS,
 			`Image extraction timed out after ${PAGE_IMAGE_TIMEOUT_MS / 1000}s.`
 		);
-		return result.pages[0]?.images ?? [];
 	} catch (error) {
-		console.warn(`[OCR] Could not extract images from page ${pageNumber}; skipping it.`, error);
+		const reason = error instanceof Error ? error.message : String(error);
+		console.warn(`[OCR] Page ${pageNumber}: image extraction failed; ${reason}`);
 		return [];
 	}
+}
+
+async function getPageTables(pdf: PdfSession, pageNumber: number): Promise<TableArray[]> {
+	try {
+		const result = await withTimeout(
+			pdf.parser.getTable({ partial: [pageNumber] }),
+			TABLE_DETECTION_TIMEOUT_MS,
+			`Table detection timed out after ${TABLE_DETECTION_TIMEOUT_MS / 1000}s.`
+		);
+		return result.pages[0]?.tables ?? [];
+	} catch (error) {
+		if (error instanceof TimeoutError) {
+			console.warn(`[PDF] Page ${pageNumber}: table detection stalled; replacing the parser.`);
+			await replaceParser(pdf);
+		} else {
+			const reason = error instanceof Error ? error.message : String(error);
+			console.warn(`[PDF] Page ${pageNumber}: table detection failed; ${reason}`);
+		}
+		return [];
+	}
+}
+
+async function collectTables(
+	pdf: PdfSession,
+	pageCount: number
+): Promise<Map<number, TableArray[]>> {
+	const tablesByPage = new Map<number, TableArray[]>();
+	for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+		const tables = await getPageTables(pdf, pageNumber);
+		if (tables.length > 0) tablesByPage.set(pageNumber, tables);
+		await yieldEventLoop();
+	}
+	return tablesByPage;
 }
 
 export async function extractText(
@@ -188,11 +235,11 @@ export async function extractText(
 	onPageProgress?: (current: number, total: number) => void
 ): Promise<ExtractionResult> {
 	const data = await readFile(file.path);
-	const parser = new PDFParse({ data });
+	const pdf: PdfSession = { data, parser: new PDFParse({ data }) };
 
 	try {
 		const textStarted = Date.now();
-		const textResult = await parser.getText();
+		const textResult = await pdf.parser.getText();
 
 		const pagesWithText = new Set<number>();
 		for (let pageNumber = 1; pageNumber <= textResult.total; pageNumber += 1) {
@@ -206,7 +253,7 @@ export async function extractText(
 
 		const ocrStarted = Date.now();
 		const ocrTextByPage = await ocrEmbeddedImages(
-			parser,
+			documentOf(pdf.parser),
 			textResult.total,
 			pagesWithText,
 			onPageProgress
@@ -215,21 +262,10 @@ export async function extractText(
 			`[PDF] ${file.title}: OCR pass added text on ${ocrTextByPage.size} page(s) in ${seconds(ocrStarted)}.`
 		);
 
-		let tablePages: TableResult['pages'] = [];
 		const tableStarted = Date.now();
-		try {
-			const tableResult = await withTimeout(
-				parser.getTable(),
-				TABLE_DETECTION_TIMEOUT_MS,
-				`Table detection timed out after ${TABLE_DETECTION_TIMEOUT_MS / 1000}s.`
-			);
-			tablePages = tableResult.pages;
-			console.log(
-				`[PDF] ${file.title}: ${tablePages.reduce((sum, page) => sum + page.tables.length, 0)} table(s) in ${seconds(tableStarted)}.`
-			);
-		} catch (error) {
-			console.warn(`[PDF] ${file.title}: continuing without tables.`, error);
-		}
+		const tablesByPage = await collectTables(pdf, textResult.total);
+		const tableCount = [...tablesByPage.values()].reduce((sum, tables) => sum + tables.length, 0);
+		console.log(`[PDF] ${file.title}: ${tableCount} table(s) in ${seconds(tableStarted)}.`);
 
 		const chunks: Chunk[] = [];
 
@@ -245,9 +281,7 @@ export async function extractText(
 				chunks.push({ chunkType: 'IMAGE', source: file, pageIndex, content });
 			}
 
-			const tables = tablePages.find((page) => page.num === pageNumber)?.tables ?? [];
-
-			for (const table of tables) {
+			for (const table of tablesByPage.get(pageNumber) ?? []) {
 				const content = tableToText(table);
 
 				if (content) {
@@ -258,6 +292,6 @@ export async function extractText(
 
 		return { chunks, pageCount: textResult.total };
 	} finally {
-		await parser.destroy();
+		await pdf.parser.destroy();
 	}
 }

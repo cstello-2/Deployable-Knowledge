@@ -4,11 +4,13 @@ import type {
 	ApiDocumentIngestEvent,
 	ApiDocumentIngestProgress,
 	ApiDocumentIngestResult,
+	ApiDocumentDirectoryQuery,
 	ApiDocumentDirectoryResponse,
 	ApiDocumentFolderRequest,
 	ApiDocumentFoldersResponse,
 	ApiDocumentFolderSyncEvent,
 	ApiDocumentFolderSyncResponse,
+	ApiDocumentListQuery,
 	ApiDocumentListResponse,
 	ApiDocumentPathRequest,
 	ApiDocumentSyncFileProgress,
@@ -17,14 +19,38 @@ import type {
 } from '$lib/types';
 import { apiDelete, apiFetch, apiPatch, apiPost, apiStream, parseNdjsonStream } from '$lib/utils';
 
+function searchString(entries: [string, string | number | string[] | undefined][]): string {
+	const params = new URLSearchParams();
+	for (const [name, value] of entries) {
+		if (value === undefined || value === '') continue;
+		if (Array.isArray(value)) for (const item of value) params.append(name, item);
+		else params.set(name, String(value));
+	}
+	const search = params.toString();
+	return search ? `?${search}` : '';
+}
+
 export class DocumentsService {
-	static list() {
-		return apiFetch<ApiDocumentListResponse>(API_DOCUMENTS.LIST);
+	static list({ limit, mode, offset, query, sort, tags }: ApiDocumentListQuery = {}) {
+		const search = searchString([
+			['q', query?.trim()],
+			['mode', mode],
+			['sort', sort],
+			['tag', tags],
+			['limit', limit],
+			['offset', offset]
+		]);
+		return apiFetch<ApiDocumentListResponse>(`${API_DOCUMENTS.LIST}${search}`);
 	}
 
-	static browseDirectory(path = '') {
-		const query = path ? `?path=${encodeURIComponent(path)}` : '';
-		return apiFetch<ApiDocumentDirectoryResponse>(`${API_DOCUMENTS.DIRECTORIES}${query}`);
+	static browseDirectory({ limit, offset, path, sort }: ApiDocumentDirectoryQuery = {}) {
+		const search = searchString([
+			['path', path],
+			['sort', sort],
+			['limit', limit],
+			['offset', offset]
+		]);
+		return apiFetch<ApiDocumentDirectoryResponse>(`${API_DOCUMENTS.DIRECTORIES}${search}`);
 	}
 
 	static listFolders() {
@@ -87,7 +113,7 @@ export class DocumentsService {
 	}
 
 	static removeFolder(id: string, removeDocuments: boolean) {
-		return apiDelete<{ removed: true }>(
+		return apiDelete<{ removed: true; removedDocumentIds: string[] }>(
 			`${API_DOCUMENTS.folder(id)}?removeDocuments=${removeDocuments}`
 		);
 	}

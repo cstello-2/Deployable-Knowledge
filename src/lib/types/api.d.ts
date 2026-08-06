@@ -75,9 +75,29 @@ export type DocumentRow = Pick<
 	tags: string[];
 };
 
+export type DocumentListMode = 'all' | 'active' | 'inactive';
+
+export type SortDirection = 'asc' | 'desc';
+
+export interface ApiDocumentListQuery {
+	limit?: number;
+	mode?: DocumentListMode;
+	offset?: number;
+	query?: string;
+	sort?: SortDirection;
+	tags?: string[];
+}
+
+export interface ApiFolderDocumentCount {
+	folderId: string | null;
+	total: number;
+}
+
 export interface ApiDocumentListResponse {
 	documents: DocumentRow[];
+	folderCounts: ApiFolderDocumentCount[];
 	tags: string[];
+	total: number;
 }
 
 export type TranscriptChunkRow = Pick<
@@ -96,10 +116,18 @@ export interface ApiDocumentDirectoryItem {
 	path: string;
 }
 
+export interface ApiDocumentDirectoryQuery {
+	limit?: number;
+	offset?: number;
+	path?: string;
+	sort?: SortDirection;
+}
+
 export interface ApiDocumentDirectoryResponse {
 	items: ApiDocumentDirectoryItem[];
 	parentPath: string | null;
 	path: string;
+	total: number;
 }
 
 export interface ApiDocumentFolderRequest {

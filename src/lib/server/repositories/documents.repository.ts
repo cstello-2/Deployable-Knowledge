@@ -1,5 +1,22 @@
-import { asc, count, desc, eq } from 'drizzle-orm';
-import type { ApiDocumentListResponse, ApiTranscriptResponse, DocumentRow } from '$lib/types';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	exists,
+	inArray,
+	or,
+	sql,
+	type Column,
+	type SQL
+} from 'drizzle-orm';
+import type {
+	ApiDocumentListQuery,
+	ApiDocumentListResponse,
+	ApiTranscriptResponse,
+	DocumentRow
+} from '$lib/types';
 import { db } from '$lib/server/database/database';
 import {
 	documentChunks,
@@ -9,32 +26,93 @@ import {
 	tags
 } from '$lib/server/database/schema';
 
+function likePattern(token: string): string {
+	return `%${token.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
+function likeContains(column: Column, token: string): SQL {
+	return sql`${column} LIKE ${likePattern(token)} ESCAPE '\\'`;
+}
+
+function hasTagIn(values: string[]): SQL {
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(documentTags)
+			.where(and(eq(documentTags.documentId, documents.id), inArray(documentTags.tag, values)))
+	);
+}
+
+function hasTagLike(token: string): SQL {
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(documentTags)
+			.where(and(eq(documentTags.documentId, documents.id), likeContains(documentTags.tag, token)))
+	);
+}
+
+function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery): SQL | undefined {
+	const conditions: SQL[] = [];
+	if (mode === 'active') conditions.push(eq(documents.active, true));
+	if (mode === 'inactive') conditions.push(eq(documents.active, false));
+	if (tagFilter?.length) conditions.push(hasTagIn(tagFilter));
+	for (const token of query?.trim().split(/\s+/).filter(Boolean) ?? []) {
+		conditions.push(or(likeContains(documents.title, token), hasTagLike(token))!);
+	}
+	return conditions.length ? and(...conditions) : undefined;
+}
+
 export class DocumentsRepository {
-	static async list(): Promise<ApiDocumentListResponse> {
-		const rows = await db
+	static async list(options: ApiDocumentListQuery = {}): Promise<ApiDocumentListResponse> {
+		const where = listConditions(options);
+		const direction = options.sort === 'desc' ? desc : asc;
+		const byTitle = direction(sql`${documents.title} COLLATE NOCASE`);
+
+		const page = db
 			.select({
 				id: documents.id,
 				title: documents.title,
 				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
 				updatedAt: documents.updatedAt,
-				active: documents.active,
-				chunkCount: count(documentChunks.id),
-				folderId: syncedFiles.folderId
+				active: documents.active
 			})
 			.from(documents)
-			.leftJoin(documentChunks, eq(documentChunks.documentId, documents.id))
-			.leftJoin(syncedFiles, eq(syncedFiles.documentId, documents.id))
-			.groupBy(documents.id)
-			.orderBy(desc(documents.updatedAt));
+			.where(where)
+			.orderBy(byTitle, asc(documents.id));
 
-		const [tagRows, availableTags] = await Promise.all([
+		const [rows, [{ total }], availableTags, folderCounts] = await Promise.all([
+			options.limit === undefined ? page : page.limit(options.limit).offset(options.offset ?? 0),
+			db.select({ total: count() }).from(documents).where(where),
+			db.select({ name: tags.name }).from(tags).orderBy(asc(tags.name)),
 			db
-				.select({ documentId: documentTags.documentId, tag: documentTags.tag })
-				.from(documentTags)
-				.orderBy(asc(documentTags.tag)),
-			db.select({ name: tags.name }).from(tags).orderBy(asc(tags.name))
+				.select({ folderId: syncedFiles.folderId, total: count() })
+				.from(documents)
+				.leftJoin(syncedFiles, eq(syncedFiles.documentId, documents.id))
+				.where(where)
+				.groupBy(syncedFiles.folderId)
 		]);
+
+		const documentIds = rows.map(({ id }) => id);
+		const [tagRows, chunkRows, folderRows] = documentIds.length
+			? await Promise.all([
+					db
+						.select({ documentId: documentTags.documentId, tag: documentTags.tag })
+						.from(documentTags)
+						.where(inArray(documentTags.documentId, documentIds))
+						.orderBy(asc(documentTags.tag)),
+					db
+						.select({ documentId: documentChunks.documentId, total: count() })
+						.from(documentChunks)
+						.where(inArray(documentChunks.documentId, documentIds))
+						.groupBy(documentChunks.documentId),
+					db
+						.select({ documentId: syncedFiles.documentId, folderId: syncedFiles.folderId })
+						.from(syncedFiles)
+						.where(inArray(syncedFiles.documentId, documentIds))
+				])
+			: [[], [], []];
 
 		const tagsByDocument = new Map<string, string[]>();
 
@@ -44,12 +122,21 @@ export class DocumentsRepository {
 			tagsByDocument.set(row.documentId, values);
 		}
 
+		const chunkCountByDocument = new Map(chunkRows.map((row) => [row.documentId, row.total]));
+		const folderByDocument = new Map(folderRows.map((row) => [row.documentId, row.folderId]));
+
 		const documentRows: DocumentRow[] = rows.map((row) => ({
 			...row,
-			folderId: row.folderId ?? null,
+			chunkCount: chunkCountByDocument.get(row.id) ?? 0,
+			folderId: folderByDocument.get(row.id) ?? null,
 			tags: tagsByDocument.get(row.id) ?? []
 		}));
-		return { documents: documentRows, tags: availableTags.map(({ name }) => name) };
+		return {
+			documents: documentRows,
+			folderCounts,
+			tags: availableTags.map(({ name }) => name),
+			total
+		};
 	}
 
 	static async transcript(documentId: string): Promise<ApiTranscriptResponse | null> {
