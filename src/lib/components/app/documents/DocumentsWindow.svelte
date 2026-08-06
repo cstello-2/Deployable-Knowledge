@@ -18,7 +18,7 @@
 		ApiSyncedFolder,
 		DocumentRow
 	} from '$lib/types';
-	import { fuzzyDocumentScore } from '$lib/utils';
+	import { fuzzyDocumentScore, sortDocuments, type DocumentSortMode } from '$lib/utils';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
@@ -53,6 +53,7 @@
 
 	let query = $state('');
 	let tagFilters = $state<string[]>([]);
+	let sort = $state<DocumentSortMode>('newest');
 	let listMode = $state<DocumentListMode>('all');
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
@@ -76,7 +77,7 @@
 			if (listMode === 'inactive' && document.active) return false;
 			return !tagFilters.length || tagFilters.some((tag) => document.tags.includes(tag));
 		});
-		if (!query.trim()) return tagged;
+		if (!query.trim()) return sortDocuments(tagged, sort);
 		return tagged
 			.map((document) => ({ document, score: fuzzyDocumentScore(query, document) }))
 			.filter(({ score }) => score > 0.25)
@@ -303,8 +304,10 @@
 			bind:query
 			onCreateTag={createTag}
 			onDeleteTag={(tag) => (pendingDeleteTag = tag)}
+			onSortChange={(next) => (sort = next)}
 			onToggleTag={toggleFilter}
 			selectedTags={tagFilters}
+			{sort}
 			tags={documentsStore.tags}
 		/>
 		<DocumentModeBar

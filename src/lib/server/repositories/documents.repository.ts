@@ -17,6 +17,7 @@ export class DocumentsRepository {
 				title: documents.title,
 				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
+				createdAt: documents.createdAt,
 				updatedAt: documents.updatedAt,
 				active: documents.active,
 				chunkCount: count(documentChunks.id),
