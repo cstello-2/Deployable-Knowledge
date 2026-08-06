@@ -203,8 +203,16 @@
 		return fromItems;
 	}
 
+	// Pasting into a text field (e.g. the filter search box) is a normal text paste,
+	// not an attempt to upload a file - let the browser handle it and skip this listener.
+	function isEditableTarget(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+	}
+
 	function handlePaste(event: ClipboardEvent): void {
 		if (busy) return;
+		if (isEditableTarget(event.target)) return;
 		if (!event.clipboardData) return;
 		const files = filesFromClipboard(event.clipboardData);
 		if (files.length === 0) {
