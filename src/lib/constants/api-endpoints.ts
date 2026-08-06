@@ -30,10 +30,12 @@ export const API_DOCUMENTS = {
 	ACTIVATION: '/documents/activation',
 	BASE: '/documents',
 	DIRECTORIES: '/documents/directories',
+	FAILURES: '/documents/failures',
 	FOLDERS: '/documents/folders',
 	LIST: '/documents/list',
 	TAGS: '/documents/tags',
 	byId: (id: string) => `/documents/${segment(id)}`,
+	failure: (id: string) => `/documents/failures/${segment(id)}`,
 	folder: (id: string) => `/documents/folders/${segment(id)}`
 };
 

@@ -4,6 +4,7 @@ import type {
 	AssistantProfile,
 	Document,
 	DocumentChunk,
+	IngestFailure,
 	NotebookSource,
 	NotebookWithPages,
 	SyncedFolder
@@ -78,6 +79,10 @@ export type DocumentRow = Pick<
 export interface ApiDocumentListResponse {
 	documents: DocumentRow[];
 	tags: string[];
+}
+
+export interface ApiDocumentFailuresResponse {
+	failures: IngestFailure[];
 }
 
 export type TranscriptChunkRow = Pick<
