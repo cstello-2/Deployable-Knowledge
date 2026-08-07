@@ -4,6 +4,7 @@ import {
 	type ProviderChatMessage,
 	type ProviderChatOptions
 } from './provider';
+import { cachedCapability } from './capability-cache';
 import { createChatCodec } from './chat-codec';
 import { readObject } from '$lib/server/utils/values';
 
@@ -66,6 +67,32 @@ export class Github extends Provider {
 
 	override async listModels(): Promise<string[]> {
 		return ['openai/gpt-4.1'];
+	}
+
+	override supportsTools(model: string): Promise<boolean> {
+		return cachedCapability(
+			`github:${model}`,
+			async () => {
+				const apiKey = await this.getApiKey();
+				const resp = await fetch(`${GITHUB_API_URL}/catalog/models`, {
+					headers: {
+						Accept: 'application/vnd.github+json',
+						'X-GitHub-Api-Version': '2026-03-10',
+						...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+					},
+					signal: AbortSignal.timeout(2500)
+				});
+				if (!resp.ok) return true;
+				const data = (await resp.json()) as unknown;
+				const entries = Array.isArray(data) ? data : [];
+				const entry = entries
+					.map((value) => readObject(value))
+					.find((record) => record.id === model);
+				if (!entry || !Array.isArray(entry.capabilities)) return true;
+				return entry.capabilities.includes('tool-calling');
+			},
+			60 * 60_000
+		);
 	}
 }
 

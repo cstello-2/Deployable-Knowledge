@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	const result = await toolRegistry.execute(
 		'search',
-		{ query, top_k: topK, mode: 'all' },
+		{ query, top_k: topK, searchType: 'all' },
 		{ documentIds: docs, maxSearchTopK: 100 }
 	);
 

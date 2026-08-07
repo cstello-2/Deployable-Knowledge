@@ -6,12 +6,13 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { infiniteScroll } from '$lib/actions';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Empty from '$lib/components/ui/empty';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { cn } from '$lib/components/ui/utils';
-	import type { ApiSyncedFolder, DocumentRow } from '$lib/types';
+	import type { ApiFolderDocumentCount, ApiSyncedFolder, DocumentRow } from '$lib/types';
 	import DocumentListItem from './DocumentListItem.svelte';
 
 	interface DocumentGroup {
@@ -19,30 +20,40 @@
 		folder: ApiSyncedFolder | null;
 		key: string;
 		label: string;
+		total: number;
 	}
 
 	interface Props {
 		busy?: boolean;
 		documents: DocumentRow[];
+		folderCounts?: ApiFolderDocumentCount[];
 		folders: ApiSyncedFolder[];
+		hasMore?: boolean;
+		loadingMore?: boolean;
 		onCreateTag: (document: DocumentRow, tag: string) => Promise<void> | void;
 		onDeleteDocument: (document: DocumentRow) => void;
+		onLoadMore?: () => void;
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
 		onToggle: (id: string, selected: boolean) => void;
 		onToggleActive: (document: DocumentRow) => void;
-		onToggleGroup: (ids: string[], selected: boolean) => void;
+		onToggleGroup: (folder: ApiSyncedFolder | null, selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
 		selectedIds: ReadonlySet<string>;
 		tags: string[];
+		total?: number;
 	}
 
 	let {
 		busy = false,
 		documents,
+		folderCounts = [],
 		folders,
+		hasMore = false,
+		loadingMore = false,
 		onCreateTag,
 		onDeleteDocument,
+		onLoadMore = () => {},
 		onRemoveFolder,
 		onSyncFolder,
 		onToggle,
@@ -50,12 +61,20 @@
 		onToggleGroup,
 		onToggleTag,
 		selectedIds,
-		tags
+		tags,
+		total = 0
 	}: Props = $props();
 	const collapsed = new SvelteSet<string>();
+	let viewport = $state<HTMLDivElement | null>(null);
 
 	const groups = $derived.by(() => {
 		const registeredIds = new Set(folders.map(({ id }) => id));
+		const countByFolder = new Map(folderCounts.map(({ folderId, total }) => [folderId, total]));
+		const registeredTotal = folderCounts.reduce(
+			(sum, { folderId, total }) =>
+				folderId !== null && registeredIds.has(folderId) ? sum + total : sum,
+			0
+		);
 		const values: DocumentGroup[] = folders.map((folder) => ({
 			key: folder.id,
 			label:
@@ -64,17 +83,20 @@
 					.filter(Boolean)
 					.at(-1) || folder.path,
 			documents: documents.filter((document) => document.folderId === folder.id),
-			folder
+			folder,
+			total: countByFolder.get(folder.id) ?? 0
 		}));
 		const individual = documents.filter(
 			(document) => !document.folderId || !registeredIds.has(document.folderId)
 		);
-		if (individual.length) {
+		const individualTotal = total - registeredTotal;
+		if (individual.length || individualTotal > 0) {
 			values.push({
 				key: 'individual',
 				label: 'Individual files',
 				documents: individual,
-				folder: null
+				folder: null,
+				total: individualTotal
 			});
 		}
 		return values;
@@ -85,7 +107,12 @@
 	}
 </script>
 
-<ScrollArea aria-live="polite" class="min-h-0" scrollbarYClasses="hidden">
+<ScrollArea
+	aria-live="polite"
+	bind:viewportRef={viewport}
+	class="min-h-0"
+	scrollbarYClasses="hidden"
+>
 	<div class="grid content-start gap-2">
 		{#each groups as group (group.key)}
 			<section class="dk-panel overflow-hidden rounded-lg border shadow-sm">
@@ -97,14 +124,10 @@
 						aria-label={`Select every document in ${group.label}`}
 						checked={group.documents.length > 0 &&
 							group.documents.every((document) => selectedIds.has(document.id))}
-						disabled={!group.documents.length}
+						disabled={!group.documents.length && !group.total}
 						indeterminate={group.documents.some((document) => selectedIds.has(document.id)) &&
 							!group.documents.every((document) => selectedIds.has(document.id))}
-						onCheckedChange={(selected) =>
-							onToggleGroup(
-								group.documents.map(({ id }) => id),
-								selected
-							)}
+						onCheckedChange={(selected) => onToggleGroup(group.folder, selected)}
 					/>
 					{#if group.folder}
 						<FolderSync class="size-4 shrink-0 text-muted-foreground" />
@@ -116,7 +139,7 @@
 							{group.label}
 						</div>
 						<div class="shrink-0 text-[11px] text-muted-foreground">
-							{group.documents.length} document{group.documents.length === 1 ? '' : 's'}
+							{group.total} document{group.total === 1 ? '' : 's'}
 							{#if group.folder}
 								· {group.folder.watching ? 'watching' : 'stopped'}{/if}
 						</div>
@@ -184,7 +207,11 @@
 								selected={selectedIds.has(document.id)}
 							/>
 						{:else}
-							<p class="px-2 py-3 text-xs text-muted-foreground">No matching documents.</p>
+							<p class="px-2 py-3 text-xs text-muted-foreground">
+								{group.total > 0
+									? 'Not loaded yet — scroll the list to load more.'
+									: 'No matching documents.'}
+							</p>
 						{/each}
 					</div>
 				{/if}
@@ -197,5 +224,16 @@
 				</Empty.Header>
 			</Empty.Root>
 		{/each}
+		{#if hasMore}
+			<div
+				aria-hidden="true"
+				use:infiniteScroll={{ disabled: busy || loadingMore, onLoadMore, root: viewport }}
+			></div>
+			<p class="pb-2 text-center text-xs text-muted-foreground">
+				{loadingMore
+					? 'Loading more documents…'
+					: `Showing ${documents.length} of ${total} documents`}
+			</p>
+		{/if}
 	</div>
 </ScrollArea>

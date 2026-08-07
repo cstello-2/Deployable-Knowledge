@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import {
@@ -13,6 +14,8 @@ export const EMBEDDING_DTYPE = 'q8';
 
 const EMBEDDING_BATCH_SIZE = 16;
 const EMBEDDING_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
+
+export const INFERENCE_THREADS = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 4)));
 
 type EmbeddingType = 'search_document' | 'search_query';
 
@@ -36,10 +39,11 @@ export function installEmbeddingModel(onProgress: ProgressCallback) {
 async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
 	if (!embeddingPipeline) {
 		const started = Date.now();
-		console.log(`[Embedding] Loading ${EMBEDDING_MODEL}...`);
+		console.log(`[Embedding] Loading ${EMBEDDING_MODEL} on ${INFERENCE_THREADS} thread(s)...`);
 		embeddingPipeline = pipeline('feature-extraction', EMBEDDING_MODEL, {
 			dtype: EMBEDDING_DTYPE,
 			cache_dir: EMBEDDING_CACHE_DIR,
+			session_options: { intraOpNumThreads: INFERENCE_THREADS, interOpNumThreads: 1 },
 			progress_callback: onProgress
 		})
 			.then((loaded) => {

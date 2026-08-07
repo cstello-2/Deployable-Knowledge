@@ -1,5 +1,10 @@
 import { API_PROVIDERS } from '$lib/constants';
-import type { ApiProviderApiKeyRequest, ApiProviderInfo, ApiProviderModelGroup } from '$lib/types';
+import type {
+	ApiProviderApiKeyRequest,
+	ApiProviderInfo,
+	ApiProviderModelCapabilities,
+	ApiProviderModelGroup
+} from '$lib/types';
 import { apiDelete, apiFetch, apiPatch } from '$lib/utils';
 
 export class ProvidersService {
@@ -22,6 +27,10 @@ export class ProvidersService {
 				models: await this.listModels(id, availableOnly).catch(() => [])
 			}))
 		);
+	}
+
+	static getModelCapabilities(id: string, model: string) {
+		return apiFetch<ApiProviderModelCapabilities>(API_PROVIDERS.capabilities(id, model));
 	}
 
 	static saveApiKey(id: string, apiKey: string) {

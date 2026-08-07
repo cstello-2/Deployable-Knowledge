@@ -8,14 +8,30 @@ import { containsPath } from '$lib/server/documents/remove-document';
 import { handlerForPath } from '$lib/server/documents/source-types';
 import type { RequestHandler } from './$types';
 
+const MAX_PAGE_SIZE = 500;
+
+function parseCount(value: string | null, name: string): number | undefined {
+	if (value === null) return undefined;
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isInteger(parsed) || parsed < 0) {
+		throw error(400, `The ${name} parameter must be a non-negative integer.`);
+	}
+	return parsed;
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const root = await realpath(homedir());
 	const requested = url.searchParams.get('path')?.trim() || root;
 	const purpose = url.searchParams.get('purpose') ?? 'documents';
+	const sort = url.searchParams.get('sort') ?? 'asc';
+	const offset = parseCount(url.searchParams.get('offset'), 'offset') ?? 0;
+	const requestedLimit = parseCount(url.searchParams.get('limit'), 'limit');
+	const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, MAX_PAGE_SIZE);
 
 	if (purpose !== 'documents' && purpose !== 'notebook') {
 		throw error(400, 'Unsupported directory browsing purpose.');
 	}
+	if (sort !== 'asc' && sort !== 'desc') throw error(400, 'Unsupported sort direction.');
 
 	let directory: string;
 	try {
@@ -47,15 +63,17 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 	}
 
+	const direction = sort === 'desc' ? -1 : 1;
 	items.sort((left, right) => {
 		if (left.kind === 'folder' && right.kind !== 'folder') return -1;
 		if (right.kind === 'folder' && left.kind !== 'folder') return 1;
-		return left.name.localeCompare(right.name);
+		return direction * left.name.localeCompare(right.name);
 	});
 
 	return json({
 		path: directory,
 		parentPath: directory === root ? null : resolve(directory, '..'),
-		items
+		items: limit === undefined ? items : items.slice(offset, offset + limit),
+		total: items.length
 	} satisfies ApiDocumentDirectoryResponse);
 };

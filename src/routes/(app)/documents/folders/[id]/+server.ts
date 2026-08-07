@@ -20,10 +20,12 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 	const removeDocuments = url.searchParams.get('removeDocuments') === 'true';
 	await folderWatcherManager.stop(folder.id);
 
+	const removedDocumentIds: string[] = [];
 	if (removeDocuments) {
 		for (const file of await SyncedFoldersRepository.syncedFiles(folder.id)) {
 			if (file.documentId) {
 				await removeDocument(file.documentId, { syncedFileDisposition: 'remove' });
+				removedDocumentIds.push(file.documentId);
 			} else {
 				await removeManagedDocumentFile(file.managedPath);
 			}
@@ -31,5 +33,5 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 	}
 
 	await SyncedFoldersRepository.delete(folder.id);
-	return json({ removed: true });
+	return json({ removed: true, removedDocumentIds });
 };

@@ -1,9 +1,17 @@
 import { getDatetimeTool } from './get-datetime';
+import { goalsTool } from './goals';
 import { pythonTool } from './python';
+import { readChunksTool } from './read-chunks';
 import { ToolRegistry } from './registry';
 import { searchTool } from './search';
 
-export const toolRegistry = new ToolRegistry([getDatetimeTool, pythonTool, searchTool]);
+export const toolRegistry = new ToolRegistry([
+	getDatetimeTool,
+	goalsTool,
+	pythonTool,
+	readChunksTool,
+	searchTool
+]);
 
 export { ToolRegistry } from './registry';
 export { createToolResult, dataOutput, imageOutput, sourceOutput, textOutput } from './result';

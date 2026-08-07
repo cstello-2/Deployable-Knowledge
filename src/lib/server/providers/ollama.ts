@@ -4,6 +4,7 @@ import {
 	type ProviderChatMessage,
 	type ProviderChatOptions
 } from './provider';
+import { cachedCapability } from './capability-cache';
 import { createChatCodec } from './chat-codec';
 import { readObject } from '$lib/server/utils/values';
 
@@ -37,7 +38,8 @@ export class Ollama extends Provider {
 				options: {
 					temperature: options.temperature,
 					top_k: options.topK,
-					num_predict: options.maxTokens
+					num_predict: options.maxTokens,
+					...(options.contextSize ? { num_ctx: options.contextSize } : {})
 				},
 				stream: true
 			}),
@@ -96,6 +98,21 @@ export class Ollama extends Provider {
 		return models.flatMap((value) => {
 			const model = readObject(value).model;
 			return typeof model === 'string' ? [model] : [];
+		});
+	}
+
+	override supportsTools(model: string): Promise<boolean> {
+		return cachedCapability(`ollama:${model}`, async () => {
+			const resp = await fetch(`${LLAMA_API_URL}/api/show`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ model }),
+				signal: AbortSignal.timeout(2500)
+			});
+			if (!resp.ok) return true;
+			const data = readObject(await resp.json());
+			if (!Array.isArray(data.capabilities)) return true;
+			return data.capabilities.includes('tools');
 		});
 	}
 }

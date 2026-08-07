@@ -56,6 +56,9 @@ export class ChatService {
 				case 'text-reset':
 					callbacks.onTextReset?.();
 					break;
+				case 'goals':
+					callbacks.onGoals?.(event.goals);
+					break;
 				case 'title':
 					callbacks.onTitle?.(event.title);
 					break;

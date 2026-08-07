@@ -1,4 +1,4 @@
-import { mkdir, readdir, unlink } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
@@ -13,6 +13,9 @@ import type {
 } from 'node-llama-cpp';
 
 import type { LocalModel } from '$lib/constants/local-models';
+import type { LlamaGpuMode } from '$lib/types';
+
+export type SupportedGpuType = Exclude<LlamaGpuMode, 'auto' | 'cpu'>;
 
 export const MODELS_DIR = resolve(process.cwd(), 'models');
 
@@ -24,7 +27,9 @@ const CONTEXT_SIZE_MAX = 32768;
 
 type LlamaModuleState = {
 	nlc?: Promise<typeof import('node-llama-cpp')>;
-	llamaInstance?: Promise<Llama>;
+	llamaInstance?: { gpu: LlamaGpuMode; promise: Promise<Llama> };
+	gpuTypes?: Promise<SupportedGpuType[]>;
+	ggufContextSizes?: Map<string, { size: number; mtimeMs: number; value: number | null }>;
 	runtime: Runtime | null;
 	opQueue: Promise<unknown>;
 	activeDownload: { fileName: string; downloader: ModelDownloader | null } | null;
@@ -45,7 +50,69 @@ const state = ((
 // never when the provider registry is merely listed.
 const loadNlc = () => (state.nlc ??= import('node-llama-cpp'));
 
-const getLlamaInstance = () => (state.llamaInstance ??= loadNlc().then((mod) => mod.getLlama()));
+async function createLlama(gpu: LlamaGpuMode): Promise<Llama> {
+	const mod = await loadNlc();
+	if (gpu === 'auto') return mod.getLlama();
+	if (gpu === 'cpu') return mod.getLlama({ gpu: false });
+	try {
+		return await mod.getLlama({ gpu });
+	} catch (error) {
+		console.warn(`[llamacpp] Failed to initialize ${gpu} backend, falling back to CPU:`, error);
+		return mod.getLlama({ gpu: false });
+	}
+}
+
+async function getLlamaFor(gpu: LlamaGpuMode): Promise<Llama> {
+	if (state.llamaInstance?.gpu === gpu) return state.llamaInstance.promise;
+
+	const previous = state.llamaInstance;
+	state.llamaInstance = undefined;
+	if (previous) {
+		await previous.promise.then((llama) => llama.dispose()).catch(() => undefined);
+	}
+
+	const entry = { gpu, promise: createLlama(gpu) };
+	entry.promise.catch(() => {
+		if (state.llamaInstance === entry) state.llamaInstance = undefined;
+	});
+	state.llamaInstance = entry;
+	return entry.promise;
+}
+
+export function getSupportedGpuTypes(): Promise<SupportedGpuType[]> {
+	return (state.gpuTypes ??= loadNlc()
+		.then((mod) => mod.getLlamaGpuTypes('supported'))
+		.then((types) =>
+			types.filter((type): type is SupportedGpuType => type === 'cuda' || type === 'vulkan')
+		)
+		.catch(() => []));
+}
+
+export async function readModelTrainContextSize(fileName: string): Promise<number | null> {
+	const path = resolveLocalModelPath(fileName);
+	if (!existsSync(path)) return null;
+
+	const { size, mtimeMs } = await stat(path);
+	const cache = (state.ggufContextSizes ??= new Map());
+	const cached = cache.get(path);
+	if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.value;
+
+	let value: number | null = null;
+	try {
+		const { readGgufFileInfo } = await loadNlc();
+		const info = await readGgufFileInfo(path, { sourceType: 'filesystem', readTensorInfo: false });
+		const contextLength = (info.architectureMetadata as { context_length?: unknown })
+			.context_length;
+		if (typeof contextLength === 'number' && Number.isFinite(contextLength)) {
+			value = contextLength;
+		}
+	} catch {
+		return null;
+	}
+
+	cache.set(path, { size, mtimeMs, value });
+	return value;
+}
 
 export async function listLocalModelFiles(): Promise<string[]> {
 	if (!existsSync(MODELS_DIR)) return [];
@@ -114,6 +181,8 @@ type Runtime = {
 	context: LlamaContext;
 	chat: LlamaChat;
 	modelPath: string;
+	contextSize: number | null;
+	gpu: LlamaGpuMode;
 };
 
 // All model operations share one context sequence, so they must never overlap.
@@ -133,21 +202,42 @@ async function disposeRuntimeUnlocked(): Promise<void> {
 	await model.dispose();
 }
 
-async function getRuntime(modelPath: string): Promise<Runtime> {
-	if (state.runtime?.modelPath === modelPath) return state.runtime;
+async function getRuntime(
+	modelPath: string,
+	settings: { contextSize: number | null; gpu: LlamaGpuMode }
+): Promise<Runtime> {
+	const requestedSize = settings.contextSize;
+	const contextSize =
+		typeof requestedSize === 'number' && Number.isFinite(requestedSize) && requestedSize >= 1024
+			? Math.floor(requestedSize)
+			: null;
+	const gpu = settings.gpu;
+
+	if (
+		state.runtime?.modelPath === modelPath &&
+		state.runtime.contextSize === contextSize &&
+		state.runtime.gpu === gpu
+	) {
+		return state.runtime;
+	}
 
 	await disposeRuntimeUnlocked();
 
 	const { LlamaChat } = await loadNlc();
-	const llama = await getLlamaInstance();
+	const llama = await getLlamaFor(gpu);
 	const model = await llama.loadModel({ modelPath });
-	const context = await model.createContext({ contextSize: { max: CONTEXT_SIZE_MAX } });
+	const context = await model.createContext({
+		contextSize: { max: contextSize ?? CONTEXT_SIZE_MAX }
+	});
+	console.info(
+		`[llamacpp] ${basename(modelPath)}: context ${context.contextSize} tokens, train max ${model.trainContextSize}, backend ${llama.gpu || 'cpu'}`
+	);
 	const chat = new LlamaChat({
 		contextSequence: context.getSequence(),
 		autoDisposeSequence: false
 	});
 
-	state.runtime = { llama, model, context, chat, modelPath };
+	state.runtime = { llama, model, context, chat, modelPath, contextSize, gpu };
 
 	return state.runtime;
 }
@@ -171,13 +261,18 @@ export function generateChatResponse(params: {
 	topK?: number;
 	maxTokens?: number;
 	reasoningBudget?: number;
+	contextSize?: number | null;
+	gpuMode?: LlamaGpuMode;
 	signal?: AbortSignal;
 	onText: (text: string) => void;
 	onReasoning: (text: string) => void;
 }): Promise<{ functionCalls: LocalFunctionCall[] }> {
 	return withLock(async () => {
 		params.signal?.throwIfAborted();
-		const { chat } = await getRuntime(params.modelPath);
+		const { chat } = await getRuntime(params.modelPath, {
+			contextSize: params.contextSize ?? null,
+			gpu: params.gpuMode ?? 'auto'
+		});
 
 		const thoughtTokens = resolveThoughtTokens(params.reasoningBudget);
 		// generateResponse counts thought tokens against maxTokens, so a thinking

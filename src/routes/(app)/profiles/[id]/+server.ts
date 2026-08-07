@@ -5,6 +5,7 @@ import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
 import { seedLocalUser } from '$lib/server/database/seed';
 import { profiles, users, type AssistantProfileUpdateValues } from '$lib/server/database/schema';
+import { sanitizeContextSize, sanitizeGpuMode } from '$lib/server/utils/profile-values';
 import type { RequestHandler } from './$types';
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
@@ -39,6 +40,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			retrievalMode: body.retrievalMode,
 			ragTopK: body.ragTopK,
 			agentMaxTurns: body.agentMaxTurns,
+			contextSize: sanitizeContextSize(body.contextSize),
+			gpuMode: sanitizeGpuMode(body.gpuMode),
 			enabledTools: toolRegistry.filterIds(body.enabledTools),
 			promptTemplateId: body.promptTemplateId,
 			persona: body.persona,

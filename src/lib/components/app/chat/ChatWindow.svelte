@@ -10,7 +10,11 @@
 		settingsStore
 	} from '$lib/stores';
 	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
-	import { CONTEXT_OVERHEAD_TOKENS, CONTEXT_WINDOW_TOKENS_MAX } from '$lib/constants';
+	import {
+		CONTEXT_OVERHEAD_TOKENS,
+		CONTEXT_WINDOW_TOKENS_MAX,
+		LOCAL_MODEL_PROVIDER_ID
+	} from '$lib/constants';
 	import {
 		estimateHistoryTokens,
 		estimateMessageTokens,
@@ -18,6 +22,7 @@
 		estimateTokens
 	} from '$lib/utils';
 	import ChatForm from './ChatForm.svelte';
+	import ChatGoalsBar from './ChatGoalsBar.svelte';
 	import ChatMessageList from './ChatMessageList.svelte';
 	import { sourceChunkIds } from './chat-message';
 
@@ -63,8 +68,11 @@
 			: 0
 	);
 
+	let toolsSupported = $derived(settingsStore.modelToolSupport !== 'unsupported');
+	let effectiveToolsEnabled = $derived(chatStore.toolsEnabled && toolsSupported);
+
 	let contextUsed = $derived(
-		estimateSystemPromptTokens({ notebookMode, toolsEnabled: chatStore.toolsEnabled }) +
+		estimateSystemPromptTokens({ notebookMode, toolsEnabled: effectiveToolsEnabled }) +
 			estimateHistoryTokens(chatStore.messages) +
 			notebookContextTokens +
 			estimateMessageTokens(draft)
@@ -76,7 +84,13 @@
 			CONTEXT_OVERHEAD_TOKENS
 	);
 
-	let retrievalPending = $derived(!notebookMode && chatStore.toolsEnabled);
+	let retrievalPending = $derived(!notebookMode && effectiveToolsEnabled);
+
+	let contextLimit = $derived.by(() => {
+		const { provider, contextSize } = settingsStore.config;
+		const configurable = provider === LOCAL_MODEL_PROVIDER_ID || provider === 'ollama';
+		return configurable && contextSize ? contextSize : CONTEXT_WINDOW_TOKENS_MAX;
+	});
 
 	async function notebookContext(): Promise<string> {
 		await notebooksStore.load();
@@ -128,7 +142,7 @@
 				top_k: config.topK,
 				reasoning_budget: config.reasoningBudget,
 				agent_max_turns: config.agentMaxTurns,
-				tools_enabled: chatStore.toolsEnabled,
+				tools_enabled: effectiveToolsEnabled,
 				enabled_tools: config.enabledTools
 			};
 			const request: ApiChatMessageRequest = notebookMode
@@ -193,6 +207,7 @@
 	contentLabel="Assistant chat"
 >
 	<div class="flex h-full min-h-0 flex-col overflow-hidden">
+		<ChatGoalsBar goals={chatStore.goals} />
 		<ChatMessageList
 			bind:ref={logElement}
 			messages={chatStore.messages}
@@ -207,7 +222,7 @@
 		<ChatForm
 			bind:draft
 			busy={chatStore.isStreaming}
-			contextLimit={CONTEXT_WINDOW_TOKENS_MAX}
+			{contextLimit}
 			{contextReserved}
 			{contextUsed}
 			{notebookMode}
@@ -216,7 +231,8 @@
 			onToggleNotebookMode={() => (notebookMode = !notebookMode)}
 			onToggleTools={() => (chatStore.toolsEnabled = !chatStore.toolsEnabled)}
 			{retrievalPending}
-			toolsEnabled={chatStore.toolsEnabled}
+			toolsEnabled={effectiveToolsEnabled}
+			{toolsSupported}
 		/>
 	</div>
 </WorkspaceWindow>
