@@ -74,6 +74,8 @@ export function lastAtOrBefore(values: number[], target: number): number {
 	return result;
 }
 
+// position of el relative to the scroller's own content, not the viewport -
+// getBoundingClientRect alone doesn't account for how far the scroller has scrolled
 export function topWithinScroller(el: Element, scroller: Element): number {
 	return el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
 }
@@ -89,6 +91,8 @@ export function scrollTextareaToLine(el: HTMLTextAreaElement, text: string, line
 	el.scrollTop = tops[Math.max(0, Math.min(line, tops.length - 1))] ?? 0;
 }
 
+// markdown.ts stamps each rendered block with data-line, walk them in order
+// and keep whichever one is at or above the current scroll position
 export function lineAtPreviewScrollTop(scroller: HTMLElement): number {
 	const blocks = Array.from(scroller.querySelectorAll<HTMLElement>('[data-line]'));
 	let best: HTMLElement | null = null;

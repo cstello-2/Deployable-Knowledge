@@ -14,6 +14,8 @@ export async function recordIngestFailure(input: {
 	const error = input.error;
 	const message = error instanceof Error ? error.message : String(error);
 	const stage = error instanceof Error ? (error as IngestStageError).stage : undefined;
+	// prefer the cause's stack when we wrapped a lower-level error, otherwise
+	// you just see "failed to ingest" with no idea what actually broke
 	const stack =
 		error instanceof Error
 			? ((error.cause instanceof Error ? error.cause.stack : error.stack) ?? null)
