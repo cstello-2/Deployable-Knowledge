@@ -17,10 +17,13 @@ export const DOCUMENT_SORT_OPTIONS: readonly { value: DocumentSortMode; label: s
 	{ value: 'least-chunks', label: 'Least chunks' }
 ];
 
+// fall back to the id if a doc somehow has no title, just so sorting
+// doesn't blow up on an empty string
 function titleOf(document: DocumentRow): string {
 	return (document.title || document.id).toLowerCase();
 }
 
+// returns a new sorted array, doesn't touch the one you passed in
 export function sortDocuments(
 	documents: readonly DocumentRow[],
 	mode: DocumentSortMode

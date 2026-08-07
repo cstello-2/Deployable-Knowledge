@@ -31,6 +31,8 @@
 		{/snippet}
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Content align="end" class="w-44">
+		<!-- bits-ui types this as a plain string, so we cast back to our
+		     sort mode union instead of typing every value by hand -->
 		<DropdownMenu.RadioGroup {value} onValueChange={(next) => onChange(next as DocumentSortMode)}>
 			{#each DOCUMENT_SORT_OPTIONS as option (option.value)}
 				<DropdownMenu.RadioItem value={option.value}>{option.label}</DropdownMenu.RadioItem>

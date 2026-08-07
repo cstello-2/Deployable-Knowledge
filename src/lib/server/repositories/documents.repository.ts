@@ -11,6 +11,8 @@ import {
 
 export class DocumentsRepository {
 	static async list(): Promise<ApiDocumentListResponse> {
+		// createdAt is needed for the Newest/Oldest sort options, wasn't
+		// being selected here before
 		const rows = await db
 			.select({
 				id: documents.id,

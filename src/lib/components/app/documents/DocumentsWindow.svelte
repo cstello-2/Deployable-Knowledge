@@ -77,6 +77,8 @@
 			if (listMode === 'inactive' && document.active) return false;
 			return !tagFilters.length || tagFilters.some((tag) => document.tags.includes(tag));
 		});
+		// only apply manual sort when there's no search query - a query
+		// already sorts by relevance, don't fight it
 		if (!query.trim()) return sortDocuments(tagged, sort);
 		return tagged
 			.map((document) => ({ document, score: fuzzyDocumentScore(query, document) }))
