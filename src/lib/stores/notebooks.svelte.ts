@@ -235,9 +235,8 @@ class NotebooksStore {
 		return response.sources;
 	}
 
-	// Attaches the chunk as a background source (for notebook-mode chat) *and* drops its
-	// actual text into the open page, so "Save chunk" leaves something you can see, not
-	// just a silent reference.
+	// Also drops the chunk's text into the open page, so "Send to Notebook" leaves
+	// something you can see, not just a silent background source. (name is stale from before the rename)
 	async saveChunk(chunkId: string): Promise<string> {
 		await this.load();
 		const notebook = this.activeNotebook;

@@ -8,6 +8,8 @@ export type NotebookCorpusResult = {
 	chunkCount: number;
 };
 
+// "Master Corpus" = embed the notebook's own pages as a document so their
+// content becomes retrievable in chat/search just like an uploaded file
 export async function storeNotebookInMasterCorpus(
 	input: NotebookCorpusInput
 ): Promise<NotebookCorpusResult> {

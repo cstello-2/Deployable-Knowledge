@@ -15,6 +15,8 @@ export type NotebookCorpusInput = {
 };
 
 export function buildNotebookCorpusChunks(input: NotebookCorpusInput): ParsedChunk[] {
+	// path is per-notebook, not per-page, so the whole notebook is one document -
+	// re-running this replaces all of its chunks, so always pass every page
 	const source: Source = {
 		title: input.notebookTitle,
 		type: 'NOTEBOOK',

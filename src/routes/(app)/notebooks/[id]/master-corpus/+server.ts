@@ -20,6 +20,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		throw error(400, 'Select at least one notebook page.');
 	}
 
+	// grab pageIndex before filtering, so it still reflects the page's real
+	// position in the notebook and not its index in the filtered subset
 	const selectedPageIds = new Set(body.pageIds as string[]);
 	const pages = notebook.pages
 		.map((page, pageIndex) => ({ ...page, pageIndex }))
