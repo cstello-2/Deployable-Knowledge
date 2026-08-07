@@ -182,8 +182,7 @@
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
-		scrollbar-color: color-mix(in oklab, var(--border) 88%, transparent)
-			color-mix(in oklab, var(--background) 88%, transparent);
+		scrollbar-color: var(--scrollbar-thumb) transparent;
 		scrollbar-width: thin;
 	}
 
@@ -214,11 +213,11 @@
 	/* Shared scrollbar tokens — keep native (webkit) scrollbars and the
 	   ScrollArea component skin in sync. */
 	:root {
-		--scrollbar-size: 0.65rem;
-		--scrollbar-radius: 0.5rem;
-		--scrollbar-track: color-mix(in oklab, var(--background) 88%, var(--card));
-		--scrollbar-thumb: color-mix(in oklab, var(--border) 88%, var(--muted-foreground));
-		--scrollbar-thumb-hover: color-mix(in oklab, var(--border) 65%, var(--muted-foreground));
+		--scrollbar-size: 0.5rem;
+		--scrollbar-radius: 9999px;
+		--scrollbar-track: transparent;
+		--scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+		--scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
 	}
 
 	*::-webkit-scrollbar {
@@ -227,18 +226,20 @@
 	}
 
 	*::-webkit-scrollbar-track {
-		border-left: 1px solid var(--border);
-		background: var(--scrollbar-track);
+		background: transparent;
 	}
 
 	*::-webkit-scrollbar-thumb {
-		border: 2px solid var(--scrollbar-track);
 		border-radius: var(--scrollbar-radius);
 		background: var(--scrollbar-thumb);
 	}
 
 	*:hover::-webkit-scrollbar-thumb {
 		background: var(--scrollbar-thumb-hover);
+	}
+
+	*::-webkit-scrollbar-corner {
+		background: transparent;
 	}
 }
 

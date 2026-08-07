@@ -1,5 +1,11 @@
 import type { Document } from './database';
 
+export interface AgentGoal {
+	text: string;
+	done: boolean;
+	answer?: string;
+}
+
 export interface ImageArtifact {
 	id: string;
 	mimeType: 'image/png';
@@ -16,6 +22,8 @@ export interface SourceArtifact {
 	sourceType?: Document['sourceType'];
 	pageIndex?: number;
 	chunkIndex?: number;
+	position?: number;
+	totalChunks?: number;
 }
 
 export type ToolOutput =

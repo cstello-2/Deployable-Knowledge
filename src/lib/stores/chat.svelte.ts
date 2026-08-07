@@ -2,6 +2,7 @@ import { STORAGE_KEYS } from '$lib/constants';
 import { ChatService } from '$lib/services';
 import { persisted } from './persisted.svelte';
 import type {
+	AgentGoal,
 	AgentProgressEvent,
 	AgentTraceItem,
 	ApiChatMessageRequest,
@@ -11,14 +12,24 @@ import type {
 } from '$lib/types';
 
 class ChatStore {
-	session = $state<Session | undefined>(undefined);
+	private _session = $state<Session | undefined>(undefined);
 	messages = $state<SessionMessage[]>([]);
 	streamedText = $state('');
 	liveTrace = $state<AgentTraceItem[]>([]);
+	goals = $state<AgentGoal[]>([]);
 	agentStatus = $state('Thinking…');
 	error = $state<string | null>(null);
 	isStreaming = $state(false);
 	private _toolsEnabled = persisted(STORAGE_KEYS.CHAT_TOOLS_ENABLED, false);
+
+	get session(): Session | undefined {
+		return this._session;
+	}
+
+	set session(value: Session | undefined) {
+		if (value?.id !== this._session?.id) this.goals = [];
+		this._session = value;
+	}
 
 	get toolsEnabled(): boolean {
 		return this._toolsEnabled.value;
@@ -51,6 +62,7 @@ class ChatStore {
 		this.isStreaming = true;
 		this.streamedText = '';
 		this.liveTrace = [];
+		this.goals = [];
 		this.error = null;
 		this.agentStatus = 'Thinking…';
 
@@ -71,6 +83,7 @@ class ChatStore {
 				onAgent: (progress) => this.applyAgentProgress(progress),
 				onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
 				onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
+				onGoals: (goals) => (this.goals = goals),
 				onTitle: (title) => this.applyStreamEvent({ type: 'title', title }),
 				onComplete: (event) => {
 					this.applyStreamEvent(event);
@@ -97,6 +110,8 @@ class ChatStore {
 			this.agentStatus = 'Writing final response';
 		} else if (event.type === 'text-reset') {
 			this.streamedText = '';
+		} else if (event.type === 'goals') {
+			this.goals = event.goals;
 		} else if (event.type === 'title') {
 			if (this.session) {
 				this.session = { ...this.session, title: event.title, updatedAt: new Date() };

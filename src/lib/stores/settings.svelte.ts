@@ -30,6 +30,8 @@ class SettingsStore {
 	ready = $state(false);
 	error = $state<string | null>(null);
 	lastQuery = $state('');
+	modelToolSupport = $state<'unknown' | 'supported' | 'unsupported'>('unknown');
+	private capabilityRequestId = 0;
 
 	get config(): AssistantConfig {
 		return this._config;
@@ -41,6 +43,23 @@ class SettingsStore {
 
 	updateConfig(values: Partial<AssistantConfig>): void {
 		this._config = { ...this._config, ...values };
+		if ('provider' in values || 'model' in values) {
+			void this.refreshModelCapability();
+		}
+	}
+
+	async refreshModelCapability(): Promise<void> {
+		const { provider, model } = this._config;
+		const requestId = ++this.capabilityRequestId;
+		this.modelToolSupport = 'unknown';
+		if (!provider || !model) return;
+		try {
+			const result = await ProvidersService.getModelCapabilities(provider, model);
+			if (requestId !== this.capabilityRequestId) return;
+			this.modelToolSupport = result.tools ? 'supported' : 'unsupported';
+		} catch {
+			if (requestId === this.capabilityRequestId) this.modelToolSupport = 'supported';
+		}
 	}
 
 	async init(): Promise<void> {
@@ -53,6 +72,7 @@ class SettingsStore {
 			await this.loadActiveProfile();
 			await Promise.all([this.loadProfiles(), this.loadPromptTemplates(), this.loadProviders()]);
 			this.initialized = true;
+			void this.refreshModelCapability();
 		} catch (error) {
 			this.error = message(error);
 		} finally {
@@ -161,6 +181,8 @@ class SettingsStore {
 	private applyProfile(profile: AssistantProfile | null): void {
 		this.activeProfileId = profile?.id ?? null;
 		if (!profile) return;
+		const modelChanged =
+			profile.provider !== this._config.provider || profile.model !== this._config.model;
 		this._config = {
 			provider: profile.provider,
 			model: profile.model,
@@ -171,10 +193,15 @@ class SettingsStore {
 			retrievalMode: profile.retrievalMode as RetrievalMode,
 			ragTopK: profile.ragTopK,
 			agentMaxTurns: profile.agentMaxTurns,
+			contextSize: profile.contextSize ?? null,
+			gpuMode: profile.gpuMode ?? 'auto',
 			promptTemplateId: profile.promptTemplateId,
 			persona: profile.persona ?? '',
 			enabledTools: this.knownToolIds(profile.enabledTools)
 		};
+		if (modelChanged || this.modelToolSupport === 'unknown') {
+			void this.refreshModelCapability();
+		}
 	}
 
 	private profileValues(): AssistantProfileValues {

@@ -22,7 +22,7 @@
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
-	import DocumentModeBar, { type DocumentListMode } from './DocumentModeBar.svelte';
+	import DocumentModeBar from './DocumentModeBar.svelte';
 
 	interface Props {
 		collapsed?: boolean;
@@ -58,9 +58,6 @@
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
-	let pickerDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
-	let pickerLoading = $state(false);
-	let pickerSelectedPaths = $state<string[]>([]);
 	let uploading = $state(false);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
@@ -91,31 +88,7 @@
 
 	async function reloadLibrary(): Promise<void> {
 		await documentsStore.load();
-		tagFilters = tagFilters.filter((tag) => documentsStore.tags.includes(tag));
 		if (documentsStore.error) toast.error(documentsStore.error);
-	}
-
-	async function openFilePicker(): Promise<void> {
-		filePickerOpen = true;
-		pickerSelectedPaths = [];
-		await navigateDirectory('');
-	}
-
-	async function navigateDirectory(path: string): Promise<void> {
-		pickerLoading = true;
-		try {
-			pickerDirectory = await documentsStore.browseDirectory(path);
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : String(error));
-		} finally {
-			pickerLoading = false;
-		}
-	}
-
-	function toggleFilter(tag: string): void {
-		tagFilters = tagFilters.includes(tag)
-			? tagFilters.filter((item) => item !== tag)
-			: [...tagFilters, tag];
 	}
 
 	async function ingestPaths(paths: string[]): Promise<void> {
@@ -138,7 +111,6 @@
 			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
 		} finally {
 			uploading = false;
-			pickerSelectedPaths = [];
 			documentsStore.progress = null;
 		}
 	}
@@ -212,7 +184,6 @@
 		if (!pendingDeleteTag) return;
 		try {
 			await documentsStore.deleteTag(pendingDeleteTag);
-			tagFilters = tagFilters.filter((tag) => tag !== pendingDeleteTag);
 			pendingDeleteTag = null;
 			toast.success('Tag deleted');
 		} catch (error) {
@@ -303,7 +274,7 @@
 >
 	<div class="flex h-full min-h-0 flex-col gap-3">
 		<DocumentFilterBar
-			bind:query
+			bind:query={() => documentsStore.query, (value) => documentsStore.setQuery(value)}
 			onCreateTag={createTag}
 			onDeleteTag={(tag) => (pendingDeleteTag = tag)}
 			onSortChange={(next) => (sort = next)}
@@ -314,9 +285,9 @@
 		/>
 		<DocumentModeBar
 			{busy}
-			mode={listMode}
+			mode={documentsStore.mode}
 			onDeactivateAll={() => (pendingDeactivateAll = true)}
-			onModeChange={(mode) => (listMode = mode)}
+			onModeChange={(mode) => documentsStore.setMode(mode)}
 			onRemoveAll={() => (pendingRemoveAll = true)}
 		/>
 		{#if status}<p class="text-xs text-muted-foreground">{status}</p>{/if}
@@ -333,23 +304,29 @@
 			/>
 			<DocumentList
 				{busy}
-				documents={visibleDocuments}
+				documents={documentsStore.documents}
+				folderCounts={documentsStore.folderCounts}
 				folders={documentsStore.folders}
+				hasMore={documentsStore.hasMore}
+				loadingMore={documentsStore.loadingMore}
 				onCreateTag={(document, tag) => createAndAssignTag(document, tag)}
 				onDeleteDocument={(document) => (pendingDeleteDocument = document)}
+				onLoadMore={() => void documentsStore.loadMore()}
 				onRemoveFolder={(folder, removeDocuments) =>
 					(pendingFolderRemoval = { folder, removeDocuments })}
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
 				onToggleActive={(document) => void toggleDocumentActive(document)}
-				onToggleGroup={(ids, selected) => documentsStore.setSelection(ids, selected)}
+				onToggleGroup={(folder, selected) =>
+					void documentsStore.selectGroup(folder?.id ?? null, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
 				selectedIds={documentsStore.selectedIds}
 				tags={documentsStore.tags}
+				total={documentsStore.total}
 			/>
 		</div>
 		<div class="border-t pt-3">
-			<Button class="w-full" disabled={busy} onclick={() => void openFilePicker()}>
+			<Button class="w-full" disabled={busy} onclick={() => (filePickerOpen = true)}>
 				<FolderPlus /> Add files
 			</Button>
 		</div>
@@ -357,16 +334,11 @@
 </WorkspaceWindow>
 
 <DialogDocumentFilePicker
-	directory={pickerDirectory}
 	disabled={busy}
-	loading={pickerLoading}
-	onNavigate={(path) => void navigateDirectory(path)}
 	onOpenChange={(open) => (filePickerOpen = open)}
-	onSelectedPathsChange={(paths) => (pickerSelectedPaths = paths)}
 	onSubmitPaths={(paths) => void ingestPaths(paths)}
 	onSyncFolder={(path) => void addFolder(path)}
 	open={filePickerOpen}
-	selectedPaths={pickerSelectedPaths}
 />
 <DialogDocumentTagPicker
 	onOpenChange={(open) => (tagPickerOpen = open)}

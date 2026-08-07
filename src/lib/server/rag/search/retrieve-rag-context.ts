@@ -1,7 +1,8 @@
 import { searchSemantic } from './semantic-search';
 import { searchHybrid } from './hybrid-search';
 import { searchBm25 } from './bm25-search';
-import type { SearchChunkType, SearchMatchBase } from './search-shared';
+import { getChunkPositions, type ChunkPosition } from './chunk-positions';
+import type { ScoredSearchMatch, SearchChunkType, SearchMatchBase } from './search-shared';
 import { DEFAULT_ASSISTANT_CONFIG, RAG_CHUNK_CHARACTER_LIMIT } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
 import { compactText } from '$lib/server/utils/values';
@@ -14,6 +15,52 @@ const DEFAULT_RETRIEVAL_MODE =
 
 export type RagRetrievalMode = RetrievalMode;
 
+export type SearchConfidence = 'low' | 'medium' | 'high';
+
+export const SEARCH_CONFIDENCE_LEVELS: readonly SearchConfidence[] = ['low', 'medium', 'high'];
+
+const SEMANTIC_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
+	low: 0,
+	medium: 0.55,
+	high: 0.7
+};
+const HYBRID_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
+	low: 0,
+	medium: 0.2,
+	high: 0.5
+};
+const BM25_RELATIVE_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
+	low: 0,
+	medium: 0.35,
+	high: 0.6
+};
+const BM25_ABSOLUTE_CONFIDENCE_MINIMUMS: Record<SearchConfidence, number> = {
+	low: 0,
+	medium: 0.8,
+	high: 1.5
+};
+
+function filterByConfidence(
+	matches: ScoredSearchMatch[],
+	mode: RagRetrievalMode,
+	confidence: SearchConfidence | undefined
+): ScoredSearchMatch[] {
+	if (!confidence || confidence === 'low' || matches.length === 0) return matches;
+
+	if (mode === RetrievalMode.BM25) {
+		const top = Math.max(...matches.map(({ score }) => score));
+		const threshold = Math.max(
+			top * BM25_RELATIVE_CONFIDENCE_THRESHOLDS[confidence],
+			BM25_ABSOLUTE_CONFIDENCE_MINIMUMS[confidence]
+		);
+		return matches.filter(({ score }) => score >= threshold);
+	}
+
+	const thresholds =
+		mode === RetrievalMode.HYBRID ? HYBRID_CONFIDENCE_THRESHOLDS : SEMANTIC_CONFIDENCE_THRESHOLDS;
+	return matches.filter(({ score }) => score >= thresholds[confidence]);
+}
+
 export type RagSource = {
 	title: string;
 	description: string;
@@ -22,7 +69,19 @@ export type RagSource = {
 	sourceType: SearchMatchBase['sourceType'];
 	pageIndex: number;
 	chunkIndex: number;
+	position?: number;
+	totalChunks?: number;
 };
+
+export function describeChunkLocation(
+	sourceType: SearchMatchBase['sourceType'],
+	pageIndex: number,
+	preview: string
+): string {
+	if (sourceType === 'AUDIO') return preview;
+	if (sourceType === 'XLSX') return `Sheet ${pageIndex + 1}: ${preview}`;
+	return `Page ${pageIndex + 1}: ${preview}`;
+}
 
 export type RagContextResult = {
 	mode: RagRetrievalMode;
@@ -45,24 +104,26 @@ function formatContext(matches: SearchMatchBase[]) {
 }
 
 // Sources are the user-facing citation list, so keep them shorter than the model context
-export function buildSources(matches: SearchMatchBase[]): RagSource[] {
+export function buildSources(
+	matches: SearchMatchBase[],
+	positions?: Map<string, ChunkPosition>
+): RagSource[] {
 	return matches.map((match) => {
 		const preview = compactText(match.content, MAX_PREVIEW_CHARS);
+		const chunkPosition = positions?.get(match.chunkId);
 
 		return {
 			title: match.sourceTitle,
 			// Transcripts have no pages, so only paged sources get a page reference
-			description:
-				match.sourceType === 'AUDIO'
-					? preview
-					: match.sourceType === 'XLSX'
-						? `Sheet ${match.pageIndex + 1}: ${preview}`
-						: `Page ${match.pageIndex + 1}: ${preview}`,
+			description: describeChunkLocation(match.sourceType, match.pageIndex, preview),
 			documentId: match.documentId,
 			chunkId: match.chunkId,
 			sourceType: match.sourceType,
 			pageIndex: match.pageIndex,
-			chunkIndex: match.chunkIndex
+			chunkIndex: match.chunkIndex,
+			...(chunkPosition
+				? { position: chunkPosition.position, totalChunks: chunkPosition.totalChunks }
+				: {})
 		};
 	});
 }
@@ -74,13 +135,15 @@ export async function retrieveRagContext({
 	documentIds = [],
 	chunkTypes = ['TEXT', 'TABLE', 'IMAGE'],
 	topK = DEFAULT_ASSISTANT_CONFIG.ragTopK,
-	mode = DEFAULT_RETRIEVAL_MODE
+	mode = DEFAULT_RETRIEVAL_MODE,
+	confidence
 }: {
 	question: string;
 	documentIds?: string[];
 	chunkTypes?: SearchChunkType[];
 	topK?: number;
 	mode?: RagRetrievalMode;
+	confidence?: SearchConfidence;
 }): Promise<RagContextResult> {
 	const searchOptions = {
 		query: question,
@@ -88,21 +151,25 @@ export async function retrieveRagContext({
 		documentIds,
 		chunkTypes
 	};
-	let matches: SearchMatchBase[];
+	let scored: ScoredSearchMatch[];
 
 	if (mode === RetrievalMode.BM25) {
-		const search = await searchBm25(searchOptions);
-		matches = search.results.map(({ score: _score, ...match }) => match);
+		scored = (await searchBm25(searchOptions)).results;
 	} else if (mode === RetrievalMode.HYBRID) {
-		matches = (await searchHybrid(searchOptions)).results;
+		scored = (await searchHybrid(searchOptions)).results;
 	} else {
-		const search = await searchSemantic(searchOptions);
-		matches = search.results.map(({ score: _score, ...match }) => match);
+		scored = (await searchSemantic(searchOptions)).results;
 	}
+
+	const matches: SearchMatchBase[] = filterByConfidence(scored, mode, confidence).map(
+		({ score: _score, ...match }) => match
+	);
+
+	const positions = await getChunkPositions(matches);
 
 	return {
 		mode,
 		contextBlock: formatContext(matches),
-		sources: buildSources(matches)
+		sources: buildSources(matches, positions)
 	};
 }

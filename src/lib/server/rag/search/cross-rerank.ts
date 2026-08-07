@@ -1,6 +1,7 @@
 // Cross-encoder relevance scorer.
 
 import { AutoModelForSequenceClassification, AutoTokenizer } from '@huggingface/transformers';
+import { INFERENCE_THREADS } from '../embedding-model';
 
 export type RerankCandidate = {
 	chunkId: string;
@@ -22,16 +23,20 @@ async function initializeModel() {
 	}
 	if (!model) {
 		const modelId = 'Xenova/ms-marco-MiniLM-L-6-v2';
-		model = await AutoModelForSequenceClassification.from_pretrained(modelId);
+		model = await AutoModelForSequenceClassification.from_pretrained(modelId, {
+			session_options: { intraOpNumThreads: INFERENCE_THREADS, interOpNumThreads: 1 }
+		});
 	}
 
 	return { tokenizer, model };
 }
 
+export type RerankedCandidate = RerankCandidate & { relevance: number };
+
 export async function rerankCandidates(
 	query: string,
 	candidates: RerankCandidate[]
-): Promise<RerankCandidate[]> {
+): Promise<RerankedCandidate[]> {
 	const uniqueCandidates = [
 		...new Map(candidates.map((candidate) => [candidate.chunkId, candidate])).values()
 	];
@@ -56,5 +61,8 @@ export async function rerankCandidates(
 			logit: Number(logits.data[index])
 		}))
 		.sort((left, right) => right.logit - left.logit)
-		.map(({ candidate }) => candidate);
+		.map(({ candidate, logit }) => ({
+			...candidate,
+			relevance: 1 / (1 + Math.exp(-logit))
+		}));
 }

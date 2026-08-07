@@ -68,12 +68,33 @@ function toolTitle(name: string, argumentsValue: unknown, status: TraceStatus): 
 		return running ? 'Checking the date and time…' : 'Checked the date and time';
 	}
 
+	if (name === 'goals') {
+		const goals = Array.isArray(args.goals) ? args.goals : [];
+		const done = goals.filter((goal) => readObject(goal).done === true).length;
+		if (running) return 'Updating goals…';
+		return goals.length ? `Updated goals (${done}/${goals.length} done)` : 'Updated goals';
+	}
+
+	if (name === 'read_chunks') {
+		const start = Number(args.start) || 0;
+		const end = Number(args.end) || start;
+		let range = 'document chunks';
+		if (start && end > start) {
+			range = `chunks ${start}–${end}`;
+		} else if (start) {
+			range = `chunk ${start}`;
+		}
+		return running ? `Reading ${range}…` : `Read ${range}`;
+	}
+
 	const label = name.replaceAll('_', ' ');
 	return running ? `Running ${label}…` : `Ran ${label}`;
 }
 
 function toolOutput(name: string, argumentsValue: unknown, resultValue: unknown): string {
 	if (name === 'search') return formatSearchResults(resultValue);
+	if (name === 'read_chunks') return formatChunkWindow(resultValue);
+	if (name === 'goals') return formatGoals(resultValue);
 
 	const args = readObject(argumentsValue);
 	if (name === 'python') {
@@ -111,6 +132,50 @@ function formatSearchResults(resultValue: unknown): string {
 
 	if (typeof result.error === 'string') return result.error;
 	return 'No results';
+}
+
+function formatGoals(resultValue: unknown): string {
+	const result = readObject(resultValue);
+	if (typeof result.error === 'string') return result.error;
+
+	const goals = Array.isArray(result.goals) ? result.goals : [];
+	if (!goals.length) return 'No goals';
+
+	return goals
+		.map((value) => {
+			const goal = readObject(value);
+			const text = typeof goal.text === 'string' ? goal.text : '';
+			const answer = typeof goal.answer === 'string' && goal.answer ? ` — ${goal.answer}` : '';
+			return `${goal.done === true ? '[x]' : '[ ]'} ${text}${answer}`;
+		})
+		.join('\n');
+}
+
+function formatChunkWindow(resultValue: unknown): string {
+	if (resultValue === undefined) return 'Waiting for chunks…';
+	if (typeof resultValue === 'string') return resultValue.trim() || 'No chunks';
+
+	const result = readObject(resultValue);
+	if (typeof result.error === 'string') return result.error;
+
+	const chunks = Array.isArray(result.chunks) ? result.chunks : [];
+	if (!chunks.length) return 'No chunks';
+
+	const title = typeof result.title === 'string' ? result.title : 'Document';
+	const total = typeof result.totalChunks === 'number' ? result.totalChunks : 0;
+
+	return chunks
+		.map((value) => {
+			const chunk = readObject(value);
+			const position = typeof chunk.position === 'number' ? chunk.position : 0;
+			const page = typeof chunk.pageIndex === 'number' ? `, page ${chunk.pageIndex + 1}` : '';
+			const text = typeof chunk.content === 'string' ? chunk.content : '';
+			const heading = total
+				? `${title} — chunk ${position} of ${total}${page}`
+				: `${title} — chunk ${position}${page}`;
+			return `${heading}${text ? `\n${text}` : ''}`;
+		})
+		.join('\n\n');
 }
 
 function firstString(values: unknown[]): string {

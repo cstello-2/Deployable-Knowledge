@@ -20,6 +20,7 @@
 		onToggleTools: () => void;
 		retrievalPending?: boolean;
 		toolsEnabled?: boolean;
+		toolsSupported?: boolean;
 	}
 
 	let {
@@ -34,8 +35,17 @@
 		onToggleNotebookMode,
 		onToggleTools,
 		retrievalPending = false,
-		toolsEnabled = false
+		toolsEnabled = false,
+		toolsSupported = true
 	}: Props = $props();
+
+	let toolsLabel = $derived.by(() => {
+		if (!toolsSupported) {
+			return "This model doesn't support tool calls — automatic document search is used instead";
+		}
+		if (toolsEnabled) return 'Tool calls enabled — click to answer without search or tools';
+		return 'Tool calls disabled — click to allow search and other tools';
+	});
 
 	function handleKeydown(event: KeyboardEvent): void {
 		if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
@@ -79,13 +89,12 @@
 					<BookOpen />
 				</ActionIcon>
 				<ActionIcon
-					class={`size-8 rounded-full bg-transparent shadow-none hover:bg-transparent active:translate-y-0 ${toolsEnabled ? 'text-foreground hover:text-foreground' : 'text-foreground/40 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'}`}
+					class={`size-8 rounded-full bg-transparent shadow-none hover:bg-transparent active:translate-y-0 ${toolsEnabled ? 'text-foreground hover:text-foreground' : 'text-foreground/40 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'} ${toolsSupported ? '' : 'cursor-not-allowed opacity-50'}`}
 					disabled={busy}
-					label={toolsEnabled
-						? 'Tool calls enabled — click to answer without search or tools'
-						: 'Tool calls disabled — click to allow search and other tools'}
-					onclick={onToggleTools}
+					label={toolsLabel}
+					onclick={toolsSupported ? onToggleTools : () => {}}
 					pressed={toolsEnabled}
+					triggerProps={{ 'aria-disabled': !toolsSupported || undefined }}
 					variant="ghost"
 				>
 					<Wrench />

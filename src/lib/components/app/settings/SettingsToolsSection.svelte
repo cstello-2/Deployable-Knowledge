@@ -13,6 +13,12 @@
 </script>
 
 <section class="grid gap-2.5">
+	{#if settingsStore.modelToolSupport === 'unsupported'}
+		<p class="m-0 text-xs text-muted-foreground">
+			The selected model doesn't support tool calls. These tools won't run until you pick a
+			tool-capable model; document chat uses automatic search instead.
+		</p>
+	{/if}
 	{#each settingsStore.availableTools as tool (tool.id)}
 		<div class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5">
 			<Checkbox
