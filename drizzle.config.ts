@@ -7,5 +7,6 @@ export default defineConfig({
 	dialect: 'sqlite',
 	dbCredentials: {
 		url: 'file:app.db'
-	}
+	},
+	tablesFilter: ['!chunk_fts', '!chunk_fts_*']
 });

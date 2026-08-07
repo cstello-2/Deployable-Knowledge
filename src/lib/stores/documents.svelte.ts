@@ -1,14 +1,21 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { DocumentsService } from '$lib/services';
 import type {
+	ApiDocumentDirectoryQuery,
 	ApiDocumentDirectoryResponse,
 	ApiDocumentFolderSyncResponse,
 	ApiDocumentIngestProgress,
+	ApiDocumentListQuery,
 	ApiDocumentSyncFileProgress,
+	ApiFolderDocumentCount,
 	ApiSyncedFolder,
 	DocumentRow,
 	IngestFailure
 } from '$lib/types';
+
+const PAGE_SIZE = 50;
+const MAX_REFRESH_SIZE = 200;
+const QUERY_DEBOUNCE_MS = 250;
 
 class DocumentsStore {
 	private _documents = $state<DocumentRow[]>([]);
@@ -17,10 +24,19 @@ class DocumentsStore {
 	private _failures = $state<IngestFailure[]>([]);
 	private _selectedIds = $state(new SvelteSet<string>());
 	private _syncFiles = $state<ApiDocumentSyncFileProgress[]>([]);
+	private _total = $state(0);
+	private _folderCounts = $state<ApiFolderDocumentCount[]>([]);
+	private _query = $state('');
+	private _tagFilters = $state<string[]>([]);
+	private _mode = $state<DocumentListMode>('all');
+	private _sort = $state<SortDirection>('asc');
+	private queryTimer: ReturnType<typeof setTimeout> | undefined;
+	private listRequest = 0;
 	progress = $state<ApiDocumentIngestProgress | null>(null);
 	syncProgress = $state<ApiDocumentIngestProgress | null>(null);
 	syncing = $state(false);
 	loading = $state(false);
+	loadingMore = $state(false);
 	error = $state<string | null>(null);
 
 	get documents(): DocumentRow[] {
@@ -47,9 +63,50 @@ class DocumentsStore {
 		return this._selectedIds;
 	}
 
+	get total(): number {
+		return this._total;
+	}
+
+	get folderCounts(): ApiFolderDocumentCount[] {
+		return this._folderCounts;
+	}
+
+	get hasMore(): boolean {
+		return this._documents.length < this._total;
+	}
+
+	get query(): string {
+		return this._query;
+	}
+
+	get tagFilters(): string[] {
+		return this._tagFilters;
+	}
+
+	get mode(): DocumentListMode {
+		return this._mode;
+	}
+
+	get sort(): SortDirection {
+		return this._sort;
+	}
+
+	private get filtered(): boolean {
+		return Boolean(this._query.trim()) || this._tagFilters.length > 0 || this._mode !== 'all';
+	}
+
 	async load(): Promise<void> {
-		this.loading = true;
-		this.error = null;
+		await this.fetchList(PAGE_SIZE);
+	}
+
+	async refresh(): Promise<void> {
+		await this.fetchList(Math.min(Math.max(this._documents.length, PAGE_SIZE), MAX_REFRESH_SIZE));
+	}
+
+	async loadMore(): Promise<void> {
+		if (this.loading || this.loadingMore || this.error || !this.hasMore) return;
+		const request = ++this.listRequest;
+		this.loadingMore = true;
 		try {
 			const [result, folderResult, failuresResult] = await Promise.all([
 				DocumentsService.list(),
@@ -63,9 +120,9 @@ class DocumentsStore {
 			const validIds = new Set(result.documents.map(({ id }) => id));
 			for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 		} catch (error) {
-			this.error = message(error);
+			if (request === this.listRequest) this.error = message(error);
 		} finally {
-			this.loading = false;
+			this.loadingMore = false;
 		}
 	}
 
@@ -94,30 +151,40 @@ class DocumentsStore {
 		}
 	}
 
+	async selectGroup(folderId: string | null, selected: boolean): Promise<void> {
+		try {
+			const result = await DocumentsService.listIds(this.listQuery(), folderId);
+			this.setSelection(result.ids, selected);
+		} catch (error) {
+			this.error = message(error);
+		}
+	}
+
 	async createTag(tag: string): Promise<void> {
 		await DocumentsService.createTag(tag);
-		await this.load();
+		await this.refresh();
 	}
 
 	async deleteTag(tag: string): Promise<void> {
 		await DocumentsService.deleteTag(tag);
-		await this.load();
+		this._tagFilters = this._tagFilters.filter((item) => item !== tag);
+		await this.refresh();
 	}
 
 	async setTagAssignment(documentIds: string[], tag: string, assigned: boolean): Promise<void> {
 		await DocumentsService.setTagAssignment({ documentIds, tag, assigned });
-		await this.load();
+		await this.refresh();
 	}
 
 	async setActivation(documentIds: string[] | null, active: boolean): Promise<void> {
 		await DocumentsService.setActivation(documentIds ? { documentIds, active } : { active });
-		await this.load();
+		await this.refresh();
 	}
 
 	async removeAllDocuments(): Promise<void> {
 		await DocumentsService.removeAllDocuments();
 		this._selectedIds.clear();
-		await this.load();
+		await this.refresh();
 	}
 
 	async ingestPath(path: string) {
@@ -128,7 +195,7 @@ class DocumentsStore {
 		);
 		this._selectedIds.add(result.documentId);
 		this.progress = null;
-		await this.load();
+		await this.refresh();
 		return result;
 	}
 
@@ -153,18 +220,58 @@ class DocumentsStore {
 	}
 
 	async removeFolder(id: string, removeDocuments: boolean): Promise<void> {
-		await DocumentsService.removeFolder(id, removeDocuments);
-		await this.load();
+		const result = await DocumentsService.removeFolder(id, removeDocuments);
+		for (const documentId of result.removedDocumentIds) this._selectedIds.delete(documentId);
+		await this.refresh();
 	}
 
 	async removeDocument(id: string): Promise<void> {
 		await DocumentsService.removeDocument(id);
 		this._selectedIds.delete(id);
-		await this.load();
+		await this.refresh();
 	}
 
-	browseDirectory(path = ''): Promise<ApiDocumentDirectoryResponse> {
-		return DocumentsService.browseDirectory(path);
+	browseDirectory(query: ApiDocumentDirectoryQuery = {}): Promise<ApiDocumentDirectoryResponse> {
+		return DocumentsService.browseDirectory(query);
+	}
+
+	private listQuery(): ApiDocumentListQuery {
+		return {
+			mode: this._mode,
+			query: this._query,
+			sort: this._sort,
+			tags: [...this._tagFilters]
+		};
+	}
+
+	private async fetchList(limit: number): Promise<void> {
+		const request = ++this.listRequest;
+		this.loading = true;
+		this.error = null;
+		try {
+			const [result, folderResult] = await Promise.all([
+				DocumentsService.list({ ...this.listQuery(), offset: 0, limit }),
+				DocumentsService.listFolders()
+			]);
+			if (request !== this.listRequest) return;
+			this._documents = result.documents;
+			this._tags = result.tags;
+			this._folders = folderResult.folders;
+			this._total = result.total;
+			this._folderCounts = result.folderCounts;
+			this._tagFilters = this._tagFilters.filter((tag) => result.tags.includes(tag));
+			this.pruneSelection();
+		} catch (error) {
+			if (request === this.listRequest) this.error = message(error);
+		} finally {
+			if (request === this.listRequest) this.loading = false;
+		}
+	}
+
+	private pruneSelection(): void {
+		if (this.filtered || this.hasMore) return;
+		const validIds = new Set(this._documents.map(({ id }) => id));
+		for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 	}
 
 	private async runFolderSync(
@@ -192,7 +299,7 @@ class DocumentsStore {
 					};
 				}
 			});
-			await this.load();
+			await this.refresh();
 			return result;
 		} finally {
 			this.syncing = false;

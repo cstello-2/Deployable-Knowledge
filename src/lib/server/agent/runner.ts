@@ -10,8 +10,13 @@ import type { ToolExecutionContext, ToolExecutionResult } from '../tools/types';
 import type { AgentOutput, AgentTraceItem } from '$lib/types';
 import { createReasoningTrace, createToolTrace } from '$lib/utils/agent-trace';
 import type { AgentProgressEvent } from '$lib/types';
-import { AGENT_MAX_TURNS_MAX, AGENT_MAX_TURNS_MIN, DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
-import { clampInteger, readObject } from '../utils/values';
+import {
+	AGENT_MAX_TURNS_MIN,
+	DEFAULT_ASSISTANT_CONFIG,
+	ESTIMATED_CHARACTERS_PER_TOKEN
+} from '$lib/constants';
+import { readObject } from '../utils/values';
+import { readGoals, unfinishedGoals } from '../tools/goals';
 import {
 	logAgentComplete,
 	logModelCall,
@@ -72,12 +77,18 @@ export async function runAgent({
 	const executions: AgentToolExecution[] = [];
 	const outputs = new Map<string, AgentOutput>();
 	const trace: AgentTraceItem[] = [];
+	const compactBudgetChars = transcriptBudgetChars(chatOptions);
 	let toolTurns = 0;
 	let modelTurns = 0;
+	let forceFinalAnswer = false;
+	let emptyTurnRetried = false;
+	let fruitlessNudges = 0;
+	let lastNudgeSnapshot = '';
 
 	while (true) {
 		chatOptions.signal?.throwIfAborted();
-		const toolsAvailable = toolTurns < maxTurns && definitions.length > 0;
+		compactTranscript(transcript, compactBudgetChars);
+		const toolsAvailable = !forceFinalAnswer && toolTurns < maxTurns && definitions.length > 0;
 		onProgress?.({
 			kind: 'model',
 			status: 'started',
@@ -134,6 +145,46 @@ export async function runAgent({
 		});
 
 		if (!turn.toolCalls.length || !toolsAvailable) {
+			const unfinished = unfinishedGoals(toolContext);
+			if (toolsAvailable && !turn.toolCalls.length && unfinished.length > 0) {
+				const snapshot = `${toolTurns}:${JSON.stringify(readGoals(toolContext))}`;
+				fruitlessNudges = snapshot === lastNudgeSnapshot ? fruitlessNudges + 1 : 0;
+				lastNudgeSnapshot = snapshot;
+
+				if (fruitlessNudges < 2) {
+					if (turn.content) transcript.push({ role: 'assistant', content: turn.content });
+					if (turn.contentChunks.length) onTextReset?.();
+					transcript.push({
+						role: 'user',
+						content: `Do not answer yet. These goals are still unfinished:\n${unfinished
+							.map((goal) => `- ${goal.text}`)
+							.join(
+								'\n'
+							)}\nContinue now: work on the next unfinished goal using tools. When a goal is complete, update the goals tool with done: true and record what you found in its answer field. Give the final answer only when every goal is done.`
+					});
+					continue;
+				}
+			}
+
+			if (!turn.content && !forceFinalAnswer) {
+				if (!emptyTurnRetried) {
+					emptyTurnRetried = true;
+					transcript.push({
+						role: 'user',
+						content:
+							'Continue. Use tools if you still need information, or give your complete final answer now. Answer every part of the request.'
+					});
+					continue;
+				}
+				forceFinalAnswer = true;
+				transcript.push({
+					role: 'user',
+					content:
+						'Give your complete final answer to my request now, using the information gathered above. Answer every part of the request. Do not call any more tools.'
+				});
+				continue;
+			}
+
 			const finalContent =
 				turn.content ||
 				(turn.toolCalls.length
@@ -236,13 +287,67 @@ export async function runAgent({
 	}
 }
 
-export function clampAgentMaxTurns(value: unknown): number {
-	return clampInteger(
-		value,
-		AGENT_MAX_TURNS_MIN,
-		AGENT_MAX_TURNS_MAX,
-		DEFAULT_ASSISTANT_CONFIG.agentMaxTurns
+const KEEP_RECENT_TOOL_RESULTS = 2;
+const MIN_COMPACT_BUDGET_CHARS = 24_000;
+const COMPACT_SKIP_UNDER_CHARS = 320;
+
+function transcriptBudgetChars(chatOptions: ProviderChatOptions): number {
+	const contextTokens = chatOptions.contextSize ?? 16_384;
+	const reservedTokens =
+		(chatOptions.maxTokens ?? 1_024) + Math.max(0, chatOptions.reasoningBudget ?? 0);
+	const budget = Math.round(
+		(contextTokens - reservedTokens) * ESTIMATED_CHARACTERS_PER_TOKEN * 0.6
 	);
+	const ceiling = Math.round(contextTokens * ESTIMATED_CHARACTERS_PER_TOKEN * 0.6);
+	return Math.min(Math.max(MIN_COMPACT_BUDGET_CHARS, budget), Math.max(ceiling, 4_000));
+}
+
+function messageChars(message: ProviderChatMessage): number {
+	return (
+		(message.content?.length ?? 0) +
+		(message.reasoningContent?.length ?? 0) +
+		(message.toolCalls ? JSON.stringify(message.toolCalls).length : 0)
+	);
+}
+
+function transcriptChars(transcript: ProviderChatMessage[]): number {
+	return transcript.reduce((sum, message) => sum + messageChars(message), 0);
+}
+
+function compactTranscript(transcript: ProviderChatMessage[], budgetChars: number): void {
+	if (transcriptChars(transcript) <= budgetChars) return;
+
+	const toolIndexes = transcript.flatMap((message, index) =>
+		message.role === 'tool' && message.name !== 'goals' ? [index] : []
+	);
+	const compactable = toolIndexes.slice(
+		0,
+		Math.max(0, toolIndexes.length - KEEP_RECENT_TOOL_RESULTS)
+	);
+
+	for (const index of compactable) {
+		if (transcriptChars(transcript) <= budgetChars) return;
+		const message = transcript[index];
+		const content = message.content ?? '';
+		if (content.length <= COMPACT_SKIP_UNDER_CHARS) continue;
+		transcript[index] = { ...message, content: compactedToolContent(content) };
+	}
+}
+
+function compactedToolContent(content: string): string {
+	const parsed = readObject(parseJson(content));
+	return JSON.stringify({
+		compacted: true,
+		...(typeof parsed.query === 'string' ? { query: parsed.query } : {}),
+		note: 'Older tool result trimmed to fit the context window. Key findings should already be recorded in your goals answer fields; re-run the tool if you need the details again.'
+	});
+}
+
+export function clampAgentMaxTurns(value: unknown): number {
+	const number = typeof value === 'number' ? value : Number(value);
+	if (!Number.isFinite(number)) return DEFAULT_ASSISTANT_CONFIG.agentMaxTurns;
+	if (number < 0) return Infinity;
+	return Math.max(AGENT_MAX_TURNS_MIN, Math.floor(number));
 }
 
 async function collectTurn(

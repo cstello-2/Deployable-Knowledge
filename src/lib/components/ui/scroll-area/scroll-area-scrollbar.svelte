@@ -17,8 +17,8 @@
 	{orientation}
 	class={cn(
 		'flex touch-none bg-(--scrollbar-track) p-0.5 transition-colors select-none',
-		orientation === 'vertical' && 'h-full w-(--scrollbar-size) border-l',
-		orientation === 'horizontal' && 'h-(--scrollbar-size) flex-col border-t',
+		orientation === 'vertical' && 'h-full w-(--scrollbar-size)',
+		orientation === 'horizontal' && 'h-(--scrollbar-size) flex-col',
 		className
 	)}
 	{...restProps}

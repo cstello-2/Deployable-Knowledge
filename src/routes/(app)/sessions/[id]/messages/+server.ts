@@ -9,6 +9,7 @@ import type { ProviderChatOptions } from '$lib/server/providers/provider';
 import { runAgent } from '$lib/server/agent/runner';
 import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
 import { toolRegistry } from '$lib/server/tools';
+import { readGoals } from '$lib/server/tools/goals';
 import type { ToolExecutionContext } from '$lib/server/tools/types';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
@@ -57,6 +58,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			typeof body.reasoning_budget === 'number'
 				? Math.max(-1, Math.floor(body.reasoning_budget))
 				: undefined,
+		contextSize: profile?.contextSize ?? undefined,
+		gpuMode: profile?.gpuMode ?? 'auto',
 		signal: abortController.signal
 	};
 
@@ -101,8 +104,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const modeTools = toolRegistry.idsForMode(body.conversational ? 'notebook' : 'document');
 	const enabledTools = toolRegistry.filterIds(body.enabled_tools ?? profile?.enabledTools);
+	const toolsRequested = body.tools_enabled !== false;
+	const modelSupportsTools = toolsRequested ? await provider.supportsTools(modelId) : true;
 	const toolNames =
-		body.tools_enabled !== false ? modeTools.filter((name) => enabledTools.includes(name)) : [];
+		toolsRequested && modelSupportsTools
+			? modeTools.filter((name) => enabledTools.includes(name))
+			: [];
 	const toolsEnabled = toolNames.length > 0;
 	const searchToolEnabled = toolNames.includes('search');
 	const toolInstructions = toolRegistry.instructions(toolNames);
@@ -184,6 +191,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					toolContext,
 					onProgress(progress) {
 						send({ type: 'agent', progress });
+						if (
+							progress.kind === 'tool' &&
+							progress.status === 'completed' &&
+							progress.name === 'goals' &&
+							!progress.isError
+						) {
+							send({ type: 'goals', goals: readGoals(toolContext) });
+						}
 					},
 					onText(chunk) {
 						send({ type: 'text', delta: chunk });
