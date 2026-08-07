@@ -1,6 +1,4 @@
 <script lang="ts">
-	import ArrowDownAZ from '@lucide/svelte/icons/arrow-down-a-z';
-	import ArrowDownZA from '@lucide/svelte/icons/arrow-down-z-a';
 	import Funnel from '@lucide/svelte/icons/funnel';
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
@@ -43,12 +41,6 @@
 			type="search"
 		/>
 		{#if query}<ActionIcon label="Clear filter" onclick={() => (query = '')}><X /></ActionIcon>{/if}
-		<ActionIcon
-			label={sort === 'asc' ? 'Sort by name, A to Z' : 'Sort by name, Z to A'}
-			onclick={onToggleSort}
-		>
-			{#if sort === 'asc'}<ArrowDownAZ />{:else}<ArrowDownZA />{/if}
-		</ActionIcon>
 		<TagFilterMenu
 			onCreate={onCreateTag}
 			onDelete={onDeleteTag}

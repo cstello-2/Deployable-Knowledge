@@ -16,6 +16,7 @@
 		ApiDocumentDirectoryResponse,
 		ApiDocumentFolderSyncResponse,
 		ApiSyncedFolder,
+		DocumentListMode,
 		DocumentRow
 	} from '$lib/types';
 	import { fuzzyDocumentScore, sortDocuments, type DocumentSortMode } from '$lib/utils';
@@ -85,6 +86,12 @@
 	});
 
 	onMount(() => void reloadLibrary());
+
+	function toggleFilter(tag: string): void {
+		tagFilters = tagFilters.includes(tag)
+			? tagFilters.filter((value) => value !== tag)
+			: [...tagFilters, tag];
+	}
 
 	async function reloadLibrary(): Promise<void> {
 		await documentsStore.load();
