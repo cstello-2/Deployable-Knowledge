@@ -133,13 +133,17 @@
 				try {
 					await documentsStore.ingestPath(path);
 					succeeded += 1;
-				} catch (error) {
+				} catch {
+					// swallow here - the ingest failures banner below already
+					// shows this once documentsStore reloads
 					failed += 1;
-					toast.error(error instanceof Error ? error.message : String(error));
 				}
 			}
 			status = `Added ${succeeded} file${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
 			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
+			// a failed ingest doesn't reload the store on its own, so pull the
+			// failures list ourselves or the banner never shows up
+			if (failed) await reloadLibrary();
 		} finally {
 			uploading = false;
 			pickerSelectedPaths = [];
@@ -159,13 +163,17 @@
 				try {
 					await documentsStore.uploadFile(file);
 					succeeded += 1;
-				} catch (error) {
+				} catch {
+					// swallow here - the ingest failures banner below already
+					// shows this once documentsStore reloads
 					failed += 1;
-					toast.error(error instanceof Error ? error.message : String(error));
 				}
 			}
 			status = `Added ${succeeded} file${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
 			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
+			// a failed ingest doesn't reload the store on its own, so pull the
+			// failures list ourselves or the banner never shows up
+			if (failed) await reloadLibrary();
 		} finally {
 			uploading = false;
 			documentsStore.progress = null;
