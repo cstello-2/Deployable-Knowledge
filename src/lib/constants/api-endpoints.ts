@@ -31,6 +31,7 @@ export const API_DOCUMENTS = {
 	BASE: '/documents',
 	DIRECTORIES: '/documents/directories',
 	FOLDERS: '/documents/folders',
+	IDS: '/documents/ids',
 	LIST: '/documents/list',
 	TAGS: '/documents/tags',
 	byId: (id: string) => `/documents/${segment(id)}`,
@@ -75,7 +76,9 @@ export const API_PROMPT_TEMPLATES = {
 
 export const API_PROVIDERS = {
 	BASE: '/providers',
-	byId: (id: string) => `/providers/${segment(id)}`
+	byId: (id: string) => `/providers/${segment(id)}`,
+	capabilities: (id: string, model: string) =>
+		`/providers/${segment(id)}/capabilities?model=${segment(model)}`
 };
 
 export const API_SEARCH = '/search';

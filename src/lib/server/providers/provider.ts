@@ -2,12 +2,15 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '../database/database';
 import { apiKeys } from '../database/schema';
+import type { LlamaGpuMode } from '$lib/types';
 
 export type ProviderChatOptions = {
 	temperature?: number;
 	topK?: number;
 	maxTokens?: number;
 	reasoningBudget?: number;
+	contextSize?: number | null;
+	gpuMode?: LlamaGpuMode;
 	tools?: ProviderToolDefinition[];
 	toolChoice?: 'auto' | 'none';
 	parallelToolCalls?: boolean;
@@ -98,4 +101,8 @@ export abstract class Provider {
 	): AsyncGenerator<ProviderChatChunk>;
 
 	abstract listModels(): Promise<string[]>;
+
+	async supportsTools(_model: string): Promise<boolean> {
+		return true;
+	}
 }

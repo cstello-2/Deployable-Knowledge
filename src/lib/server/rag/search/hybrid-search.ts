@@ -22,12 +22,17 @@ function withoutScore(match: ScoredSearchMatch): SearchMatchBase {
 	return chunk;
 }
 
-export async function searchAllMethods(options: SearchOptionsBase): Promise<SearchMethodResults> {
+async function collectMethodResults(options: SearchOptionsBase): Promise<{
+	query: string;
+	semantic: SearchMatchBase[];
+	bm25: SearchMatchBase[];
+	hybridScored: ScoredSearchMatch[];
+}> {
 	const query = options.query.trim();
 	const topK = Math.max(0, Math.floor(options.topK ?? 10));
 
 	if (!query || topK === 0) {
-		return { query, semantic: [], bm25: [], hybrid: [] };
+		return { query, semantic: [], bm25: [], hybridScored: [] };
 	}
 
 	const sharedOptions = {
@@ -56,28 +61,38 @@ export async function searchAllMethods(options: SearchOptionsBase): Promise<Sear
 			content: match.content
 		}))
 	);
-	const hybrid: SearchMatchBase[] = [];
+	const hybridScored: ScoredSearchMatch[] = [];
 
 	for (const candidate of rankedCandidates) {
 		const match = byChunkId.get(candidate.chunkId);
-		if (match) hybrid.push(match);
-		if (hybrid.length === topK) break;
+		if (match) hybridScored.push({ ...match, score: candidate.relevance });
+		if (hybridScored.length === topK) break;
 	}
 
 	return {
 		query,
 		semantic: semantic.slice(0, topK),
 		bm25: bm25.slice(0, topK),
-		hybrid
+		hybridScored
+	};
+}
+
+export async function searchAllMethods(options: SearchOptionsBase): Promise<SearchMethodResults> {
+	const search = await collectMethodResults(options);
+	return {
+		query: search.query,
+		semantic: search.semantic,
+		bm25: search.bm25,
+		hybrid: search.hybridScored.map(withoutScore)
 	};
 }
 
 export async function searchHybrid(
 	options: SearchOptionsBase
-): Promise<SearchResult<SearchMatchBase>> {
-	const search = await searchAllMethods(options);
+): Promise<SearchResult<ScoredSearchMatch>> {
+	const search = await collectMethodResults(options);
 	return {
 		query: search.query,
-		results: search.hybrid
+		results: search.hybridScored
 	};
 }

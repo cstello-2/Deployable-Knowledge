@@ -10,6 +10,7 @@ import type {
 	ApiDocumentFoldersResponse,
 	ApiDocumentFolderSyncEvent,
 	ApiDocumentFolderSyncResponse,
+	ApiDocumentIdsResponse,
 	ApiDocumentListQuery,
 	ApiDocumentListResponse,
 	ApiDocumentPathRequest,
@@ -41,6 +42,16 @@ export class DocumentsService {
 			['offset', offset]
 		]);
 		return apiFetch<ApiDocumentListResponse>(`${API_DOCUMENTS.LIST}${search}`);
+	}
+
+	static listIds({ mode, query, tags }: ApiDocumentListQuery = {}, group?: string | null) {
+		const search = searchString([
+			['q', query?.trim()],
+			['mode', mode],
+			['tag', tags],
+			['group', group === null ? 'individual' : group]
+		]);
+		return apiFetch<ApiDocumentIdsResponse>(`${API_DOCUMENTS.IDS}${search}`);
 	}
 
 	static browseDirectory({ limit, offset, path, sort }: ApiDocumentDirectoryQuery = {}) {

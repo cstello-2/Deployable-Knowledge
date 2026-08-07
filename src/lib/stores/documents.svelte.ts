@@ -160,6 +160,15 @@ class DocumentsStore {
 		}
 	}
 
+	async selectGroup(folderId: string | null, selected: boolean): Promise<void> {
+		try {
+			const result = await DocumentsService.listIds(this.listQuery(), folderId);
+			this.setSelection(result.ids, selected);
+		} catch (error) {
+			this.error = message(error);
+		}
+	}
+
 	async createTag(tag: string): Promise<void> {
 		await DocumentsService.createTag(tag);
 		await this.refresh();

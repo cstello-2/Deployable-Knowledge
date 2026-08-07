@@ -37,7 +37,7 @@
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
 		onToggle: (id: string, selected: boolean) => void;
 		onToggleActive: (document: DocumentRow) => void;
-		onToggleGroup: (ids: string[], selected: boolean) => void;
+		onToggleGroup: (folder: ApiSyncedFolder | null, selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
 		selectedIds: ReadonlySet<string>;
 		tags: string[];
@@ -124,14 +124,10 @@
 						aria-label={`Select every document in ${group.label}`}
 						checked={group.documents.length > 0 &&
 							group.documents.every((document) => selectedIds.has(document.id))}
-						disabled={!group.documents.length}
+						disabled={!group.documents.length && !group.total}
 						indeterminate={group.documents.some((document) => selectedIds.has(document.id)) &&
 							!group.documents.every((document) => selectedIds.has(document.id))}
-						onCheckedChange={(selected) =>
-							onToggleGroup(
-								group.documents.map(({ id }) => id),
-								selected
-							)}
+						onCheckedChange={(selected) => onToggleGroup(group.folder, selected)}
 					/>
 					{#if group.folder}
 						<FolderSync class="size-4 shrink-0 text-muted-foreground" />

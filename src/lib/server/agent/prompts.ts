@@ -12,7 +12,8 @@ export const AGENT_SYSTEM_PROMPT = `TOOL-USE POLICY (follow this even if another
 2. If required information is missing or uncertain and an available tool can retrieve it, call the tool. Do not guess, assume, or finalize an uncertainty answer first.
 3. Use structured tool calls only. Never imitate a tool call in normal text and never invent a tool result.
 4. After every tool result, decide whether it is sufficient. If it failed or is insufficient, correct the arguments and make a focused follow-up tool call while turns remain.
-5. Do not narrate this decision process. Once the evidence is sufficient, stop using tools and give a direct, self-contained final answer.`;
+5. When the user message contains multiple questions or asks for multiple facts, treat each one as its own task: make the tool calls each question needs before answering, question by question, even when that takes many consecutive tool calls. Never answer while any question remains unresearched, and never drop or skip questions.
+6. Do not narrate this decision process. Once the evidence is sufficient for every part of the request, stop using tools and give a direct, self-contained final answer that covers each question.`;
 
 export const DOCUMENT_CONTEXT_SYSTEM_PROMPT = `DOCUMENT CONTEXT POLICY:
 - No document search tool is available for this request. A document search already ran for the user's question and its results are included as a context block in the user's message.

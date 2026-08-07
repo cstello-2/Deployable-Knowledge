@@ -55,7 +55,9 @@ export function convertOfficeToPdf(
 ): Promise<Buffer> {
 	const task = conversionQueue.then(async () => {
 		const started = Date.now();
-		console.log(`[Office Converter] Converting ${inputFormat} (${Math.round(buffer.length / 1024)} KB)...`);
+		console.log(
+			`[Office Converter] Converting ${inputFormat} (${Math.round(buffer.length / 1024)} KB)...`
+		);
 		try {
 			const converter = await getConverter();
 			const result = await withTimeout(

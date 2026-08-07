@@ -6,6 +6,7 @@ import {
 	eq,
 	exists,
 	inArray,
+	notExists,
 	or,
 	sql,
 	type Column,
@@ -23,6 +24,7 @@ import {
 	documentTags,
 	documents,
 	syncedFiles,
+	syncedFolders,
 	tags
 } from '$lib/server/database/schema';
 
@@ -64,6 +66,39 @@ function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery):
 }
 
 export class DocumentsRepository {
+	static async listIds(
+		options: ApiDocumentListQuery = {},
+		group?: { folderId: string | null }
+	): Promise<string[]> {
+		const conditions: SQL[] = [];
+		const where = listConditions(options);
+		if (where) conditions.push(where);
+
+		if (group) {
+			const folderMembership = db
+				.select({ one: sql`1` })
+				.from(syncedFiles)
+				.innerJoin(syncedFolders, eq(syncedFolders.id, syncedFiles.folderId))
+				.where(
+					group.folderId === null
+						? eq(syncedFiles.documentId, documents.id)
+						: and(
+								eq(syncedFiles.documentId, documents.id),
+								eq(syncedFiles.folderId, group.folderId)
+							)
+				);
+			conditions.push(
+				group.folderId === null ? notExists(folderMembership) : exists(folderMembership)
+			);
+		}
+
+		const rows = await db
+			.select({ id: documents.id })
+			.from(documents)
+			.where(conditions.length ? and(...conditions) : undefined);
+		return rows.map(({ id }) => id);
+	}
+
 	static async list(options: ApiDocumentListQuery = {}): Promise<ApiDocumentListResponse> {
 		const where = listConditions(options);
 		const direction = options.sort === 'desc' ? desc : asc;

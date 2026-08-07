@@ -31,10 +31,12 @@ async function initializeModel() {
 	return { tokenizer, model };
 }
 
+export type RerankedCandidate = RerankCandidate & { relevance: number };
+
 export async function rerankCandidates(
 	query: string,
 	candidates: RerankCandidate[]
-): Promise<RerankCandidate[]> {
+): Promise<RerankedCandidate[]> {
 	const uniqueCandidates = [
 		...new Map(candidates.map((candidate) => [candidate.chunkId, candidate])).values()
 	];
@@ -59,5 +61,8 @@ export async function rerankCandidates(
 			logit: Number(logits.data[index])
 		}))
 		.sort((left, right) => right.logit - left.logit)
-		.map(({ candidate }) => candidate);
+		.map(({ candidate, logit }) => ({
+			...candidate,
+			relevance: 1 / (1 + Math.exp(-logit))
+		}));
 }

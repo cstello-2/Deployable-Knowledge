@@ -16,6 +16,17 @@
 
 	let { onSaveChunk, sources }: Props = $props();
 
+	const COLLAPSE_THRESHOLD = 5;
+
+	let expanded = $state(false);
+
+	const visibleSources = $derived(
+		expanded || sources.length <= COLLAPSE_THRESHOLD
+			? sources
+			: sources.slice(0, COLLAPSE_THRESHOLD)
+	);
+	const hiddenCount = $derived(sources.length - COLLAPSE_THRESHOLD);
+
 	function hrefFor(output: SourceOutput): string | undefined {
 		if (!output.data.documentId) return output.data.url;
 		return documentViewerHref(output.data.sourceType, output.data.documentId, output.data);
@@ -40,7 +51,7 @@
 
 {#if sources.length}
 	<ol class="grid list-inside gap-1 text-xs text-muted-foreground">
-		{#each sources as source (`source-${source.id}`)}
+		{#each visibleSources as source (`source-${source.id}`)}
 			{@const href = hrefFor(source)}
 			<li class="flex">
 				<div
@@ -76,4 +87,15 @@
 			</li>
 		{/each}
 	</ol>
+	{#if sources.length > COLLAPSE_THRESHOLD}
+		<button
+			type="button"
+			class="cursor-pointer justify-self-start rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+			onclick={() => (expanded = !expanded)}
+		>
+			{expanded
+				? 'Show fewer sources'
+				: `Show ${hiddenCount} more source${hiddenCount === 1 ? '' : 's'}`}
+		</button>
+	{/if}
 {/if}

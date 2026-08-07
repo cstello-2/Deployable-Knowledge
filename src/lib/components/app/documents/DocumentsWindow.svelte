@@ -292,7 +292,8 @@
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
 				onToggleActive={(document) => void toggleDocumentActive(document)}
-				onToggleGroup={(ids, selected) => documentsStore.setSelection(ids, selected)}
+				onToggleGroup={(folder, selected) =>
+					void documentsStore.selectGroup(folder?.id ?? null, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
 				selectedIds={documentsStore.selectedIds}
 				tags={documentsStore.tags}

@@ -188,6 +188,10 @@ export const profiles = sqliteTable(
 		agentMaxTurns: integer('agent_max_turns')
 			.notNull()
 			.default(DEFAULT_ASSISTANT_CONFIG.agentMaxTurns),
+		contextSize: integer('context_size'),
+		gpuMode: text('gpu_mode', { enum: ['auto', 'cpu', 'cuda', 'vulkan'] })
+			.notNull()
+			.default(DEFAULT_ASSISTANT_CONFIG.gpuMode),
 		enabledTools: text('enabled_tools', { mode: 'json' })
 			.$type<string[]>()
 			.notNull()
@@ -369,6 +373,8 @@ export type AssistantProfileValues = Pick<
 	| 'retrievalMode'
 	| 'ragTopK'
 	| 'agentMaxTurns'
+	| 'contextSize'
+	| 'gpuMode'
 	| 'enabledTools'
 	| 'promptTemplateId'
 	| 'persona'

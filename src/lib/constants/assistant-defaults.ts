@@ -2,7 +2,7 @@ import { RetrievalMode } from '$lib/enums';
 import type { AssistantConfig } from '$lib/types';
 
 export const AGENT_MAX_TURNS_MIN = 1;
-export const AGENT_MAX_TURNS_MAX = 10;
+export const AGENT_MAX_TURNS_UNLIMITED = -1;
 
 export const REASONING_BUDGET_UNLIMITED = -1;
 
@@ -16,6 +16,8 @@ export const DEFAULT_ASSISTANT_CONFIG: Readonly<AssistantConfig> = {
 	retrievalMode: RetrievalMode.HYBRID,
 	ragTopK: 5,
 	agentMaxTurns: 4,
+	contextSize: null,
+	gpuMode: 'auto',
 	promptTemplateId: null,
 	persona: '',
 	enabledTools: []

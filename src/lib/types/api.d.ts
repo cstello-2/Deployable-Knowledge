@@ -1,5 +1,5 @@
 import type { RetrievalMode } from '$lib/enums';
-import type { AgentProgressEvent } from './agent';
+import type { AgentGoal, AgentProgressEvent } from './agent';
 import type {
 	AssistantProfile,
 	Document,
@@ -8,6 +8,8 @@ import type {
 	NotebookWithPages,
 	SyncedFolder
 } from './database';
+
+export type LlamaGpuMode = 'auto' | 'cpu' | 'cuda' | 'vulkan';
 
 export interface AssistantConfig {
 	provider: string;
@@ -19,6 +21,8 @@ export interface AssistantConfig {
 	retrievalMode: RetrievalMode;
 	ragTopK: number;
 	agentMaxTurns: number;
+	contextSize: number | null;
+	gpuMode: LlamaGpuMode;
 	promptTemplateId: string | null;
 	persona: string;
 	enabledTools: string[];
@@ -98,6 +102,10 @@ export interface ApiDocumentListResponse {
 	folderCounts: ApiFolderDocumentCount[];
 	tags: string[];
 	total: number;
+}
+
+export interface ApiDocumentIdsResponse {
+	ids: string[];
 }
 
 export type TranscriptChunkRow = Pick<
@@ -241,6 +249,11 @@ export interface ApiProviderModelGroup extends Pick<ApiProviderInfo, 'id' | 'nam
 	models: string[];
 }
 
+export interface ApiProviderModelCapabilities {
+	model: string;
+	tools: boolean;
+}
+
 export interface ApiSessionTitleRequest {
 	title: string;
 }
@@ -260,11 +273,13 @@ export interface ApiLocalModelInfo {
 	fileName: string;
 	sizeBytes: number | null;
 	downloaded: boolean;
+	trainContextSize: number | null;
 }
 
 export interface ApiLocalModelsStatus {
 	models: ApiLocalModelInfo[];
 	downloadingFile: string | null;
+	gpu: { supported: Exclude<LlamaGpuMode, 'auto' | 'cpu'>[] };
 }
 
 export interface ApiLocalModelDownloadRequest {
@@ -317,6 +332,7 @@ export type ApiChatStreamEvent =
 	| { type: 'agent'; progress: AgentProgressEvent }
 	| { type: 'text'; delta: string }
 	| { type: 'text-reset' }
+	| { type: 'goals'; goals: AgentGoal[] }
 	| { type: 'title'; title: string }
 	| {
 			type: 'complete';
