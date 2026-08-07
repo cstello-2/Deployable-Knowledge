@@ -30,6 +30,9 @@ needed.
 
 Built-in tools:
 
+- `corpus_details` reports the number of documents in the corpus and pages
+  through their titles alphabetically. It honors the chat's selected document
+  scope and counts only active documents, matching what search can reach.
 - `get_datetime` returns the current ISO time plus a formatted value in an
   optional IANA timezone.
 - `search` queries the local document store using semantic, BM25, hybrid, or
