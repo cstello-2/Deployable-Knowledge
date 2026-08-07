@@ -15,6 +15,8 @@
 	let title = $state('');
 	let content = $state('');
 
+	// reset the fields every time the dialog opens back up, otherwise the
+	// last thing you pasted just sits there waiting to be re-submitted
 	$effect(() => {
 		if (!open) return;
 		title = '';

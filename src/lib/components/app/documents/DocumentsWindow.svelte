@@ -175,6 +175,8 @@
 		}
 	}
 
+	// wraps the pasted text as a .txt File so it can just ride the normal
+	// upload pipeline below instead of needing its own ingest path
 	async function submitPastedText({
 		title,
 		content
@@ -506,6 +508,7 @@
 				tags={documentsStore.tags}
 			/>
 		</div>
+		<!-- 3:1 width so "Add files" stays the primary action, paste is secondary -->
 		<div class="flex gap-2 border-t pt-3">
 			<Button class="flex-[3]" disabled={busy} onclick={() => void openFilePicker()}>
 				<FolderPlus /> Add files
