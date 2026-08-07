@@ -72,7 +72,7 @@ export type ApiDocumentIngestEvent =
 
 export type DocumentRow = Pick<
 	Document,
-	'id' | 'title' | 'sourcePath' | 'sourceType' | 'updatedAt' | 'active'
+	'id' | 'title' | 'sourcePath' | 'sourceType' | 'createdAt' | 'updatedAt' | 'active'
 > & {
 	chunkCount: number;
 	folderId: string | null;

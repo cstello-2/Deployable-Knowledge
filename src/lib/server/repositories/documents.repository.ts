@@ -66,32 +66,9 @@ function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery):
 }
 
 export class DocumentsRepository {
-	static async listIds(
-		options: ApiDocumentListQuery = {},
-		group?: { folderId: string | null }
-	): Promise<string[]> {
-		const conditions: SQL[] = [];
-		const where = listConditions(options);
-		if (where) conditions.push(where);
-
-		if (group) {
-			const folderMembership = db
-				.select({ one: sql`1` })
-				.from(syncedFiles)
-				.innerJoin(syncedFolders, eq(syncedFolders.id, syncedFiles.folderId))
-				.where(
-					group.folderId === null
-						? eq(syncedFiles.documentId, documents.id)
-						: and(
-								eq(syncedFiles.documentId, documents.id),
-								eq(syncedFiles.folderId, group.folderId)
-							)
-				);
-			conditions.push(
-				group.folderId === null ? notExists(folderMembership) : exists(folderMembership)
-			);
-		}
-
+	static async list(): Promise<ApiDocumentListResponse> {
+		// createdAt is needed for the Newest/Oldest sort options, wasn't
+		// being selected here before
 		const rows = await db
 			.select({ id: documents.id })
 			.from(documents)
@@ -110,6 +87,7 @@ export class DocumentsRepository {
 				title: documents.title,
 				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
+				createdAt: documents.createdAt,
 				updatedAt: documents.updatedAt,
 				active: documents.active
 			})

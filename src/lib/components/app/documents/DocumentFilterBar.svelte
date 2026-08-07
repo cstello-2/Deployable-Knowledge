@@ -5,25 +5,26 @@
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Input } from '$lib/components/ui/input';
-	import type { SortDirection } from '$lib/types';
+	import type { DocumentSortMode } from '$lib/utils';
+	import DocumentSortMenu from './DocumentSortMenu.svelte';
 	import DocumentTagChip from './DocumentTagChip.svelte';
 	import TagFilterMenu from './TagFilterMenu.svelte';
 
 	interface Props {
 		onCreateTag: (tag: string) => Promise<void> | void;
 		onDeleteTag: (tag: string) => void;
-		onToggleSort: () => void;
+		onSortChange: (sort: DocumentSortMode) => void;
 		onToggleTag: (tag: string) => void;
 		query: string;
 		selectedTags: string[];
-		sort: SortDirection;
+		sort: DocumentSortMode;
 		tags: string[];
 	}
 
 	let {
 		onCreateTag,
 		onDeleteTag,
-		onToggleSort,
+		onSortChange,
 		onToggleTag,
 		query = $bindable(),
 		selectedTags,
@@ -59,6 +60,7 @@
 			triggerLabel="Filter"
 			triggerTooltip="Filter by tags"
 		/>
+		<DocumentSortMenu onChange={onSortChange} value={sort} />
 	</div>
 	{#if selectedTags.length}
 		<div class="flex min-h-7 flex-wrap items-center gap-2">
