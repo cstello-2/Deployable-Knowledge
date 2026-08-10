@@ -7,6 +7,7 @@
 	import favicon from '$lib/assets/icon.svg';
 	import { DialogProgress } from '$lib/components/app/dialogs';
 	import { AppStartupOverlay } from '$lib/components/app/navigation';
+	import { SettingsDialog } from '$lib/components/app/settings';
 	import EngineHeartbeat from '$lib/components/app/navigation/EngineHeartbeat.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { STORAGE_KEYS } from '$lib/constants';
@@ -50,6 +51,7 @@
 	/>
 	<Toaster richColors />
 	<EngineHeartbeat />
+	<SettingsDialog />
 
 	<DialogProgress
 		open={setupStore.open}

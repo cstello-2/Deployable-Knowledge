@@ -1,7 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { asc, eq } from 'drizzle-orm';
 import type { ApiNotebookTitleRequest } from '$lib/types';
-import { NOTEBOOK_USER_ID } from '$lib/server/database/constants';
 import { db } from '$lib/server/database/database';
 import { notebooks, type Notebook } from '$lib/server/database/schema';
 import {
@@ -31,7 +30,6 @@ export const DELETE: RequestHandler = async ({ params }) => {
 	const remaining: Notebook[] = await db
 		.select()
 		.from(notebooks)
-		.where(eq(notebooks.userId, NOTEBOOK_USER_ID))
 		.orderBy(asc(notebooks.sortOrder), asc(notebooks.createdAt));
 
 	if (remaining.length) await setActiveNotebook(remaining[0].id);

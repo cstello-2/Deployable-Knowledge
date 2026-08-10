@@ -1,6 +1,7 @@
 export type {
 	ActiveAssistantProfile,
 	ApiKey,
+	AppState,
 	AssistantProfile,
 	AssistantProfileActivationResponse,
 	AssistantProfileCreateValues,
@@ -11,6 +12,7 @@ export type {
 	DocumentChunk,
 	DocumentTag,
 	NewApiKey,
+	NewAppState,
 	NewAssistantProfile,
 	NewDocument,
 	NewDocumentChunk,
@@ -25,8 +27,6 @@ export type {
 	NewSyncedFile,
 	NewSyncedFolder,
 	NewTag,
-	NewUser,
-	NewUserSession,
 	Notebook,
 	NotebookPage,
 	NotebookSource,
@@ -34,12 +34,9 @@ export type {
 	NotebookWithPages,
 	PromptTemplate,
 	PromptTemplateFormValue,
-	SafeUser,
 	Session,
 	SessionMessage,
 	SyncedFile,
 	SyncedFolder,
-	Tag,
-	User,
-	UserSession
+	Tag
 } from '$lib/server/database/schema';

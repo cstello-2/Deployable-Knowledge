@@ -1,21 +1,16 @@
 import { error, json } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
-import { seedLocalUser } from '$lib/server/database/seed';
-import { profiles, users, type AssistantProfileUpdateValues } from '$lib/server/database/schema';
+import { clearActiveProfileId } from '$lib/server/database/app-state';
+import { profiles, type AssistantProfileUpdateValues } from '$lib/server/database/schema';
 import { sanitizeContextSize, sanitizeGpuMode } from '$lib/server/utils/profile-values';
 import type { RequestHandler } from './$types';
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const body = (await request.json()) as AssistantProfileUpdateValues;
-	const user = await seedLocalUser();
-	const existing = await db
-		.select()
-		.from(profiles)
-		.where(and(eq(profiles.id, params.id), eq(profiles.userId, user.id)))
-		.get();
+	const existing = await db.select().from(profiles).where(eq(profiles.id, params.id)).get();
 
 	if (!existing) {
 		throw error(404, 'Profile not found');
@@ -47,24 +42,16 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			persona: body.persona,
 			updatedAt: new Date()
 		})
-		.where(and(eq(profiles.id, params.id), eq(profiles.userId, user.id)))
+		.where(eq(profiles.id, params.id))
 		.returning();
 
 	return json(row);
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {
-	const user = await seedLocalUser();
+	await clearActiveProfileId(params.id);
 
-	await db
-		.update(users)
-		.set({ activeProfileId: null })
-		.where(and(eq(users.id, user.id), eq(users.activeProfileId, params.id)));
-
-	const [row] = await db
-		.delete(profiles)
-		.where(and(eq(profiles.id, params.id), eq(profiles.userId, user.id)))
-		.returning();
+	const [row] = await db.delete(profiles).where(eq(profiles.id, params.id)).returning();
 
 	if (!row) {
 		throw error(404, 'Profile not found');

@@ -4,17 +4,17 @@ import { error, json } from '@sveltejs/kit';
 
 import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
-import { seedLocalUser } from '$lib/server/database/seed';
+import { ensureActiveProfileId } from '$lib/server/database/app-state';
 import { profiles, type AssistantProfileCreateValues } from '$lib/server/database/schema';
 import { sanitizeContextSize, sanitizeGpuMode } from '$lib/server/utils/profile-values';
 import { ProfilesRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-	const user = await seedLocalUser();
+	const activeProfileId = await ensureActiveProfileId();
 	const response = {
-		profiles: await ProfilesRepository.list(user.id),
-		activeProfileId: user.activeProfileId
+		profiles: await ProfilesRepository.list(),
+		activeProfileId
 	};
 
 	return json(response);
@@ -28,13 +28,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Profile name is required');
 	}
 
-	const user = await seedLocalUser();
 	const timestamp = new Date();
 	const [row] = await db
 		.insert(profiles)
 		.values({
 			id: randomUUID(),
-			userId: user.id,
 			name,
 			provider: body.provider,
 			model: body.model,

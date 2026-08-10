@@ -19,7 +19,7 @@
 		bind:ref
 		data-slot="alert-dialog-content"
 		class={cn(
-			'dk-panel fixed z-[999999] grid w-full gap-3 border p-4 shadow-lg duration-200',
+			'dk-panel fixed z-[999999] grid w-full gap-3 border bg-linear-to-b from-card to-elevated p-4 shadow-lg duration-200',
 			// Mobile: Bottom sheet behavior
 			'right-0 bottom-0 left-0 max-h-[100dvh] translate-x-0 translate-y-0 overflow-y-auto rounded-t-lg',
 			'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:fill-mode-forwards data-[state=closed]:slide-out-to-bottom-full',

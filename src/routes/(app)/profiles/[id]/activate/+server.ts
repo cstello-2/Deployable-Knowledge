@@ -1,28 +1,19 @@
 import { error, json } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '$lib/server/database/database';
-import { seedLocalUser } from '$lib/server/database/seed';
-import {
-	profiles,
-	users,
-	type AssistantProfileActivationResponse
-} from '$lib/server/database/schema';
+import { setActiveProfileId } from '$lib/server/database/app-state';
+import { profiles, type AssistantProfileActivationResponse } from '$lib/server/database/schema';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params }) => {
-	const user = await seedLocalUser();
-	const profile = await db
-		.select()
-		.from(profiles)
-		.where(and(eq(profiles.id, params.id), eq(profiles.userId, user.id)))
-		.get();
+	const profile = await db.select().from(profiles).where(eq(profiles.id, params.id)).get();
 
 	if (!profile) {
 		throw error(404, 'Profile not found');
 	}
 
-	await db.update(users).set({ activeProfileId: profile.id }).where(eq(users.id, user.id));
+	await setActiveProfileId(profile.id);
 
 	const response: AssistantProfileActivationResponse = {
 		profile,

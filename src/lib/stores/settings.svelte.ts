@@ -1,3 +1,4 @@
+import { toast } from 'svelte-sonner';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
 import {
@@ -10,7 +11,6 @@ import type {
 	AssistantConfig,
 	AssistantProfile,
 	AssistantProfileCreateValues,
-	AssistantProfileUpdateValues,
 	AssistantProfileValues,
 	ApiAgentTool,
 	ApiPromptTemplateRequest,
@@ -32,6 +32,7 @@ class SettingsStore {
 	lastQuery = $state('');
 	modelToolSupport = $state<'unknown' | 'supported' | 'unsupported'>('unknown');
 	private capabilityRequestId = 0;
+	private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	get config(): AssistantConfig {
 		return this._config;
@@ -45,6 +46,30 @@ class SettingsStore {
 		this._config = { ...this._config, ...values };
 		if ('provider' in values || 'model' in values) {
 			void this.refreshModelCapability();
+		}
+		this.queueAutosave();
+	}
+
+	private queueAutosave(): void {
+		if (!this.initialized || !this.activeProfileId) return;
+		this.clearAutosave();
+		this.autosaveTimer = setTimeout(() => {
+			this.autosaveTimer = null;
+			this.autosaveActive().catch((error) => toast.error(message(error)));
+		}, 600);
+	}
+
+	private async autosaveActive(): Promise<void> {
+		if (!this.activeProfileId) return;
+		const profile = await ProfilesService.updateActive(this.profileValues());
+		const index = this.profiles.findIndex(({ id }) => id === profile.id);
+		if (index >= 0) this.profiles[index] = profile;
+	}
+
+	private clearAutosave(): void {
+		if (this.autosaveTimer) {
+			clearTimeout(this.autosaveTimer);
+			this.autosaveTimer = null;
 		}
 	}
 
@@ -105,18 +130,8 @@ class SettingsStore {
 		await this.activateProfile(profile.id);
 	}
 
-	async saveProfile(name?: string): Promise<void> {
-		if (!this.activeProfileId) return;
-		const values: AssistantProfileUpdateValues = {
-			...this.profileValues(),
-			...(name ? { name } : {})
-		};
-		const profile = await ProfilesService.update(this.activeProfileId, values);
-		this.applyProfile(profile);
-		await this.loadProfiles();
-	}
-
 	async saveActive(): Promise<void> {
+		this.clearAutosave();
 		if (!this.activeProfileId) return;
 		const profile = await ProfilesService.updateActive(this.profileValues());
 		this.applyProfile(profile);
@@ -179,6 +194,7 @@ class SettingsStore {
 	}
 
 	private applyProfile(profile: AssistantProfile | null): void {
+		this.clearAutosave();
 		this.activeProfileId = profile?.id ?? null;
 		if (!profile) return;
 		const modelChanged =

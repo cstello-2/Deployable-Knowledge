@@ -2,7 +2,6 @@
 	import Contrast from '@lucide/svelte/icons/contrast';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import Moon from '@lucide/svelte/icons/moon';
-	import Palette from '@lucide/svelte/icons/palette';
 	import Sun from '@lucide/svelte/icons/sun';
 	import { Button } from '$lib/components/ui/button';
 	import * as ButtonGroup from '$lib/components/ui/button-group';
@@ -31,17 +30,7 @@
 	};
 </script>
 
-<section class="grid gap-5" aria-labelledby="appearance-heading">
-	<header class="flex items-center gap-3">
-		<Palette class="size-5 shrink-0" />
-		<div class="grid gap-1">
-			<h2 id="appearance-heading" class="text-base font-semibold">Appearance</h2>
-			<p class="m-0 text-xs text-muted-foreground">
-				Choose how the workspace looks. Changes are applied immediately.
-			</p>
-		</div>
-	</header>
-
+<section class="grid gap-5" aria-label="Appearance">
 	<div class="grid gap-5 lg:grid-cols-[minmax(15rem,0.7fr)_minmax(0,1.3fr)]">
 		<div class="grid content-start gap-2">
 			<Label>Color mode</Label>

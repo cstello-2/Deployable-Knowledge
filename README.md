@@ -25,7 +25,7 @@ single windowed workspace that can run against local Ollama models or GitHub Mod
 - Create notebooks and pages, edit with autosave, and preview rendered Markdown.
 - Send chat output and document sources into a notebook.
 - Arrange chat, history, documents, search, and notebooks in persistent browser-style layout tabs.
-- Manage appearance and assistant configuration from a dedicated settings page.
+- Manage appearance and assistant configuration from a searchable settings dialog.
 - Choose light, dark, color-accent, and high-contrast themes.
 
 ### Audio transcription
@@ -112,7 +112,7 @@ src/
 │   │   │   ├── content/  Shared Markdown rendering
 │   │   │   ├── dialogs/  Confirmation, progress, API key, and picker dialogs
 │   │   │   ├── documents/, notebook/, search/, settings/
-│   │   │   ├── navigation/  Persistent tools, settings, and user sidebar
+│   │   │   ├── navigation/  Workspace toolbar, engine heartbeat, and startup overlay
 │   │   │   └── workspace/   Layout tabs, window registry, columns, frames, and resizers
 │   │   └── ui/           Reusable shadcn-svelte primitives
 │   ├── constants/        Endpoints, defaults, and shared limits

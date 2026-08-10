@@ -1,9 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { ApiChatMessageRequest, ApiChatStreamEvent } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
-import { seedLocalUser } from '$lib/server/database/seed';
 import { getProvider } from '$lib/server/providers/registry';
 import type { ProviderChatOptions } from '$lib/server/providers/provider';
 import { runAgent } from '$lib/server/agent/runner';
@@ -22,7 +21,6 @@ import {
 } from '$lib/server/chat/build-chat-messages';
 import { generateChatTitle } from '$lib/server/chat/generate-chat-title';
 import { getNotebookSourceExcerpts } from '$lib/server/chat/notebook-context';
-import { LOCAL_USER_ID } from '$lib/server/database/constants';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const body = (await request.json()) as ApiChatMessageRequest;
@@ -31,9 +29,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		return json({ error: 'Invalid request body' }, { status: 400 });
 	}
 
-	const user = await seedLocalUser();
-
-	const profile = await ProfilesRepository.getActive(user);
+	const profile = await ProfilesRepository.getActive();
 
 	const message = body.message.trim();
 	const modelId = body.model_id.trim();
@@ -69,7 +65,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const timestamp = new Date();
 		await db.insert(sessions).values({
 			id: params.id,
-			userId: LOCAL_USER_ID,
 			title: 'New Conversation',
 			createdAt: timestamp,
 			updatedAt: timestamp
@@ -84,11 +79,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const provider = getProvider(providerId);
 	const promptTemplateId = body.conversational ? null : body.prompt_template_id;
 	const promptTemplate = promptTemplateId
-		? await db
-				.select()
-				.from(promptTemplates)
-				.where(and(eq(promptTemplates.id, promptTemplateId), eq(promptTemplates.userId, user.id)))
-				.get()
+		? await db.select().from(promptTemplates).where(eq(promptTemplates.id, promptTemplateId)).get()
 		: null;
 	const persona = body.conversational ? '' : body.persona;
 	const pageContext = body.conversational ? body.context : '';

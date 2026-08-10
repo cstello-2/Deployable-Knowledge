@@ -22,8 +22,7 @@
 </script>
 
 <section class="grid gap-3">
-	<Label>Retrieval</Label>
-	<ButtonGroup.Root class="w-fit">
+	<ButtonGroup.Root class="w-fit" aria-label="Retrieval mode">
 		{#each modes as mode (mode.value)}
 			<Button
 				variant={settingsStore.config.retrievalMode === mode.value ? 'default' : 'outline'}

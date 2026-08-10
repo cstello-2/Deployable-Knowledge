@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import Cpu from '@lucide/svelte/icons/cpu';
+	import { onMount } from 'svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -48,19 +49,8 @@
 		Math.min(Math.max(settingsStore.config.contextSize ?? maxContext, CONTEXT_SIZE_MIN), maxContext)
 	);
 
-	let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function queueSave(): void {
-		if (saveTimer) clearTimeout(saveTimer);
-		saveTimer = setTimeout(() => {
-			saveTimer = null;
-			void settingsStore.saveActive();
-		}, 500);
-	}
-
 	function setContextSize(value: number | null): void {
 		settingsStore.updateConfig({ contextSize: value });
-		queueSave();
 	}
 
 	function clampContextSize(value: number): number {
@@ -77,25 +67,24 @@
 
 	function selectGpuMode(value: string): void {
 		settingsStore.updateConfig({ gpuMode: value as LlamaGpuMode });
-		queueSave();
 	}
 
 	onMount(() => {
 		if (!localModelsStore.status) void localModelsStore.refresh().catch(() => undefined);
 	});
-
-	onDestroy(() => {
-		if (saveTimer) {
-			clearTimeout(saveTimer);
-			saveTimer = null;
-			void settingsStore.saveActive();
-		}
-	});
 </script>
 
 {#if showSection}
-	<section class="grid gap-4">
-		<h2 class="m-0 text-sm font-semibold">Local runtime</h2>
+	<section class="grid gap-4" aria-labelledby="local-runtime-heading">
+		<header class="flex items-center gap-3">
+			<Cpu class="size-5 shrink-0" />
+			<div class="grid gap-1">
+				<h2 id="local-runtime-heading" class="text-base font-semibold">Local runtime</h2>
+				<p class="m-0 text-xs text-muted-foreground">
+					Context window and compute device for models that run in-app.
+				</p>
+			</div>
+		</header>
 		<div class="grid gap-2">
 			<Label for="settings-context-size">Context window (tokens)</Label>
 			<div class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5">

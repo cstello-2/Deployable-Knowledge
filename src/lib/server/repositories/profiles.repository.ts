@@ -1,25 +1,19 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
-import { profiles } from '$lib/server/database/schema';
+import { ensureActiveProfileId } from '$lib/server/database/app-state';
+import { profiles, type AssistantProfile } from '$lib/server/database/schema';
 
 export class ProfilesRepository {
-	static list(userId: number) {
-		return db
-			.select()
-			.from(profiles)
-			.where(eq(profiles.userId, userId))
-			.orderBy(asc(profiles.name));
+	static list() {
+		return db.select().from(profiles).orderBy(asc(profiles.name));
 	}
 
-	static find(id: string, userId: number) {
-		return db
-			.select()
-			.from(profiles)
-			.where(and(eq(profiles.id, id), eq(profiles.userId, userId)))
-			.get();
+	static find(id: string) {
+		return db.select().from(profiles).where(eq(profiles.id, id)).get();
 	}
 
-	static getActive(user: { id: number; activeProfileId: string | null }) {
-		return user.activeProfileId ? this.find(user.activeProfileId, user.id) : Promise.resolve(null);
+	static async getActive(): Promise<AssistantProfile | null> {
+		const activeProfileId = await ensureActiveProfileId();
+		return (await this.find(activeProfileId)) ?? null;
 	}
 }

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Plus from '@lucide/svelte/icons/plus';
-	import Save from '@lucide/svelte/icons/save';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { toast } from 'svelte-sonner';
 	import { ActionIcon } from '$lib/components/app/actions';
@@ -38,15 +37,6 @@
 		}
 	}
 
-	async function save(): Promise<void> {
-		try {
-			await settingsStore.saveProfile();
-			toast.success('Profile saved');
-		} catch (error) {
-			toast.error(message(error));
-		}
-	}
-
 	async function remove(): Promise<void> {
 		const id = settingsStore.activeProfileId;
 		if (!id) return;
@@ -64,14 +54,13 @@
 </script>
 
 <section class="grid gap-2">
-	<Label for="settings-profile">Profile</Label>
 	<div class="flex gap-2">
 		<Select.Root
 			type="single"
 			value={settingsStore.activeProfileId ?? ''}
 			onValueChange={(id) => void activate(id)}
 		>
-			<Select.Trigger id="settings-profile" class="min-w-0 flex-1">
+			<Select.Trigger id="settings-profile" aria-label="Profile" class="min-w-0 flex-1">
 				<span class="truncate"
 					>{settingsStore.activeProfile
 						? profileDisplayName(settingsStore.activeProfile)
@@ -84,12 +73,6 @@
 				{/each}
 			</Select.Content>
 		</Select.Root>
-		<ActionIcon
-			variant="outline"
-			label="Save profile"
-			disabled={!settingsStore.activeProfileId}
-			onclick={save}><Save /></ActionIcon
-		>
 		<ActionIcon
 			variant="outline"
 			label="Delete profile"

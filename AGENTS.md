@@ -58,9 +58,12 @@ These instructions apply to the entire repository. Preserve them when adding or 
 - Keep feature components under `src/lib/components/app/<feature>/` with an `index.ts` public barrel.
 - The draggable workspace is only the `/` page. Layout presets are browser-style tabs rendered by
   `WorkspaceTabs`; layout tab selection, creation, and deletion do not belong in the sidebar.
-- Settings is a full `/settings` page and must not be registered as a draggable workspace window.
+- Settings opens as a centered dialog (`SettingsDialog`, driven by `settingsDialogStore`) and must
+  not be registered as a draggable workspace window or given its own route.
 - Do not add a persistent application sidebar. The main workspace toolbar places the left-column
-  toggle before the layout tabs and Tools, Settings, and User controls at the far right.
+  toggle before the layout tabs and Tools and Settings controls at the far right.
+- The app is single-user and local: there is no authentication, no users table, and no per-user
+  scoping. App-wide state (like the active profile) lives in the `app_state` table.
 - Workspace windows must be declared in `window-registry.ts` and persisted through `workspaceStore`.
 - Keep HTTP endpoint paths in `src/lib/constants/api-endpoints.ts` and browser I/O in services.
 - Keep reusable application rules aligned with `src/lib/components/app/SKILL.md`.

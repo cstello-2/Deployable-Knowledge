@@ -8,12 +8,13 @@
 		variants: {
 			variant: {
 				default:
-					'border border-primary/55 bg-primary/15 text-foreground shadow-sm hover:border-primary/75 hover:bg-primary/25',
+					'border border-primary/55 bg-linear-to-b from-primary/10 to-primary/25 text-foreground shadow-sm hover:border-primary/75 hover:from-primary/20 hover:to-primary/35',
 				destructive:
-					'border border-destructive/70 bg-destructive/25 text-foreground shadow-sm hover:bg-destructive/40 focus-visible:ring-destructive/25 dark:focus-visible:ring-destructive/40',
-				outline: 'border bg-card text-foreground shadow-sm hover:border-primary/40 hover:bg-muted',
+					'border border-destructive/70 bg-linear-to-b from-destructive/15 to-destructive/35 text-foreground shadow-sm hover:from-destructive/30 hover:to-destructive/50 focus-visible:ring-destructive/25 dark:focus-visible:ring-destructive/40',
+				outline:
+					'border bg-linear-to-b from-card to-elevated text-foreground shadow-sm hover:border-primary/40 hover:from-muted hover:to-elevated',
 				secondary:
-					'border bg-secondary text-secondary-foreground shadow-sm hover:border-primary/35 hover:bg-muted',
+					'border bg-linear-to-b from-secondary to-muted text-secondary-foreground shadow-sm hover:border-primary/35 hover:from-muted hover:to-elevated',
 				ghost: 'text-foreground hover:bg-muted/80',
 				link: 'text-primary underline-offset-4 hover:underline'
 			},

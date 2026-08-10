@@ -198,7 +198,7 @@
 								(dragging || settleDx !== null) && 'z-10 shadow-md',
 								(dragging || settle?.pending) && 'transition-none',
 								active
-									? 'border-border bg-background text-foreground shadow-sm'
+									? 'border-border bg-linear-to-b from-card to-background text-foreground shadow-sm'
 									: 'border-transparent bg-transparent text-muted-foreground hover:bg-card/75 hover:text-foreground'
 							]}
 							style:transform={tabTransform(dragging, settleDx, shift)}

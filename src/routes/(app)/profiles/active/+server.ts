@@ -1,28 +1,23 @@
 import { error, json } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
-import { seedLocalUser } from '$lib/server/database/seed';
+import { ensureActiveProfileId } from '$lib/server/database/app-state';
 import { profiles, type AssistantProfileValues } from '$lib/server/database/schema';
 import { sanitizeContextSize, sanitizeGpuMode } from '$lib/server/utils/profile-values';
 import { ProfilesRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-	const user = await seedLocalUser();
-	const profile = await ProfilesRepository.getActive(user);
+	const profile = await ProfilesRepository.getActive();
 
 	return json(profile);
 };
 
 export const PATCH: RequestHandler = async ({ request }) => {
 	const body = (await request.json()) as AssistantProfileValues;
-	const user = await seedLocalUser();
-
-	if (!user.activeProfileId) {
-		throw error(404, 'No active profile');
-	}
+	const activeProfileId = await ensureActiveProfileId();
 
 	const [row] = await db
 		.update(profiles)
@@ -43,7 +38,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
 			persona: body.persona,
 			updatedAt: new Date()
 		})
-		.where(and(eq(profiles.id, user.activeProfileId), eq(profiles.userId, user.id)))
+		.where(eq(profiles.id, activeProfileId))
 		.returning();
 
 	if (!row) {

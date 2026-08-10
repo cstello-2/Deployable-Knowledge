@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm';
 import {
 	blob,
 	index,
@@ -9,34 +8,23 @@ import {
 	uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
-import { LOCAL_USER_ID, NOTEBOOK_USER_ID } from './constants';
 
-export const users = sqliteTable('users', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	username: text({ length: 255 }).notNull(),
-	password: text({ length: 128 }),
-	salt: text({ length: 128 }),
-	activeProfileId: text('active_profile_id'),
-	lastLogin: integer('last_login', { mode: 'timestamp' })
+export const appState = sqliteTable('app_state', {
+	id: text('id').primaryKey().default('app'),
+	activeProfileId: text('active_profile_id')
 });
 
 export const promptTemplates = sqliteTable(
 	'prompt_templates',
 	{
 		id: text('id').primaryKey(),
-		userId: integer('user_id')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
 		name: text('name', { length: 255 }).notNull(),
 		description: text('description', { length: 1024 }).notNull().default(''),
 		systemPrompt: text('system_prompt').notNull().default(''),
 		createdAt: integer('created_at', { mode: 'timestamp' }),
 		updatedAt: integer('updated_at', { mode: 'timestamp' })
 	},
-	(table) => [
-		index('prompt_templates_user_idx').on(table.userId),
-		index('prompt_templates_updated_idx').on(table.updatedAt)
-	]
+	(table) => [index('prompt_templates_updated_idx').on(table.updatedAt)]
 );
 
 export const apiKeys = sqliteTable(
@@ -55,15 +43,11 @@ export const sessions = sqliteTable(
 	'sessions',
 	{
 		id: text('id').primaryKey(),
-		userId: text('user_id').notNull().default(LOCAL_USER_ID),
 		title: text('title').notNull().default(''),
 		createdAt: integer('created_at', { mode: 'timestamp' }),
 		updatedAt: integer('updated_at', { mode: 'timestamp' })
 	},
-	(table) => [
-		index('sessions_user_idx').on(table.userId),
-		index('sessions_updated_idx').on(table.updatedAt)
-	]
+	(table) => [index('sessions_updated_idx').on(table.updatedAt)]
 );
 
 export const sessionMessages = sqliteTable(
@@ -87,7 +71,7 @@ export const sessionMessages = sqliteTable(
 );
 
 export const notebookState = sqliteTable('notebook_state', {
-	userId: text('user_id').primaryKey().default(NOTEBOOK_USER_ID),
+	id: text('id').primaryKey().default('default'),
 	activeNotebookId: text('active_notebook_id'),
 	updatedAt: text('updated_at').notNull()
 });
@@ -96,7 +80,6 @@ export const notebooks = sqliteTable(
 	'notebooks',
 	{
 		id: text('id').primaryKey(),
-		userId: text('user_id').notNull().default(NOTEBOOK_USER_ID),
 		title: text('title').notNull(),
 		activePageId: text('active_page_id'),
 		sortOrder: integer('sort_order').notNull().default(0),
@@ -104,7 +87,7 @@ export const notebooks = sqliteTable(
 		updatedAt: text('updated_at').notNull()
 	},
 	(table) => [
-		index('notebooks_user_idx').on(table.userId, table.sortOrder),
+		index('notebooks_sort_idx').on(table.sortOrder),
 		index('notebooks_updated_idx').on(table.updatedAt)
 	]
 );
@@ -155,21 +138,10 @@ export const providerRecords = sqliteTable('providers', {
 	updatedAt: text('updated_at').notNull()
 });
 
-export const userSessions = sqliteTable('user_sessions', {
-	id: text('id').primaryKey(),
-	userId: integer('user_id'),
-	secretHash: text('secret_hash', { length: 128 }),
-	createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-	token: text('token', { length: 255 })
-});
-
 export const profiles = sqliteTable(
 	'profiles',
 	{
 		id: text('id').primaryKey(),
-		userId: integer('user_id')
-			.notNull()
-			.references(() => users.id, { onDelete: 'cascade' }),
 		name: text('name', { length: 255 }).notNull(),
 		provider: text({ length: 128 }).notNull().default(DEFAULT_ASSISTANT_CONFIG.provider),
 		model: text({ length: 128 }).notNull().default(DEFAULT_ASSISTANT_CONFIG.model),
@@ -203,10 +175,7 @@ export const profiles = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp' }),
 		updatedAt: integer('updated_at', { mode: 'timestamp' })
 	},
-	(table) => [
-		index('profiles_user_idx').on(table.userId),
-		index('profiles_updated_idx').on(table.updatedAt)
-	]
+	(table) => [index('profiles_updated_idx').on(table.updatedAt)]
 );
 
 export const documents = sqliteTable(
@@ -332,18 +301,14 @@ export type NotebookWithPages = Notebook & { pages: NotebookPage[] };
 export type NotebookSource = typeof notebookSources.$inferSelect;
 export type NewNotebookSource = typeof notebookSources.$inferInsert;
 
-export type User = typeof users.$inferSelect;
-export type NewUser = typeof users.$inferInsert;
-export type SafeUser = Omit<User, 'password' | 'salt' | 'lastLogin'>;
+export type AppState = typeof appState.$inferSelect;
+export type NewAppState = typeof appState.$inferInsert;
 
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
-
-export type UserSession = typeof userSessions.$inferSelect;
-export type NewUserSession = typeof userSessions.$inferInsert;
 
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
@@ -393,7 +358,7 @@ export type AssistantProfileUpdateValues = AssistantProfileValues &
 
 export type AssistantProfileListResponse = {
 	profiles: AssistantProfile[];
-	activeProfileId: User['activeProfileId'];
+	activeProfileId: string | null;
 };
 
 export type AssistantProfileActivationResponse = {
