@@ -24,7 +24,6 @@ import {
 	documentTags,
 	documents,
 	syncedFiles,
-	syncedFolders,
 	tags
 } from '$lib/server/database/schema';
 
@@ -68,21 +67,28 @@ function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery):
 export class DocumentsRepository {
 	static async listIds(
 		options: ApiDocumentListQuery = {},
-		group?: { folderId: string | null }
+		group?: 'manual' | { folderId: string | null }
 	): Promise<string[]> {
 		const conditions: SQL[] = [];
 		const base = listConditions(options);
 		if (base) conditions.push(base);
-		if (group) {
+		if (group === 'manual') {
+			conditions.push(eq(documents.origin, 'MANUAL'));
+		} else if (group) {
 			const membership = db
 				.select({ one: sql`1` })
 				.from(syncedFiles)
 				.where(
 					group.folderId === null
 						? eq(syncedFiles.documentId, documents.id)
-						: and(eq(syncedFiles.documentId, documents.id), eq(syncedFiles.folderId, group.folderId))
+						: and(
+								eq(syncedFiles.documentId, documents.id),
+								eq(syncedFiles.folderId, group.folderId)
+							)
 				);
 			conditions.push(group.folderId === null ? notExists(membership) : exists(membership));
+			// Manually loaded text lives outside every folder; keep it out of "Individual files"
+			if (group.folderId === null) conditions.push(eq(documents.origin, 'FILE'));
 		}
 		const rows = await db
 			.select({ id: documents.id })
@@ -102,6 +108,7 @@ export class DocumentsRepository {
 				title: documents.title,
 				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
+				origin: documents.origin,
 				createdAt: documents.createdAt,
 				updatedAt: documents.updatedAt,
 				active: documents.active
@@ -110,17 +117,22 @@ export class DocumentsRepository {
 			.where(where)
 			.orderBy(byTitle, asc(documents.id));
 
-		const [rows, [{ total }], availableTags, folderCounts] = await Promise.all([
-			options.limit === undefined ? page : page.limit(options.limit).offset(options.offset ?? 0),
-			db.select({ total: count() }).from(documents).where(where),
-			db.select({ name: tags.name }).from(tags).orderBy(asc(tags.name)),
-			db
-				.select({ folderId: syncedFiles.folderId, total: count() })
-				.from(documents)
-				.leftJoin(syncedFiles, eq(syncedFiles.documentId, documents.id))
-				.where(where)
-				.groupBy(syncedFiles.folderId)
-		]);
+		const [rows, [{ total }], [{ total: manualTotal }], availableTags, folderCounts] =
+			await Promise.all([
+				options.limit === undefined ? page : page.limit(options.limit).offset(options.offset ?? 0),
+				db.select({ total: count() }).from(documents).where(where),
+				db
+					.select({ total: count() })
+					.from(documents)
+					.where(and(where, eq(documents.origin, 'MANUAL'))),
+				db.select({ name: tags.name }).from(tags).orderBy(asc(tags.name)),
+				db
+					.select({ folderId: syncedFiles.folderId, total: count() })
+					.from(documents)
+					.leftJoin(syncedFiles, eq(syncedFiles.documentId, documents.id))
+					.where(where)
+					.groupBy(syncedFiles.folderId)
+			]);
 
 		const documentIds = rows.map(({ id }) => id);
 		const [tagRows, chunkRows, folderRows] = documentIds.length
@@ -162,6 +174,7 @@ export class DocumentsRepository {
 		return {
 			documents: documentRows,
 			folderCounts,
+			manualTotal,
 			tags: availableTags.map(({ name }) => name),
 			total
 		};

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import { count, eq } from 'drizzle-orm';
@@ -8,7 +8,12 @@ import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/ty
 import { db } from '$lib/server/database/database';
 import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
-import { handlerForPath, SOURCE_TYPE_HANDLERS, type SourceTypeHandler } from './source-types';
+import {
+	handlerForPath,
+	handlerForType,
+	SOURCE_TYPE_HANDLERS,
+	type SourceTypeHandler
+} from './source-types';
 import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts';
 import { containsPath, removeManagedDocumentFile } from './remove-document';
 
@@ -91,6 +96,43 @@ export async function ingestFileBuffer(
 			{ filePath: savedPath, title: titleFor(originalName), sourceType: handler.type },
 			onProgress
 		);
+	} catch (error) {
+		await removeManagedDocumentFile(savedPath);
+		throw error;
+	}
+}
+
+const MAX_MANUAL_TITLE_LENGTH = 200;
+
+// Text pasted straight into the UI; stored as a managed Markdown file so preview,
+// re-ingest, and removal work exactly like uploaded documents.
+export async function ingestTextContent(
+	title: string,
+	content: string,
+	onProgress?: (progress: ApiDocumentIngestProgress) => void
+): Promise<ApiDocumentIngestResult> {
+	const cleanTitle = title.replace(/\s+/g, ' ').trim().slice(0, MAX_MANUAL_TITLE_LENGTH);
+	if (!cleanTitle) throw new Error('Give the text a title.');
+	if (!content.trim()) throw new Error('Provide text to embed.');
+
+	const handler = handlerForType('TEXT');
+	const buffer = Buffer.from(content, 'utf8');
+	handler?.validateBuffer?.(buffer);
+
+	await mkdir(DOCUMENTS_DIR, { recursive: true });
+	const contentHash = createHash('sha256').update(buffer).digest('hex');
+	const savedPath = managedPathForHash(contentHash, '.md');
+	const existing = await existingDocument(savedPath);
+	if (existing) return existing;
+
+	await writeFile(savedPath, buffer);
+	try {
+		const result = await ingestDocument(
+			{ filePath: savedPath, title: cleanTitle, sourceType: 'TEXT' },
+			onProgress
+		);
+		await db.update(documents).set({ origin: 'MANUAL' }).where(eq(documents.id, result.documentId));
+		return result;
 	} catch (error) {
 		await removeManagedDocumentFile(savedPath);
 		throw error;

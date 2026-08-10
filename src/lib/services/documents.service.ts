@@ -16,7 +16,8 @@ import type {
 	ApiDocumentPathRequest,
 	ApiDocumentSyncFileProgress,
 	ApiDocumentTagAssignmentRequest,
-	ApiDocumentTagRequest
+	ApiDocumentTagRequest,
+	ApiDocumentTextRequest
 } from '$lib/types';
 import { apiDelete, apiFetch, apiPatch, apiPost, apiStream, parseNdjsonStream } from '$lib/utils';
 
@@ -44,12 +45,12 @@ export class DocumentsService {
 		return apiFetch<ApiDocumentListResponse>(`${API_DOCUMENTS.LIST}${search}`);
 	}
 
-	static listIds({ mode, query, tags }: ApiDocumentListQuery = {}, group?: string | null) {
+	static listIds({ mode, query, tags }: ApiDocumentListQuery = {}, group?: string) {
 		const search = searchString([
 			['q', query?.trim()],
 			['mode', mode],
 			['tag', tags],
-			['group', group === null ? 'individual' : group]
+			['group', group]
 		]);
 		return apiFetch<ApiDocumentIdsResponse>(`${API_DOCUMENTS.IDS}${search}`);
 	}
@@ -96,6 +97,20 @@ export class DocumentsService {
 		const response = await apiStream(API_DOCUMENTS.BASE, {
 			method: 'POST',
 			body: JSON.stringify({ path } satisfies ApiDocumentPathRequest),
+			signal
+		});
+		return this.readIngestStream(response, onProgress, signal);
+	}
+
+	static async ingestText(
+		title: string,
+		text: string,
+		onProgress?: (progress: ApiDocumentIngestProgress) => void,
+		signal?: AbortSignal
+	): Promise<ApiDocumentIngestResult> {
+		const response = await apiStream(API_DOCUMENTS.BASE, {
+			method: 'POST',
+			body: JSON.stringify({ title, text } satisfies ApiDocumentTextRequest),
 			signal
 		});
 		return this.readIngestStream(response, onProgress, signal);

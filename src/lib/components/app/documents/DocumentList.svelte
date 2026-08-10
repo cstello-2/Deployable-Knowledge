@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ClipboardPen from '@lucide/svelte/icons/clipboard-pen';
 	import Files from '@lucide/svelte/icons/files';
 	import FolderSync from '@lucide/svelte/icons/folder-sync';
 	import FolderX from '@lucide/svelte/icons/folder-x';
@@ -19,6 +20,7 @@
 		documents: DocumentRow[];
 		folder: ApiSyncedFolder | null;
 		key: string;
+		kind: 'folder' | 'individual' | 'manual';
 		label: string;
 		total: number;
 	}
@@ -33,11 +35,12 @@
 		onCreateTag: (document: DocumentRow, tag: string) => Promise<void> | void;
 		onDeleteDocument: (document: DocumentRow) => void;
 		onLoadMore?: () => void;
+		manualTotal?: number;
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
 		onToggle: (id: string, selected: boolean) => void;
 		onToggleActive: (document: DocumentRow) => void;
-		onToggleGroup: (folder: ApiSyncedFolder | null, selected: boolean) => void;
+		onToggleGroup: (group: string, selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
 		selectedIds: ReadonlySet<string>;
 		tags: string[];
@@ -51,6 +54,7 @@
 		folders,
 		hasMore = false,
 		loadingMore = false,
+		manualTotal = 0,
 		onCreateTag,
 		onDeleteDocument,
 		onLoadMore = () => {},
@@ -77,6 +81,7 @@
 		);
 		const values: DocumentGroup[] = folders.map((folder) => ({
 			key: folder.id,
+			kind: 'folder' as const,
 			label:
 				folder.path
 					.split(/[\\/]+/)
@@ -86,17 +91,30 @@
 			folder,
 			total: countByFolder.get(folder.id) ?? 0
 		}));
-		const individual = documents.filter(
+		const loose = documents.filter(
 			(document) => !document.folderId || !registeredIds.has(document.folderId)
 		);
-		const individualTotal = total - registeredTotal;
+		const individual = loose.filter((document) => document.origin !== 'MANUAL');
+		const manual = loose.filter((document) => document.origin === 'MANUAL');
+		const individualTotal = total - registeredTotal - manualTotal;
 		if (individual.length || individualTotal > 0) {
 			values.push({
 				key: 'individual',
+				kind: 'individual',
 				label: 'Individual files',
 				documents: individual,
 				folder: null,
 				total: individualTotal
+			});
+		}
+		if (manual.length || manualTotal > 0) {
+			values.push({
+				key: 'manual',
+				kind: 'manual',
+				label: 'Manually Loaded',
+				documents: manual,
+				folder: null,
+				total: manualTotal
 			});
 		}
 		return values;
@@ -127,10 +145,12 @@
 						disabled={!group.documents.length && !group.total}
 						indeterminate={group.documents.some((document) => selectedIds.has(document.id)) &&
 							!group.documents.every((document) => selectedIds.has(document.id))}
-						onCheckedChange={(selected) => onToggleGroup(group.folder, selected)}
+						onCheckedChange={(selected) => onToggleGroup(group.folder?.id ?? group.kind, selected)}
 					/>
 					{#if group.folder}
 						<FolderSync class="size-4 shrink-0 text-muted-foreground" />
+					{:else if group.kind === 'manual'}
+						<ClipboardPen class="size-4 shrink-0 text-muted-foreground" />
 					{:else}
 						<Files class="size-4 shrink-0 text-muted-foreground" />
 					{/if}

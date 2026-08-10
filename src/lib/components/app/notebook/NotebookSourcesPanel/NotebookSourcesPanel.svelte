@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileStack from '@lucide/svelte/icons/files';
 	import Quote from '@lucide/svelte/icons/quote';
 	import X from '@lucide/svelte/icons/x';
@@ -8,6 +9,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { APP_PREVIEW } from '$lib/constants';
 	import type { NotebookSourceItem } from '$lib/types';
 
 	interface Props {
@@ -68,14 +70,20 @@
 						<p class="m-0 line-clamp-3 min-w-0 break-words text-xs text-muted-foreground">
 							{source.preview}
 						</p>
-						<Button
-							class="mt-1 justify-self-start"
-							size="sm"
-							variant="outline"
-							onclick={() => onInsertCitation(source)}
-						>
-							<Quote /> Insert citation
-						</Button>
+						<div class="mt-1 flex flex-wrap gap-2">
+							<Button size="sm" variant="outline" onclick={() => onInsertCitation(source)}>
+								<Quote /> Insert citation
+							</Button>
+							<Button
+								href={APP_PREVIEW.page(source.documentId, source.pageIndex)}
+								rel="noopener noreferrer"
+								size="sm"
+								target="_blank"
+								variant="outline"
+							>
+								<ExternalLink /> Open document
+							</Button>
+						</div>
 					</article>
 				{:else}
 					<p class="text-sm text-muted-foreground">

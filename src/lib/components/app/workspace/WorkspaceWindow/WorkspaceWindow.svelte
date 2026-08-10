@@ -17,6 +17,8 @@
 		modal?: boolean;
 		onClose?: () => void;
 		onToggleCollapse?: () => void;
+		// Set false to let the window content run edge to edge
+		padded?: boolean;
 		title: string;
 	}
 
@@ -34,6 +36,7 @@
 		modal = false,
 		onClose = () => {},
 		onToggleCollapse = () => {},
+		padded = true,
 		title
 	}: Props = $props();
 
@@ -66,7 +69,8 @@
 	/>
 	<div
 		class={cn(
-			'grid min-h-0 flex-1 grid-rows-[1fr] p-3.5 opacity-100',
+			'grid min-h-0 flex-1 grid-rows-[1fr] opacity-100',
+			padded && 'p-3.5',
 			collapsed && 'min-h-0 flex-none grid-rows-[0fr] py-0 opacity-0'
 		)}
 		aria-label={contentLabel ?? `${title} content`}

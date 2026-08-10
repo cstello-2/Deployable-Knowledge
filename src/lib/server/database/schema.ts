@@ -218,6 +218,11 @@ export const documents = sqliteTable(
 		sourceType: text('source_type', {
 			enum: ['PDF', 'AUDIO', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'TEXT']
 		}).notNull(),
+		// FILE documents come from disk (upload or folder sync); MANUAL documents
+		// are text embedded directly through the UI and only exist as managed copies.
+		origin: text('origin', { enum: ['FILE', 'MANUAL'] })
+			.notNull()
+			.default('FILE'),
 		active: integer('active', { mode: 'boolean' }).notNull().default(true),
 		createdAt: text('created_at').notNull(),
 		updatedAt: text('updated_at').notNull()

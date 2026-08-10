@@ -1,7 +1,6 @@
 <script lang="ts">
-	import Eye from '@lucide/svelte/icons/eye';
-	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
+	import Search from '@lucide/svelte/icons/search';
 	import Upload from '@lucide/svelte/icons/upload';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import type { NotebookSourceItem } from '$lib/types';
@@ -9,28 +8,28 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
+		findOpen?: boolean;
 		importing?: boolean;
 		onClearSources: () => Promise<void> | void;
 		onCreate: () => void;
 		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
-		onTogglePreview: () => void;
-		previewMode?: boolean;
+		onToggleFind?: () => void;
 		sources: readonly NotebookSourceItem[];
 		sourcesLoading?: boolean;
 		view: NotebookView;
 	}
 
 	let {
+		findOpen = false,
 		importing = false,
 		onClearSources,
 		onCreate,
 		onImport,
 		onInsertCitation,
 		onRemoveSource,
-		onTogglePreview,
-		previewMode = false,
+		onToggleFind = () => {},
 		sources,
 		sourcesLoading = false,
 		view
@@ -53,6 +52,13 @@
 			variant="ghost"><Upload /></ActionIcon
 		>
 	{:else}
+		<ActionIcon
+			class="size-8"
+			label="Find in page (Ctrl+F)"
+			onclick={onToggleFind}
+			pressed={findOpen}
+			variant={findOpen ? 'secondary' : 'ghost'}><Search /></ActionIcon
+		>
 		<NotebookSourcesPanel
 			loading={sourcesLoading}
 			{onInsertCitation}
@@ -60,14 +66,5 @@
 			onRemove={onRemoveSource}
 			{sources}
 		/>
-		<ActionIcon
-			class="size-8"
-			label={previewMode ? 'Edit notes' : 'Preview Markdown'}
-			onclick={onTogglePreview}
-			pressed={previewMode}
-			variant={previewMode ? 'secondary' : 'ghost'}
-		>
-			{#if previewMode}<Pencil />{:else}<Eye />{/if}
-		</ActionIcon>
 	{/if}
 </div>

@@ -25,6 +25,7 @@ class DocumentsStore {
 	private _selectedIds = $state(new SvelteSet<string>());
 	private _syncFiles = $state<ApiDocumentSyncFileProgress[]>([]);
 	private _total = $state(0);
+	private _manualTotal = $state(0);
 	private _folderCounts = $state<ApiFolderDocumentCount[]>([]);
 	private _query = $state('');
 	private _tagFilters = $state<string[]>([]);
@@ -65,6 +66,10 @@ class DocumentsStore {
 
 	get folderCounts(): ApiFolderDocumentCount[] {
 		return this._folderCounts;
+	}
+
+	get manualTotal(): number {
+		return this._manualTotal;
 	}
 
 	get hasMore(): boolean {
@@ -113,6 +118,7 @@ class DocumentsStore {
 			this._documents = [...this._documents, ...result.documents];
 			this._tags = result.tags;
 			this._total = result.total;
+			this._manualTotal = result.manualTotal;
 			this._folderCounts = result.folderCounts;
 		} catch (error) {
 			if (request === this.listRequest) this.error = message(error);
@@ -160,9 +166,9 @@ class DocumentsStore {
 		}
 	}
 
-	async selectGroup(folderId: string | null, selected: boolean): Promise<void> {
+	async selectGroup(group: string, selected: boolean): Promise<void> {
 		try {
-			const result = await DocumentsService.listIds(this.listQuery(), folderId);
+			const result = await DocumentsService.listIds(this.listQuery(), group);
 			this.setSelection(result.ids, selected);
 		} catch (error) {
 			this.error = message(error);
@@ -200,6 +206,19 @@ class DocumentsStore {
 		this.progress = { percent: 0, label: 'Ingesting file', message: 'Preparing file' };
 		const result = await DocumentsService.ingestPath(
 			path,
+			(progress) => (this.progress = progress)
+		);
+		this._selectedIds.add(result.documentId);
+		this.progress = null;
+		await this.refresh();
+		return result;
+	}
+
+	async ingestText(title: string, text: string) {
+		this.progress = { percent: 0, label: 'Embedding text', message: 'Preparing text' };
+		const result = await DocumentsService.ingestText(
+			title,
+			text,
 			(progress) => (this.progress = progress)
 		);
 		this._selectedIds.add(result.documentId);
@@ -255,6 +274,7 @@ class DocumentsStore {
 			this._tags = result.tags;
 			this._folders = folderResult.folders;
 			this._total = result.total;
+			this._manualTotal = result.manualTotal;
 			this._folderCounts = result.folderCounts;
 			this._tagFilters = this._tagFilters.filter((tag) => result.tags.includes(tag));
 			this.pruneSelection();

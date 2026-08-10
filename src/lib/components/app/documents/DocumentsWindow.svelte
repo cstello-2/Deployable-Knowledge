@@ -1,5 +1,7 @@
 <script lang="ts">
+	import ClipboardPen from '@lucide/svelte/icons/clipboard-pen';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
+	import Loader2 from '@lucide/svelte/icons/loader-2';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -7,6 +9,7 @@
 		DialogDocumentFilePicker,
 		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
+		DialogDocumentTextEntry,
 		DialogProgress
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
@@ -59,7 +62,11 @@
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
+	let textEntryOpen = $state(false);
 	let uploading = $state(false);
+	// The ingest progress dialog can be hidden while a job keeps running; a
+	// reopen button appears in its place until the job finishes.
+	let progressDialogOpen = $state(true);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
 	let pendingFolderRemoval = $state<PendingFolderRemoval | null>(null);
@@ -102,6 +109,7 @@
 		if (!paths.length) return;
 		filePickerOpen = false;
 		uploading = true;
+		progressDialogOpen = true;
 		let succeeded = 0;
 		let failed = 0;
 		try {
@@ -116,6 +124,22 @@
 			}
 			status = `Added ${succeeded} file${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
 			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
+		} finally {
+			uploading = false;
+			documentsStore.progress = null;
+		}
+	}
+
+	async function ingestText(title: string, text: string): Promise<void> {
+		textEntryOpen = false;
+		uploading = true;
+		progressDialogOpen = true;
+		try {
+			await documentsStore.ingestText(title, text);
+			status = 'Text embedded into the corpus.';
+			toast.success('Text embedded');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
 		} finally {
 			uploading = false;
 			documentsStore.progress = null;
@@ -316,6 +340,7 @@
 				folders={documentsStore.folders}
 				hasMore={documentsStore.hasMore}
 				loadingMore={documentsStore.loadingMore}
+				manualTotal={documentsStore.manualTotal}
 				onCreateTag={(document, tag) => createAndAssignTag(document, tag)}
 				onDeleteDocument={(document) => (pendingDeleteDocument = document)}
 				onLoadMore={() => void documentsStore.loadMore()}
@@ -324,18 +349,27 @@
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
 				onToggleActive={(document) => void toggleDocumentActive(document)}
-				onToggleGroup={(folder, selected) =>
-					void documentsStore.selectGroup(folder?.id ?? null, selected)}
+				onToggleGroup={(group, selected) => void documentsStore.selectGroup(group, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
 				selectedIds={documentsStore.selectedIds}
 				tags={documentsStore.tags}
 				total={documentsStore.total}
 			/>
 		</div>
-		<div class="border-t pt-3">
-			<Button class="w-full" disabled={busy} onclick={() => (filePickerOpen = true)}>
-				<FolderPlus /> Add files
-			</Button>
+		<div class="grid gap-2 border-t pt-3">
+			{#if uploading && !progressDialogOpen}
+				<Button class="w-full" variant="outline" onclick={() => (progressDialogOpen = true)}>
+					<Loader2 class="animate-spin" /> Show ingest progress
+				</Button>
+			{/if}
+			<div class="grid grid-cols-2 gap-2">
+				<Button disabled={busy} onclick={() => (filePickerOpen = true)}>
+					<FolderPlus /> Add files
+				</Button>
+				<Button disabled={busy} onclick={() => (textEntryOpen = true)}>
+					<ClipboardPen /> Add text
+				</Button>
+			</div>
 		</div>
 	</div>
 </WorkspaceWindow>
@@ -354,7 +388,19 @@
 	tags={documentsStore.tags}
 	title={tagPickerMode === 'add' ? 'Tag to apply' : 'Tag to remove'}
 />
-<DialogProgress open={uploading} progress={documentsStore.progress} title="Ingesting file" />
+<DialogDocumentTextEntry
+	disabled={busy}
+	onOpenChange={(open) => (textEntryOpen = open)}
+	onSubmit={(title, text) => void ingestText(title, text)}
+	open={textEntryOpen}
+/>
+<DialogProgress
+	dismissible
+	onClose={() => (progressDialogOpen = false)}
+	open={uploading && progressDialogOpen}
+	progress={documentsStore.progress}
+	title="Ingesting file"
+/>
 <DialogDocumentSyncProgress
 	files={documentsStore.syncFiles}
 	open={documentsStore.syncing}

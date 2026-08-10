@@ -19,7 +19,11 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	const groupValue = url.searchParams.get('group');
 	const group =
-		groupValue === null ? undefined : { folderId: groupValue === 'individual' ? null : groupValue };
+		groupValue === null
+			? undefined
+			: groupValue === 'manual'
+				? ('manual' as const)
+				: { folderId: groupValue === 'individual' ? null : groupValue };
 
 	return json({ ids: await DocumentsRepository.listIds(query, group) });
 };

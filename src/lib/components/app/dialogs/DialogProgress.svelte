@@ -10,6 +10,8 @@
 	}
 
 	interface Props {
+		// Allows closing the dialog while the operation keeps running
+		dismissible?: boolean;
 		error?: string;
 		errorDetail?: string;
 		errorTitle?: string;
@@ -21,6 +23,7 @@
 	}
 
 	let {
+		dismissible = false,
 		error = '',
 		errorDetail = '',
 		errorTitle = 'Operation failed',
@@ -36,7 +39,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={(next) => !next && onClose()}>
-	<Dialog.Content showCloseButton={Boolean(error)} class="sm:max-w-md">
+	<Dialog.Content showCloseButton={Boolean(error) || dismissible} class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>{error ? errorTitle : (progress?.label ?? title)}</Dialog.Title>
 			<Dialog.Description>

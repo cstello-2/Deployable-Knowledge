@@ -51,6 +51,11 @@ export interface ApiDocumentActivationRequest {
 	documentIds?: string[];
 }
 
+export interface ApiDocumentTextRequest {
+	title: string;
+	text: string;
+}
+
 export interface ApiDocumentIngestProgress {
 	percent: number;
 	label: string;
@@ -72,7 +77,7 @@ export type ApiDocumentIngestEvent =
 
 export type DocumentRow = Pick<
 	Document,
-	'id' | 'title' | 'sourcePath' | 'sourceType' | 'createdAt' | 'updatedAt' | 'active'
+	'id' | 'title' | 'sourcePath' | 'sourceType' | 'origin' | 'createdAt' | 'updatedAt' | 'active'
 > & {
 	chunkCount: number;
 	folderId: string | null;
@@ -100,6 +105,7 @@ export interface ApiFolderDocumentCount {
 export interface ApiDocumentListResponse {
 	documents: DocumentRow[];
 	folderCounts: ApiFolderDocumentCount[];
+	manualTotal: number;
 	tags: string[];
 	total: number;
 }

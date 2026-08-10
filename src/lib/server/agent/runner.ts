@@ -85,10 +85,34 @@ export async function runAgent({
 	let fruitlessNudges = 0;
 	let lastNudgeSnapshot = '';
 
+	// Tell the model its tool-turn allocation so it plans work that fits the
+	// budget instead of promising follow-up turns it will never get. The note
+	// lives in the system message and is re-rendered with the live counts
+	// before every model call.
+	const budgeted = definitions.length > 0 && Number.isFinite(maxTurns);
+	let systemIndex = -1;
+	let baseSystemContent = '';
+	if (budgeted) {
+		systemIndex = transcript.findIndex((message) => message.role === 'system');
+		if (systemIndex === -1) {
+			transcript.unshift({ role: 'system', content: '' });
+			systemIndex = 0;
+		}
+		baseSystemContent = transcript[systemIndex].content ?? '';
+	}
+
 	while (true) {
 		chatOptions.signal?.throwIfAborted();
 		compactTranscript(transcript, compactBudgetChars);
 		const toolsAvailable = !forceFinalAnswer && toolTurns < maxTurns && definitions.length > 0;
+		if (systemIndex !== -1) {
+			transcript[systemIndex] = {
+				...transcript[systemIndex],
+				content: [baseSystemContent, turnBudgetNote(toolTurns, maxTurns, toolsAvailable)]
+					.filter(Boolean)
+					.join('\n\n')
+			};
+		}
 		onProgress?.({
 			kind: 'model',
 			status: 'started',
@@ -341,6 +365,14 @@ function compactedToolContent(content: string): string {
 		...(typeof parsed.query === 'string' ? { query: parsed.query } : {}),
 		note: 'Older tool result trimmed to fit the context window. Key findings should already be recorded in your goals answer fields; re-run the tool if you need the details again.'
 	});
+}
+
+function turnBudgetNote(used: number, max: number, toolsAvailable: boolean): string {
+	const remaining = Math.max(0, max - used);
+	if (!toolsAvailable || remaining === 0) {
+		return 'TURN BUDGET: All allocated tool turns have been used. Tools are no longer available — give your complete final answer now from the information gathered above.';
+	}
+	return `TURN BUDGET: You may use at most ${max} tool turn${max === 1 ? '' : 's'} for this request. A turn is one round of tool calls; independent calls made together count as one turn. Used so far: ${used}. Remaining: ${remaining}. Plan only work that fits the remaining turns — batch independent tool calls into a single turn, and never promise or defer work to turns you do not have. Once the budget is used, tools are withdrawn and you must answer with what you have.`;
 }
 
 export function clampAgentMaxTurns(value: unknown): number {

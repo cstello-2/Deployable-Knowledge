@@ -4,13 +4,14 @@
 	import './markdown-content.css';
 
 	interface Props {
+		allowHtml?: boolean;
 		class?: string;
 		content: string;
 	}
 
-	let { class: className, content }: Props = $props();
+	let { allowHtml = false, class: className, content }: Props = $props();
 </script>
 
 <div class={cn('markdown-content prose prose-sm max-w-none dark:prose-invert', className)}>
-	{@html renderMarkdown(content)}
+	{@html renderMarkdown(content, { allowHtml })}
 </div>

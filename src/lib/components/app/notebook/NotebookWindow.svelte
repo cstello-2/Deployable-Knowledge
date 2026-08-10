@@ -31,7 +31,6 @@
 	import NotebookHeader from './NotebookHeader.svelte';
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
-	import NotebookPreview from './NotebookPreview.svelte';
 	import NotebookImportDialog from './NotebookImportDialog.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
@@ -60,7 +59,6 @@
 	}: Props = $props();
 
 	let notes = $state('');
-	let previewMode = $state(false);
 	let view = $state<NotebookView>('editor');
 	let syncedPageId = $state<string | null>(null);
 	let lastSavedNotes = $state('');
@@ -70,7 +68,8 @@
 	let deleteTarget = $state<NotebookDeleteTarget | null>(null);
 	let movePageTarget = $state<NotebookPage | null>(null);
 	let moveDestinationId = $state('');
-	let notesTextarea = $state<HTMLTextAreaElement | null>(null);
+	let editorRef = $state<NotebookEditor | null>(null);
+	let editorFindOpen = $state(false);
 	let importDialogOpen = $state(false);
 	let importDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
 	let importLoading = $state(false);
@@ -167,7 +166,6 @@
 				await notebooksStore.selectPage(notebook.id, page.id);
 			}
 			view = 'editor';
-			previewMode = false;
 		} catch (error) {
 			toast.error(message(error));
 		}
@@ -235,7 +233,6 @@
 			}
 			await notebooksStore.selectPage(result.notebookId, result.pageId);
 			view = 'editor';
-			previewMode = false;
 		} catch (error) {
 			toast.error(message(error));
 		}
@@ -330,14 +327,12 @@
 	}
 
 	async function insertCitation(source: NotebookSourceItem): Promise<void> {
-		const start = notesTextarea?.selectionStart ?? notes.length;
-		const end = notesTextarea?.selectionEnd ?? start;
-		const insertion = insertNotebookSourceCitation(notes, source, start, end);
+		const selection = editorRef?.getSelection() ?? { start: notes.length, end: notes.length };
+		const insertion = insertNotebookSourceCitation(notes, source, selection.start, selection.end);
 		notes = insertion.text;
 		autosave.schedule();
 		await tick();
-		notesTextarea?.focus();
-		notesTextarea?.setSelectionRange(insertion.cursor, insertion.cursor);
+		editorRef?.focusAt(insertion.cursor);
 		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
 	}
 
@@ -453,9 +448,11 @@
 	{onClose}
 	contentClass="overflow-hidden"
 	contentLabel="Notebook content"
+	padded={false}
 >
 	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
 		<NotebookHeader
+			findOpen={editorFindOpen}
 			{importing}
 			onBack={goBack}
 			onClearSources={clearSources}
@@ -463,8 +460,7 @@
 			onImport={openImportDialog}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
-			onTogglePreview={() => (previewMode = !previewMode)}
-			{previewMode}
+			onToggleFind={() => (editorFindOpen = !editorFindOpen)}
 			sources={notebooksStore.sources}
 			sourcesLoading={notebooksStore.sourcesLoading}
 			title={headerTitle()}
@@ -511,11 +507,10 @@
 					reorderDisabled={notebooksStore.reordering}
 				/>
 			</NotebookSearch>
-		{:else if previewMode}
-			<NotebookPreview content={notes} />
 		{:else}
 			<NotebookEditor
-				bind:ref={notesTextarea}
+				bind:this={editorRef}
+				bind:findOpen={editorFindOpen}
 				bind:notes
 				{pageLimit}
 				{characterCount}
