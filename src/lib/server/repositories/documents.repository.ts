@@ -16,7 +16,8 @@ import type {
 	ApiDocumentListQuery,
 	ApiDocumentListResponse,
 	ApiTranscriptResponse,
-	DocumentRow
+	DocumentRow,
+	DocumentSortMode
 } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import {
@@ -64,6 +65,26 @@ function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery):
 	return conditions.length ? and(...conditions) : undefined;
 }
 
+const chunkTotal = sql`(select count(*) from ${documentChunks} where ${documentChunks.documentId} = ${documents.id})`;
+
+function orderFor(sort: DocumentSortMode | undefined): SQL[] {
+	const byTitle = sql`${documents.title} COLLATE NOCASE`;
+	switch (sort) {
+		case 'title-desc':
+			return [desc(byTitle)];
+		case 'oldest':
+			return [asc(documents.createdAt)];
+		case 'most-chunks':
+			return [desc(chunkTotal)];
+		case 'least-chunks':
+			return [asc(chunkTotal)];
+		case 'newest':
+			return [desc(documents.createdAt)];
+		default:
+			return [asc(byTitle)];
+	}
+}
+
 export class DocumentsRepository {
 	static async listIds(
 		options: ApiDocumentListQuery = {},
@@ -99,8 +120,7 @@ export class DocumentsRepository {
 
 	static async list(options: ApiDocumentListQuery = {}): Promise<ApiDocumentListResponse> {
 		const where = listConditions(options);
-		const direction = options.sort === 'desc' ? desc : asc;
-		const byTitle = direction(sql`${documents.title} COLLATE NOCASE`);
+		const ordering = orderFor(options.sort);
 
 		const page = db
 			.select({
@@ -115,7 +135,7 @@ export class DocumentsRepository {
 			})
 			.from(documents)
 			.where(where)
-			.orderBy(byTitle, asc(documents.id));
+			.orderBy(...ordering, asc(documents.id));
 
 		const [rows, [{ total }], [{ total: manualTotal }], availableTags, folderCounts] =
 			await Promise.all([

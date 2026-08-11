@@ -15,14 +15,7 @@
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
 	import { documentsStore } from '$lib/stores';
-	import type {
-		ApiDocumentDirectoryResponse,
-		ApiDocumentFolderSyncResponse,
-		ApiSyncedFolder,
-		DocumentListMode,
-		DocumentRow
-	} from '$lib/types';
-	import { fuzzyDocumentScore, sortDocuments, type DocumentSortMode } from '$lib/utils';
+	import type { ApiDocumentFolderSyncResponse, ApiSyncedFolder, DocumentRow } from '$lib/types';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
@@ -55,10 +48,6 @@
 		onClose = () => {}
 	}: Props = $props();
 
-	let query = $state('');
-	let tagFilters = $state<string[]>([]);
-	let sort = $state<DocumentSortMode>('newest');
-	let listMode = $state<DocumentListMode>('all');
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
@@ -76,29 +65,8 @@
 
 	const busy = $derived(uploading || documentsStore.loading || documentsStore.syncing);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
-	const visibleDocuments = $derived.by(() => {
-		const tagged = documentsStore.documents.filter((document) => {
-			if (listMode === 'active' && !document.active) return false;
-			if (listMode === 'inactive' && document.active) return false;
-			return !tagFilters.length || tagFilters.some((tag) => document.tags.includes(tag));
-		});
-		// only apply manual sort when there's no search query - a query
-		// already sorts by relevance, don't fight it
-		if (!query.trim()) return sortDocuments(tagged, sort);
-		return tagged
-			.map((document) => ({ document, score: fuzzyDocumentScore(query, document) }))
-			.filter(({ score }) => score > 0.25)
-			.sort((a, b) => b.score - a.score)
-			.map(({ document }) => document);
-	});
 
 	onMount(() => void reloadLibrary());
-
-	function toggleFilter(tag: string): void {
-		tagFilters = tagFilters.includes(tag)
-			? tagFilters.filter((value) => value !== tag)
-			: [...tagFilters, tag];
-	}
 
 	async function reloadLibrary(): Promise<void> {
 		await documentsStore.load();
@@ -308,10 +276,10 @@
 			bind:query={() => documentsStore.query, (value) => documentsStore.setQuery(value)}
 			onCreateTag={createTag}
 			onDeleteTag={(tag) => (pendingDeleteTag = tag)}
-			onSortChange={(next) => (sort = next)}
-			onToggleTag={toggleFilter}
-			selectedTags={tagFilters}
-			{sort}
+			onSortChange={(next) => documentsStore.setSort(next)}
+			onToggleTag={(tag) => documentsStore.toggleTagFilter(tag)}
+			selectedTags={documentsStore.tagFilters}
+			sort={documentsStore.sort}
 			tags={documentsStore.tags}
 		/>
 		<DocumentModeBar

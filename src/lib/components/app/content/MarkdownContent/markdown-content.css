@@ -21,3 +21,24 @@
 	height: auto;
 	max-width: 100%;
 }
+
+/* Shared by every rendered table: the chat pane and the notebook editor's
+   inline table widget both carry .markdown-content, so they stay identical.
+   Plain class selectors outrank prose, whose rules sit inside :where(). */
+.markdown-content table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.markdown-content th,
+.markdown-content td {
+	border: 1px solid var(--color-border);
+	padding: 0.35rem 0.6rem;
+	/* Column alignment from |:---:| arrives as an inline style and still wins */
+	text-align: left;
+}
+
+.markdown-content th {
+	background-color: color-mix(in oklab, var(--color-muted) 40%, transparent);
+	font-weight: 600;
+}

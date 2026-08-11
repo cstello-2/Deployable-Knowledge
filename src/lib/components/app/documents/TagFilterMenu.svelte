@@ -74,7 +74,9 @@
 			{:else}
 				<Tooltip.Root>
 					<Tooltip.Trigger
-						{...mergeProps(props, { class: cn(buttonVariants(), 'cursor-pointer') })}
+						{...mergeProps(props, {
+							class: cn(buttonVariants({ variant: 'outline' }), 'cursor-pointer')
+						})}
 					>
 						<TriggerIcon />
 						{triggerLabel ?? title}

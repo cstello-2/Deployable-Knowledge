@@ -88,12 +88,20 @@ export type DocumentListMode = 'all' | 'active' | 'inactive';
 
 export type SortDirection = 'asc' | 'desc';
 
+export type DocumentSortMode =
+	| 'title-asc'
+	| 'title-desc'
+	| 'oldest'
+	| 'newest'
+	| 'most-chunks'
+	| 'least-chunks';
+
 export interface ApiDocumentListQuery {
 	limit?: number;
 	mode?: DocumentListMode;
 	offset?: number;
 	query?: string;
-	sort?: SortDirection;
+	sort?: DocumentSortMode;
 	tags?: string[];
 }
 

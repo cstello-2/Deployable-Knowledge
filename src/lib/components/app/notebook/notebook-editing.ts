@@ -15,7 +15,13 @@ export interface FormatResult {
 
 export type InlineFormat = 'bold' | 'italic' | 'strikethrough' | 'code';
 export type LineFormat = 'h1' | 'h2' | 'h3' | 'bullet-list' | 'ordered-list' | 'quote';
-export type RibbonCommand = InlineFormat | LineFormat | 'link' | 'code-block' | { color: string };
+export type RibbonCommand =
+	| InlineFormat
+	| LineFormat
+	| 'link'
+	| 'code-block'
+	| { color: string }
+	| { highlight: string };
 
 const INLINE_MARKERS: Record<InlineFormat, string> = {
 	bold: '**',
@@ -138,19 +144,32 @@ export function insertLink(text: string, { start, end }: EditorSelection): Forma
 	};
 }
 
-export function wrapColor(
+function wrapStyle(
 	text: string,
 	{ start, end }: EditorSelection,
-	color: string
+	declaration: string,
+	fallback: string
 ): FormatResult {
-	const selected = text.slice(start, end) || 'colored text';
-	const prefix = `<span style="color:${color}">`;
+	const selected = text.slice(start, end) || fallback;
+	const prefix = `<span style="${declaration}">`;
 	const suffix = '</span>';
 	return {
 		text: text.slice(0, start) + prefix + selected + suffix + text.slice(end),
 		start: start + prefix.length,
 		end: start + prefix.length + selected.length
 	};
+}
+
+export function wrapColor(text: string, selection: EditorSelection, color: string): FormatResult {
+	return wrapStyle(text, selection, `color:${color}`, 'colored text');
+}
+
+export function wrapHighlight(
+	text: string,
+	selection: EditorSelection,
+	color: string
+): FormatResult {
+	return wrapStyle(text, selection, `background-color:${color}`, 'highlighted text');
 }
 
 export function toggleCodeBlock(text: string, selection: EditorSelection): FormatResult {
@@ -166,7 +185,11 @@ export function applyRibbonCommand(
 	selection: EditorSelection,
 	command: RibbonCommand
 ): FormatResult {
-	if (typeof command === 'object') return wrapColor(text, selection, command.color);
+	if (typeof command === 'object') {
+		return 'highlight' in command
+			? wrapHighlight(text, selection, command.highlight)
+			: wrapColor(text, selection, command.color);
+	}
 	if (command === 'link') return insertLink(text, selection);
 	if (command === 'code-block') return toggleCodeBlock(text, selection);
 	if (command in INLINE_MARKERS) return toggleInline(text, selection, command as InlineFormat);

@@ -4,8 +4,16 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Globe from '@lucide/svelte/icons/globe';
+	import { buttonVariants } from '$lib/components/ui/button';
+	import { cn } from '$lib/components/ui/utils';
 	import { documentViewerHref } from '$lib/constants';
 	import type { AgentOutput } from '$lib/types';
+
+	// One style for every source action; only the icon and behaviour differ
+	const ACTION_CLASS = cn(
+		buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
+		'cursor-pointer text-muted-foreground hover:text-foreground'
+	);
 
 	type SourceOutput = Extract<AgentOutput, { type: 'source' }>;
 
@@ -38,49 +46,48 @@
 	}
 </script>
 
-{#snippet sourceLabel(source: SourceOutput)}
-	{@const TypeIcon = iconFor(source)}
-	<TypeIcon class="mt-0.5 size-3 shrink-0" />
-	<span
-		><strong class="text-foreground">{source.data.title || 'Document source'}</strong>{source.data
-			.description
-			? ` ${source.data.description}`
-			: ''}</span
-	>
-{/snippet}
-
 {#if sources.length}
-	<ol class="grid list-inside gap-1 text-xs text-muted-foreground">
+	<!-- min-w-0 at every grid level: these are grid items, whose default
+	     min-width:auto lets the nowrap label push the row past the pane -->
+	<ol class="grid min-w-0 list-inside gap-1 text-xs text-muted-foreground">
 		{#each visibleSources as source (`source-${source.id}`)}
 			{@const href = hrefFor(source)}
-			<li class="flex">
-				<div
-					class="flex min-w-0 items-start gap-1 rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
-				>
+			{@const TypeIcon = iconFor(source)}
+			{@const label = source.data.title || 'Document source'}
+			<li
+				class="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
+			>
+				<!-- min-w-0 lets the label shrink so truncate can ellipsize it -->
+				<div class="flex min-w-0 flex-1 items-center gap-1">
+					<TypeIcon class="size-3 shrink-0" />
+					<span class="truncate" title={label}>
+						<strong class="text-foreground">{label}</strong>{source.data.description
+							? ` ${source.data.description}`
+							: ''}
+					</span>
+				</div>
+				<div class="flex shrink-0 items-center gap-0.5">
 					{#if href}
 						<a
-							class="inline-flex min-w-0 items-start gap-1"
+							class={ACTION_CLASS}
 							{href}
 							rel="external noopener noreferrer"
 							target="_blank"
+							title="Open source"
+							aria-label="Open source"
 						>
-							{@render sourceLabel(source)}
-							<ExternalLink class="mt-0.5 size-3 shrink-0" />
+							<ExternalLink class="size-3" />
 						</a>
-					{:else}
-						<span class="inline-flex min-w-0 items-start gap-1">
-							{@render sourceLabel(source)}
-						</span>
 					{/if}
 					{#if source.data.chunkId && onSaveChunk}
 						<button
 							type="button"
-							class="mt-0.5 flex size-3 shrink-0 cursor-pointer rounded-xs outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/40"
+							class={ACTION_CLASS}
 							title="Save chunk"
 							aria-label="Save chunk"
 							onclick={() => onSaveChunk?.(source.data.chunkId!)}
 						>
-							<BookmarkPlus class="size-3 translate-y-[0.5px]" />
+							<BookmarkPlus class="size-3" />
 						</button>
 					{/if}
 				</div>

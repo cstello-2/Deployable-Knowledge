@@ -37,7 +37,7 @@
 			aria-label="Filter documents"
 			bind:value={query}
 			class="flex-1"
-			placeholder="Filter documents (fuzzy match on name & tags)…"
+			placeholder="Filter documents by name & tags…"
 			type="search"
 		/>
 		{#if query}<ActionIcon label="Clear filter" onclick={() => (query = '')}><X /></ActionIcon>{/if}

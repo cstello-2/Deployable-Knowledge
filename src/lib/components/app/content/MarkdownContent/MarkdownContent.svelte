@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { cn } from '$lib/components/ui/utils';
 	import { renderMarkdown } from '$lib/utils/markdown';
-	import './markdown-content.css';
 
 	interface Props {
 		allowHtml?: boolean;

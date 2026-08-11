@@ -1,5 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { DocumentsService } from '$lib/services';
+import { DEFAULT_DOCUMENT_SORT } from '$lib/utils';
 import type {
 	ApiDocumentDirectoryQuery,
 	ApiDocumentDirectoryResponse,
@@ -11,7 +12,7 @@ import type {
 	ApiSyncedFolder,
 	DocumentListMode,
 	DocumentRow,
-	SortDirection
+	DocumentSortMode
 } from '$lib/types';
 
 const PAGE_SIZE = 50;
@@ -30,7 +31,7 @@ class DocumentsStore {
 	private _query = $state('');
 	private _tagFilters = $state<string[]>([]);
 	private _mode = $state<DocumentListMode>('all');
-	private _sort = $state<SortDirection>('asc');
+	private _sort = $state<DocumentSortMode>(DEFAULT_DOCUMENT_SORT);
 	private queryTimer: ReturnType<typeof setTimeout> | undefined;
 	private listRequest = 0;
 	progress = $state<ApiDocumentIngestProgress | null>(null);
@@ -88,7 +89,7 @@ class DocumentsStore {
 		return this._mode;
 	}
 
-	get sort(): SortDirection {
+	get sort(): DocumentSortMode {
 		return this._sort;
 	}
 
@@ -146,8 +147,9 @@ class DocumentsStore {
 		void this.load();
 	}
 
-	toggleSort(): void {
-		this._sort = this._sort === 'asc' ? 'desc' : 'asc';
+	setSort(mode: DocumentSortMode): void {
+		if (this._sort === mode) return;
+		this._sort = mode;
 		void this.load();
 	}
 

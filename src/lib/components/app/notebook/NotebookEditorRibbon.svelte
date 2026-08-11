@@ -2,6 +2,7 @@
 	import Bold from '@lucide/svelte/icons/bold';
 	import Code from '@lucide/svelte/icons/code';
 	import Heading1 from '@lucide/svelte/icons/heading-1';
+	import Highlighter from '@lucide/svelte/icons/highlighter';
 	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import Heading3 from '@lucide/svelte/icons/heading-3';
 	import Italic from '@lucide/svelte/icons/italic';
@@ -23,6 +24,7 @@
 
 	let { onCommand }: Props = $props();
 	let colorOpen = $state(false);
+	let highlightOpen = $state(false);
 
 	const COLORS = [
 		{ label: 'Red', value: '#dc2626' },
@@ -35,9 +37,26 @@
 		{ label: 'Gray', value: '#6b7280' }
 	];
 
+	// Pale enough that the dark text set by .nb-highlight stays readable
+	const HIGHLIGHTS = [
+		{ label: 'Yellow', value: '#fef08a' },
+		{ label: 'Orange', value: '#fed7aa' },
+		{ label: 'Green', value: '#bbf7d0' },
+		{ label: 'Teal', value: '#99f6e4' },
+		{ label: 'Blue', value: '#bfdbfe' },
+		{ label: 'Violet', value: '#e9d5ff' },
+		{ label: 'Pink', value: '#fbcfe8' },
+		{ label: 'Gray', value: '#e5e7eb' }
+	];
+
 	function pickColor(value: string): void {
 		colorOpen = false;
 		onCommand({ color: value });
+	}
+
+	function pickHighlight(value: string): void {
+		highlightOpen = false;
+		onCommand({ highlight: value });
 	}
 </script>
 
@@ -79,6 +98,29 @@
 						title={color.label}
 						aria-label={`Color text ${color.label.toLowerCase()}`}
 						onclick={() => pickColor(color.value)}
+					></button>
+				{/each}
+			</div>
+		</Popover.Content>
+	</Popover.Root>
+	<Popover.Root bind:open={highlightOpen}>
+		<Popover.Trigger>
+			{#snippet child({ props })}
+				<ActionIcon class="size-7" label="Highlight" triggerProps={props} variant="ghost"
+					><Highlighter /></ActionIcon
+				>
+			{/snippet}
+		</Popover.Trigger>
+		<Popover.Content align="start" class="w-auto p-2">
+			<div class="grid grid-cols-4 gap-1.5">
+				{#each HIGHLIGHTS as color (color.value)}
+					<button
+						type="button"
+						class="size-6 cursor-pointer rounded-full border border-border/60 transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+						style={`background-color: ${color.value}`}
+						title={color.label}
+						aria-label={`Highlight text ${color.label.toLowerCase()}`}
+						onclick={() => pickHighlight(color.value)}
 					></button>
 				{/each}
 			</div>

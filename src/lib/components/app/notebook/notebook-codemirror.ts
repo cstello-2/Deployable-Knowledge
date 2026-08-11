@@ -14,9 +14,11 @@ import {
 	keymap,
 	placeholder,
 	ViewPlugin,
-	type ViewUpdate
+	type ViewUpdate,
+	WidgetType
 } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+import { renderMarkdown } from '$lib/utils/markdown';
 import type { RibbonCommand } from './notebook-editing';
 
 export interface NotebookEditorHooks {
@@ -28,10 +30,47 @@ export interface NotebookEditorHooks {
 
 const HIDE = Decoration.replace({});
 
-// Only color values our ribbon writes (or close cousins) get styled; anything
-// else stays plain source so arbitrary CSS never reaches the editor DOM.
-const COLOR_SPAN =
-	/<span style="color:\s*(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,25})\s*;?\s*">((?:(?!<\/?span)[\s\S])*?)<\/span>/g;
+const LIST_INDENT_EM = 1.5;
+
+class BulletWidget extends WidgetType {
+	toDOM(): HTMLElement {
+		const el = document.createElement('span');
+		el.className = 'nb-bullet';
+		el.textContent = '•';
+		return el;
+	}
+	eq(): boolean {
+		return true;
+	}
+	ignoreEvent(): boolean {
+		return false;
+	}
+}
+
+class TableWidget extends WidgetType {
+	constructor(readonly source: string) {
+		super();
+	}
+	toDOM(): HTMLElement {
+		const el = document.createElement('div');
+		// markdown-content carries the shared table styling the chat pane uses
+		el.className = 'nb-table markdown-content';
+		el.innerHTML = renderMarkdown(this.source);
+		return el;
+	}
+	eq(other: TableWidget): boolean {
+		return other.source === this.source;
+	}
+	ignoreEvent(): boolean {
+		return false;
+	}
+}
+
+// Only the properties and color values our ribbon writes (or close cousins) get
+// styled; anything else stays plain source so arbitrary CSS never reaches the
+// editor DOM.
+const STYLE_SPAN =
+	/<span style="(color|background-color):\s*(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,25})\s*;?\s*">((?:(?!<\/?span)[\s\S])*?)<\/span>/g;
 
 interface PendingDecoration {
 	from: number;
@@ -45,7 +84,7 @@ function buildLivePreview(view: EditorView): DecorationSet {
 	const touches = (from: number, to: number) => selection.to >= from && selection.from <= to;
 	const pending: PendingDecoration[] = [];
 	const hide = (from: number, to: number) => {
-		if (to > from) pending.push({ from, to, deco: HIDE });
+		if (to > from && to <= state.doc.lineAt(from).to) pending.push({ from, to, deco: HIDE });
 	};
 
 	for (const range of view.visibleRanges) {
@@ -111,10 +150,39 @@ function buildLivePreview(view: EditorView): DecorationSet {
 						for (const title of node.node.getChildren('LinkTitle')) hide(title.from, title.to);
 						return false;
 					}
+					case 'ListItem': {
+						const line = state.doc.lineAt(node.from);
+						let depth = -1;
+						for (let n: typeof node.node | null = node.node; n; n = n.parent) {
+							if (n.name === 'BulletList' || n.name === 'OrderedList') depth += 1;
+						}
+						const pad = (Math.max(depth, 0) + 2) * LIST_INDENT_EM;
+						pending.push({
+							from: line.from,
+							to: line.from,
+							deco: Decoration.line({
+								class: 'nb-list-line',
+								attributes: { style: `padding-left:${pad}em;text-indent:-${LIST_INDENT_EM}em` }
+							})
+						});
+						const mark = node.node.getChild('ListMark');
+						if (mark) hide(line.from, mark.from);
+						return;
+					}
+					case 'ListMark': {
+						if (parent?.parent?.name !== 'BulletList') return;
+						const after = state.doc.sliceString(node.to, node.to + 1);
+						pending.push({
+							from: node.from,
+							to: node.to + (after === ' ' ? 1 : 0),
+							deco: Decoration.replace({ widget: new BulletWidget() })
+						});
+						return;
+					}
 				}
 			}
 		});
-		collectColorSpans(state, range.from, range.to, touches, pending);
+		collectStyleSpans(state, range.from, range.to, touches, pending);
 	}
 
 	return Decoration.set(
@@ -123,7 +191,47 @@ function buildLivePreview(view: EditorView): DecorationSet {
 	);
 }
 
-function collectColorSpans(
+function buildTables(state: EditorState): DecorationSet {
+	const selection = state.selection.main;
+	const pending: PendingDecoration[] = [];
+
+	syntaxTree(state).iterate({
+		enter: (node) => {
+			if (node.name !== 'Table') return;
+			const from = state.doc.lineAt(node.from).from;
+			const to = state.doc.lineAt(node.to).to;
+			if (selection.from < to && selection.to > from) return false;
+			pending.push({
+				from,
+				to,
+				deco: Decoration.replace({
+					widget: new TableWidget(state.doc.sliceString(from, to)),
+					block: true
+				})
+			});
+			return false;
+		}
+	});
+
+	return Decoration.set(
+		pending.map(({ from, to, deco }) => deco.range(from, to)),
+		true
+	);
+}
+
+const tableField = StateField.define<DecorationSet>({
+	create: (state) => buildTables(state),
+	update(value, transaction) {
+		const reparsed = syntaxTree(transaction.startState) !== syntaxTree(transaction.state);
+		if (!transaction.docChanged && !transaction.selection && !reparsed) {
+			return value.map(transaction.changes);
+		}
+		return buildTables(transaction.state);
+	},
+	provide: (field) => EditorView.decorations.from(field)
+});
+
+function collectStyleSpans(
 	state: EditorState,
 	from: number,
 	to: number,
@@ -131,8 +239,9 @@ function collectColorSpans(
 	pending: PendingDecoration[]
 ): void {
 	const text = state.doc.sliceString(from, to);
-	COLOR_SPAN.lastIndex = 0;
-	for (let match; (match = COLOR_SPAN.exec(text)); ) {
+	STYLE_SPAN.lastIndex = 0;
+	for (let match; (match = STYLE_SPAN.exec(text)); ) {
+		const [, property, value] = match;
 		const start = from + match.index;
 		const end = start + match[0].length;
 		const openEnd = start + match[0].indexOf('>') + 1;
@@ -141,7 +250,10 @@ function collectColorSpans(
 			pending.push({
 				from: openEnd,
 				to: closeStart,
-				deco: Decoration.mark({ attributes: { style: `color:${match[1]}` } })
+				deco: Decoration.mark({
+					class: property === 'background-color' ? 'nb-highlight' : undefined,
+					attributes: { style: `${property}:${value}` }
+				})
 			});
 		}
 		if (!touches(start, end)) {
@@ -217,6 +329,7 @@ const markdownHighlighting = HighlightStyle.define([
 	{ tag: tags.link, color: 'var(--color-primary)', textDecoration: 'underline' },
 	{ tag: tags.url, color: 'var(--color-muted-foreground)' },
 	{ tag: tags.quote, color: 'var(--color-muted-foreground)', fontStyle: 'italic' },
+	{ tag: tags.list, color: 'var(--color-muted-foreground)' },
 	{ tag: tags.processingInstruction, color: 'var(--color-muted-foreground)' },
 	{ tag: tags.meta, color: 'var(--color-muted-foreground)' },
 	{ tag: tags.contentSeparator, color: 'var(--color-muted-foreground)' }
@@ -239,6 +352,8 @@ const editorTheme = EditorView.theme({
 		borderRadius: '4px',
 		padding: '0.08em 0.3em'
 	},
+	// The background colour itself is applied inline from the source span
+	'.nb-highlight': { borderRadius: '3px', padding: '0.05em 0.1em', color: '#1f2937' },
 	'.nb-codeblock': {
 		backgroundColor: 'color-mix(in oklab, var(--color-muted) 55%, transparent)',
 		fontFamily: 'var(--font-mono, ui-monospace, monospace)',
@@ -246,7 +361,72 @@ const editorTheme = EditorView.theme({
 		padding: '0 0.75rem'
 	},
 	'.nb-codeblock-first': { borderRadius: '8px 8px 0 0' },
-	'.nb-codeblock-last': { borderRadius: '0 0 8px 8px' }
+	'.nb-codeblock-last': { borderRadius: '0 0 8px 8px' },
+	'.nb-bullet': {
+		display: 'inline-block',
+		width: `${LIST_INDENT_EM}em`,
+		textIndent: '0',
+		color: 'var(--color-muted-foreground)'
+	},
+	// Table styling itself comes from markdown-content.css, shared with chat
+	'.nb-table': { margin: '0.25rem 0' }
+});
+
+function linkUrlAt(state: EditorState, pos: number): string | null {
+	let node = syntaxTree(state).resolveInner(pos, -1);
+	while (node.parent && node.name !== 'Link') node = node.parent;
+	if (node.name !== 'Link') return null;
+	const url = node.getChild('URL');
+	if (!url) return null;
+	const href = state.doc.sliceString(url.from, url.to).trim();
+	if (!href || /^javascript:/i.test(href)) return null;
+	const selection = state.selection.main;
+	if (selection.to >= node.from && selection.from <= node.to) return null;
+	return href;
+}
+
+function openTableAt(target: HTMLElement, view: EditorView): boolean {
+	const widget = target.closest('.nb-table');
+	if (!widget) return false;
+
+	let start: number;
+	try {
+		start = view.posAtDOM(widget);
+	} catch {
+		return false;
+	}
+
+	const rows = Array.from(widget.querySelectorAll('tr'));
+	const clicked = target.closest('tr');
+	const rowIndex = clicked ? rows.indexOf(clicked) : 0;
+	const lineOffset = rowIndex <= 0 ? 0 : rowIndex + 1;
+
+	const startLine = view.state.doc.lineAt(start).number;
+	const lineNumber = Math.min(startLine + lineOffset, view.state.doc.lines);
+	const line = view.state.doc.line(lineNumber);
+	const cursor = Math.min(line.from + 1, line.to);
+
+	view.dispatch({ selection: { anchor: cursor }, scrollIntoView: true });
+	view.focus();
+	return true;
+}
+
+const clickHandler = EditorView.domEventHandlers({
+	mousedown(event, view) {
+		if (event.button !== 0) return false;
+		const target = event.target as HTMLElement | null;
+		if (target && openTableAt(target, view)) {
+			event.preventDefault();
+			return true;
+		}
+		const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+		if (pos == null) return false;
+		const href = linkUrlAt(view.state, pos);
+		if (!href) return false;
+		window.open(href, '_blank', 'noopener,noreferrer');
+		event.preventDefault();
+		return true;
+	}
 });
 
 export function notebookEditorExtensions(hooks: NotebookEditorHooks): Extension {
@@ -258,8 +438,10 @@ export function notebookEditorExtensions(hooks: NotebookEditorHooks): Extension 
 		markdown({ base: markdownLanguage }),
 		syntaxHighlighting(markdownHighlighting),
 		livePreviewPlugin,
+		tableField,
 		findHighlightField,
 		editorTheme,
+		clickHandler,
 		EditorState.changeFilter.of(
 			(transaction) =>
 				!transaction.docChanged || transaction.newDoc.length <= hooks.characterLimit()

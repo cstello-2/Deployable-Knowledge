@@ -8,19 +8,25 @@
 	}
 
 	const POLL_INTERVAL_MS = 5_000;
-	const REQUEST_TIMEOUT_MS = 3_000;
+	const REQUEST_TIMEOUT_MS = 4_000;
+	// A single dropped poll is not an outage. Localhost round-trips occasionally
+	// stall (notably on Windows), and a reloading dev server drops requests, so
+	// the banner waits for consecutive failures instead of flashing on a blip.
+	const FAILURE_THRESHOLD = 3;
 
-	let checked = $state(false);
 	let lastCheckedAt = $state<string | null>(null);
-	let online = $state(false);
+	let failures = $state(0);
 	let checking = false;
 
+	const disconnected = $derived(failures >= FAILURE_THRESHOLD);
 	const title = $derived(
 		`Engine offline${lastCheckedAt ? `. Last checked ${new Date(lastCheckedAt).toLocaleTimeString()}.` : ''}`
 	);
 
 	async function checkHeartbeat(): Promise<void> {
-		if (checking) return;
+		// A hidden tab gets throttled and its requests can be cut short; those
+		// failures say nothing about the server, so skip them entirely.
+		if (checking || document.hidden) return;
 		checking = true;
 		const controller = new AbortController();
 		const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -33,40 +39,49 @@
 				signal: controller.signal
 			});
 			const body = (await response.json()) as HeartbeatResponse;
-			online = response.ok && body.status === 'online';
+			const healthy = response.ok && body.status === 'online';
+			failures = healthy ? 0 : failures + 1;
 			lastCheckedAt = body.checkedAt ?? new Date().toISOString();
 		} catch {
-			online = false;
+			failures += 1;
 			lastCheckedAt = new Date().toISOString();
 		} finally {
 			window.clearTimeout(timeout);
-			checked = true;
 			checking = false;
 		}
 	}
 
 	onMount(() => {
 		const handleOnline = () => void checkHeartbeat();
+		// The browser reporting itself offline is authoritative, so skip the count
 		const handleOffline = () => {
-			online = false;
-			checked = true;
+			failures = FAILURE_THRESHOLD;
 			lastCheckedAt = new Date().toISOString();
+		};
+		// Coming back from a hidden tab or a sleeping machine starts clean rather
+		// than showing a banner for polls that never really ran
+		const handleVisibility = () => {
+			if (document.hidden) return;
+			failures = 0;
+			void checkHeartbeat();
 		};
 
 		void checkHeartbeat();
 		const interval = window.setInterval(() => void checkHeartbeat(), POLL_INTERVAL_MS);
 		window.addEventListener('online', handleOnline);
 		window.addEventListener('offline', handleOffline);
+		document.addEventListener('visibilitychange', handleVisibility);
 
 		return () => {
 			window.clearInterval(interval);
 			window.removeEventListener('online', handleOnline);
 			window.removeEventListener('offline', handleOffline);
+			document.removeEventListener('visibilitychange', handleVisibility);
 		};
 	});
 </script>
 
-{#if checked && !online}
+{#if disconnected}
 	<div
 		class="fixed right-4 bottom-4 left-4 z-[var(--layer-toast,1000001)] mx-auto flex max-w-xl items-start gap-3 rounded-lg border border-red-500/50 bg-red-50 px-4 py-3 text-red-950 shadow-lg dark:bg-red-950 dark:text-red-50"
 		role="alert"
