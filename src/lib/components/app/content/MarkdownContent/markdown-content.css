@@ -22,6 +22,15 @@
 	max-width: 100%;
 }
 
+.markdown-content blockquote {
+	border-inline-start-color: color-mix(
+		in oklab,
+		var(--color-muted-foreground) 55%,
+		var(--color-border)
+	);
+	color: var(--color-foreground);
+}
+
 /* Shared by every rendered table: the chat pane and the notebook editor's
    inline table widget both carry .markdown-content, so they stay identical.
    Plain class selectors outrank prose, whose rules sit inside :where(). */

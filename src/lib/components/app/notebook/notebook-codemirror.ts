@@ -32,6 +32,8 @@ const HIDE = Decoration.replace({});
 
 const LIST_INDENT_EM = 1.5;
 
+const QUOTE_INDENT_EM = 1;
+
 class BulletWidget extends WidgetType {
 	toDOM(): HTMLElement {
 		const el = document.createElement('span');
@@ -177,6 +179,32 @@ function buildLivePreview(view: EditorView): DecorationSet {
 							to: node.to + (after === ' ' ? 1 : 0),
 							deco: Decoration.replace({ widget: new BulletWidget() })
 						});
+						return;
+					}
+					case 'Blockquote': {
+						const open = state.doc.lineAt(node.from);
+						const close = state.doc.lineAt(node.to);
+						let depth = 0;
+						for (let n: typeof node.node | null = node.node; n; n = n.parent) {
+							if (n.name === 'Blockquote') depth += 1;
+						}
+						for (let lineNumber = open.number; lineNumber <= close.number; lineNumber += 1) {
+							const line = state.doc.line(lineNumber);
+							pending.push({
+								from: line.from,
+								to: line.from,
+								deco: Decoration.line({
+									class: 'nb-quote-line',
+									attributes: { style: `padding-left:${depth * QUOTE_INDENT_EM}em` }
+								})
+							});
+						}
+						return;
+					}
+					case 'QuoteMark': {
+						if (!parent || touches(parent.from, parent.to)) return;
+						const after = state.doc.sliceString(node.to, node.to + 1);
+						hide(node.from, node.to + (after === ' ' ? 1 : 0));
 						return;
 					}
 				}
@@ -367,6 +395,10 @@ const editorTheme = EditorView.theme({
 		width: `${LIST_INDENT_EM}em`,
 		textIndent: '0',
 		color: 'var(--color-muted-foreground)'
+	},
+	'.nb-quote-line': {
+		borderLeft:
+			'3px solid color-mix(in oklab, var(--color-muted-foreground) 55%, var(--color-border))'
 	},
 	// Table styling itself comes from markdown-content.css, shared with chat
 	'.nb-table': { margin: '0.25rem 0' }
