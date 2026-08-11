@@ -68,6 +68,18 @@ These instructions apply to the entire repository. Preserve them when adding or 
 - Keep HTTP endpoint paths in `src/lib/constants/api-endpoints.ts` and browser I/O in services.
 - Keep reusable application rules aligned with `src/lib/components/app/SKILL.md`.
 
+## Desktop Shell
+
+- `electron/` holds the desktop shell only. The main process spawns `electron/server.mjs`, which
+  serves the adapter-node build; application code must not import from `electron/`.
+- The packaged app runs the server with the per-user data directory as its working directory.
+  Resolve runtime files (databases, documents, models, caches) relative to `process.cwd()`, never
+  relative to the repository or the module URL, and register new top-level ones in `main.mjs`.
+- Development syncs the schema with `drizzle-kit push`, but installed apps replay the committed
+  migrations in `drizzle/`. Every schema change needs `npm run db:generate` and the resulting
+  migration committed, or the installer ships an out-of-date database; the release workflow fails
+  the build when they disagree. Never hand-edit `drizzle/`.
+
 ## Quality and Change Discipline
 
 - Preserve unrelated user changes in the working tree. Do not stage or commit unless the user

@@ -103,6 +103,7 @@ See [Architecture](docs/ARCHITECTURE.md), [API Reference](docs/API_REFERENCE.md)
 ## Project Structure
 
 ```text
+electron/             Desktop shell: main process, server child entry, app icon
 src/
 ├── lib/
 │   ├── actions/          Svelte actions for workspace interactions

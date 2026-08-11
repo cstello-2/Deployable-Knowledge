@@ -1,5 +1,7 @@
 package-lock.json
 .svelte-kit/
 build/
+release/
+drizzle/
 venv/
 .claude/

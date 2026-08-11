@@ -1,0 +1,56 @@
+appId: dev.deployableknowledge.app
+productName: Deployable Knowledge
+
+directories:
+  buildResources: electron/build
+  output: release
+
+# The app ships llama.cpp, ONNX Runtime, Sharp, libSQL, ffmpeg, Pyodide, and the
+# Tesseract WASM core. Several of those resolve data files and executables by
+# real filesystem path, so packing them into an archive trades a smaller install
+# for a class of runtime path bugs that only appear on an end user's machine.
+asar: false
+
+files:
+  - '**/*'
+  - '!src/**'
+  - '!scripts/**'
+  - '!docs/**'
+  - '!release/**'
+  - '!.svelte-kit/**'
+  - '!.direnv/**'
+  - '!.cache/**'
+  - '!documents/**'
+  - '!models/**'
+  - '!app.db'
+  - '!app.db-*'
+  - '!*.md'
+  - '!*.config.{js,ts}'
+  - '!components.json'
+  - '!shell.nix'
+  - '!electron/build/**'
+  # onnxruntime-node ships every platform's binaries in a single package, which
+  # is ~450 MB of payload the Windows x64 build will never load. Revisit this
+  # when another platform target is added.
+  - '!node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+
+win:
+  icon: electron/build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Deployable Knowledge
+  # A multi-hundred-megabyte payload makes delta blockmaps expensive to build
+  # and useless without an auto-update feed.
+  differentialPackage: false
+  artifactName: ${productName}-${version}-windows-x64-setup.${ext}
