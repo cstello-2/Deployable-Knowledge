@@ -9,7 +9,10 @@ CREATE TABLE `api_keys` (
 CREATE UNIQUE INDEX `api_keys_provider_idx` ON `api_keys` (`provider_id`);--> statement-breakpoint
 CREATE TABLE `app_state` (
 	`id` text PRIMARY KEY DEFAULT 'app' NOT NULL,
-	`active_profile_id` text
+	`active_profile_id` text,
+	`active_layout_id` text,
+	`theme_color` text DEFAULT 'classic' NOT NULL,
+	`theme_mode` text DEFAULT 'system' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `document_chunks` (
@@ -180,3 +183,14 @@ CREATE TABLE `tags` (
 	`name` text(40) PRIMARY KEY NOT NULL,
 	`created_at` text NOT NULL
 );
+--> statement-breakpoint
+CREATE TABLE `workspace_layouts` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text(64) NOT NULL,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`snapshot` text NOT NULL,
+	`created_at` integer,
+	`updated_at` integer
+);
+--> statement-breakpoint
+CREATE INDEX `workspace_layouts_sort_idx` ON `workspace_layouts` (`sort_order`);

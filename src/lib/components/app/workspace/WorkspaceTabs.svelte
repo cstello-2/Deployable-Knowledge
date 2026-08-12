@@ -13,6 +13,7 @@
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
+	import { LAYOUT_NAME_MAX_LENGTH } from '$lib/constants';
 	import { workspaceStore } from '$lib/stores';
 
 	// Distance between tabs (gap-1) and how far a pointer travels before a click becomes a drag
@@ -28,7 +29,7 @@
 		maxDx: number;
 		minDx: number;
 		pointerId: number;
-		presetId: string;
+		layoutId: string;
 		rects: TabRect[];
 		startX: number;
 		targetIndex: number;
@@ -37,9 +38,9 @@
 
 	// After a drop the tab first lands at its release point in the new order without any
 	// transition (pending), then animates the remaining distance into its slot
-	type TabSettle = { dx: number; pending: boolean; presetId: string };
+	type TabSettle = { dx: number; pending: boolean; layoutId: string };
 
-	let renamePresetId = $state<string | null>(null);
+	let renameLayoutId = $state<string | null>(null);
 	let renameName = $state('');
 	let tabElements = $state<(HTMLElement | undefined)[]>([]);
 	let drag = $state<TabDrag | null>(null);
@@ -47,14 +48,14 @@
 	let settleTimer = 0;
 	let suppressNextClick = false;
 
-	function renameLayout(event: SubmitEvent): void {
+	function submitRename(event: SubmitEvent): void {
 		event.preventDefault();
-		if (!renamePresetId || !renameName.trim()) return;
-		workspaceStore.renameLayoutPreset(renamePresetId, renameName);
-		renamePresetId = null;
+		if (!renameLayoutId || !renameName.trim()) return;
+		workspaceStore.renameLayout(renameLayoutId, renameName);
+		renameLayoutId = null;
 	}
 
-	function handleTabPointerDown(event: PointerEvent, index: number, presetId: string): void {
+	function handleTabPointerDown(event: PointerEvent, index: number, layoutId: string): void {
 		if (event.button !== 0) return;
 		suppressNextClick = false;
 		window.clearTimeout(settleTimer);
@@ -63,7 +64,7 @@
 		// offsetLeft ignores in-flight transforms, so a tab grabbed mid-settle still measures
 		// its resting geometry
 		const rects: TabRect[] = [];
-		for (const element of tabElements.slice(0, workspaceStore.layoutPresets.length)) {
+		for (const element of tabElements.slice(0, workspaceStore.layouts.length)) {
 			if (!element) return;
 			rects.push({ left: element.offsetLeft, width: element.offsetWidth });
 		}
@@ -77,7 +78,7 @@
 			maxDx: last.left + last.width - tab.width - tab.left,
 			minDx: rects[0].left - tab.left,
 			pointerId: event.pointerId,
-			presetId,
+			layoutId,
 			rects,
 			startX: event.clientX,
 			targetIndex: index,
@@ -108,7 +109,7 @@
 
 	async function handleTabPointerEnd(event: PointerEvent, commit: boolean): Promise<void> {
 		if (!drag || event.pointerId !== drag.pointerId) return;
-		const { active, dx, index, presetId, rects, targetIndex, width } = drag;
+		const { active, dx, index, layoutId, rects, targetIndex, width } = drag;
 
 		// Without a reorder the tab just slides home; its static position never changes
 		if (!commit || !active || targetIndex === index) {
@@ -122,14 +123,14 @@
 		// distance from its release point to the slot.
 		const target = rects[targetIndex];
 		const slotLeft = targetIndex > index ? target.left + target.width - width : target.left;
-		settle = { dx: rects[index].left + dx - slotLeft, pending: true, presetId };
+		settle = { dx: rects[index].left + dx - slotLeft, pending: true, layoutId };
 		drag = null;
-		workspaceStore.moveLayoutPreset(presetId, targetIndex);
+		workspaceStore.moveLayout(layoutId, targetIndex);
 
 		await tick();
 		// Flush layout so the pending position is the transition's starting point
 		tabElements[targetIndex]?.getBoundingClientRect();
-		settle = { dx: 0, pending: false, presetId };
+		settle = { dx: 0, pending: false, layoutId };
 		window.clearTimeout(settleTimer);
 		settleTimer = window.setTimeout(() => (settle = null), 200);
 	}
@@ -153,12 +154,12 @@
 		return undefined;
 	}
 
-	function handleTabClick(presetId: string): void {
+	function handleTabClick(layoutId: string): void {
 		if (suppressNextClick) {
 			suppressNextClick = false;
 			return;
 		}
-		workspaceStore.applyLayoutPreset(presetId);
+		void workspaceStore.applyLayout(layoutId);
 	}
 </script>
 
@@ -182,10 +183,10 @@
 		class="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden"
 		role="tablist"
 	>
-		{#each workspaceStore.layoutPresets as preset, index (preset.id)}
-			{@const active = workspaceStore.activeLayoutPresetId === preset.id}
-			{@const dragging = drag?.active === true && drag.presetId === preset.id}
-			{@const settleDx = settle?.presetId === preset.id ? settle.dx : null}
+		{#each workspaceStore.layouts as layout, index (layout.id)}
+			{@const active = workspaceStore.activeLayoutId === layout.id}
+			{@const dragging = drag?.active === true && drag.layoutId === layout.id}
+			{@const settleDx = settle?.layoutId === layout.id ? settle.dx : null}
 			{@const shift = tabShift(index)}
 			<ContextMenu.Root>
 				<ContextMenu.Trigger>
@@ -203,7 +204,7 @@
 							]}
 							style:transform={tabTransform(dragging, settleDx, shift)}
 							onpointercancel={(event) => handleTabPointerEnd(event, false)}
-							onpointerdown={(event) => handleTabPointerDown(event, index, preset.id)}
+							onpointerdown={(event) => handleTabPointerDown(event, index, layout.id)}
 							onpointermove={handleTabPointerMove}
 							onpointerup={(event) => handleTabPointerEnd(event, true)}
 						>
@@ -213,18 +214,18 @@
 								class="flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-3 text-left text-xs font-medium outline-none"
 								role="tab"
 								type="button"
-								onclick={() => handleTabClick(preset.id)}
+								onclick={() => handleTabClick(layout.id)}
 							>
 								<LayoutDashboard class="size-3.5 shrink-0" />
-								<span class="truncate">{preset.name}</span>
+								<span class="truncate">{layout.name}</span>
 							</button>
-							{#if workspaceStore.layoutPresets.length > 1}
+							{#if workspaceStore.layouts.length > 1}
 								<ActionIcon
 									class="mr-1 size-6 shrink-0 rounded-full opacity-65 hover:opacity-100"
-									label={`Close ${preset.name}`}
+									label={`Close ${layout.name}`}
 									size="icon-sm"
 									variant="ghost"
-									onclick={() => workspaceStore.deleteLayoutPreset(preset.id)}
+									onclick={() => void workspaceStore.deleteLayout(layout.id)}
 								>
 									<X />
 								</ActionIcon>
@@ -235,16 +236,16 @@
 				<ContextMenu.Content>
 					<ContextMenu.Item
 						onclick={() => {
-							renamePresetId = preset.id;
-							renameName = preset.name;
+							renameLayoutId = layout.id;
+							renameName = layout.name;
 						}}
 					>
 						<Pencil />
 						Rename layout
 					</ContextMenu.Item>
 					<ContextMenu.CheckboxItem
-						checked={preset.snapshot.windowMovementLocked}
-						onCheckedChange={(locked) => workspaceStore.setWindowMovementLocked(preset.id, locked)}
+						checked={layout.snapshot.windowMovementLocked}
+						onCheckedChange={(locked) => workspaceStore.setWindowMovementLocked(layout.id, locked)}
 					>
 						<Lock />
 						Lock layout
@@ -257,7 +258,7 @@
 			class="ml-1 size-7 shrink-0 rounded-full"
 			label="New layout"
 			variant="ghost"
-			onclick={() => workspaceStore.addLayoutPreset()}
+			onclick={() => void workspaceStore.addLayout()}
 		>
 			<Plus />
 		</ActionIcon>
@@ -266,18 +267,23 @@
 </nav>
 
 <Dialog.Root
-	open={Boolean(renamePresetId)}
-	onOpenChange={(open) => !open && (renamePresetId = null)}
+	open={Boolean(renameLayoutId)}
+	onOpenChange={(open) => !open && (renameLayoutId = null)}
 >
 	<Dialog.Content>
-		<form class="grid gap-4" onsubmit={renameLayout}>
+		<form class="grid gap-4" onsubmit={submitRename}>
 			<Dialog.Header>
 				<Dialog.Title>Rename layout</Dialog.Title>
 				<Dialog.Description>Choose a name for this workspace layout.</Dialog.Description>
 			</Dialog.Header>
-			<Input bind:value={renameName} aria-label="Layout name" autofocus maxlength={64} />
+			<Input
+				bind:value={renameName}
+				aria-label="Layout name"
+				autofocus
+				maxlength={LAYOUT_NAME_MAX_LENGTH}
+			/>
 			<Dialog.Footer>
-				<Button type="button" variant="outline" onclick={() => (renamePresetId = null)}>
+				<Button type="button" variant="outline" onclick={() => (renameLayoutId = null)}>
 					Cancel
 				</Button>
 				<Button type="submit" disabled={!renameName.trim()}>Rename</Button>

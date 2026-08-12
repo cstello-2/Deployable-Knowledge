@@ -7,3 +7,5 @@ export * from './error';
 export * from './local-models';
 export * from './ndjson';
 export * from './storage';
+export * from './theme-defaults';
+export * from './workspace-defaults';

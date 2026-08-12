@@ -1,3 +1,4 @@
+import type { ThemeColor, ThemeMode } from '$lib/constants/theme-defaults';
 import type { RetrievalMode } from '$lib/enums';
 import type { AgentGoal, AgentProgressEvent } from './agent';
 import type {
@@ -6,8 +7,10 @@ import type {
 	DocumentChunk,
 	NotebookSource,
 	NotebookWithPages,
-	SyncedFolder
+	SyncedFolder,
+	WorkspaceLayout
 } from './database';
+import type { WorkspaceLayoutSnapshot } from './workspace';
 
 export type LlamaGpuMode = 'auto' | 'cpu' | 'cuda' | 'vulkan';
 
@@ -228,6 +231,26 @@ export interface ApiReorderResponse {
 
 export interface ApiNotebookSourcesRequest {
 	chunk_ids: string[];
+}
+
+export interface ThemeSettings {
+	color: ThemeColor;
+	mode: ThemeMode;
+}
+
+export interface ApiWorkspaceLayoutCreateRequest {
+	name?: string;
+	snapshot: WorkspaceLayoutSnapshot;
+}
+
+export interface ApiWorkspaceLayoutUpdateRequest {
+	name?: string;
+	snapshot?: WorkspaceLayoutSnapshot;
+}
+
+export interface WorkspaceLayoutStateResponse {
+	activeLayoutId: string;
+	layouts: WorkspaceLayout[];
 }
 
 export interface NotebookStateResponse {

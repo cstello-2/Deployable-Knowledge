@@ -4,7 +4,7 @@ import { eq, max } from 'drizzle-orm';
 import type { ApiNotebookPageTitleRequest, ApiReorderResponse } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { notebooks, notebookPages, type NewNotebookPage } from '$lib/server/database/schema';
-import { parseReorderRequest } from '$lib/server/notebooks/notebook-order';
+import { parseReorderRequest } from '$lib/server/utils/reorder';
 import {
 	loadNotebookState,
 	NotebooksRepository,

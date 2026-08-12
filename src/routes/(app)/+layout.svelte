@@ -1,7 +1,6 @@
 <script lang="ts">
 	import '../../app.css';
 	import { onMount } from 'svelte';
-	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from 'svelte-sonner';
 	import packageMetadata from '../../../package.json';
 	import favicon from '$lib/assets/icon.svg';
@@ -10,21 +9,23 @@
 	import { SettingsDialog } from '$lib/components/app/settings';
 	import EngineHeartbeat from '$lib/components/app/navigation/EngineHeartbeat.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { STORAGE_KEYS } from '$lib/constants';
 	import { settingsStore, setupStore, themeStore, workspaceStore } from '$lib/stores';
 
 	let { children } = $props();
-	let layoutReady = $state(false);
+	let framesPainted = $state(false);
+	// The workspace layout arrives from the database, so the overlay has to cover
+	// that fetch or the tab strip renders empty first.
+	const layoutReady = $derived(framesPainted && workspaceStore.ready);
 
 	onMount(() => {
 		themeStore.init();
-		workspaceStore.init();
+		void workspaceStore.init();
 		void settingsStore.init();
 		void setupStore.init();
 
 		let secondFrame = 0;
 		const firstFrame = requestAnimationFrame(() => {
-			secondFrame = requestAnimationFrame(() => (layoutReady = true));
+			secondFrame = requestAnimationFrame(() => (framesPainted = true));
 		});
 
 		return () => {
@@ -43,12 +44,6 @@
 		{@render children()}
 	</div>
 
-	<ModeWatcher
-		defaultTheme="classic"
-		disableHeadScriptInjection
-		modeStorageKey={STORAGE_KEYS.THEME_MODE}
-		themeStorageKey={STORAGE_KEYS.THEME_COLOR}
-	/>
 	<Toaster richColors />
 	<EngineHeartbeat />
 	<SettingsDialog />

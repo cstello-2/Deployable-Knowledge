@@ -91,4 +91,13 @@ export const API_SESSIONS = {
 
 export const API_SETUP = '/setup';
 
+export const API_THEME = '/theme';
+
 export const API_TOOLS = '/tools';
+
+export const API_WORKSPACE_LAYOUTS = {
+	BASE: '/workspace-layouts',
+	REORDER: '/workspace-layouts/reorder',
+	byId: (id: string) => `/workspace-layouts/${segment(id)}`,
+	activate: (id: string) => `/workspace-layouts/${segment(id)}/activate`
+};

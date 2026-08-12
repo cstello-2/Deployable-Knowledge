@@ -13,6 +13,7 @@ import {
 	type NotebookPage,
 	type NotebookWithPages
 } from '$lib/server/database/schema';
+import { hasExactIds } from '$lib/server/utils/reorder';
 
 export interface NotebookPageInput {
 	content: string;
@@ -240,14 +241,6 @@ export class NotebooksRepository {
 			null;
 		return { activeNotebookId, notebooks: output };
 	}
-}
-
-function hasExactIds(current: readonly { id: string }[], orderedIds: readonly string[]): boolean {
-	if (current.length !== orderedIds.length) return false;
-	const currentIds = new Set(current.map(({ id }) => id));
-	return (
-		new Set(orderedIds).size === orderedIds.length && orderedIds.every((id) => currentIds.has(id))
-	);
 }
 
 export const createDefaultNotebook = () => NotebooksRepository.createDefault();

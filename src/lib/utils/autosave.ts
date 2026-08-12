@@ -1,10 +1,11 @@
-export interface NotebookAutosave {
+export interface Autosave {
 	destroy: () => void;
 	flush: () => Promise<void>;
+	pending: () => boolean;
 	schedule: () => void;
 }
 
-export function createNotebookAutosave(save: () => Promise<void>, delay = 350): NotebookAutosave {
+export function createAutosave(save: () => Promise<void>, delay = 350): Autosave {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let pending = false;
 
@@ -23,6 +24,9 @@ export function createNotebookAutosave(save: () => Promise<void>, delay = 350): 
 			timer = setTimeout(() => void flush(), delay);
 		},
 		flush,
+		pending() {
+			return pending;
+		},
 		destroy() {
 			void flush();
 		}

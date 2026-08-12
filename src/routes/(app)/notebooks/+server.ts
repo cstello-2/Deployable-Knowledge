@@ -14,7 +14,7 @@ import {
 	NotebooksRepository,
 	setActiveNotebook
 } from '$lib/server/repositories/notebooks.repository';
-import { parseReorderRequest } from '$lib/server/notebooks/notebook-order';
+import { parseReorderRequest } from '$lib/server/utils/reorder';
 
 export const GET: RequestHandler = async () => {
 	return json(await loadNotebookState());

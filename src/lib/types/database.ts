@@ -27,6 +27,7 @@ export type {
 	NewSyncedFile,
 	NewSyncedFolder,
 	NewTag,
+	NewWorkspaceLayout,
 	Notebook,
 	NotebookPage,
 	NotebookSource,
@@ -38,5 +39,6 @@ export type {
 	SessionMessage,
 	SyncedFile,
 	SyncedFolder,
-	Tag
+	Tag,
+	WorkspaceLayout
 } from '$lib/server/database/schema';

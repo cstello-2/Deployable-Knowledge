@@ -1,59 +1,74 @@
 import { browser } from '$app/environment';
-import { setMode, setTheme } from 'mode-watcher';
-import { STORAGE_KEYS } from '$lib/constants';
-
-export const THEME_COLORS = [
-	'classic',
-	'purple',
-	'blue',
-	'yellow',
-	'green',
-	'high-contrast'
-] as const;
-export type ThemeMode = 'light' | 'dark' | 'system';
-
-export const THEME_MODES: ThemeMode[] = ['light', 'dark', 'system'];
-
-export type ThemeColor = (typeof THEME_COLORS)[number];
+import { toast } from 'svelte-sonner';
+import {
+	DEFAULT_THEME,
+	parseThemeColor,
+	parseThemeMode,
+	type ThemeColor,
+	type ThemeMode
+} from '$lib/constants';
+import { ThemeService } from '$lib/services';
 
 class ThemeStore {
-	color = $state<ThemeColor>('classic');
-	mode = $state<ThemeMode>('system');
+	private initialized = false;
+	private systemDark: MediaQueryList | null = null;
+	color = $state<ThemeColor>(DEFAULT_THEME.color);
+	mode = $state<ThemeMode>(DEFAULT_THEME.mode);
 
 	init(): void {
-		if (!browser) return;
-		this.color = parseColor(localStorage.getItem(STORAGE_KEYS.THEME_COLOR));
-		this.mode = parseMode(localStorage.getItem(STORAGE_KEYS.THEME_MODE));
-		this.apply();
+		if (!browser || this.initialized) return;
+		this.initialized = true;
+
+		// `handle` in hooks.server.ts stamped the stored theme onto <html> before the
+		// document was sent, so the DOM already holds the persisted values.
+		const root = document.documentElement;
+		this.color = parseThemeColor(root.dataset.theme);
+		this.mode = parseThemeMode(root.dataset.mode);
+
+		this.systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+		this.systemDark.addEventListener('change', this.handleSystemChange);
 	}
 
 	setColor(color: ThemeColor): void {
+		if (color === this.color) return;
 		this.color = color;
 		this.apply();
+		void this.save();
 	}
 
 	setMode(mode: ThemeMode): void {
+		if (mode === this.mode) return;
 		this.mode = mode;
 		this.apply();
+		void this.save();
 	}
 
 	private apply(): void {
 		if (!browser) return;
-		localStorage.setItem(STORAGE_KEYS.THEME_COLOR, this.color);
-		localStorage.setItem(STORAGE_KEYS.THEME_MODE, this.mode);
-		setTheme(this.color);
-		setMode(this.mode);
+		const root = document.documentElement;
+		const dark = this.mode === 'dark' || (this.mode === 'system' && this.prefersDark());
+
+		root.dataset.theme = this.color;
+		root.dataset.mode = this.mode;
+		root.classList.toggle('dark', dark);
+		root.style.colorScheme = dark ? 'dark' : 'light';
 	}
-}
 
-function parseColor(value: string | null): ThemeColor {
-	const normalized = value?.toLowerCase().replaceAll(' ', '-');
-	return THEME_COLORS.includes(normalized as ThemeColor) ? (normalized as ThemeColor) : 'classic';
-}
+	private prefersDark(): boolean {
+		return this.systemDark?.matches ?? false;
+	}
 
-function parseMode(value: string | null): ThemeMode {
-	const normalized = value?.toLowerCase();
-	return THEME_MODES.includes(normalized as ThemeMode) ? (normalized as ThemeMode) : 'system';
+	private async save(): Promise<void> {
+		try {
+			await ThemeService.update({ color: this.color, mode: this.mode });
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private handleSystemChange = (): void => {
+		if (this.mode === 'system') this.apply();
+	};
 }
 
 export const themeStore = new ThemeStore();

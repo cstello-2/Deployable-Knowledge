@@ -6,13 +6,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as ButtonGroup from '$lib/components/ui/button-group';
 	import { Label } from '$lib/components/ui/label';
-	import {
-		THEME_COLORS,
-		THEME_MODES,
-		themeStore,
-		type ThemeColor,
-		type ThemeMode
-	} from '$lib/stores';
+	import { THEME_COLORS, THEME_MODES, type ThemeColor, type ThemeMode } from '$lib/constants';
+	import { themeStore } from '$lib/stores';
 
 	const colorOptions: Record<ThemeColor, { label: string; swatch: string }> = {
 		classic: { label: 'Classic', swatch: 'bg-sky-500' },

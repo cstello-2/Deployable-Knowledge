@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { ApiError } from '$lib/utils';
+	import { ApiError, createAutosave } from '$lib/utils';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
@@ -19,7 +19,6 @@
 		NotebookSourceItem,
 		NotebookWithPages
 	} from '$lib/types';
-	import { createNotebookAutosave } from './notebook-autosave';
 	import { notebookCountLabel } from './notebook-format';
 	import type {
 		NotebookDeleteTarget,
@@ -115,7 +114,7 @@
 		}
 	}
 
-	const autosave = createNotebookAutosave(saveCurrentPage);
+	const autosave = createAutosave(saveCurrentPage);
 
 	$effect(() => {
 		const page = notebooksStore.activePage;

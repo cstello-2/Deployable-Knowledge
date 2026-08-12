@@ -10,3 +10,14 @@ export function parseReorderRequest(value: unknown): ApiReorderRequest | null {
 	if (new Set(orderedIds).size !== orderedIds.length) return null;
 	return { orderedIds };
 }
+
+export function hasExactIds(
+	current: readonly { id: string }[],
+	orderedIds: readonly string[]
+): boolean {
+	if (current.length !== orderedIds.length) return false;
+	const currentIds = new Set(current.map(({ id }) => id));
+	return (
+		new Set(orderedIds).size === orderedIds.length && orderedIds.every((id) => currentIds.has(id))
+	);
+}

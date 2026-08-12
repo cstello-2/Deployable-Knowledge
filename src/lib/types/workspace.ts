@@ -20,9 +20,3 @@ export interface WorkspaceLayoutSnapshot {
 	leftPaneCollapsed: boolean;
 	windowMovementLocked: boolean;
 }
-
-export interface LayoutPreset {
-	id: string;
-	name: string;
-	snapshot: WorkspaceLayoutSnapshot;
-}

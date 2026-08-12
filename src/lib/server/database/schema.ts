@@ -7,12 +7,37 @@ import {
 	text,
 	uniqueIndex
 } from 'drizzle-orm/sqlite-core';
-import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
+import {
+	DEFAULT_ASSISTANT_CONFIG,
+	DEFAULT_THEME,
+	LAYOUT_NAME_MAX_LENGTH,
+	THEME_COLORS,
+	THEME_MODES
+} from '$lib/constants';
+import type { WorkspaceLayoutSnapshot } from '$lib/types/workspace';
 
 export const appState = sqliteTable('app_state', {
 	id: text('id').primaryKey().default('app'),
-	activeProfileId: text('active_profile_id')
+	activeProfileId: text('active_profile_id'),
+	activeLayoutId: text('active_layout_id'),
+	themeColor: text('theme_color', { enum: THEME_COLORS }).notNull().default(DEFAULT_THEME.color),
+	themeMode: text('theme_mode', { enum: THEME_MODES }).notNull().default(DEFAULT_THEME.mode)
 });
+
+// Workspace layout tabs. The snapshot is opaque UI state that is always read and
+// written whole, so it lives in a single JSON column rather than a child table.
+export const workspaceLayouts = sqliteTable(
+	'workspace_layouts',
+	{
+		id: text('id').primaryKey(),
+		name: text('name', { length: LAYOUT_NAME_MAX_LENGTH }).notNull(),
+		sortOrder: integer('sort_order').notNull().default(0),
+		snapshot: text('snapshot', { mode: 'json' }).$type<WorkspaceLayoutSnapshot>().notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp' })
+	},
+	(table) => [index('workspace_layouts_sort_idx').on(table.sortOrder)]
+);
 
 export const promptTemplates = sqliteTable(
 	'prompt_templates',
@@ -303,6 +328,9 @@ export type NewNotebookSource = typeof notebookSources.$inferInsert;
 
 export type AppState = typeof appState.$inferSelect;
 export type NewAppState = typeof appState.$inferInsert;
+
+export type WorkspaceLayout = typeof workspaceLayouts.$inferSelect;
+export type NewWorkspaceLayout = typeof workspaceLayouts.$inferInsert;
 
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type NewPromptTemplate = typeof promptTemplates.$inferInsert;

@@ -63,8 +63,14 @@ These instructions apply to the entire repository. Preserve them when adding or 
 - Do not add a persistent application sidebar. The main workspace toolbar places the left-column
   toggle before the layout tabs and Tools and Settings controls at the far right.
 - The app is single-user and local: there is no authentication, no users table, and no per-user
-  scoping. App-wide state (like the active profile) lives in the `app_state` table.
+  scoping. App-wide state (like the active profile, active layout, and theme) lives in the
+  `app_state` table.
+- The theme is stored in the database, not `localStorage`. `handle` in `hooks.server.ts` stamps it
+  onto `<html>` so the first paint is already correct; the boot script in `app.html` only resolves
+  `system` mode. Keep new appearance state on that path rather than adding a pre-paint storage read.
 - Workspace windows must be declared in `window-registry.ts` and persisted through `workspaceStore`.
+  Layouts live in the `workspace_layouts` table with the active tab in `app_state`; `workspaceStore`
+  reaches them through `WorkspaceLayoutsService` and never touches browser storage.
 - Keep HTTP endpoint paths in `src/lib/constants/api-endpoints.ts` and browser I/O in services.
 - Keep reusable application rules aligned with `src/lib/components/app/SKILL.md`.
 

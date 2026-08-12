@@ -1,4 +1,5 @@
-import type { ServerInit } from '@sveltejs/kit';
+import type { Handle, ServerInit } from '@sveltejs/kit';
+import { getThemeSettings } from '$lib/server/database/app-state';
 import { bootstrapSchema } from '$lib/server/database/bootstrap-schema';
 import { folderWatcherManager } from '$lib/server/documents/folder-watcher';
 
@@ -18,6 +19,18 @@ function registerShutdown(): void {
 	process.once('SIGINT', () => void shutdown(130));
 	process.once('SIGTERM', () => void shutdown(143));
 }
+
+// The theme lives in the database, so it cannot be read before paint the way a
+// localStorage value can. Stamping it onto <html> during render keeps the boot
+// script synchronous and the first paint correctly themed.
+export const handle: Handle = async ({ event, resolve }) => {
+	const theme = await getThemeSettings();
+
+	return resolve(event, {
+		transformPageChunk: ({ html }) =>
+			html.replace('%dk.themeColor%', theme.color).replace('%dk.themeMode%', theme.mode)
+	});
+};
 
 export const init: ServerInit = async () => {
 	registerShutdown();

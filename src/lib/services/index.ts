@@ -13,4 +13,6 @@ export { PromptTemplatesService } from './prompt-templates.service';
 export { ProvidersService } from './providers.service';
 export { SearchService } from './search.service';
 export { SetupService } from './setup.service';
+export { ThemeService } from './theme.service';
 export { ToolsService } from './tools.service';
+export { WorkspaceLayoutsService } from './workspace-layouts.service';

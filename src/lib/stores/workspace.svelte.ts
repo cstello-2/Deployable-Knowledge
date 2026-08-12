@@ -1,58 +1,51 @@
 import { browser } from '$app/environment';
-import { SvelteSet } from 'svelte/reactivity';
-import { STORAGE_KEYS } from '$lib/constants';
+import { toast } from 'svelte-sonner';
+import {
+	DEFAULT_WINDOW_HEIGHT,
+	DEFAULT_WINDOW_PLACEMENTS,
+	LAYOUT_NAME_MAX_LENGTH
+} from '$lib/constants';
 import { WindowColumn } from '$lib/enums';
+import { WorkspaceLayoutsService } from '$lib/services';
 import type {
-	LayoutPreset,
 	WindowDropPlacement,
 	WindowPlacement,
-	WorkspaceLayoutSnapshot
+	WorkspaceLayout,
+	WorkspaceLayoutSnapshot,
+	WorkspaceLayoutStateResponse
 } from '$lib/types';
+import { createAutosave } from '$lib/utils';
 
-const DEFAULT_PRESET_ID = 'layout-default';
-const DEFAULT_WINDOW_HEIGHT = 320;
-
-const DEFAULT_PLACEMENTS: WindowPlacement[] = [
-	placement('documents-window', WindowColumn.LEFT),
-	placement('chat-history-window', WindowColumn.LEFT),
-	placement('chat-window', WindowColumn.RIGHT),
-	placement('search-context-window', WindowColumn.RIGHT),
-	placement('notebook-window', WindowColumn.RIGHT)
-];
-
-interface StoredPresetState {
-	activePresetId: string;
-	presets: LayoutPreset[];
-}
+const SNAPSHOT_SAVE_DELAY = 400;
 
 class WorkspaceStore {
-	private initialized = false;
-	private suppressPresetSave = false;
-	windowPlacements = $state<WindowPlacement[]>(clonePlacements(DEFAULT_PLACEMENTS));
+	private loading = false;
+	private suppressLayoutSave = false;
+	private autosave = createAutosave(() => this.saveActiveSnapshot(), SNAPSHOT_SAVE_DELAY);
+	windowPlacements = $state<WindowPlacement[]>(clonePlacements(DEFAULT_WINDOW_PLACEMENTS));
 	leftPaneCollapsed = $state(false);
 	leftPaneWidth = $state<number | null>(null);
 	windowMovementLocked = $state(false);
-	layoutPresets = $state<LayoutPreset[]>([]);
-	activeLayoutPresetId = $state(DEFAULT_PRESET_ID);
+	layouts = $state<WorkspaceLayout[]>([]);
+	activeLayoutId = $state<string | null>(null);
+	ready = $state(false);
 
 	get visiblePlacements(): WindowPlacement[] {
 		return this.windowPlacements.filter(({ visible }) => visible);
 	}
 
-	init(): void {
-		if (!browser || this.initialized) return;
-
-		this.windowPlacements = readPlacements();
-		const stored = readPresetState();
-		const presets = stored?.presets.length
-			? stored.presets
-			: [createPreset(DEFAULT_PRESET_ID, 'Layout 1', this.capture())];
-		const active = presets.find(({ id }) => id === stored?.activePresetId) ?? presets[0];
-
-		this.layoutPresets = presets;
-		this.restore(active.id, active.snapshot);
-		this.initialized = true;
-		this.persist();
+	async init(): Promise<void> {
+		if (!browser || this.ready || this.loading) return;
+		this.loading = true;
+		try {
+			this.applyState(await WorkspaceLayoutsService.list());
+			window.addEventListener('pagehide', this.handlePageHide);
+			this.ready = true;
+		} catch (error) {
+			toast.error(message(error));
+		} finally {
+			this.loading = false;
+		}
 	}
 
 	isWindowVisible(id: string): boolean {
@@ -128,7 +121,7 @@ class WorkspaceStore {
 	}
 
 	toggleLeftPaneCollapsed(): void {
-		this.ensureInitialized();
+		if (!this.ready) return;
 		this.leftPaneCollapsed = !this.leftPaneCollapsed;
 		this.changed();
 	}
@@ -141,83 +134,83 @@ class WorkspaceStore {
 		this.changed();
 	}
 
-	renameLayoutPreset(id: string, name: string): void {
-		this.ensureInitialized();
-		const nextName = name.trim().slice(0, 64);
+	renameLayout(id: string, name: string): void {
+		if (!this.ready) return;
+		const nextName = name.trim().slice(0, LAYOUT_NAME_MAX_LENGTH);
 		if (!nextName) return;
-		this.layoutPresets = this.layoutPresets.map((preset) =>
-			preset.id === id ? { ...preset, name: nextName } : preset
+		this.layouts = this.layouts.map((layout) =>
+			layout.id === id ? { ...layout, name: nextName } : layout
 		);
-		this.persist();
+		void this.request(() => WorkspaceLayoutsService.update(id, { name: nextName }));
 	}
 
 	setWindowMovementLocked(id: string, locked: boolean): void {
-		this.ensureInitialized();
-		if (!this.layoutPresets.some((preset) => preset.id === id)) return;
-		if (id === this.activeLayoutPresetId) this.windowMovementLocked = locked;
-		this.layoutPresets = this.layoutPresets.map((preset) =>
-			preset.id === id
-				? {
-						...preset,
-						snapshot: { ...preset.snapshot, windowMovementLocked: locked }
-					}
-				: preset
+		if (!this.ready) return;
+		const layout = this.layouts.find((candidate) => candidate.id === id);
+		if (!layout) return;
+
+		const snapshot = { ...layout.snapshot, windowMovementLocked: locked };
+		if (id === this.activeLayoutId) this.windowMovementLocked = locked;
+		this.layouts = this.layouts.map((candidate) =>
+			candidate.id === id ? { ...candidate, snapshot } : candidate
 		);
-		this.persist();
+		void this.request(() => WorkspaceLayoutsService.update(id, { snapshot }));
 	}
 
-	applyLayoutPreset(id: string): void {
-		this.ensureInitialized();
-		const preset = this.layoutPresets.find((candidate) => candidate.id === id);
-		if (preset) this.restore(id, preset.snapshot);
+	async applyLayout(id: string): Promise<void> {
+		if (!this.ready || id === this.activeLayoutId) return;
+		const layout = this.layouts.find((candidate) => candidate.id === id);
+		if (!layout) return;
+
+		// Flush first so a debounced snapshot lands on the layout it belongs to.
+		await this.autosave.flush();
+		this.restore(id, layout.snapshot);
+		await this.request(() => WorkspaceLayoutsService.activate(id));
 	}
 
-	addLayoutPreset(): void {
-		this.ensureInitialized();
-		let number = this.layoutPresets.length + 1;
-		while (this.layoutPresets.some(({ name }) => name === `Layout ${number}`)) number += 1;
-		const preset = createPreset(createPresetId(), `Layout ${number}`, this.capture());
-		this.layoutPresets = [...this.layoutPresets, preset];
-		this.activeLayoutPresetId = preset.id;
-		this.persist();
+	async addLayout(): Promise<void> {
+		if (!this.ready) return;
+		await this.autosave.flush();
+		const snapshot = this.capture();
+		await this.request(async () => {
+			const layout = await WorkspaceLayoutsService.create({ snapshot });
+			this.layouts = [...this.layouts, layout];
+			this.restore(layout.id, layout.snapshot);
+			await WorkspaceLayoutsService.activate(layout.id);
+		});
 	}
 
-	moveLayoutPreset(movingId: string, targetIndex: number): void {
-		this.ensureInitialized();
-		const currentIndex = this.layoutPresets.findIndex(({ id }) => id === movingId);
+	async moveLayout(movingId: string, targetIndex: number): Promise<void> {
+		if (!this.ready) return;
+		const currentIndex = this.layouts.findIndex(({ id }) => id === movingId);
 		if (currentIndex < 0) return;
-		const insertIndex = Math.max(0, Math.min(targetIndex, this.layoutPresets.length - 1));
+		const insertIndex = Math.max(0, Math.min(targetIndex, this.layouts.length - 1));
 		if (insertIndex === currentIndex) return;
 
-		const presets = [...this.layoutPresets];
-		const [moving] = presets.splice(currentIndex, 1);
-		presets.splice(insertIndex, 0, moving);
-		this.layoutPresets = presets;
-		this.persist();
+		// The reorder response rewrites every layout, so a debounced snapshot has to
+		// reach the server first or it would be overwritten by the stored copy.
+		await this.autosave.flush();
+		const layouts = [...this.layouts];
+		const [moving] = layouts.splice(currentIndex, 1);
+		layouts.splice(insertIndex, 0, moving);
+		this.layouts = layouts;
+		await this.request(async () =>
+			this.applyState(await WorkspaceLayoutsService.reorder(layouts.map(({ id }) => id)))
+		);
 	}
 
-	deleteLayoutPreset(id: string): void {
-		this.ensureInitialized();
-		if (this.layoutPresets.length <= 1) return;
+	async deleteLayout(id: string): Promise<void> {
+		if (!this.ready || this.layouts.length <= 1) return;
+		if (!this.layouts.some((layout) => layout.id === id)) return;
 
-		const deletedIndex = this.layoutPresets.findIndex((preset) => preset.id === id);
-		if (deletedIndex < 0) return;
+		await this.autosave.flush();
+		await this.request(async () => this.applyState(await WorkspaceLayoutsService.delete(id)));
+	}
 
-		const nextPresets = this.layoutPresets.filter((preset) => preset.id !== id);
-		if (id !== this.activeLayoutPresetId) {
-			this.layoutPresets = nextPresets;
-			this.persist();
-			return;
-		}
-
-		const next = nextPresets[Math.min(deletedIndex, nextPresets.length - 1)] ?? nextPresets[0];
-		if (!next) return;
-
-		this.suppressPresetSave = true;
-		this.layoutPresets = nextPresets;
-		this.restore(next.id, next.snapshot);
-		this.suppressPresetSave = false;
-		this.persist();
+	private applyState({ layouts, activeLayoutId }: WorkspaceLayoutStateResponse): void {
+		this.layouts = layouts;
+		const active = layouts.find(({ id }) => id === activeLayoutId) ?? layouts[0];
+		if (active) this.restore(active.id, active.snapshot);
 	}
 
 	private mutatePlacements(mutate: (items: WindowPlacement[]) => WindowPlacement[]): void {
@@ -226,19 +219,17 @@ class WorkspaceStore {
 	}
 
 	private changed(): void {
-		if (!this.initialized || this.suppressPresetSave) return;
+		if (!this.ready || this.suppressLayoutSave || !this.activeLayoutId) return;
 		const snapshot = this.capture();
-		this.layoutPresets = this.layoutPresets.map((preset) =>
-			preset.id === this.activeLayoutPresetId
-				? { ...preset, snapshot: cloneSnapshot(snapshot) }
-				: preset
+		this.layouts = this.layouts.map((layout) =>
+			layout.id === this.activeLayoutId ? { ...layout, snapshot: cloneSnapshot(snapshot) } : layout
 		);
-		this.persist();
+		this.autosave.schedule();
 	}
 
 	private capture(): WorkspaceLayoutSnapshot {
 		return {
-			windowPlacements: clonePlacements(normalizePlacements(this.windowPlacements)),
+			windowPlacements: clonePlacements(this.windowPlacements),
 			leftWidth: this.leftPaneWidth,
 			leftPaneCollapsed: this.leftPaneCollapsed,
 			windowMovementLocked: this.windowMovementLocked
@@ -246,148 +237,42 @@ class WorkspaceStore {
 	}
 
 	private restore(id: string, snapshot: WorkspaceLayoutSnapshot): void {
-		const wasSuppressed = this.suppressPresetSave;
-		this.suppressPresetSave = true;
-		this.activeLayoutPresetId = id;
+		const wasSuppressed = this.suppressLayoutSave;
+		this.suppressLayoutSave = true;
+		this.activeLayoutId = id;
 		this.leftPaneWidth = snapshot.leftWidth;
 		this.leftPaneCollapsed = snapshot.leftPaneCollapsed;
 		this.windowMovementLocked = snapshot.windowMovementLocked;
-		this.windowPlacements = normalizePlacements(snapshot.windowPlacements);
-		this.suppressPresetSave = wasSuppressed;
-		this.persist();
+		this.windowPlacements = clonePlacements(snapshot.windowPlacements);
+		this.suppressLayoutSave = wasSuppressed;
 	}
 
-	private persist(): void {
-		if (!browser || !this.initialized) return;
-		localStorage.setItem(STORAGE_KEYS.WINDOW_PLACEMENTS, JSON.stringify(this.windowPlacements));
-		localStorage.setItem(
-			STORAGE_KEYS.LAYOUT_PRESET_STATE,
-			JSON.stringify({
-				activePresetId: this.activeLayoutPresetId,
-				presets: this.layoutPresets
-			} satisfies StoredPresetState)
+	private saveActiveSnapshot(options?: { keepalive: boolean }): Promise<void> {
+		const id = this.activeLayoutId;
+		if (!id) return Promise.resolve();
+		return this.request(() =>
+			WorkspaceLayoutsService.update(id, { snapshot: this.capture() }, options)
 		);
 	}
 
-	private ensureInitialized(): void {
-		if (!this.initialized) this.init();
+	private async request(run: () => Promise<unknown>): Promise<void> {
+		try {
+			await run();
+		} catch (error) {
+			toast.error(message(error));
+		}
 	}
-}
 
-function placement(id: string, column: WindowColumn): WindowPlacement {
-	return { id, column, visible: true, collapsed: false, height: DEFAULT_WINDOW_HEIGHT };
-}
-
-function readPlacements(): WindowPlacement[] {
-	try {
-		return normalizePlacements(
-			JSON.parse(localStorage.getItem(STORAGE_KEYS.WINDOW_PLACEMENTS) ?? 'null')
-		);
-	} catch {
-		return clonePlacements(DEFAULT_PLACEMENTS);
-	}
-}
-
-function readPresetState(): StoredPresetState | null {
-	const current = parsePresetState(localStorage.getItem(STORAGE_KEYS.LAYOUT_PRESET_STATE));
-	if (current) return current;
-
-	const presets = parsePresets(localStorage.getItem(STORAGE_KEYS.LEGACY_LAYOUT_PRESETS));
-	if (!presets.length) return null;
-	return {
-		activePresetId: localStorage.getItem(STORAGE_KEYS.LEGACY_ACTIVE_LAYOUT_PRESET) ?? presets[0].id,
-		presets
+	private handlePageHide = (): void => {
+		if (!this.autosave.pending()) return;
+		void this.saveActiveSnapshot({ keepalive: true });
 	};
-}
-
-function parsePresetState(value: string | null): StoredPresetState | null {
-	try {
-		const parsed: unknown = JSON.parse(value ?? 'null');
-		if (!isRecord(parsed) || typeof parsed.activePresetId !== 'string') return null;
-		const presets = normalizePresets(parsed.presets);
-		return presets.length ? { activePresetId: parsed.activePresetId, presets } : null;
-	} catch {
-		return null;
-	}
-}
-
-function parsePresets(value: string | null): LayoutPreset[] {
-	try {
-		return normalizePresets(JSON.parse(value ?? '[]'));
-	} catch {
-		return [];
-	}
-}
-
-function normalizePresets(value: unknown): LayoutPreset[] {
-	if (!Array.isArray(value)) return [];
-	const seen = new SvelteSet<string>();
-	const result: LayoutPreset[] = [];
-	for (const item of value) {
-		if (!isRecord(item) || typeof item.id !== 'string' || seen.has(item.id)) continue;
-		const snapshot = normalizeSnapshot(item.snapshot);
-		if (!snapshot) continue;
-		seen.add(item.id);
-		const name =
-			typeof item.name === 'string' && item.name.trim()
-				? item.name.trim()
-				: `Layout ${result.length + 1}`;
-		result.push({ id: item.id, name, snapshot });
-	}
-	return result;
-}
-
-function normalizeSnapshot(value: unknown): WorkspaceLayoutSnapshot | null {
-	if (!isRecord(value)) return null;
-	const leftWidth =
-		typeof value.leftWidth === 'number' && Number.isFinite(value.leftWidth) && value.leftWidth > 0
-			? Math.round(value.leftWidth)
-			: null;
-	return {
-		windowPlacements: normalizePlacements(value.windowPlacements),
-		leftWidth,
-		leftPaneCollapsed:
-			typeof value.leftPaneCollapsed === 'boolean' ? value.leftPaneCollapsed : false,
-		windowMovementLocked:
-			typeof value.windowMovementLocked === 'boolean' ? value.windowMovementLocked : false
-	};
-}
-
-function normalizePlacements(value: unknown): WindowPlacement[] {
-	if (!Array.isArray(value)) return clonePlacements(DEFAULT_PLACEMENTS);
-	const defaultsById = new Map(DEFAULT_PLACEMENTS.map((item) => [item.id, item]));
-	const seen = new SvelteSet<string>();
-	const result: WindowPlacement[] = [];
-	for (const item of value) {
-		if (!isRecord(item) || typeof item.id !== 'string' || seen.has(item.id)) continue;
-		const fallback = defaultsById.get(item.id);
-		if (!fallback) continue;
-		result.push({
-			id: fallback.id,
-			column: isWindowColumn(item.column) ? item.column : fallback.column,
-			visible: typeof item.visible === 'boolean' ? item.visible : fallback.visible,
-			collapsed: typeof item.collapsed === 'boolean' ? item.collapsed : fallback.collapsed,
-			height: windowHeight(item.height) ?? fallback.height
-		});
-		seen.add(item.id);
-	}
-	return [...result, ...DEFAULT_PLACEMENTS.filter(({ id }) => !seen.has(id))];
-}
-
-function windowHeight(value: unknown): number | null {
-	return typeof value === 'number' && Number.isFinite(value)
-		? Math.max(0, Math.round(value))
-		: null;
 }
 
 function ensureHeights(items: WindowPlacement[]): WindowPlacement[] {
 	return items.map((item) =>
 		item.visible && item.height === null ? { ...item, height: DEFAULT_WINDOW_HEIGHT } : item
 	);
-}
-
-function createPreset(id: string, name: string, snapshot: WorkspaceLayoutSnapshot): LayoutPreset {
-	return { id, name, snapshot: cloneSnapshot(snapshot) };
 }
 
 function cloneSnapshot(snapshot: WorkspaceLayoutSnapshot): WorkspaceLayoutSnapshot {
@@ -403,18 +288,12 @@ function clonePlacements(items: WindowPlacement[]): WindowPlacement[] {
 	return items.map((item) => ({ ...item }));
 }
 
-function createPresetId(): string {
-	return globalThis.crypto?.randomUUID
-		? `layout-${globalThis.crypto.randomUUID()}`
-		: `layout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
-}
-
 function isWindowColumn(value: unknown): value is WindowColumn {
 	return value === WindowColumn.LEFT || value === WindowColumn.RIGHT;
+}
+
+function message(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 export const workspaceStore = new WorkspaceStore();
