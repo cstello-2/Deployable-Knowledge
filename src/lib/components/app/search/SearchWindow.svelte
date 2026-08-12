@@ -7,7 +7,7 @@
 	import { RetrievalMode } from '$lib/enums';
 	import { SearchService } from '$lib/services';
 	import { documentsStore, notebooksStore, settingsStore } from '$lib/stores';
-	import type { ApiSearchResults } from '$lib/types';
+	import type { ApiSearchMatch, ApiSearchResults } from '$lib/types';
 	import SearchForm from './SearchForm.svelte';
 	import SearchResultCard from './SearchResultCard.svelte';
 
@@ -73,6 +73,16 @@
 			toast.error(saveError instanceof Error ? saveError.message : 'Failed to save chunk');
 		}
 	}
+
+	async function sendToNotebook(result: ApiSearchMatch): Promise<void> {
+		try {
+			await notebooksStore.load();
+			await notebooksStore.appendToActivePage(result.content);
+			toast.success('Chunk text sent to notebook');
+		} catch (sendError) {
+			toast.error(sendError instanceof Error ? sendError.message : 'Failed to send to notebook');
+		}
+	}
 </script>
 
 <WorkspaceWindow
@@ -99,7 +109,12 @@
 					<Skeleton class="h-28" /><Skeleton class="h-28" />
 				{:else}
 					{#each activeResults as result, index (result.chunkId)}
-						<SearchResultCard {result} {index} onSaveChunk={(chunkId) => void saveChunk(chunkId)} />
+						<SearchResultCard
+							{result}
+							{index}
+							onSaveChunk={(chunkId) => void saveChunk(chunkId)}
+							onSendToNotebook={(match) => void sendToNotebook(match)}
+						/>
 					{:else}
 						<Empty.Root>
 							<Empty.Header

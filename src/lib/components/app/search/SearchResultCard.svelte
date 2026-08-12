@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AudioLines from '@lucide/svelte/icons/audio-lines';
+	import BookOpen from '@lucide/svelte/icons/book-open';
 	import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { Button } from '$lib/components/ui/button';
@@ -9,10 +10,11 @@
 	interface Props {
 		index?: number;
 		onSaveChunk: (chunkId: string) => Promise<void> | void;
+		onSendToNotebook: (result: ApiSearchMatch) => Promise<void> | void;
 		result: ApiSearchMatch;
 	}
 
-	let { index = 0, onSaveChunk, result }: Props = $props();
+	let { index = 0, onSaveChunk, onSendToNotebook, result }: Props = $props();
 
 	// Transcript chunks have no pages and no file to open, unlike PDF chunks
 	const isTranscript = $derived(result.sourceType === 'AUDIO');
@@ -36,6 +38,9 @@
 	<div class="flex flex-wrap gap-2">
 		<Button variant="outline" size="sm" onclick={() => onSaveChunk(result.chunkId)}>
 			<BookmarkPlus /> Save chunk
+		</Button>
+		<Button variant="outline" size="sm" onclick={() => onSendToNotebook(result)}>
+			<BookOpen /> Send to notebook
 		</Button>
 		{#if isTranscript}
 			<Button variant="outline" size="sm" href={viewerHref}>
