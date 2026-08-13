@@ -1,39 +1,58 @@
 # Deployable Knowledge
 
-Deployable Knowledge is a local-first retrieval-augmented generation workbench built with
-SvelteKit and Svelte 5. It keeps document ingestion, retrieval, notebooks, and agentic chat in a
-single windowed workspace that can run against local Ollama models or GitHub Models.
+Deployable Knowledge is a local-first retrieval-augmented generation workbench built with SvelteKit
+and Svelte 5. Documents, search, notebooks, and chat all live in one windowed workspace. Chat runs
+on bundled local models, or on Ollama or GitHub Models if you'd rather. There is a web version and
+a packaged desktop app, and it is single-user, so there is no login.
 
 ## Features
 
-### Document ingestion and retrieval
+### Supported file types
 
-- Ingest PDFs with text extraction and OCR fallback.
-- Create local embeddings with `nomic-ai/nomic-embed-text-v1.5`.
-- Search with semantic, BM25, or hybrid retrieval.
-- Organize documents with tags and select the corpus used by chat.
+Whatever you add gets chunked, embedded with `nomic-ai/nomic-embed-text-v1.5`, and searched the
+same way, no matter what it started as.
 
-### Agentic chat
+- PDF (`.pdf`): text extraction, with OCR for pages that need it
+- Word and PowerPoint (`.docx`, `.pptx`): converted to PDF, then read as PDF
+- Spreadsheets (`.xlsx`): cell data
+- CSV (`.csv`): up to 25 MB
+- Text and Markdown (`.txt`, `.md`, `.markdown`): up to 25 MB
+- Audio (`.aac`, `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, `.opus`, `.wav`,
+  `.webm`, `.wma`): transcribed, up to 100 MB and 2 hours
+- Pasted text, typed straight into the library
 
-- Stream responses from Ollama or GitHub Models.
-- Configure generation, retrieval, personas, profiles, and prompt templates.
-- Run multi-turn tool calls for document search, Python analysis, and date/time lookup.
-- Inspect live tool traces, source citations, generated data, and images.
+### Documents and search
+
+- Add files one at a time, pull them in from a folder, or paste text.
+- Point it at a folder to sync it and it keeps watching. New and changed files are ingested, and
+  deleted ones are dropped.
+- Sort, filter, tag, and page through the library, and act on a selection in bulk.
+- Documents can be switched active or inactive, which is how you decide what search and chat see.
+- Search is semantic, BM25, or hybrid.
+- Results link back to the source. PDFs open in a viewer, and audio opens in a player that jumps to
+  the chunk you clicked.
+
+### Chat
+
+- Streams from a bundled local model, Ollama, or GitHub Models. Local models are downloaded from
+  settings.
+- Ask against the active documents, or against the sources collected in a notebook.
+- The assistant can call tools over several turns: document search, reading a range of chunks,
+  corpus details, goal tracking, Python, and the current date and time.
+- Tool calls, citations, generated data, and images show up inline while it works.
+- A goal checklist tracks multi-part requests, and a context meter shows how much room is left in
+  the window before you send.
 
 ### Notebooks and workspace
 
-- Create notebooks and pages, edit with autosave, and preview rendered Markdown.
-- Send chat output and document sources into a notebook.
-- Arrange chat, history, documents, search, and notebooks in persistent browser-style layout tabs.
-- Manage appearance and assistant configuration from a searchable settings dialog.
-- Choose light, dark, color-accent, and high-contrast themes.
-
-### Audio transcription
-
-- Add audio files to the document library; the transcript is chunked, embedded, and searchable like any other document
-- Audio files up to 2 hours in length and 100 MB
-- Utilizes OpenAI's whisper-tiny model for transcription
-- Supports all FFMpeg supported audio files
+- Notebooks hold Markdown pages, autosaved as you type, with a rendered preview.
+- Chat responses, search results, and single chunks can be sent to a notebook, either as a citation
+  or as plain text.
+- Import Markdown files, or a whole folder as a notebook. Export a page or the whole notebook.
+- Pages can be moved between notebooks and reordered, and Ctrl+F searches inside one.
+- Windows are arranged in browser-style layout tabs that stick around between sessions.
+- Settings is one searchable dialog. Themes cover light, dark, a few accent colors, and high
+  contrast.
 
 ## Getting Started
 
@@ -41,7 +60,8 @@ single windowed workspace that can run against local Ollama models or GitHub Mod
 
 - Node.js matching [`.nvmrc`](.nvmrc)
 - npm
-- Ollama for local chat, or a GitHub Models API key
+- Ollama or a GitHub Models API key, if you want them. Neither is required, since the bundled local
+  runtime can serve chat on its own.
 
 ### Install and run
 
@@ -50,9 +70,20 @@ npm install
 npm run dev
 ```
 
-The development command synchronizes the local SQLite schema before starting Vite. On first use,
-the setup screen can download the embedding model required for semantic and hybrid search. Ollama
-is optional until you send a chat request through the Ollama provider.
+`npm run dev` syncs the local SQLite schema before Vite starts. The first time you open the app it
+downloads the embedding model that semantic and hybrid search need. Chat models come later, on
+demand, from settings.
+
+### Desktop app
+
+```bash
+npm run electron         # Run the desktop shell against an existing build
+npm run electron:pack    # Build and package without an installer
+npm run electron:win     # Build the Windows installer
+```
+
+The packaged app keeps its database, documents, models, and caches in a per-user data directory
+rather than next to the install.
 
 ## Development Workflow
 
@@ -67,19 +98,25 @@ npm run db:migrate
 npm run db:push
 ```
 
-There is currently no automated test suite. Use the lint, check, and build gates above, then smoke
-test the affected workspace flows.
+Schema changes need `npm run db:generate` and the resulting migration committed. Development syncs
+with `drizzle-kit push`, but installed apps replay what is in `drizzle/`, so skipping the migration
+ships an out-of-date database.
+
+There is no automated test suite yet. Run the lint, check, and build gates above, then click
+through whatever you touched.
 
 ## Tech Stack
 
 | Layer               | Technology                                                |
 | ------------------- | --------------------------------------------------------- |
 | Application         | SvelteKit, Svelte 5 runes, TypeScript                     |
+| Desktop             | Electron, adapter-node                                    |
 | UI                  | Tailwind CSS 4, shadcn-svelte primitives, bits-ui, Lucide |
 | Database            | SQLite/libSQL with Drizzle ORM                            |
 | Retrieval           | Transformers.js embeddings, BM25, hybrid search           |
-| Document processing | pdf-parse, Tesseract.js, Sharp                            |
-| Model providers     | Ollama, GitHub Models                                     |
+| Document processing | pdf-parse, Tesseract.js, Sharp, LibreOffice               |
+| Audio               | FFmpeg, Whisper                                           |
+| Model providers     | llama.cpp, Ollama, GitHub Models                          |
 | Agent tools         | Local search, Pyodide Python, date/time                   |
 
 ## Architecture
@@ -104,6 +141,7 @@ See [Architecture](docs/ARCHITECTURE.md), [API Reference](docs/API_REFERENCE.md)
 
 ```text
 electron/             Desktop shell: main process, server child entry, app icon
+drizzle/              Committed migrations replayed by installed apps
 src/
 ├── lib/
 │   ├── actions/          Svelte actions for workspace interactions
@@ -112,7 +150,7 @@ src/
 │   │   │   ├── chat/     Chat, history, messages, agent traces, and composer
 │   │   │   ├── content/  Shared Markdown rendering
 │   │   │   ├── dialogs/  Confirmation, progress, API key, and picker dialogs
-│   │   │   ├── documents/, notebook/, search/, settings/
+│   │   │   ├── documents/, notebook/, search/, settings/, transcript/
 │   │   │   ├── navigation/  Workspace toolbar, engine heartbeat, and startup overlay
 │   │   │   └── workspace/   Layout tabs, window registry, columns, frames, and resizers
 │   │   └── ui/           Reusable shadcn-svelte primitives
@@ -120,7 +158,7 @@ src/
 │   ├── enums/            Shared string enums
 │   ├── services/         Stateless API clients
 │   ├── stores/           Singleton Svelte 5 runes stores
-│   ├── server/           Database, repositories, RAG, providers, tools, and agents
+│   ├── server/           Database, repositories, ingestion, RAG, providers, tools, and agents
 │   ├── types/            Domain and wire types
 │   └── utils/            Shared pure utilities
 ├── routes/               Pages and SvelteKit API endpoints
