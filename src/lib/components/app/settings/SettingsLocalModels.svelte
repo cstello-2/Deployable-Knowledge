@@ -19,7 +19,9 @@
 			description: model.description,
 			downloadable: true,
 			downloadSizeBytes: model.sizeBytes,
-			minRamGiB: model.minRamGiB
+			minRamGiB: model.minRamGiB,
+			license: model.license,
+			licenseUrl: model.licenseUrl
 		}));
 		const customCards = models
 			.filter((model) => model.downloaded && !findLocalModelByFile(model.fileName))
@@ -31,7 +33,9 @@
 				description: null,
 				downloadable: false,
 				downloadSizeBytes: null,
-				minRamGiB: null
+				minRamGiB: null,
+				license: null,
+				licenseUrl: null
 			}));
 		return [...catalogCards, ...customCards];
 	});

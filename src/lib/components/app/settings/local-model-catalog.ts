@@ -16,4 +16,6 @@ export interface LocalModelCardData {
 	downloadable: boolean;
 	downloadSizeBytes: number | null;
 	minRamGiB: number | null;
+	license: string | null;
+	licenseUrl: string | null;
 }

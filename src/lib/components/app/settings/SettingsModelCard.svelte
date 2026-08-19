@@ -44,6 +44,19 @@
 				{/if}
 			</span>
 			<span class="text-xs text-muted-foreground">{model.vendor}</span>
+			{#if model.license && model.licenseUrl}
+				<!-- The catalog only supplies absolute vendor URLs, which resolve() does not apply to. -->
+				<!-- eslint-disable svelte/no-navigation-without-resolve -->
+				<a
+					href={model.licenseUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="w-fit rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+				>
+					{model.license}
+				</a>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
+			{/if}
 		</div>
 	</div>
 

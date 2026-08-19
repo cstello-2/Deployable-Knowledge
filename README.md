@@ -165,4 +165,6 @@ src/
 └── app.css               Tailwind theme tokens and global styles
 ```
 
-Deployable Knowledge is released under the [MIT License](LICENSE).
+Deployable Knowledge is released under the [MIT License](LICENSE). It bundles third-party
+components under their own terms, including copyleft and use-restricted ones; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

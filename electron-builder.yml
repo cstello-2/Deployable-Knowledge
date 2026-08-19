@@ -1,5 +1,6 @@
 appId: dev.deployableknowledge.app
 productName: Deployable Knowledge
+copyright: Copyright (c) 2025 The Deployable Knowledge contributors
 
 directories:
   buildResources: electron/build
@@ -25,11 +26,16 @@ files:
   - '!app.db'
   - '!app.db-*'
   - '!*.md'
+  # The GPL-3 FFmpeg binary and the other copyleft payloads are conveyed by the
+  # installer, so their notices have to travel with it.
+  - 'THIRD-PARTY-NOTICES.md'
   - '!*.config.{js,ts}'
   - '!components.json'
   - '!shell.nix'
   - '!electron/build/**'
-  # onnxruntime-node ships every platform's binaries in a single package, which
+  # onnxruntime-node is a direct dependency only to pin the execution provider that
+  # @huggingface/transformers loads; nothing in src/ imports it. It ships every
+  # platform's binaries in a single package, which
   # is ~450 MB of payload the Windows x64 build will never load. Revisit this
   # when another platform target is added.
   - '!node_modules/onnxruntime-node/bin/napi-v6/linux/**'

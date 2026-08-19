@@ -1,5 +1,10 @@
 export const LOCAL_MODEL_PROVIDER_ID = 'llamacpp';
 
+// Gemma weights ship under use-restricted terms rather than an open-source license,
+// so the terms have to be reachable before a user starts a multi-gigabyte download.
+const GEMMA_LICENSE = 'Gemma Terms of Use';
+const GEMMA_LICENSE_URL = 'https://ai.google.dev/gemma/terms';
+
 export interface LocalModel {
 	name: string;
 	vendor: string;
@@ -8,6 +13,8 @@ export interface LocalModel {
 	fileName: string;
 	sizeBytes: number;
 	minRamGiB: number;
+	license: string;
+	licenseUrl: string;
 }
 
 export const LOCAL_MODELS: readonly LocalModel[] = [
@@ -18,7 +25,9 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
 		repo: 'unsloth/gemma-4-E2B-it-GGUF',
 		fileName: 'gemma-4-E2B-it-Q4_K_M.gguf',
 		sizeBytes: 3_110_000_000,
-		minRamGiB: 8
+		minRamGiB: 8,
+		license: GEMMA_LICENSE,
+		licenseUrl: GEMMA_LICENSE_URL
 	},
 	{
 		name: 'Gemma 4 E4B',
@@ -27,7 +36,9 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
 		repo: 'unsloth/gemma-4-E4B-it-GGUF',
 		fileName: 'gemma-4-E4B-it-Q4_K_M.gguf',
 		sizeBytes: 4_980_000_000,
-		minRamGiB: 16
+		minRamGiB: 16,
+		license: GEMMA_LICENSE,
+		licenseUrl: GEMMA_LICENSE_URL
 	}
 ];
 
