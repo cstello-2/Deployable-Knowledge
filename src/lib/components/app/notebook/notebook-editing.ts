@@ -32,12 +32,25 @@ const INLINE_MARKERS: Record<InlineFormat, string> = {
 
 const HEADING_LEVELS: Record<'h1' | 'h2' | 'h3', number> = { h1: 1, h2: 2, h3: 3 };
 
+// Markers have to sit flush against the text they wrap — CommonMark renders
+// `** bold **` as literal asterisks — so whitespace the selection picked up (a
+// double-click usually grabs the trailing space) stays outside the markup.
+function trimSelection(text: string, { start, end }: EditorSelection): EditorSelection {
+	const selected = text.slice(start, end);
+	if (!selected.trim()) return { start: end, end };
+	return {
+		start: start + (selected.length - selected.trimStart().length),
+		end: end - (selected.length - selected.trimEnd().length)
+	};
+}
+
 export function toggleInline(
 	text: string,
-	{ start, end }: EditorSelection,
+	selection: EditorSelection,
 	format: InlineFormat
 ): FormatResult {
 	const marker = INLINE_MARKERS[format];
+	const { start, end } = trimSelection(text, selection);
 	const selected = text.slice(start, end);
 	const before = text.slice(0, start);
 	const after = text.slice(end);
@@ -146,10 +159,11 @@ export function insertLink(text: string, { start, end }: EditorSelection): Forma
 
 function wrapStyle(
 	text: string,
-	{ start, end }: EditorSelection,
+	selection: EditorSelection,
 	declaration: string,
 	fallback: string
 ): FormatResult {
+	const { start, end } = trimSelection(text, selection);
 	const selected = text.slice(start, end) || fallback;
 	const prefix = `<span style="${declaration}">`;
 	const suffix = '</span>';
