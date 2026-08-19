@@ -7,6 +7,7 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { documentViewerHref } from '$lib/constants';
 	import type { DocumentRow } from '$lib/types';
 	import DocumentTagChip from './DocumentTagChip.svelte';
 	import TagFilterMenu from './TagFilterMenu.svelte';
@@ -42,6 +43,8 @@
 				? FileSpreadsheet
 				: FileText
 	);
+
+	const viewerHref = $derived(documentViewerHref(document.sourceType, document.id, {}));
 </script>
 
 <div
@@ -58,7 +61,15 @@
 	<SourceIcon class="size-[18px] text-muted-foreground" />
 	<div class="grid min-w-0 gap-1">
 		<div class="flex min-w-0 items-center gap-2">
-			<strong class="min-w-0 truncate text-sm">{document.title}</strong>
+			<a
+				class="min-w-0 truncate text-sm font-bold hover:underline"
+				href={viewerHref}
+				rel="external noopener noreferrer"
+				target="_blank"
+				title={`Open ${document.title} in the viewer`}
+			>
+				{document.title}
+			</a>
 			<span class="shrink-0 text-xs text-muted-foreground">{document.chunkCount} chunks</span>
 			{#if !document.active}
 				<span class="shrink-0 text-xs text-muted-foreground">· inactive</span>
