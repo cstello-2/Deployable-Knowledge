@@ -83,6 +83,12 @@ export const API_PROVIDERS = {
 		`/providers/${segment(id)}/capabilities?model=${segment(model)}`
 };
 
+export const API_DIAGNOSTICS = {
+	BASE: '/diagnostics',
+	EVENTS: '/diagnostics/events',
+	REPORT: '/diagnostics/report'
+};
+
 export const API_SEARCH = '/search';
 
 export const API_SESSIONS = {

@@ -54,8 +54,24 @@ class WorkspaceStore {
 
 	showWindow(id: string): void {
 		this.leftPaneCollapsed = false;
-		this.mutatePlacements((items) =>
-			items.map((item) =>
+		this.mutatePlacements((items) => {
+			const existing = items.find((item) => item.id === id);
+			if (!existing) {
+				const fallback = DEFAULT_WINDOW_PLACEMENTS.find((item) => item.id === id);
+				if (!fallback) return items;
+
+				return [
+					...items,
+					{
+						...fallback,
+						visible: true,
+						collapsed: false,
+						height: fallback.height ?? DEFAULT_WINDOW_HEIGHT
+					}
+				];
+			}
+
+			return items.map((item) =>
 				item.id === id
 					? {
 							...item,
@@ -64,8 +80,8 @@ class WorkspaceStore {
 							height: item.height ?? DEFAULT_WINDOW_HEIGHT
 						}
 					: item
-			)
-		);
+			);
+		});
 	}
 
 	closeWindow(id: string): void {

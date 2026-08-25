@@ -8,4 +8,5 @@ export { settingsStore } from './settings.svelte';
 export { setupStore } from './setup.svelte';
 export { themeStore } from './theme.svelte';
 export { workspaceStore } from './workspace.svelte';
+export { diagnosticsStore } from './diagnostics.svelte';
 export type { SettingsSection } from './settings-dialog.svelte';

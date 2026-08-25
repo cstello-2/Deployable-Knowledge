@@ -8,6 +8,7 @@ import {
 	type FeatureExtractionPipeline,
 	type ProgressCallback
 } from '@huggingface/transformers';
+import { diagnosticEvents } from '$lib/server/diagnostics/events';
 
 export const EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
 export const EMBEDDING_DTYPE = 'q8';
@@ -48,10 +49,12 @@ async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
 		})
 			.then((loaded) => {
 				console.log(`[Embedding] Model ready in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+				diagnosticEvents.embeddingReady(Date.now() - started);
 				return loaded;
 			})
 			.catch((error) => {
-				console.error('[Embedding] Model failed to load.', error);
+				console.error('[Embedding] Model failed to load.');
+				diagnosticEvents.embeddingFailed();
 				embeddingPipeline = undefined;
 				throw error;
 			});

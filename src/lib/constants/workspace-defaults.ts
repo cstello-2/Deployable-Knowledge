@@ -4,6 +4,7 @@ import type { WindowPlacement } from '$lib/types/workspace';
 export const WORKSPACE_WINDOW_IDS = {
 	CHAT: 'chat-window',
 	CHAT_HISTORY: 'chat-history-window',
+	DIAGNOSTICS: 'diagnostics-window',
 	DOCUMENTS: 'documents-window',
 	NOTEBOOK: 'notebook-window',
 	SEARCH_CONTEXT: 'search-context-window'
@@ -18,9 +19,10 @@ export const DEFAULT_WINDOW_PLACEMENTS: WindowPlacement[] = [
 	placement(WORKSPACE_WINDOW_IDS.CHAT_HISTORY, WindowColumn.LEFT),
 	placement(WORKSPACE_WINDOW_IDS.CHAT, WindowColumn.RIGHT),
 	placement(WORKSPACE_WINDOW_IDS.SEARCH_CONTEXT, WindowColumn.RIGHT),
-	placement(WORKSPACE_WINDOW_IDS.NOTEBOOK, WindowColumn.RIGHT)
+	placement(WORKSPACE_WINDOW_IDS.NOTEBOOK, WindowColumn.RIGHT),
+	placement(WORKSPACE_WINDOW_IDS.DIAGNOSTICS, WindowColumn.RIGHT, false)
 ];
 
-function placement(id: string, column: WindowColumn): WindowPlacement {
-	return { id, column, visible: true, collapsed: false, height: DEFAULT_WINDOW_HEIGHT };
+function placement(id: string, column: WindowColumn, visible = true): WindowPlacement {
+	return { id, column, visible, collapsed: false, height: DEFAULT_WINDOW_HEIGHT };
 }

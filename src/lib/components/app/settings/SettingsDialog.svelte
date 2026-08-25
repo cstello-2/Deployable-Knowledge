@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Bot from '@lucide/svelte/icons/bot';
+	import Bug from '@lucide/svelte/icons/bug';
 	import Cpu from '@lucide/svelte/icons/cpu';
 	import FileSearch from '@lucide/svelte/icons/file-search';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
@@ -13,6 +14,7 @@
 	import type { Component } from 'svelte';
 	import SettingsApiKeys from './SettingsApiKeys.svelte';
 	import SettingsAppearance from './SettingsAppearance.svelte';
+	import SettingsDiagnostics from './SettingsDiagnostics.svelte';
 	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsGenerationFields from './SettingsGenerationFields.svelte';
 	import SettingsLocalModels from './SettingsLocalModels.svelte';
@@ -118,6 +120,13 @@
 				'green',
 				'high contrast'
 			]
+		},
+		{
+			id: 'diagnostics',
+			label: 'Diagnostics',
+			description: 'Inspect sanitized health checks and recent application activity.',
+			icon: Bug,
+			keywords: ['console', 'debug', 'download', 'errors', 'events', 'health', 'logs', 'report']
 		}
 	]);
 
@@ -156,7 +165,7 @@
 		class="flex h-[min(46rem,88dvh)] w-[min(70rem,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
 	>
 		<Dialog.Description class="sr-only">
-			Configure the assistant, tools, models, and appearance.
+			Configure the assistant, tools, models, appearance, and diagnostics.
 		</Dialog.Description>
 
 		<aside
@@ -303,6 +312,16 @@
 							<SettingsLocalModels />
 							<SettingsLocalRuntimeSection />
 							<SettingsApiKeys />
+						</div>
+					{:else if activeSection.id === 'diagnostics'}
+						<div class="grid gap-4">
+							<SettingsFieldGroup
+								hint="Window visibility is saved with the active workspace layout."
+								icon={Bug}
+								title="Diagnostic console"
+							>
+								<SettingsDiagnostics />
+							</SettingsFieldGroup>
 						</div>
 					{:else}
 						<SettingsAppearance />
