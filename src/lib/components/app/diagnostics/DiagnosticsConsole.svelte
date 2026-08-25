@@ -95,8 +95,8 @@
 
 <div
 	class={[
-		'dk-panel grid h-[30rem] min-h-80 overflow-hidden rounded-lg border bg-background',
-		diagnosticsStore.snapshot ? 'grid-rows-[auto_auto_auto_1fr_auto]' : 'grid-rows-[auto_1fr_auto]'
+		'dk-panel grid h-full min-h-0 w-full overflow-hidden rounded-lg border bg-background',
+		diagnosticsStore.snapshot ? 'grid-rows-[auto_auto_auto_1fr]' : 'grid-rows-[auto_1fr]'
 	]}
 	id="settings-diagnostics-console"
 >
@@ -116,8 +116,7 @@
 				Embedding: {snapshot.health.embeddingModel}
 			</Badge>
 			<span class="ml-auto font-mono text-[11px] text-muted-foreground">
-				v{snapshot.application.version} · {snapshot.application.platform}/{snapshot.application
-					.architecture}
+				v{snapshot.application.version}
 			</span>
 		</section>
 
@@ -214,11 +213,4 @@
 			{/each}
 		</div>
 	</ScrollArea>
-
-	<footer class="flex items-center justify-between border-t bg-elevated/70 px-3 py-1.5">
-		<span class="text-[11px] text-muted-foreground">{visibleEvents.length} events</span>
-		<span class="text-[11px] text-muted-foreground">
-			{diagnosticsStore.paused ? 'Paused' : 'Live'}
-		</span>
-	</footer>
 </div>

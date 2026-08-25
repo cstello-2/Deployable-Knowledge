@@ -1,4 +1,3 @@
-import { arch, platform } from 'node:os';
 import { count, eq } from 'drizzle-orm';
 import packageMetadata from '../../../../package.json';
 import type { ApiDiagnosticsSnapshot } from '$lib/types';
@@ -24,19 +23,6 @@ const EMPTY_COUNTS: ApiDiagnosticsSnapshot['counts'] = {
 	sessions: null,
 	syncedFolders: null
 };
-
-function platformName(): ApiDiagnosticsSnapshot['application']['platform'] {
-	switch (platform()) {
-		case 'darwin':
-			return 'macos';
-		case 'linux':
-			return 'linux';
-		case 'win32':
-			return 'windows';
-		default:
-			return 'other';
-	}
-}
 
 export async function buildDiagnosticsSnapshot(): Promise<ApiDiagnosticsSnapshot> {
 	let counts = { ...EMPTY_COUNTS };
@@ -102,9 +88,7 @@ export async function buildDiagnosticsSnapshot(): Promise<ApiDiagnosticsSnapshot
 
 	return {
 		application: {
-			architecture: arch(),
 			memoryBytes: process.memoryUsage().rss,
-			platform: platformName(),
 			runtimeMode: process.env.NODE_ENV === 'development' ? 'development' : 'production',
 			uptimeSeconds: Math.floor(process.uptime()),
 			version: packageMetadata.version

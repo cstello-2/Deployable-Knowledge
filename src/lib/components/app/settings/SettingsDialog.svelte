@@ -14,7 +14,6 @@
 	import type { Component } from 'svelte';
 	import SettingsApiKeys from './SettingsApiKeys.svelte';
 	import SettingsAppearance from './SettingsAppearance.svelte';
-	import SettingsDiagnostics from './SettingsDiagnostics.svelte';
 	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsGenerationFields from './SettingsGenerationFields.svelte';
 	import SettingsLocalModels from './SettingsLocalModels.svelte';
@@ -25,6 +24,7 @@
 	import SettingsPromptTemplateSelector from './SettingsPromptTemplateSelector.svelte';
 	import SettingsRetrievalSection from './SettingsRetrievalSection.svelte';
 	import SettingsToolsSection from './SettingsToolsSection.svelte';
+	import { DiagnosticsConsole } from '$lib/components/app/diagnostics';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
@@ -248,7 +248,12 @@
 				</header>
 
 				<div
-					class="@container min-h-0 flex-1 overflow-y-auto bg-linear-to-b from-elevated/25 to-elevated/60 px-5 py-4 [scrollbar-gutter:stable]"
+					class={[
+						'@container min-h-0 flex-1 bg-linear-to-b from-elevated/25 to-elevated/60 px-5 py-4',
+						activeSection.id === 'diagnostics'
+							? 'overflow-hidden'
+							: 'overflow-y-auto [scrollbar-gutter:stable]'
+					]}
 				>
 					{#if activeSection.id === 'agent'}
 						{#if !settingsStore.ready}
@@ -314,15 +319,7 @@
 							<SettingsApiKeys />
 						</div>
 					{:else if activeSection.id === 'diagnostics'}
-						<div class="grid gap-4">
-							<SettingsFieldGroup
-								hint="Enable the embedded console to inspect live, sanitized application activity."
-								icon={Bug}
-								title="Diagnostic console"
-							>
-								<SettingsDiagnostics />
-							</SettingsFieldGroup>
-						</div>
+						<DiagnosticsConsole />
 					{:else}
 						<SettingsAppearance />
 					{/if}

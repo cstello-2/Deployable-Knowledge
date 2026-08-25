@@ -30,9 +30,7 @@ export interface ApiDiagnosticEventsResponse {
 
 export interface ApiDiagnosticsSnapshot {
 	application: {
-		architecture: string;
 		memoryBytes: number;
-		platform: 'linux' | 'macos' | 'windows' | 'other';
 		runtimeMode: 'development' | 'production';
 		uptimeSeconds: number;
 		version: string;

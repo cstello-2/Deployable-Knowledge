@@ -1,7 +1,6 @@
 export { default as SettingsApiKeys } from './SettingsApiKeys.svelte';
 export { default as SettingsAppearance } from './SettingsAppearance.svelte';
 export { default as SettingsDialog } from './SettingsDialog.svelte';
-export { default as SettingsDiagnostics } from './SettingsDiagnostics.svelte';
 export { default as SettingsFieldGroup } from './SettingsFieldGroup.svelte';
 export { default as SettingsGenerationFields } from './SettingsGenerationFields.svelte';
 export { default as SettingsLocalModels } from './SettingsLocalModels.svelte';

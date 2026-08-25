@@ -29,8 +29,6 @@ export function formatDiagnosticsReport(
 		'[Application]',
 		`Version: ${snapshot.application.version}`,
 		`Runtime: ${snapshot.application.runtimeMode}`,
-		`Platform: ${snapshot.application.platform}`,
-		`Architecture: ${snapshot.application.architecture}`,
 		`Uptime seconds: ${snapshot.application.uptimeSeconds}`,
 		`Resident memory bytes: ${snapshot.application.memoryBytes}`,
 		'',
