@@ -3,6 +3,4 @@ package-lock.json
 build/
 release/
 drizzle/
-venv/
-.venv/
 .claude/
