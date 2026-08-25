@@ -1,19 +1,9 @@
 import { json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import type { ApiChatMessageRequest, ApiChatStreamEvent } from '$lib/types';
-import { db } from '$lib/server/database/database';
-import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
-import { getProvider } from '$lib/server/providers/registry';
-import type { ProviderChatOptions } from '$lib/server/providers/provider';
-import { runAgent } from '$lib/server/agent/runner';
-import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
-import { toolRegistry } from '$lib/server/tools';
-import { readGoals } from '$lib/server/tools/goals';
-import type { ToolExecutionContext } from '$lib/server/tools/types';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
-import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
-import type { RequestHandler } from './$types';
+import type { ApiChatMessageRequest, ApiChatStreamEvent } from '$lib/types';
+import { runAgent } from '$lib/server/agent/runner';
 import { runAutoSearch } from '$lib/server/chat/auto-search';
 import {
 	createConversationalMessages,
@@ -21,6 +11,17 @@ import {
 } from '$lib/server/chat/build-chat-messages';
 import { generateChatTitle } from '$lib/server/chat/generate-chat-title';
 import { getNotebookSourceExcerpts } from '$lib/server/chat/notebook-context';
+import { db } from '$lib/server/database/database';
+import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
+import { diagnosticEvents } from '$lib/server/diagnostics/events';
+import { getProvider } from '$lib/server/providers/registry';
+import type { ProviderChatOptions } from '$lib/server/providers/provider';
+import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
+import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
+import { toolRegistry } from '$lib/server/tools';
+import { readGoals } from '$lib/server/tools/goals';
+import type { ToolExecutionContext } from '$lib/server/tools/types';
+import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const body = (await request.json()) as ApiChatMessageRequest;
@@ -129,6 +130,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const stream = new ReadableStream({
 		async start(controller) {
 			const encoder = new TextEncoder();
+			const generationStarted = Date.now();
 			const send = (event: ApiChatStreamEvent) => {
 				if (closed) return;
 				try {
@@ -215,8 +217,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						},
 						...(outputs.length ? { outputs } : {})
 					});
-				} catch (error) {
-					console.error('Failed to persist chat turn:', error);
+				} catch {
+					console.error('Failed to persist chat turn.');
+					diagnosticEvents.chatPersistenceFailed();
 				}
 
 				// The turn is over for the user once the messages are persisted. Title
@@ -231,6 +234,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					contextItems: outputs.length,
 					saved
 				});
+				diagnosticEvents.chatCompleted({
+					durationMs: Date.now() - generationStarted,
+					modelTurns: agentResult.modelTurns,
+					toolCalls: toolCallCount,
+					toolTurns: agentResult.toolTurns
+				});
 
 				if (shouldGenerateTitle && saved) {
 					try {
@@ -240,13 +249,15 @@ export const POST: RequestHandler = async ({ params, request }) => {
 							.set({ title, updatedAt: new Date() })
 							.where(eq(sessions.id, params.id));
 						send({ type: 'title', title });
-					} catch (error) {
-						console.error('Title generation error:', error);
+					} catch {
+						console.error('Title generation error.');
+						diagnosticEvents.chatTitleFailed();
 					}
 				}
 			} catch (error) {
 				if (!abortController.signal.aborted) {
-					console.error('Streaming error:', error);
+					console.error('Streaming error.');
+					diagnosticEvents.chatGenerationFailed();
 					const message = error instanceof Error ? error.message : String(error);
 					send({ type: 'error', message });
 				}
@@ -264,6 +275,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		cancel() {
 			// The client disconnected. Abort the generation so it stops consuming
 			// the model runtime instead of blocking every following request.
+			if (!closed) diagnosticEvents.chatCancelled();
 			closed = true;
 			abortController.abort();
 		}

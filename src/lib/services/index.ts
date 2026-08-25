@@ -16,3 +16,4 @@ export { SetupService } from './setup.service';
 export { ThemeService } from './theme.service';
 export { ToolsService } from './tools.service';
 export { WorkspaceLayoutsService } from './workspace-layouts.service';
+export { DiagnosticsService } from './diagnostics.service';

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Bot from '@lucide/svelte/icons/bot';
+	import Bug from '@lucide/svelte/icons/bug';
 	import Cpu from '@lucide/svelte/icons/cpu';
 	import FileSearch from '@lucide/svelte/icons/file-search';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
@@ -23,6 +24,7 @@
 	import SettingsPromptTemplateSelector from './SettingsPromptTemplateSelector.svelte';
 	import SettingsRetrievalSection from './SettingsRetrievalSection.svelte';
 	import SettingsToolsSection from './SettingsToolsSection.svelte';
+	import { DiagnosticsConsole } from '$lib/components/app/diagnostics';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
@@ -118,6 +120,13 @@
 				'green',
 				'high contrast'
 			]
+		},
+		{
+			id: 'diagnostics',
+			label: 'Diagnostics',
+			description: 'Inspect sanitized health checks and recent application activity.',
+			icon: Bug,
+			keywords: ['console', 'debug', 'download', 'errors', 'events', 'health', 'logs', 'report']
 		}
 	]);
 
@@ -156,7 +165,7 @@
 		class="flex h-[min(46rem,88dvh)] w-[min(70rem,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
 	>
 		<Dialog.Description class="sr-only">
-			Configure the assistant, tools, models, and appearance.
+			Configure the assistant, tools, models, appearance, and diagnostics.
 		</Dialog.Description>
 
 		<aside
@@ -239,7 +248,12 @@
 				</header>
 
 				<div
-					class="@container min-h-0 flex-1 overflow-y-auto bg-linear-to-b from-elevated/25 to-elevated/60 px-5 py-4 [scrollbar-gutter:stable]"
+					class={[
+						'@container min-h-0 flex-1 bg-linear-to-b from-elevated/25 to-elevated/60 px-5 py-4',
+						activeSection.id === 'diagnostics'
+							? 'overflow-hidden'
+							: 'overflow-y-auto [scrollbar-gutter:stable]'
+					]}
 				>
 					{#if activeSection.id === 'agent'}
 						{#if !settingsStore.ready}
@@ -304,6 +318,8 @@
 							<SettingsLocalRuntimeSection />
 							<SettingsApiKeys />
 						</div>
+					{:else if activeSection.id === 'diagnostics'}
+						<DiagnosticsConsole />
 					{:else}
 						<SettingsAppearance />
 					{/if}

@@ -1,4 +1,5 @@
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
+import { diagnosticEvents } from '$lib/server/diagnostics/events';
 import { databaseClient } from './database';
 
 const BACKFILL_BATCH_SIZE = 5000;
@@ -69,4 +70,8 @@ async function initialize(): Promise<void> {
 	}
 
 	console.log(`[FTS] Chunk index rebuilt in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+	diagnosticEvents.searchIndexRebuilt({
+		durationMs: Date.now() - started,
+		indexedChunks: stored
+	});
 }

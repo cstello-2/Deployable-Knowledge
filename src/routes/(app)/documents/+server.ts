@@ -85,7 +85,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					});
 					send({ status: 'complete', result });
 				} catch (cause) {
-					console.error('Document ingestion failed', cause);
+					console.error('Document ingestion failed.');
 					send({
 						status: 'error',
 						message: cause instanceof Error ? cause.message : 'Document ingestion failed'
@@ -99,8 +99,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					}
 				}
-			})().catch((cause) => {
-				console.error('Document ingestion stream failed', cause);
+			})().catch(() => {
+				console.error('Document ingestion stream failed.');
 			});
 		},
 		cancel() {

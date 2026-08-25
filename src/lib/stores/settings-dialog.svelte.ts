@@ -1,4 +1,4 @@
-export type SettingsSection = 'agent' | 'tools' | 'models' | 'appearance';
+export type SettingsSection = 'agent' | 'tools' | 'models' | 'appearance' | 'diagnostics';
 
 class SettingsDialogStore {
 	open = $state(false);
