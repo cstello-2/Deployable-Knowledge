@@ -12,7 +12,6 @@ node_modules
 *.env.*
 .envrc
 .direnv/
-.venv/
 
 # operating systems
 .DS_Store
