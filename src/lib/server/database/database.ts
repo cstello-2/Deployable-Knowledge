@@ -3,10 +3,8 @@ import { createClient } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import * as schema from './schema';
 
-const databaseUrl = process.env.DK_DATABASE_URL?.trim() || 'file:app.db';
-
 export const databaseClient = createClient({
-	url: databaseUrl,
+	url: 'file:app.db',
 	authToken: process.env.DATABASE_AUTH_TOKEN
 });
 

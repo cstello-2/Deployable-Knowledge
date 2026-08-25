@@ -8,7 +8,7 @@
 	"type": "module",
 	"main": "electron/main.mjs",
 	"scripts": {
-		"predev": "node scripts/repair-legacy-database.mjs && drizzle-kit push --force",
+		"predev": "drizzle-kit push --force",
 		"dev": "vite dev",
 		"build": "vite build",
 		"build:electron": "node scripts/build-electron.mjs",
@@ -17,8 +17,7 @@
 		"electron:win": "npm run build:electron && electron-builder --win --publish never",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:push": "node scripts/repair-legacy-database.mjs && drizzle-kit push",
-		"db:repair": "node scripts/repair-legacy-database.mjs",
+		"db:push": "drizzle-kit push",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
