@@ -316,7 +316,7 @@
 					{:else if activeSection.id === 'diagnostics'}
 						<div class="grid gap-4">
 							<SettingsFieldGroup
-								hint="Window visibility is saved with the active workspace layout."
+								hint="Enable the embedded console to inspect live, sanitized application activity."
 								icon={Bug}
 								title="Diagnostic console"
 							>

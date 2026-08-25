@@ -1,12 +1,10 @@
 import BookOpen from '@lucide/svelte/icons/book-open';
-import Bug from '@lucide/svelte/icons/bug';
 import Files from '@lucide/svelte/icons/files';
 import History from '@lucide/svelte/icons/history';
 import MessageSquare from '@lucide/svelte/icons/message-square';
 import Search from '@lucide/svelte/icons/search';
 import ChatWindow from '$lib/components/app/chat/ChatWindow.svelte';
 import ChatHistoryWindow from '$lib/components/app/chat/ChatHistory/ChatHistoryWindow.svelte';
-import { DiagnosticsWindow } from '$lib/components/app/diagnostics';
 import DocumentsWindow from '$lib/components/app/documents/DocumentsWindow.svelte';
 import NotebookWindow from '$lib/components/app/notebook/NotebookWindow.svelte';
 import SearchWindow from '$lib/components/app/search/SearchWindow.svelte';
@@ -67,13 +65,6 @@ export const windowDefinitions = [
 		column: WindowColumn.RIGHT,
 		component: NotebookWindow,
 		icon: BookOpen
-	},
-	{
-		id: WORKSPACE_WINDOW_IDS.DIAGNOSTICS,
-		title: 'Diagnostics',
-		column: WindowColumn.RIGHT,
-		component: DiagnosticsWindow,
-		icon: Bug
 	}
 ] satisfies WindowDefinition[];
 

@@ -1,1 +1,1 @@
-export { default as DiagnosticsWindow } from './DiagnosticsWindow.svelte';
+export { default as DiagnosticsConsole } from './DiagnosticsConsole.svelte';
