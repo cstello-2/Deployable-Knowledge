@@ -216,6 +216,22 @@ class DocumentsStore {
 		return result;
 	}
 
+	async ingestYoutube(url: string) {
+		this.progress = {
+			percent: 0,
+			label: 'Importing YouTube transcript',
+			message: 'Reading video details'
+		};
+		const result = await DocumentsService.ingestYoutube(
+			url,
+			(progress) => (this.progress = progress)
+		);
+		this._selectedIds.add(result.documentId);
+		this.progress = null;
+		await this.refresh();
+		return result;
+	}
+
 	async ingestText(title: string, text: string) {
 		this.progress = { percent: 0, label: 'Embedding text', message: 'Preparing text' };
 		const result = await DocumentsService.ingestText(

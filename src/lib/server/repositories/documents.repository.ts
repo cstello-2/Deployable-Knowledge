@@ -226,6 +226,7 @@ export class DocumentsRepository {
 			.select({
 				id: documents.id,
 				title: documents.title,
+				sourcePath: documents.sourcePath,
 				sourceType: documents.sourceType,
 				updatedAt: documents.updatedAt
 			})

@@ -210,7 +210,7 @@ export const documents = sqliteTable(
 		title: text('title').notNull(),
 		sourcePath: text('source_path').notNull(),
 		sourceType: text('source_type', {
-			enum: ['PDF', 'AUDIO', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'TEXT']
+			enum: ['PDF', 'AUDIO', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'TEXT', 'YOUTUBE']
 		}).notNull(),
 		// FILE documents come from disk (upload or folder sync); MANUAL documents
 		// are text embedded directly through the UI and only exist as managed copies.

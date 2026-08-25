@@ -4,6 +4,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Globe from '@lucide/svelte/icons/globe';
+	import Video from '@lucide/svelte/icons/video';
 	import { buttonVariants } from '$lib/components/ui/button';
 	import { cn } from '$lib/components/ui/utils';
 	import { documentViewerHref } from '$lib/constants';
@@ -42,7 +43,9 @@
 
 	function iconFor(output: SourceOutput) {
 		if (!output.data.documentId) return Globe;
-		return output.data.sourceType === 'AUDIO' ? AudioLines : FileText;
+		if (output.data.sourceType === 'AUDIO') return AudioLines;
+		if (output.data.sourceType === 'YOUTUBE') return Video;
+		return FileText;
 	}
 </script>
 

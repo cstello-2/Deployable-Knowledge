@@ -2,6 +2,7 @@
 	import ClipboardPen from '@lucide/svelte/icons/clipboard-pen';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import Loader2 from '@lucide/svelte/icons/loader-2';
+	import Video from '@lucide/svelte/icons/video';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -10,6 +11,7 @@
 		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
 		DialogDocumentTextEntry,
+		DialogDocumentYoutubeEntry,
 		DialogProgress
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
@@ -52,6 +54,7 @@
 	let pendingRemoveAll = $state(false);
 	let filePickerOpen = $state(false);
 	let textEntryOpen = $state(false);
+	let youtubeEntryOpen = $state(false);
 	let uploading = $state(false);
 	// The ingest progress dialog can be hidden while a job keeps running; a
 	// reopen button appears in its place until the job finishes.
@@ -106,6 +109,22 @@
 			await documentsStore.ingestText(title, text);
 			status = 'Text embedded into the corpus.';
 			toast.success('Text embedded');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		} finally {
+			uploading = false;
+			documentsStore.progress = null;
+		}
+	}
+
+	async function ingestYoutube(url: string): Promise<void> {
+		youtubeEntryOpen = false;
+		uploading = true;
+		progressDialogOpen = true;
+		try {
+			const result = await documentsStore.ingestYoutube(url);
+			status = `Imported the transcript for “${result.title}”.`;
+			toast.success('Transcript imported');
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -330,12 +349,15 @@
 					<Loader2 class="animate-spin" /> Show ingest progress
 				</Button>
 			{/if}
-			<div class="grid grid-cols-2 gap-2">
+			<div class="grid grid-cols-3 gap-2">
 				<Button disabled={busy} onclick={() => (filePickerOpen = true)}>
 					<FolderPlus /> Add files
 				</Button>
 				<Button disabled={busy} onclick={() => (textEntryOpen = true)}>
 					<ClipboardPen /> Add text
+				</Button>
+				<Button disabled={busy} onclick={() => (youtubeEntryOpen = true)}>
+					<Video /> Add video
 				</Button>
 			</div>
 		</div>
@@ -361,6 +383,12 @@
 	onOpenChange={(open) => (textEntryOpen = open)}
 	onSubmit={(title, text) => void ingestText(title, text)}
 	open={textEntryOpen}
+/>
+<DialogDocumentYoutubeEntry
+	disabled={busy}
+	onOpenChange={(open) => (youtubeEntryOpen = open)}
+	onSubmit={(url) => void ingestYoutube(url)}
+	open={youtubeEntryOpen}
 />
 <DialogProgress
 	dismissible

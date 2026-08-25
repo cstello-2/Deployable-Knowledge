@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { TranscriptPlayer } from '$lib/components/app/transcript';
+	import { TranscriptPlayer, YoutubeTranscript } from '$lib/components/app/transcript';
+	import { parseYoutubeVideoId } from '$lib/utils';
 	import type { PageData } from './$types';
 
 	interface Props {
@@ -7,15 +8,28 @@
 	}
 
 	let { data }: Props = $props();
+
+	const videoId = $derived(
+		data.document.sourceType === 'YOUTUBE' ? parseYoutubeVideoId(data.document.sourcePath) : null
+	);
 </script>
 
 <svelte:head>
 	<title>{data.document.title} · Transcript · Deployable Knowledge</title>
 </svelte:head>
 
-<TranscriptPlayer
-	audioSrc="/transcripts/{data.document.id}/audio"
-	chunks={data.chunks}
-	document={data.document}
-	focusChunkIndex={data.focusChunkIndex}
-/>
+{#if videoId}
+	<YoutubeTranscript
+		chunks={data.chunks}
+		document={data.document}
+		focusChunkIndex={data.focusChunkIndex}
+		{videoId}
+	/>
+{:else}
+	<TranscriptPlayer
+		audioSrc="/transcripts/{data.document.id}/audio"
+		chunks={data.chunks}
+		document={data.document}
+		focusChunkIndex={data.focusChunkIndex}
+	/>
+{/if}

@@ -5,6 +5,7 @@
 	import Power from '@lucide/svelte/icons/power';
 	import PowerOff from '@lucide/svelte/icons/power-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import Video from '@lucide/svelte/icons/video';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { documentViewerHref } from '$lib/constants';
@@ -36,13 +37,14 @@
 		tags
 	}: Props = $props();
 
-	const SourceIcon = $derived(
-		document.sourceType === 'AUDIO'
-			? AudioLines
-			: document.sourceType === 'XLSX' || document.sourceType === 'CSV'
-				? FileSpreadsheet
-				: FileText
-	);
+	const SOURCE_ICONS: Partial<Record<DocumentRow['sourceType'], typeof FileText>> = {
+		AUDIO: AudioLines,
+		CSV: FileSpreadsheet,
+		XLSX: FileSpreadsheet,
+		YOUTUBE: Video
+	};
+
+	const SourceIcon = $derived(SOURCE_ICONS[document.sourceType] ?? FileText);
 
 	const viewerHref = $derived(documentViewerHref(document.sourceType, document.id, {}));
 </script>

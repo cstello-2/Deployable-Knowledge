@@ -17,7 +17,8 @@ import type {
 	ApiDocumentSyncFileProgress,
 	ApiDocumentTagAssignmentRequest,
 	ApiDocumentTagRequest,
-	ApiDocumentTextRequest
+	ApiDocumentTextRequest,
+	ApiDocumentUrlRequest
 } from '$lib/types';
 import { apiDelete, apiFetch, apiPatch, apiPost, apiStream, parseNdjsonStream } from '$lib/utils';
 
@@ -97,6 +98,19 @@ export class DocumentsService {
 		const response = await apiStream(API_DOCUMENTS.BASE, {
 			method: 'POST',
 			body: JSON.stringify({ path } satisfies ApiDocumentPathRequest),
+			signal
+		});
+		return this.readIngestStream(response, onProgress, signal);
+	}
+
+	static async ingestYoutube(
+		url: string,
+		onProgress?: (progress: ApiDocumentIngestProgress) => void,
+		signal?: AbortSignal
+	): Promise<ApiDocumentIngestResult> {
+		const response = await apiStream(API_DOCUMENTS.BASE, {
+			method: 'POST',
+			body: JSON.stringify({ url } satisfies ApiDocumentUrlRequest),
 			signal
 		});
 		return this.readIngestStream(response, onProgress, signal);

@@ -59,6 +59,10 @@ export interface ApiDocumentTextRequest {
 	text: string;
 }
 
+export interface ApiDocumentUrlRequest {
+	url: string;
+}
+
 export interface ApiDocumentIngestProgress {
 	percent: number;
 	label: string;
@@ -132,11 +136,11 @@ export type TranscriptChunkRow = Pick<
 
 export interface ApiTranscriptResponse {
 	chunks: TranscriptChunkRow[];
-	document: Pick<Document, 'id' | 'title' | 'sourceType' | 'updatedAt'>;
+	document: Pick<Document, 'id' | 'title' | 'sourcePath' | 'sourceType' | 'updatedAt'>;
 }
 
 export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf' | 'audio' | 'docx' | 'pptx' | 'xlsx' | 'csv' | 'text';
+	kind: 'folder' | 'pdf' | 'audio' | 'docx' | 'pptx' | 'xlsx' | 'csv' | 'text' | 'youtube';
 	name: string;
 	path: string;
 }

@@ -1,28 +1,31 @@
-// Audio has no pages, so the whole transcript enters the chunk pipeline as a single text page
+// Speech has no pages, so a whole transcript enters the chunk pipeline as a single text page.
 
 import { decodeAudioFile } from '$lib/server/transcription/audio-decoder';
-import { transcribeAudio } from '$lib/server/transcription/transcription-model';
 import {
-	normalizeWhitespace,
-	type ExtractionResult,
-	type ParsedChunk,
-	type Source,
-	type TranscriptTimelineEntry
+	transcribeAudio,
+	type TranscriptSegment
+} from '$lib/server/transcription/transcription-model';
+import type {
+	ExtractionResult,
+	ParsedChunk,
+	Source,
+	TranscriptTimelineEntry
 } from './parse-shared';
 
-export async function extractTranscript(
+function flattenSegmentText(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
+}
+
+export function buildTranscriptExtraction(
 	source: Source,
-	onProgress?: (ratio: number, message: string) => void
-): Promise<ExtractionResult> {
-	const audioData = await decodeAudioFile(source.path);
-
-	onProgress?.(0.25, 'Transcribing speech');
-	const transcription = await transcribeAudio(audioData);
-
+	segments: TranscriptSegment[],
+	fallbackText = ''
+): ExtractionResult {
 	const timeline: TranscriptTimelineEntry[] = [];
 	let content = '';
-	for (const segment of transcription.segments) {
-		const spoken = segment.text.trim();
+
+	for (const segment of segments) {
+		const spoken = flattenSegmentText(segment.text);
 		if (!spoken) continue;
 
 		if (content) content += ' ';
@@ -37,7 +40,7 @@ export async function extractTranscript(
 	}
 
 	// Timestamp-less model output still transcribes; it just cannot be followed along during playback
-	if (!content) content = normalizeWhitespace(transcription.text);
+	if (!content) content = flattenSegmentText(fallbackText);
 
 	// Silent audio transcribes to nothing; ingestion reports the empty result to the user
 	if (!content) return { chunks: [], pageCount: 0 };
@@ -46,6 +49,18 @@ export async function extractTranscript(
 		chunks: [{ chunkType: 'TEXT', source, pageIndex: 0, content, timeline }],
 		pageCount: 1
 	};
+}
+
+export async function extractTranscript(
+	source: Source,
+	onProgress?: (ratio: number, message: string) => void
+): Promise<ExtractionResult> {
+	const audioData = await decodeAudioFile(source.path);
+
+	onProgress?.(0.25, 'Transcribing speech');
+	const transcription = await transcribeAudio(audioData);
+
+	return buildTranscriptExtraction(source, transcription.segments, transcription.text);
 }
 
 function timeAtChar(timeline: TranscriptTimelineEntry[], charIndex: number): number {

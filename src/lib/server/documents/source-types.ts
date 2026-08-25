@@ -13,6 +13,7 @@ import {
 	attachTranscriptTimings,
 	extractTranscript
 } from '$lib/server/rag/chunk/transcript-extract';
+import { extractYoutubeTranscript } from '$lib/server/rag/chunk/youtube-extract';
 import { convertOfficeToPdf } from './office-converter';
 
 export type SourceTypeHandler = {
@@ -88,6 +89,18 @@ const audioHandler: SourceTypeHandler = {
 	finalize: (chunks, extraction) => attachTranscriptTimings(chunks, extraction.chunks[0]?.timeline)
 };
 
+const youtubeHandler: SourceTypeHandler = {
+	type: 'YOUTUBE',
+	kind: 'youtube',
+	extensions: [],
+	storage: 'in-place',
+	progressLabel: 'Importing YouTube transcript',
+	startMessage: 'Reading video details',
+	emptyResultMessage: 'This video has no captions long enough to index.',
+	extract: (source, onProgress) => extractYoutubeTranscript(source, onProgress),
+	finalize: (chunks, extraction) => attachTranscriptTimings(chunks, extraction.chunks[0]?.timeline)
+};
+
 const docxHandler: SourceTypeHandler = {
 	type: 'DOCX',
 	kind: 'docx',
@@ -154,6 +167,7 @@ const textHandler: SourceTypeHandler = {
 export const SOURCE_TYPE_HANDLERS: readonly SourceTypeHandler[] = [
 	pdfHandler,
 	audioHandler,
+	youtubeHandler,
 	docxHandler,
 	pptxHandler,
 	xlsxHandler,

@@ -11,7 +11,8 @@ import { folderWatcherManager } from '$lib/server/documents/folder-watcher';
 import {
 	ingestFileBuffer,
 	ingestFilePath,
-	ingestTextContent
+	ingestTextContent,
+	ingestYoutubeUrl
 } from '$lib/server/documents/ingest-file';
 import { removeDocument } from '$lib/server/documents/remove-document';
 import type { RequestHandler } from './$types';
@@ -33,8 +34,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			path?: unknown;
 			text?: unknown;
 			title?: unknown;
+			url?: unknown;
 		} | null;
-		if (typeof body?.text === 'string') {
+		if (typeof body?.url === 'string' && body.url.trim()) {
+			const url = body.url;
+			ingest = (onProgress) => ingestYoutubeUrl(url, onProgress);
+		} else if (typeof body?.text === 'string') {
 			const title = typeof body.title === 'string' ? body.title : '';
 			if (!title.trim()) throw error(400, 'Give the text a title.');
 			if (!body.text.trim()) throw error(400, 'Provide text to embed.');

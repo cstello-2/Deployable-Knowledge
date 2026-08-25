@@ -22,7 +22,9 @@ export function documentViewerHref(
 	documentId: string,
 	location: { chunkIndex?: number | null; pageIndex?: number | null }
 ): string {
-	if (sourceType === 'AUDIO') return APP_TRANSCRIPTS.chunk(documentId, location.chunkIndex ?? 0);
+	if (sourceType === 'AUDIO' || sourceType === 'YOUTUBE') {
+		return APP_TRANSCRIPTS.chunk(documentId, location.chunkIndex ?? 0);
+	}
 	return APP_PREVIEW.page(documentId, location.pageIndex ?? 0);
 }
 

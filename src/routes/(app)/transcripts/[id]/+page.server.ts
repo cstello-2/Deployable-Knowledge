@@ -6,8 +6,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	const transcript = await DocumentsRepository.transcript(params.id);
 
 	if (!transcript) throw error(404, 'Document not found.');
-	if (transcript.document.sourceType !== 'AUDIO') {
-		throw error(400, 'This document is not an audio transcript.');
+	const { sourceType } = transcript.document;
+	if (sourceType !== 'AUDIO' && sourceType !== 'YOUTUBE') {
+		throw error(400, 'This document is not a transcript.');
 	}
 
 	const requested = url.searchParams.get('chunk')?.trim();

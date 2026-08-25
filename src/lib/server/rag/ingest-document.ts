@@ -28,7 +28,7 @@ export async function ingestDocument(
 	{ filePath, title, sourceType }: IngestDocumentInput,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
 ): Promise<IngestDocumentResult> {
-	const handler = handlerForPath(filePath);
+	const handler = handlerForPath(filePath) ?? (sourceType ? handlerForType(sourceType) : null);
 	if (!handler?.extract) throw new Error('Unsupported document type.');
 	const extract = handler.extract;
 	const identity = handlerForType(sourceType ?? handler.type) ?? handler;

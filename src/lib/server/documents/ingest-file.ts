@@ -8,6 +8,8 @@ import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/ty
 import { db } from '$lib/server/database/database';
 import { documentChunks, documents, syncedFiles } from '$lib/server/database/schema';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
+import { fetchYoutubeTranscript } from '$lib/server/youtube/transcript-client';
+import { parseYoutubeVideoId, watchUrl } from '$lib/utils';
 import {
 	handlerForPath,
 	handlerForType,
@@ -137,6 +139,28 @@ export async function ingestTextContent(
 		await removeManagedDocumentFile(savedPath);
 		throw error;
 	}
+}
+
+export async function ingestYoutubeUrl(
+	url: string,
+	onProgress?: (progress: ApiDocumentIngestProgress) => void
+): Promise<ApiDocumentIngestResult> {
+	const videoId = parseYoutubeVideoId(url);
+	if (!videoId) throw new Error('Enter a YouTube video link.');
+
+	const canonicalUrl = watchUrl(videoId);
+
+	const existing = await existingDocument(canonicalUrl);
+	if (existing) return existing;
+
+	const { title } = await fetchYoutubeTranscript(videoId);
+
+	const result = await ingestDocument(
+		{ filePath: canonicalUrl, title, sourceType: 'YOUTUBE' },
+		onProgress
+	);
+	await db.update(documents).set({ origin: 'MANUAL' }).where(eq(documents.id, result.documentId));
+	return result;
 }
 
 // In-place sources stay where the user keeps them; the chunks are the ingested artifact

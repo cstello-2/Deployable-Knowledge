@@ -14,7 +14,9 @@ export const load: PageServerLoad = async ({ params }) => {
 	const document = await db.select().from(documents).where(eq(documents.id, params.id)).get();
 
 	if (!document) throw error(404, 'Document not found.');
-	if (document.sourceType === 'AUDIO') throw redirect(302, APP_TRANSCRIPTS.byId(document.id));
+	if (document.sourceType === 'AUDIO' || document.sourceType === 'YOUTUBE') {
+		throw redirect(302, APP_TRANSCRIPTS.byId(document.id));
+	}
 
 	const summary = {
 		id: document.id,

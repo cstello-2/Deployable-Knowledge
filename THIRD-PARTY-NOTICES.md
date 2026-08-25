@@ -162,9 +162,9 @@ By downloading a Gemma model through this application, you agree to those terms.
 
 ## 8. Permissively licensed dependencies
 
-The remaining ~690 packages in the dependency tree are distributed under permissive licenses: MIT
-(542), ISC (47), Apache-2.0 (45), BSD-3-Clause (23), BSD-2-Clause (17), BlueOak-1.0.0 (8), and
-single packages under 0BSD, Unlicense, Python-2.0, WTFPL, and various dual-license combinations.
+The remaining ~730 packages in the dependency tree are distributed under permissive licenses: MIT,
+ISC, Apache-2.0, BSD-3-Clause, BSD-2-Clause, BlueOak-1.0.0, and single packages under 0BSD,
+Unlicense, Python-2.0, WTFPL, and various dual-license combinations.
 Their full license texts are included in the respective package directories under `node_modules/`.
 
 Specific acknowledgements:
@@ -180,6 +180,14 @@ Specific acknowledgements:
   (substack), whose packages are conventionally MIT, but its terms are formally unstated upstream.
 - **`dompurify`** (`3.4.14`) — dual-licensed (MPL-2.0 OR Apache-2.0); used here under Apache-2.0.
 - **`jszip`** (`3.10.1`) — dual-licensed (MIT OR GPL-3.0-or-later); used here under MIT.
+- **`youtubei.js`** (`18.0.0`) — MIT, copyright LuanRT. A client for YouTube's internal InnerTube
+  API, used to look up a video's caption tracks. Pulls in `@bufbuild/protobuf` (dual
+  **Apache-2.0 AND BSD-3-Clause** — both sets of terms apply), `fflate` (MIT), and `meriyah` (ISC).
+- **`bgutils-js`** (`4.0.3`) — MIT, copyright LuanRT. Performs YouTube's BotGuard attestation to
+  mint the proof-of-origin token that caption downloads now require. It executes an attestation
+  program served by Google at runtime; that program is Google's code and is not redistributed here.
+- **`jsdom`** (`30.0.1`) — MIT. Required only by the attestation step above, which runs browser
+  code that expects a real DOM.
 
 ---
 

@@ -19,18 +19,19 @@ same way, no matter what it started as.
 - Text and Markdown (`.txt`, `.md`, `.markdown`): up to 25 MB
 - Audio (`.aac`, `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, `.opus`, `.wav`,
   `.webm`, `.wma`): transcribed, up to 100 MB and 2 hours
+- YouTube videos: the video's own captions, imported as a timestamped transcript
 - Pasted text, typed straight into the library
 
 ### Documents and search
 
-- Add files one at a time, pull them in from a folder, or paste text.
+- Add files one at a time, pull them in from a folder, paste text, or import a YouTube video.
 - Point it at a folder to sync it and it keeps watching. New and changed files are ingested, and
   deleted ones are dropped.
 - Sort, filter, tag, and page through the library, and act on a selection in bulk.
 - Documents can be switched active or inactive, which is how you decide what search and chat see.
 - Search is semantic, BM25, or hybrid.
-- Results link back to the source. PDFs open in a viewer, and audio opens in a player that jumps to
-  the chunk you clicked.
+- Results link back to the source. PDFs open in a viewer, audio opens in a player that jumps to
+  the chunk you clicked, and a YouTube chunk opens the video at the moment it was said.
 
 ### Chat
 

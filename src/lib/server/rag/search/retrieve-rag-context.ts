@@ -78,7 +78,7 @@ export function describeChunkLocation(
 	pageIndex: number,
 	preview: string
 ): string {
-	if (sourceType === 'AUDIO') return preview;
+	if (sourceType === 'AUDIO' || sourceType === 'YOUTUBE') return preview;
 	if (sourceType === 'XLSX') return `Sheet ${pageIndex + 1}: ${preview}`;
 	return `Page ${pageIndex + 1}: ${preview}`;
 }

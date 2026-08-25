@@ -3,6 +3,7 @@
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
+	import Video from '@lucide/svelte/icons/video';
 	import { Button } from '$lib/components/ui/button';
 	import { documentViewerHref } from '$lib/constants';
 	import type { ApiSearchMatch } from '$lib/types';
@@ -17,14 +18,16 @@
 	let { index = 0, onSaveChunk, onSendToNotebook, result }: Props = $props();
 
 	// Transcript chunks have no pages and no file to open, unlike PDF chunks
-	const isTranscript = $derived(result.sourceType === 'AUDIO');
-	const locationLabel = $derived(
-		isTranscript
-			? 'Transcript'
-			: result.sourceType === 'XLSX'
-				? `Sheet ${result.pageIndex + 1}`
-				: `Page ${result.pageIndex + 1}`
-	);
+	const isTranscript = $derived(result.sourceType === 'AUDIO' || result.sourceType === 'YOUTUBE');
+	const isVideo = $derived(result.sourceType === 'YOUTUBE');
+
+	function describeLocation(match: ApiSearchMatch): string {
+		if (match.sourceType === 'AUDIO' || match.sourceType === 'YOUTUBE') return 'Transcript';
+		if (match.sourceType === 'XLSX') return `Sheet ${match.pageIndex + 1}`;
+		return `Page ${match.pageIndex + 1}`;
+	}
+
+	const locationLabel = $derived(describeLocation(result));
 	const viewerHref = $derived(documentViewerHref(result.sourceType, result.documentId, result));
 </script>
 
@@ -42,7 +45,11 @@
 		<Button variant="outline" size="sm" onclick={() => onSendToNotebook(result)}>
 			<BookOpen /> Send to notebook
 		</Button>
-		{#if isTranscript}
+		{#if isVideo}
+			<Button variant="outline" size="sm" href={viewerHref}>
+				<Video /> Open transcript
+			</Button>
+		{:else if isTranscript}
 			<Button variant="outline" size="sm" href={viewerHref}>
 				<AudioLines /> Play this chunk
 			</Button>
