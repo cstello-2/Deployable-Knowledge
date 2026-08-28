@@ -17,3 +17,4 @@ export { ThemeService } from './theme.service';
 export { ToolsService } from './tools.service';
 export { WorkspaceLayoutsService } from './workspace-layouts.service';
 export { DiagnosticsService } from './diagnostics.service';
+export { ChunkRatingsService } from './chunk-ratings.service';

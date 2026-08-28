@@ -9,4 +9,5 @@ export { setupStore } from './setup.svelte';
 export { themeStore } from './theme.svelte';
 export { workspaceStore } from './workspace.svelte';
 export { diagnosticsStore } from './diagnostics.svelte';
+export { chunkRatingsStore } from './chunk-ratings.svelte';
 export type { SettingsSection } from './settings-dialog.svelte';
