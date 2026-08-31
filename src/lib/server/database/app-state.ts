@@ -26,7 +26,7 @@ export async function ensureActiveProfileId(): Promise<string> {
 			.values({
 				id: randomUUID(),
 				name: 'Default',
-				enabledTools: toolRegistry.ids(),
+				enabledTools: toolRegistry.defaultIds(),
 				createdAt: timestamp,
 				updatedAt: timestamp
 			})

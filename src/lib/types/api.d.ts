@@ -38,6 +38,7 @@ export interface ApiAgentTool {
 	label: string;
 	description: string;
 	modes: readonly ChatMode[];
+	defaultEnabled?: boolean;
 }
 
 export interface ApiDocumentTagRequest {

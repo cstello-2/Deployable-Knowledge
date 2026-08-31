@@ -20,16 +20,29 @@ export class ToolRegistry {
 	}
 
 	catalog(): ApiAgentTool[] {
-		return [...this.#tools.values()].map(({ id, label, description, modes }) => ({
+		return [...this.#tools.values()].map(({ id, label, description, modes, defaultEnabled }) => ({
 			id,
 			label,
 			description,
-			modes
+			modes,
+			defaultEnabled: defaultEnabled !== false
 		}));
 	}
 
 	ids(): string[] {
 		return [...this.#tools.keys()];
+	}
+
+	defaultIds(): string[] {
+		return [...this.#tools.values()]
+			.filter((tool) => tool.defaultEnabled !== false)
+			.map(({ id }) => id);
+	}
+
+	compactExemptIds(): Set<string> {
+		return new Set(
+			[...this.#tools.values()].filter((tool) => tool.keepResultOnCompact).map(({ id }) => id)
+		);
 	}
 
 	idsForMode(mode: ChatMode): string[] {
@@ -39,7 +52,7 @@ export class ToolRegistry {
 	}
 
 	filterIds(value: unknown): string[] {
-		if (!Array.isArray(value)) return this.ids();
+		if (!Array.isArray(value)) return this.defaultIds();
 		return this.ids().filter((id) => value.includes(id));
 	}
 

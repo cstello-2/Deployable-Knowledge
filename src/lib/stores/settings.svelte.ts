@@ -180,9 +180,12 @@ class SettingsStore {
 	}
 
 	private knownToolIds(value: unknown): string[] {
-		const ids = this.availableTools.map(({ id }) => id);
-		if (!Array.isArray(value)) return ids;
-		return ids.filter((id) => value.includes(id));
+		if (!Array.isArray(value)) {
+			return this.availableTools
+				.filter(({ defaultEnabled }) => defaultEnabled !== false)
+				.map(({ id }) => id);
+		}
+		return this.availableTools.map(({ id }) => id).filter((id) => value.includes(id));
 	}
 
 	async loadProviders(): Promise<void> {

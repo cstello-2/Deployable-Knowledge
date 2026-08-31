@@ -16,7 +16,7 @@ import {
 	ESTIMATED_CHARACTERS_PER_TOKEN
 } from '$lib/constants';
 import { readObject } from '../utils/values';
-import { readGoals, unfinishedGoals } from '../tools/goals';
+import { createGoalNudger } from '../tools/goals';
 import {
 	logAgentComplete,
 	logModelCall,
@@ -78,12 +78,12 @@ export async function runAgent({
 	const outputs = new Map<string, AgentOutput>();
 	const trace: AgentTraceItem[] = [];
 	const compactBudgetChars = transcriptBudgetChars(chatOptions);
+	const compactExemptTools = registry.compactExemptIds();
+	const nudgeGoals = createGoalNudger();
 	let toolTurns = 0;
 	let modelTurns = 0;
 	let forceFinalAnswer = false;
 	let emptyTurnRetried = false;
-	let fruitlessNudges = 0;
-	let lastNudgeSnapshot = '';
 
 	// Tell the model its tool-turn allocation so it plans work that fits the
 	// budget instead of promising follow-up turns it will never get. The note
@@ -103,7 +103,7 @@ export async function runAgent({
 
 	while (true) {
 		chatOptions.signal?.throwIfAborted();
-		compactTranscript(transcript, compactBudgetChars);
+		compactTranscript(transcript, compactBudgetChars, compactExemptTools);
 		const toolsAvailable = !forceFinalAnswer && toolTurns < maxTurns && definitions.length > 0;
 		if (systemIndex !== -1) {
 			transcript[systemIndex] = {
@@ -169,23 +169,12 @@ export async function runAgent({
 		});
 
 		if (!turn.toolCalls.length || !toolsAvailable) {
-			const unfinished = unfinishedGoals(toolContext);
-			if (toolsAvailable && !turn.toolCalls.length && unfinished.length > 0) {
-				const snapshot = `${toolTurns}:${JSON.stringify(readGoals(toolContext))}`;
-				fruitlessNudges = snapshot === lastNudgeSnapshot ? fruitlessNudges + 1 : 0;
-				lastNudgeSnapshot = snapshot;
-
-				if (fruitlessNudges < 2) {
+			if (toolsAvailable && !turn.toolCalls.length) {
+				const nudge = nudgeGoals(toolContext);
+				if (nudge) {
 					if (turn.content) transcript.push({ role: 'assistant', content: turn.content });
 					if (turn.contentChunks.length) onTextReset?.();
-					transcript.push({
-						role: 'user',
-						content: `Do not answer yet. These goals are still unfinished:\n${unfinished
-							.map((goal) => `- ${goal.text}`)
-							.join(
-								'\n'
-							)}\nContinue now: work on the next unfinished goal using tools. When a goal is complete, update the goals tool with done: true and record what you found in its answer field. Give the final answer only when every goal is done.`
-					});
+					transcript.push({ role: 'user', content: nudge });
 					continue;
 				}
 			}
@@ -338,11 +327,15 @@ function transcriptChars(transcript: ProviderChatMessage[]): number {
 	return transcript.reduce((sum, message) => sum + messageChars(message), 0);
 }
 
-function compactTranscript(transcript: ProviderChatMessage[], budgetChars: number): void {
+function compactTranscript(
+	transcript: ProviderChatMessage[],
+	budgetChars: number,
+	exemptTools: ReadonlySet<string>
+): void {
 	if (transcriptChars(transcript) <= budgetChars) return;
 
 	const toolIndexes = transcript.flatMap((message, index) =>
-		message.role === 'tool' && message.name !== 'goals' ? [index] : []
+		message.role === 'tool' && !exemptTools.has(message.name ?? '') ? [index] : []
 	);
 	const compactable = toolIndexes.slice(
 		0,
@@ -363,7 +356,7 @@ function compactedToolContent(content: string): string {
 	return JSON.stringify({
 		compacted: true,
 		...(typeof parsed.query === 'string' ? { query: parsed.query } : {}),
-		note: 'Older tool result trimmed to fit the context window. Key findings should already be recorded in your goals answer fields; re-run the tool if you need the details again.'
+		note: 'Older tool result trimmed to fit the context window. Re-run the tool if you need the details again.'
 	});
 }
 

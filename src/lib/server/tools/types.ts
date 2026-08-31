@@ -29,6 +29,9 @@ export type AgentToolDefinition = {
 export type AgentTool<TData = unknown> = ApiAgentTool & {
 	definition: AgentToolDefinition;
 	instructions?: string;
+	// Results from this tool survive transcript compaction (e.g. goal state the
+	// model relies on as memory).
+	keepResultOnCompact?: boolean;
 	execute(
 		argumentsValue: unknown,
 		context: ToolExecutionContext
