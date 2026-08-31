@@ -4,17 +4,29 @@
 	import Files from '@lucide/svelte/icons/files';
 	import FolderSync from '@lucide/svelte/icons/folder-sync';
 	import FolderX from '@lucide/svelte/icons/folder-x';
+	import Plug from '@lucide/svelte/icons/plug';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { infiniteScroll } from '$lib/actions';
 	import { ActionIcon } from '$lib/components/app/actions';
+	import type { FolderSyncStatus } from '$lib/client/folder-sync/sync-engine.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Empty from '$lib/components/ui/empty';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { cn } from '$lib/components/ui/utils';
 	import type { ApiFolderDocumentCount, ApiSyncedFolder, DocumentRow } from '$lib/types';
 	import DocumentListItem from './DocumentListItem.svelte';
+
+	const SYNC_STATUS_LABELS: Record<FolderSyncStatus, string> = {
+		unsupported: 'not supported here',
+		'handle-missing': 'reconnect needed',
+		'permission-needed': 'reconnect needed',
+		syncing: 'syncing',
+		watching: 'watching',
+		idle: 'synced',
+		error: 'sync error'
+	};
 
 	interface DocumentGroup {
 		documents: DocumentRow[];
@@ -36,8 +48,10 @@
 		onDeleteDocument: (document: DocumentRow) => void;
 		onLoadMore?: () => void;
 		manualTotal?: number;
+		onReconnectFolder?: (folder: ApiSyncedFolder) => void;
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
+		syncStatuses?: ReadonlyMap<string, FolderSyncStatus>;
 		onToggle: (id: string, selected: boolean) => void;
 		onToggleActive: (document: DocumentRow) => void;
 		onToggleGroup: (group: string, selected: boolean) => void;
@@ -58,8 +72,10 @@
 		onCreateTag,
 		onDeleteDocument,
 		onLoadMore = () => {},
+		onReconnectFolder = () => {},
 		onRemoveFolder,
 		onSyncFolder,
+		syncStatuses = new Map(),
 		onToggle,
 		onToggleActive,
 		onToggleGroup,
@@ -82,11 +98,7 @@
 		const values: DocumentGroup[] = folders.map((folder) => ({
 			key: folder.id,
 			kind: 'folder' as const,
-			label:
-				folder.path
-					.split(/[\\/]+/)
-					.filter(Boolean)
-					.at(-1) || folder.path,
+			label: folder.name,
 			documents: documents.filter((document) => document.folderId === folder.id),
 			folder,
 			total: countByFolder.get(folder.id) ?? 0
@@ -155,16 +167,28 @@
 						<Files class="size-4 shrink-0 text-muted-foreground" />
 					{/if}
 					<div class="flex min-w-0 flex-1 items-baseline gap-2">
-						<div class="truncate text-sm font-semibold" title={group.folder?.path ?? group.label}>
+						<div class="truncate text-sm font-semibold" title={group.label}>
 							{group.label}
 						</div>
 						<div class="shrink-0 text-[11px] text-muted-foreground">
 							{group.total} document{group.total === 1 ? '' : 's'}
-							{#if group.folder}
-								· {group.folder.watching ? 'watching' : 'stopped'}{/if}
+							{#if group.folder && syncStatuses.has(group.folder.id)}
+								· {SYNC_STATUS_LABELS[syncStatuses.get(group.folder.id)!]}{/if}
 						</div>
 					</div>
 					{#if group.folder}
+						{#if syncStatuses.get(group.folder.id) === 'handle-missing' || syncStatuses.get(group.folder.id) === 'permission-needed'}
+							<ActionIcon
+								class="border-0 bg-transparent shadow-none"
+								disabled={busy}
+								label={`Reconnect ${group.label}`}
+								size="icon-sm"
+								variant="ghost"
+								onclick={() => onReconnectFolder(group.folder!)}
+							>
+								<Plug />
+							</ActionIcon>
+						{/if}
 						<ActionIcon
 							class="border-0 bg-transparent shadow-none"
 							disabled={busy}

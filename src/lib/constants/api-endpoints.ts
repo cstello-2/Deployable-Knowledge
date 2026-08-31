@@ -31,13 +31,14 @@ export function documentViewerHref(
 export const API_DOCUMENTS = {
 	ACTIVATION: '/documents/activation',
 	BASE: '/documents',
-	DIRECTORIES: '/documents/directories',
 	FOLDERS: '/documents/folders',
 	IDS: '/documents/ids',
 	LIST: '/documents/list',
 	TAGS: '/documents/tags',
 	byId: (id: string) => `/documents/${segment(id)}`,
-	folder: (id: string) => `/documents/folders/${segment(id)}`
+	folder: (id: string) => `/documents/folders/${segment(id)}`,
+	folderFiles: (id: string) => `/documents/folders/${segment(id)}/files`,
+	folderReconcile: (id: string) => `/documents/folders/${segment(id)}/reconcile`
 };
 
 export const API_NOTEBOOKS = {

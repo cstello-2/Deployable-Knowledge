@@ -1,12 +1,6 @@
-import { readFile, readdir, realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { basename, extname, relative, resolve } from 'node:path';
+import { extname } from 'node:path';
 import { NOTEBOOK_TEXT_CHARACTER_LIMIT } from '$lib/constants';
-import { containsPath } from '$lib/server/documents/remove-document';
-import {
-	isNotebookPageImportPath,
-	parseNotebookPageContent
-} from '$lib/server/notebooks/import-notebook-page';
+import { parseNotebookPageContent } from '$lib/server/notebooks/import-notebook-page';
 
 const MAX_COLLECTION_BYTES = NOTEBOOK_TEXT_CHARACTER_LIMIT * 4;
 const MAX_PAGE_COUNT = 100;
@@ -19,6 +13,11 @@ export interface ImportedNotebookPage {
 export interface ImportedNotebookCollection {
 	pages: ImportedNotebookPage[];
 	title: string;
+}
+
+export interface ImportedNotebookFile {
+	sourceName: string;
+	data: Buffer;
 }
 
 export class NotebookCollectionImportError extends Error {
@@ -83,48 +82,10 @@ function validatePages(pages: ImportedNotebookPage[]): void {
 	}
 }
 
-async function validatedSourcePath(inputPath: string): Promise<string> {
-	const homeRoot = await realpath(homedir());
-	let sourcePath: string;
-
-	try {
-		sourcePath = await realpath(resolve(inputPath));
-	} catch {
-		throw new NotebookCollectionImportError('The selected folder does not exist.');
-	}
-
-	if (!containsPath(homeRoot, sourcePath)) {
-		throw new NotebookCollectionImportError('Select a folder inside your home folder.', 403);
-	}
-
-	return sourcePath;
-}
-
-async function loadFolder(sourcePath: string): Promise<ImportedNotebookCollection> {
-	const entries = await readdir(sourcePath, {
-		withFileTypes: true,
-		recursive: true
-	});
-
-	const files = entries
-		.filter((entry) => entry.isFile())
-		.map((entry) => resolve(entry.parentPath, entry.name))
-		.map((path) => ({
-			path,
-			sourceName: normalizedPath(relative(sourcePath, path))
-		}))
-		.filter(({ sourceName }) => isNotebookPageImportPath(sourceName))
-		.filter(
-			({ sourceName }) =>
-				!sourceName.split('/').some((segment) => segment.startsWith('.') || segment === '__MACOSX')
-		)
-		.sort((left, right) =>
-			left.sourceName.localeCompare(right.sourceName, undefined, {
-				numeric: true,
-				sensitivity: 'base'
-			})
-		);
-
+export function buildNotebookCollection(
+	title: string,
+	files: ImportedNotebookFile[]
+): ImportedNotebookCollection {
 	if (files.length > MAX_PAGE_COUNT) {
 		throw new NotebookCollectionImportError(
 			`A notebook can import at most ${MAX_PAGE_COUNT} pages.`,
@@ -132,47 +93,27 @@ async function loadFolder(sourcePath: string): Promise<ImportedNotebookCollectio
 		);
 	}
 
-	const sizes = await Promise.all(files.map(async ({ path }) => (await stat(path)).size));
-
-	const totalBytes = sizes.reduce((total, size) => total + size, 0);
-
+	const totalBytes = files.reduce((total, file) => total + file.data.length, 0);
 	if (totalBytes > MAX_COLLECTION_BYTES) {
 		throw new NotebookCollectionImportError('The notebook collection is too large.', 413);
 	}
 
-	const pages: ImportedNotebookPage[] = [];
+	const sorted = [...files].sort((left, right) =>
+		left.sourceName.localeCompare(right.sourceName, undefined, {
+			numeric: true,
+			sensitivity: 'base'
+		})
+	);
 
-	for (const file of files) {
-		pages.push({
-			content: importedPageContent(await readFile(file.path), file.sourceName),
-			title: pageTitle(file.sourceName)
-		});
-	}
+	const pages = sorted.map((file) => ({
+		content: importedPageContent(file.data, file.sourceName),
+		title: pageTitle(file.sourceName)
+	}));
 
 	validatePages(pages);
 
 	return {
 		pages,
-		title: basename(sourcePath).trim() || 'Imported notebook'
+		title: title.trim() || 'Imported notebook'
 	};
-}
-
-export async function loadNotebookCollection(
-	inputPath: string
-): Promise<ImportedNotebookCollection> {
-	if (!inputPath.trim()) {
-		throw new NotebookCollectionImportError('Select a folder or ZIP archive.');
-	}
-
-	const sourcePath = await validatedSourcePath(inputPath.trim());
-	const sourceStats = await stat(sourcePath);
-
-	if (sourceStats.isDirectory()) {
-		return loadFolder(sourcePath);
-	}
-
-	throw new NotebookCollectionImportError(
-		'Select a folder containing Markdown or text files.',
-		415
-	);
 }

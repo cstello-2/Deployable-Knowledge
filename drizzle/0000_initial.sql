@@ -157,28 +157,27 @@ CREATE TABLE `sessions` (
 --> statement-breakpoint
 CREATE INDEX `sessions_updated_idx` ON `sessions` (`updated_at`);--> statement-breakpoint
 CREATE TABLE `synced_files` (
-	`source_path` text PRIMARY KEY NOT NULL,
 	`folder_id` text NOT NULL,
+	`relative_path` text NOT NULL,
 	`managed_path` text NOT NULL,
 	`document_id` text,
-	`mtime_ms` integer NOT NULL,
+	`last_modified` integer NOT NULL,
 	`size` integer NOT NULL,
 	`ignored` integer DEFAULT false NOT NULL,
+	PRIMARY KEY(`folder_id`, `relative_path`),
 	FOREIGN KEY (`folder_id`) REFERENCES `synced_folders`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
-CREATE INDEX `synced_files_folder_idx` ON `synced_files` (`folder_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `synced_files_managed_path_idx` ON `synced_files` (`managed_path`);--> statement-breakpoint
 CREATE UNIQUE INDEX `synced_files_document_idx` ON `synced_files` (`document_id`);--> statement-breakpoint
 CREATE TABLE `synced_folders` (
 	`id` text PRIMARY KEY NOT NULL,
-	`path` text NOT NULL,
+	`name` text NOT NULL,
 	`created_at` text NOT NULL,
 	`last_error` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `synced_folders_path_idx` ON `synced_folders` (`path`);--> statement-breakpoint
 CREATE TABLE `tags` (
 	`name` text(40) PRIMARY KEY NOT NULL,
 	`created_at` text NOT NULL

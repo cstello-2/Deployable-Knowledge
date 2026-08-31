@@ -2,6 +2,7 @@ import {
 	blob,
 	index,
 	integer,
+	primaryKey,
 	real,
 	sqliteTable,
 	text,
@@ -275,32 +276,28 @@ export const documentChunks = sqliteTable(
 	]
 );
 
-export const syncedFolders = sqliteTable(
-	'synced_folders',
-	{
-		id: text('id').primaryKey(),
-		path: text('path').notNull(),
-		createdAt: text('created_at').notNull(),
-		lastError: text('last_error')
-	},
-	(table) => [uniqueIndex('synced_folders_path_idx').on(table.path)]
-);
+export const syncedFolders = sqliteTable('synced_folders', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	createdAt: text('created_at').notNull(),
+	lastError: text('last_error')
+});
 
 export const syncedFiles = sqliteTable(
 	'synced_files',
 	{
-		sourcePath: text('source_path').primaryKey(),
 		folderId: text('folder_id')
 			.notNull()
 			.references(() => syncedFolders.id, { onDelete: 'cascade' }),
+		relativePath: text('relative_path').notNull(),
 		managedPath: text('managed_path').notNull(),
 		documentId: text('document_id').references(() => documents.id, { onDelete: 'set null' }),
-		mtimeMs: integer('mtime_ms').notNull(),
+		lastModified: integer('last_modified').notNull(),
 		size: integer('size').notNull(),
 		ignored: integer('ignored', { mode: 'boolean' }).notNull().default(false)
 	},
 	(table) => [
-		index('synced_files_folder_idx').on(table.folderId),
+		primaryKey({ columns: [table.folderId, table.relativePath] }),
 		uniqueIndex('synced_files_managed_path_idx').on(table.managedPath),
 		uniqueIndex('synced_files_document_idx').on(table.documentId)
 	]

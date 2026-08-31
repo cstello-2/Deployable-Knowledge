@@ -2,8 +2,9 @@
 // plus a sourceType enum member and a viewer if the format needs one.
 
 import { extname } from 'node:path';
-import type { ApiDocumentDirectoryItem, Document } from '$lib/types';
-import { assertIngestableAudioSize, SUPPORTED_AUDIO_EXTENSIONS } from '$lib/utils';
+import { INGEST_FORMATS, type DocumentSourceKind } from '$lib/constants/ingest-formats';
+import type { Document } from '$lib/types';
+import { assertIngestableAudioSize } from '$lib/utils';
 import type { ExtractionResult, ParsedChunk, Source } from '$lib/server/rag/chunk/parse-shared';
 import { extractText } from '$lib/server/rag/chunk/text-extract';
 import { extractPlainText } from '$lib/server/rag/chunk/text-file-extract';
@@ -18,10 +19,8 @@ import { convertOfficeToPdf } from './office-converter';
 
 export type SourceTypeHandler = {
 	type: Document['sourceType'];
-	kind: Exclude<ApiDocumentDirectoryItem['kind'], 'folder'>;
+	kind: DocumentSourceKind;
 	extensions: readonly string[];
-	// How manual ingestion stores the bytes; folder sync keeps a managed copy regardless
-	storage: 'managed-copy' | 'in-place';
 	progressLabel: string;
 	startMessage: string;
 	emptyResultMessage: string;
@@ -60,8 +59,7 @@ function assertZipContainer(buffer: Buffer): void {
 const pdfHandler: SourceTypeHandler = {
 	type: 'PDF',
 	kind: 'pdf',
-	extensions: ['.pdf'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.pdf.extensions,
 	progressLabel: 'Ingesting PDF',
 	startMessage: 'Starting OCR',
 	emptyResultMessage: 'No readable text was found in this document.',
@@ -79,8 +77,7 @@ const pdfHandler: SourceTypeHandler = {
 const audioHandler: SourceTypeHandler = {
 	type: 'AUDIO',
 	kind: 'audio',
-	extensions: SUPPORTED_AUDIO_EXTENSIONS,
-	storage: 'in-place',
+	extensions: INGEST_FORMATS.audio.extensions,
 	progressLabel: 'Transcribing audio',
 	startMessage: 'Decoding audio',
 	emptyResultMessage: 'No speech long enough to index was found in this audio file.',
@@ -92,8 +89,7 @@ const audioHandler: SourceTypeHandler = {
 const youtubeHandler: SourceTypeHandler = {
 	type: 'YOUTUBE',
 	kind: 'youtube',
-	extensions: [],
-	storage: 'in-place',
+	extensions: INGEST_FORMATS.youtube.extensions,
 	progressLabel: 'Importing YouTube transcript',
 	startMessage: 'Reading video details',
 	emptyResultMessage: 'This video has no captions long enough to index.',
@@ -104,8 +100,7 @@ const youtubeHandler: SourceTypeHandler = {
 const docxHandler: SourceTypeHandler = {
 	type: 'DOCX',
 	kind: 'docx',
-	extensions: ['.docx'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.docx.extensions,
 	progressLabel: 'Ingesting Word document',
 	startMessage: 'Converting to PDF',
 	emptyResultMessage: 'No readable text was found in this document.',
@@ -116,8 +111,7 @@ const docxHandler: SourceTypeHandler = {
 const pptxHandler: SourceTypeHandler = {
 	type: 'PPTX',
 	kind: 'pptx',
-	extensions: ['.pptx'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.pptx.extensions,
 	progressLabel: 'Ingesting presentation',
 	startMessage: 'Converting to PDF',
 	emptyResultMessage: 'No readable text was found in this presentation.',
@@ -128,8 +122,7 @@ const pptxHandler: SourceTypeHandler = {
 const xlsxHandler: SourceTypeHandler = {
 	type: 'XLSX',
 	kind: 'xlsx',
-	extensions: ['.xlsx'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.xlsx.extensions,
 	progressLabel: 'Ingesting spreadsheet',
 	startMessage: 'Reading workbook',
 	emptyResultMessage: 'No cell data was found in this spreadsheet.',
@@ -141,8 +134,7 @@ const xlsxHandler: SourceTypeHandler = {
 const csvHandler: SourceTypeHandler = {
 	type: 'CSV',
 	kind: 'csv',
-	extensions: ['.csv'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.csv.extensions,
 	progressLabel: 'Ingesting CSV file',
 	startMessage: 'Reading CSV rows',
 	emptyResultMessage: 'No table data was found in this CSV file.',
@@ -154,8 +146,7 @@ const csvHandler: SourceTypeHandler = {
 const textHandler: SourceTypeHandler = {
 	type: 'TEXT',
 	kind: 'text',
-	extensions: ['.txt', '.md', '.markdown'],
-	storage: 'managed-copy',
+	extensions: INGEST_FORMATS.text.extensions,
 	progressLabel: 'Ingesting text file',
 	startMessage: 'Reading text',
 	emptyResultMessage: 'No readable text was found in this file.',

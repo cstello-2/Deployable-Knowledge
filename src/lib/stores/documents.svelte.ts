@@ -2,9 +2,6 @@ import { SvelteSet } from 'svelte/reactivity';
 import { DocumentsService } from '$lib/services';
 import { DEFAULT_DOCUMENT_SORT } from '$lib/utils';
 import type {
-	ApiDocumentDirectoryQuery,
-	ApiDocumentDirectoryResponse,
-	ApiDocumentFolderSyncResponse,
 	ApiDocumentIngestProgress,
 	ApiDocumentListQuery,
 	ApiDocumentSyncFileProgress,
@@ -204,10 +201,10 @@ class DocumentsStore {
 		await this.refresh();
 	}
 
-	async ingestPath(path: string) {
+	async ingestFile(file: File) {
 		this.progress = { percent: 0, label: 'Ingesting file', message: 'Preparing file' };
-		const result = await DocumentsService.ingestPath(
-			path,
+		const result = await DocumentsService.ingestFile(
+			file,
 			(progress) => (this.progress = progress)
 		);
 		this._selectedIds.add(result.documentId);
@@ -245,14 +242,6 @@ class DocumentsStore {
 		return result;
 	}
 
-	async addFolder(path: string): Promise<ApiDocumentFolderSyncResponse> {
-		return this.runFolderSync((onProgress) => DocumentsService.addFolder(path, onProgress));
-	}
-
-	async syncFolder(id: string): Promise<ApiDocumentFolderSyncResponse> {
-		return this.runFolderSync((onProgress) => DocumentsService.syncFolder(id, onProgress));
-	}
-
 	async removeFolder(id: string, removeDocuments: boolean): Promise<void> {
 		const result = await DocumentsService.removeFolder(id, removeDocuments);
 		for (const documentId of result.removedDocumentIds) this._selectedIds.delete(documentId);
@@ -263,10 +252,6 @@ class DocumentsStore {
 		await DocumentsService.removeDocument(id);
 		this._selectedIds.delete(id);
 		await this.refresh();
-	}
-
-	browseDirectory(query: ApiDocumentDirectoryQuery = {}): Promise<ApiDocumentDirectoryResponse> {
-		return DocumentsService.browseDirectory(query);
 	}
 
 	private listQuery(): ApiDocumentListQuery {
@@ -309,37 +294,32 @@ class DocumentsStore {
 		for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 	}
 
-	private async runFolderSync(
-		operation: (
-			onProgress: (progress: ApiDocumentSyncFileProgress) => void
-		) => Promise<ApiDocumentFolderSyncResponse>
-	): Promise<ApiDocumentFolderSyncResponse> {
+	beginFolderSync(): void {
 		this.syncing = true;
 		this._syncFiles = [];
-		this.syncProgress = { percent: 0, label: 'Syncing folder', message: 'Scanning for PDFs' };
-		try {
-			const result = await operation((progress) => {
-				const existingIndex = this._syncFiles.findIndex(
-					(file) => file.sourcePath === progress.sourcePath
-				);
-				this._syncFiles =
-					existingIndex < 0
-						? [...this._syncFiles, progress]
-						: this._syncFiles.map((file, index) => (index === existingIndex ? progress : file));
-				if (progress.status === 'ingesting') {
-					this.syncProgress = {
-						percent: progress.percent ?? 0,
-						label: progress.label ?? 'Ingesting PDF',
-						message: progress.message ?? progress.sourcePath
-					};
-				}
-			});
-			await this.refresh();
-			return result;
-		} finally {
-			this.syncing = false;
-			this.syncProgress = null;
+		this.syncProgress = { percent: 0, label: 'Syncing folder', message: 'Scanning folder' };
+	}
+
+	reportSyncFile(progress: ApiDocumentSyncFileProgress): void {
+		const existingIndex = this._syncFiles.findIndex(
+			(file) => file.sourcePath === progress.sourcePath
+		);
+		this._syncFiles =
+			existingIndex < 0
+				? [...this._syncFiles, progress]
+				: this._syncFiles.map((file, index) => (index === existingIndex ? progress : file));
+		if (progress.status === 'ingesting') {
+			this.syncProgress = {
+				percent: progress.percent ?? 0,
+				label: progress.label ?? 'Ingesting file',
+				message: progress.message ?? progress.sourcePath
+			};
 		}
+	}
+
+	endFolderSync(): void {
+		this.syncing = false;
+		this.syncProgress = null;
 	}
 }
 

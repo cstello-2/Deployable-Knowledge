@@ -140,32 +140,34 @@ export interface ApiTranscriptResponse {
 	document: Pick<Document, 'id' | 'title' | 'sourcePath' | 'sourceType' | 'updatedAt'>;
 }
 
-export interface ApiDocumentDirectoryItem {
-	kind: 'folder' | 'pdf' | 'audio' | 'docx' | 'pptx' | 'xlsx' | 'csv' | 'text' | 'youtube';
+export interface ApiDocumentFolderRegisterRequest {
+	id: string;
 	name: string;
-	path: string;
 }
 
-export interface ApiDocumentDirectoryQuery {
-	limit?: number;
-	offset?: number;
-	path?: string;
-	sort?: SortDirection;
+export interface ApiSyncFileStat {
+	path: string;
+	lastModified: number;
+	size: number;
 }
 
-export interface ApiDocumentDirectoryResponse {
-	items: ApiDocumentDirectoryItem[];
-	parentPath: string | null;
-	path: string;
-	total: number;
+export interface ApiDocumentFolderReconcileRequest {
+	files: ApiSyncFileStat[];
 }
 
-export interface ApiDocumentFolderRequest {
-	path: string;
+export interface ApiDocumentFolderReconcileResponse {
+	upload: ApiSyncFileStat[];
+	stale: ApiSyncFileStat[];
+	unchanged: number;
 }
 
-export interface ApiDocumentPathRequest {
-	path: string;
+export interface ApiDocumentFolderFileDeleteRequest {
+	paths: string[];
+}
+
+export interface ApiDocumentFolderFileDeleteResponse {
+	removed: number;
+	removedDocumentIds: string[];
 }
 
 export type ApiDocumentSyncFileStatus =
@@ -190,24 +192,14 @@ export interface ApiDocumentSyncResult {
 	updated: number;
 }
 
-export type ApiDocumentFolderSyncEvent =
-	| { type: 'folder'; created: boolean; folderId: string }
-	| ({ type: 'file' } & ApiDocumentSyncFileProgress)
-	| { type: 'done'; result?: ApiDocumentSyncResult }
-	| { type: 'error'; message: string };
-
-export type ApiSyncedFolder = Pick<SyncedFolder, 'id' | 'path' | 'createdAt' | 'lastError'> & {
-	watching: boolean;
-};
+export type ApiSyncedFolder = Pick<SyncedFolder, 'id' | 'name' | 'createdAt' | 'lastError'>;
 
 export interface ApiDocumentFoldersResponse {
 	folders: ApiSyncedFolder[];
 }
 
-export interface ApiDocumentFolderSyncResponse {
-	created: boolean;
-	folderId: string;
-	result?: ApiDocumentSyncResult;
+export interface ApiDocumentFolderRegisterResponse {
+	folder: ApiSyncedFolder;
 }
 
 export interface ApiNotebookTitleRequest {
@@ -360,12 +352,9 @@ export interface ApiNotebookChatMessageRequest extends ApiChatMessageBase {
 	notebook_id: string | null;
 }
 
-export interface ApiNotebookCollectionImportRequest {
-	path: string;
-}
-
-export interface ApiNotebookMarkdownImportRequest {
-	path: string;
+export interface ApiNotebookPageImportRequest {
+	name: string;
+	content: string;
 }
 
 export type ApiChatMessageRequest = ApiDocumentChatMessageRequest | ApiNotebookChatMessageRequest;

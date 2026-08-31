@@ -1,13 +1,15 @@
 <script lang="ts">
 	import ClipboardPen from '@lucide/svelte/icons/clipboard-pen';
+	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import Loader2 from '@lucide/svelte/icons/loader-2';
+	import Plus from '@lucide/svelte/icons/plus';
 	import Video from '@lucide/svelte/icons/video';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { folderSyncEngine } from '$lib/client/folder-sync/sync-engine.svelte';
 	import {
 		DialogConfirmation,
-		DialogDocumentFilePicker,
 		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
 		DialogDocumentTextEntry,
@@ -16,8 +18,17 @@
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { INGESTABLE_FILE_ACCEPT, INGESTABLE_FILE_EXTENSIONS } from '$lib/constants';
 	import { documentsStore } from '$lib/stores';
-	import type { ApiDocumentFolderSyncResponse, ApiSyncedFolder, DocumentRow } from '$lib/types';
+	import type { ApiDocumentSyncResult, ApiSyncedFolder, DocumentRow } from '$lib/types';
+	import {
+		FOLDER_SYNC_UNSUPPORTED_MESSAGE,
+		pickDirectory,
+		pickFiles,
+		supportsFolderSync
+	} from '$lib/utils';
 	import DocumentBulkActionsBar from './DocumentBulkActionsBar.svelte';
 	import DocumentFilterBar from './DocumentFilterBar.svelte';
 	import DocumentList from './DocumentList.svelte';
@@ -52,7 +63,6 @@
 
 	let pendingDeactivateAll = $state(false);
 	let pendingRemoveAll = $state(false);
-	let filePickerOpen = $state(false);
 	let textEntryOpen = $state(false);
 	let youtubeEntryOpen = $state(false);
 	let uploading = $state(false);
@@ -68,25 +78,33 @@
 
 	const busy = $derived(uploading || documentsStore.loading || documentsStore.syncing);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
+	const folderSyncSupported = supportsFolderSync();
 
 	onMount(() => void reloadLibrary());
+	onDestroy(() => folderSyncEngine.dispose());
 
 	async function reloadLibrary(): Promise<void> {
 		await documentsStore.load();
 		if (documentsStore.error) toast.error(documentsStore.error);
+		await folderSyncEngine.initialize();
 	}
 
-	async function ingestPaths(paths: string[]): Promise<void> {
-		if (!paths.length) return;
-		filePickerOpen = false;
+	async function addFiles(): Promise<void> {
+		const files = await pickFiles({
+			multiple: true,
+			extensions: INGESTABLE_FILE_EXTENSIONS,
+			accept: INGESTABLE_FILE_ACCEPT,
+			description: 'Documents'
+		});
+		if (!files.length) return;
 		uploading = true;
 		progressDialogOpen = true;
 		let succeeded = 0;
 		let failed = 0;
 		try {
-			for (const path of paths) {
+			for (const file of files) {
 				try {
-					await documentsStore.ingestPath(path);
+					await documentsStore.ingestFile(file);
 					succeeded += 1;
 				} catch (error) {
 					failed += 1;
@@ -133,18 +151,19 @@
 		}
 	}
 
-	function syncSummary(result: ApiDocumentFolderSyncResponse): string {
-		if (!result.result) return 'Folder sync finished.';
-		const { added, updated, removed, unchanged, failed } = result.result;
+	function syncSummary(result: ApiDocumentSyncResult | null): string {
+		if (!result) return 'Folder sync finished.';
+		const { added, updated, removed, unchanged, failed } = result;
 		return `Synced: ${added} added, ${updated} updated, ${removed} removed, ${unchanged} unchanged, ${failed} failed.`;
 	}
 
-	async function addFolder(path: string): Promise<void> {
-		filePickerOpen = false;
+	async function syncNewFolder(): Promise<void> {
 		try {
-			const result = await documentsStore.addFolder(path);
+			const handle = await pickDirectory();
+			if (!handle) return;
+			const result = await folderSyncEngine.addFolder(handle);
 			status = syncSummary(result);
-			toast.success(result.created ? 'Folder registered and synced' : 'Folder synced');
+			toast.success('Folder registered and synced');
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
 		}
@@ -152,9 +171,25 @@
 
 	async function syncFolder(folder: ApiSyncedFolder): Promise<void> {
 		try {
-			const result = await documentsStore.syncFolder(folder.id);
+			const result = await folderSyncEngine.syncFolder(folder.id);
 			status = syncSummary(result);
 			toast.success('Folder synced');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function reconnectFolder(folder: ApiSyncedFolder): Promise<void> {
+		try {
+			const syncStatus = folderSyncEngine.statuses.get(folder.id);
+			if (syncStatus === 'permission-needed') {
+				await folderSyncEngine.requestAccess(folder.id);
+			} else {
+				const handle = await pickDirectory();
+				if (!handle) return;
+				await folderSyncEngine.reconnect(folder.id, handle);
+			}
+			toast.success('Folder reconnected');
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
 		}
@@ -165,6 +200,7 @@
 		const { folder, removeDocuments } = pendingFolderRemoval;
 		try {
 			await documentsStore.removeFolder(folder.id, removeDocuments);
+			await folderSyncEngine.forget(folder.id);
 			status = removeDocuments
 				? 'Folder and its synced documents removed.'
 				: 'Folder unwatched; stored documents were kept.';
@@ -331,9 +367,11 @@
 				onCreateTag={(document, tag) => createAndAssignTag(document, tag)}
 				onDeleteDocument={(document) => (pendingDeleteDocument = document)}
 				onLoadMore={() => void documentsStore.loadMore()}
+				onReconnectFolder={(folder) => void reconnectFolder(folder)}
 				onRemoveFolder={(folder, removeDocuments) =>
 					(pendingFolderRemoval = { folder, removeDocuments })}
 				onSyncFolder={(folder) => void syncFolder(folder)}
+				syncStatuses={folderSyncEngine.statuses}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
 				onToggleActive={(document) => void toggleDocumentActive(document)}
 				onToggleGroup={(group, selected) => void documentsStore.selectGroup(group, selected)}
@@ -349,28 +387,48 @@
 					<Loader2 class="animate-spin" /> Show ingest progress
 				</Button>
 			{/if}
-			<div class="grid grid-cols-3 gap-2">
-				<Button disabled={busy} onclick={() => (filePickerOpen = true)}>
-					<FolderPlus /> Add files
-				</Button>
-				<Button disabled={busy} onclick={() => (textEntryOpen = true)}>
-					<ClipboardPen /> Add text
-				</Button>
-				<Button disabled={busy} onclick={() => (youtubeEntryOpen = true)}>
-					<Video /> Add video
-				</Button>
-			</div>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} class="w-full" disabled={busy}>
+							<Plus /> Add to corpus
+						</Button>
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content align="center" class="w-52">
+					<DropdownMenu.Item onclick={() => void addFiles()}>
+						<FilePlus /> Add files
+					</DropdownMenu.Item>
+					{#if folderSyncSupported}
+						<DropdownMenu.Item onclick={() => void syncNewFolder()}>
+							<FolderPlus /> Sync folder
+						</DropdownMenu.Item>
+					{:else}
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<span {...props}>
+										<DropdownMenu.Item disabled>
+											<FolderPlus /> Sync folder
+										</DropdownMenu.Item>
+									</span>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content>{FOLDER_SYNC_UNSUPPORTED_MESSAGE}</Tooltip.Content>
+						</Tooltip.Root>
+					{/if}
+					<DropdownMenu.Item onclick={() => (textEntryOpen = true)}>
+						<ClipboardPen /> Add text
+					</DropdownMenu.Item>
+					<DropdownMenu.Item onclick={() => (youtubeEntryOpen = true)}>
+						<Video /> Add video
+					</DropdownMenu.Item>
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
 		</div>
 	</div>
 </WorkspaceWindow>
 
-<DialogDocumentFilePicker
-	disabled={busy}
-	onOpenChange={(open) => (filePickerOpen = open)}
-	onSubmitPaths={(paths) => void ingestPaths(paths)}
-	onSyncFolder={(path) => void addFolder(path)}
-	open={filePickerOpen}
-/>
 <DialogDocumentTagPicker
 	onOpenChange={(open) => (tagPickerOpen = open)}
 	onSelect={(tag) => void applyBulkTag(tag)}
@@ -436,8 +494,8 @@
 		? 'Remove folder and documents'
 		: 'Unwatch folder'}
 	description={pendingFolderRemoval?.removeDocuments
-		? `Stop watching ${pendingFolderRemoval.folder.path} and remove every document synced from it?`
-		: `Stop watching ${pendingFolderRemoval?.folder.path ?? ''} and keep the stored documents?`}
+		? `Stop syncing ${pendingFolderRemoval.folder.name} and remove every document synced from it?`
+		: `Stop syncing ${pendingFolderRemoval?.folder.name ?? ''} and keep the stored documents?`}
 	onConfirm={removeFolder}
 	onOpenChange={(open) => !open && (pendingFolderRemoval = null)}
 	open={Boolean(pendingFolderRemoval)}

@@ -1,9 +1,7 @@
-import { API_DOCUMENTS, API_NOTEBOOKS } from '$lib/constants';
+import { API_NOTEBOOKS } from '$lib/constants';
 import type {
-	ApiDocumentDirectoryResponse,
-	ApiNotebookCollectionImportRequest,
-	ApiNotebookMarkdownImportRequest,
 	ApiNotebookPageContentRequest,
+	ApiNotebookPageImportRequest,
 	ApiNotebookPageMoveRequest,
 	ApiNotebookPageTitleRequest,
 	ApiNotebookSourcesRequest,
@@ -16,18 +14,6 @@ import type {
 import { apiDelete, apiDownload, apiFetch, apiPatch, apiPost } from '$lib/utils';
 
 export class NotebooksService {
-	static browseImportDirectory(path = '') {
-		const query = new URLSearchParams({ purpose: 'notebook' });
-
-		if (path) {
-			query.set('path', path);
-		}
-
-		return apiFetch<ApiDocumentDirectoryResponse>(
-			`${API_DOCUMENTS.DIRECTORIES}?${query.toString()}`
-		);
-	}
-
 	static list() {
 		return apiFetch<NotebookStateResponse>(API_NOTEBOOKS.BASE);
 	}
@@ -121,17 +107,20 @@ export class NotebooksService {
 		return apiDelete<{ ok: true }>(API_NOTEBOOKS.source(id, sourceId));
 	}
 
-	static importCollection(path: string) {
-		return apiPost<NotebookStateResponse, ApiNotebookCollectionImportRequest>(
-			API_NOTEBOOKS.IMPORT,
-			{ path }
-		);
+	static importCollection(title: string, files: { path: string; file: File }[]) {
+		const body = new FormData();
+		body.append('title', title);
+		for (const { path, file } of files) {
+			body.append('paths', path);
+			body.append('files', file, file.name);
+		}
+		return apiFetch<NotebookStateResponse>(API_NOTEBOOKS.IMPORT, { method: 'POST', body });
 	}
 
-	static importMarkdown(id: string, path: string) {
-		return apiPost<NotebookStateResponse, ApiNotebookMarkdownImportRequest>(
+	static importPage(id: string, name: string, content: string) {
+		return apiPost<NotebookStateResponse, ApiNotebookPageImportRequest>(
 			API_NOTEBOOKS.importPages(id),
-			{ path }
+			{ name, content }
 		);
 	}
 

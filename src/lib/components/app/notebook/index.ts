@@ -15,4 +15,3 @@ export * from './notebook-editing';
 export * from './notebook-format';
 export * from './notebook-search';
 export * from './notebook-types';
-export { default as NotebookImportDialog } from './NotebookImportDialog.svelte';

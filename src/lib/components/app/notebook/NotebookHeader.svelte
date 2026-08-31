@@ -6,6 +6,7 @@
 	import type { NotebookView } from './notebook-types';
 
 	interface Props {
+		collectionImportSupported?: boolean;
 		findOpen?: boolean;
 		importing?: boolean;
 		onBack: () => void;
@@ -22,6 +23,7 @@
 	}
 
 	let {
+		collectionImportSupported = true,
 		findOpen = false,
 		importing = false,
 		onBack,
@@ -49,6 +51,7 @@
 	{/if}
 	<h2 class="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
 	<NotebookHeaderActions
+		{collectionImportSupported}
 		{findOpen}
 		{importing}
 		{onClearSources}

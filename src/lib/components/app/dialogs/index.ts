@@ -1,6 +1,5 @@
 export { default as DialogApiKeys } from './DialogApiKeys.svelte';
 export { default as DialogConfirmation } from './DialogConfirmation.svelte';
-export { default as DialogDocumentFilePicker } from './DialogDocumentFilePicker.svelte';
 export { default as DialogDocumentSyncProgress } from './DialogDocumentSyncProgress.svelte';
 export { default as DialogDocumentTagPicker } from './DialogDocumentTagPicker.svelte';
 export { default as DialogDocumentTextEntry } from './DialogDocumentTextEntry.svelte';

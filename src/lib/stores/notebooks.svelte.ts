@@ -17,10 +17,6 @@ class NotebooksStore {
 	sourcesLoading = $state(false);
 	error = $state<string | null>(null);
 
-	browseImportDirectory(path = '') {
-		return NotebooksService.browseImportDirectory(path);
-	}
-
 	get notebooks(): readonly NotebookWithPages[] {
 		return this._notebooks;
 	}
@@ -114,12 +110,12 @@ class NotebooksStore {
 		}
 	}
 
-	async importCollection(path: string): Promise<void> {
-		if (!path.trim()) return;
-		this.apply(await NotebooksService.importCollection(path));
+	async importCollection(title: string, files: { path: string; file: File }[]): Promise<void> {
+		if (!files.length) return;
+		this.apply(await NotebooksService.importCollection(title, files));
 	}
 
-	async importMarkdown(path: string): Promise<void> {
+	async importPage(name: string, content: string): Promise<void> {
 		if (!this._activeNotebookId) {
 			await this.load();
 		}
@@ -129,7 +125,7 @@ class NotebooksStore {
 			throw new Error('Create or open a notebook before importing a Markdown or text file.');
 		}
 
-		this.apply(await NotebooksService.importMarkdown(notebookId, path));
+		this.apply(await NotebooksService.importPage(notebookId, name, content));
 	}
 
 	async createPage(notebookId: string, title: string): Promise<void> {

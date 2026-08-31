@@ -4,6 +4,7 @@ export * from './autosave';
 export * from './document-sort';
 export * from './document-tags';
 export * from './format';
+export * from './fs-access';
 export * from './ndjson';
 export * from './notebook-text';
 export * from './tokens';

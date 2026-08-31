@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { ApiError, createAutosave } from '$lib/utils';
+	import {
+		ApiError,
+		createAutosave,
+		pickDirectory,
+		pickFiles,
+		supportsFolderSync
+	} from '$lib/utils';
+	import { collectFiles } from '$lib/client/folder-sync/walk';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
@@ -9,28 +16,19 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import {
+		isNotebookImportFileName,
+		NOTEBOOK_IMPORT_EXTENSIONS,
 		NOTEBOOK_TEXT_CHARACTER_LIMIT,
 		NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT
 	} from '$lib/constants';
 	import { notebooksStore } from '$lib/stores';
-	import type {
-		ApiDocumentDirectoryResponse,
-		NotebookPage,
-		NotebookSourceItem,
-		NotebookWithPages
-	} from '$lib/types';
+	import type { NotebookPage, NotebookSourceItem, NotebookWithPages } from '$lib/types';
 	import { notebookCountLabel } from './notebook-format';
-	import type {
-		NotebookDeleteTarget,
-		NotebookRenameTarget,
-		NotebookView,
-		NotebookImportMode
-	} from './notebook-types';
+	import type { NotebookDeleteTarget, NotebookRenameTarget, NotebookView } from './notebook-types';
 	import NotebookEditor from './NotebookEditor.svelte';
 	import NotebookHeader from './NotebookHeader.svelte';
 	import NotebookList from './NotebookList.svelte';
 	import NotebookPageList from './NotebookPageList.svelte';
-	import NotebookImportDialog from './NotebookImportDialog.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
 	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
@@ -69,12 +67,9 @@
 	let moveDestinationId = $state('');
 	let editorRef = $state<NotebookEditor | null>(null);
 	let editorFindOpen = $state(false);
-	let importDialogOpen = $state(false);
-	let importDirectory = $state<ApiDocumentDirectoryResponse | null>(null);
-	let importLoading = $state(false);
 	let importing = $state(false);
-	let importMode = $state<NotebookImportMode>('collection');
-	let importSelectedPaths = $state<string[]>([]);
+
+	const collectionImportSupported = supportsFolderSync();
 
 	function textDialogTitle(): string {
 		if (textDialogMode === 'create-notebook') return 'New notebook';
@@ -363,61 +358,60 @@
 		}
 	}
 
-	async function openImportDialog(): Promise<void> {
-		importMode = view === 'notebooks' ? 'collection' : 'pages';
-
-		if (importMode === 'pages') {
-			if (!notebooksStore.activeNotebook) {
-				toast.error('Open a notebook before importing pages.');
-				return;
-			}
-
-			await autosave.flush();
-
-			if (notes !== lastSavedNotes) {
-				toast.error('Save the current page before importing.');
-				return;
-			}
+	async function runImport(): Promise<void> {
+		if (view === 'notebooks') {
+			await importCollection();
+			return;
 		}
 
-		importDialogOpen = true;
-		importSelectedPaths = [];
-		await navigateImportDirectory('');
+		if (!notebooksStore.activeNotebook) {
+			toast.error('Open a notebook before importing pages.');
+			return;
+		}
+
+		await autosave.flush();
+
+		if (notes !== lastSavedNotes) {
+			toast.error('Save the current page before importing.');
+			return;
+		}
+
+		await importPages();
 	}
 
-	async function navigateImportDirectory(path: string): Promise<void> {
-		importLoading = true;
-		importSelectedPaths = [];
+	async function importCollection(): Promise<void> {
+		const handle = await pickDirectory();
+		if (!handle) return;
 
+		importing = true;
 		try {
-			importDirectory = await notebooksStore.browseImportDirectory(path);
+			const files = await collectFiles(handle, isNotebookImportFileName);
+			await notebooksStore.importCollection(handle.name, files);
+			view = 'pages';
+			toast.success('Notebook collection imported');
 		} catch (error) {
 			toast.error(message(error));
 		} finally {
-			importLoading = false;
+			importing = false;
 		}
 	}
 
-	async function importPaths(paths: string[]): Promise<void> {
-		if (!paths.length) return;
+	async function importPages(): Promise<void> {
+		const files = await pickFiles({
+			multiple: true,
+			extensions: NOTEBOOK_IMPORT_EXTENSIONS,
+			accept: { 'text/plain': NOTEBOOK_IMPORT_EXTENSIONS },
+			description: 'Markdown and text files'
+		});
+		if (!files.length) return;
 
 		importing = true;
-
 		try {
-			if (importMode === 'collection') {
-				await notebooksStore.importCollection(paths[0]);
-				view = 'pages';
-				toast.success('Notebook collection imported');
-			} else {
-				for (const path of paths) {
-					await notebooksStore.importMarkdown(path);
-				}
-
-				toast.success(`${paths.length} notebook page${paths.length === 1 ? '' : 's'} imported`);
+			for (const file of files) {
+				await notebooksStore.importPage(file.name, await file.text());
 			}
 
-			importDialogOpen = false;
-			importSelectedPaths = [];
+			toast.success(`${files.length} notebook page${files.length === 1 ? '' : 's'} imported`);
 		} catch (error) {
 			toast.error(message(error));
 		} finally {
@@ -451,12 +445,13 @@
 >
 	<div class="grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden">
 		<NotebookHeader
+			{collectionImportSupported}
 			findOpen={editorFindOpen}
 			{importing}
 			onBack={goBack}
 			onClearSources={clearSources}
 			onCreate={openCreate}
-			onImport={openImportDialog}
+			onImport={runImport}
 			onInsertCitation={insertCitation}
 			onRemoveSource={removeSource}
 			onToggleFind={() => (editorFindOpen = !editorFindOpen)}
@@ -522,20 +517,6 @@
 		{/if}
 	</div>
 </WorkspaceWindow>
-
-<NotebookImportDialog
-	directory={importDirectory}
-	disabled={importing}
-	loading={importLoading}
-	mode={importMode}
-	onImportFolder={(path) => void importPaths([path])}
-	onNavigate={(path) => void navigateImportDirectory(path)}
-	onOpenChange={(open) => (importDialogOpen = open)}
-	onSelectedPathsChange={(paths) => (importSelectedPaths = paths)}
-	onSubmitPaths={(paths) => void importPaths(paths)}
-	open={importDialogOpen}
-	selectedPaths={importSelectedPaths}
-/>
 
 <Dialog.Root
 	open={Boolean(textDialogMode)}

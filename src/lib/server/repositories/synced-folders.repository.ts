@@ -1,9 +1,10 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import {
 	syncedFiles,
 	syncedFolders,
 	type NewSyncedFolder,
+	type SyncedFile,
 	type SyncedFolder
 } from '$lib/server/database/schema';
 
@@ -17,8 +18,26 @@ export class SyncedFoldersRepository {
 		return folder ?? null;
 	}
 
-	static async create(folder: NewSyncedFolder): Promise<void> {
-		await db.insert(syncedFolders).values(folder);
+	static async upsert(folder: NewSyncedFolder): Promise<void> {
+		await db
+			.insert(syncedFolders)
+			.values(folder)
+			.onConflictDoUpdate({ target: syncedFolders.id, set: { name: folder.name } });
+	}
+
+	static async findFile(folderId: string, relativePath: string): Promise<SyncedFile | null> {
+		const [file] = await db
+			.select()
+			.from(syncedFiles)
+			.where(and(eq(syncedFiles.folderId, folderId), eq(syncedFiles.relativePath, relativePath)))
+			.limit(1);
+		return file ?? null;
+	}
+
+	static async deleteFile(folderId: string, relativePath: string): Promise<void> {
+		await db
+			.delete(syncedFiles)
+			.where(and(eq(syncedFiles.folderId, folderId), eq(syncedFiles.relativePath, relativePath)));
 	}
 
 	static async setLastError(id: string, lastError: string | null): Promise<void> {
