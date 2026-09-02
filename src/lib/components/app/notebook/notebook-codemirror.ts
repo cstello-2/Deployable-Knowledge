@@ -5,7 +5,14 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
-import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
+import {
+	Annotation,
+	EditorState,
+	StateEffect,
+	StateField,
+	type ChangeSpec,
+	type Extension
+} from '@codemirror/state';
 import {
 	Decoration,
 	type DecorationSet,
@@ -26,6 +33,32 @@ export interface NotebookEditorHooks {
 	onCommand(command: RibbonCommand): void;
 	onOpenFind(): void;
 	onEscape(): boolean;
+}
+
+const RIBBON_SHORTCUTS: Record<string, RibbonCommand> = { 'Mod-b': 'bold', 'Mod-i': 'italic' };
+
+export const externalEdit = Annotation.define<boolean>();
+
+export function documentChanges(current: string, next: string): ChangeSpec | null {
+	if (current === next) return null;
+
+	const shortest = Math.min(current.length, next.length);
+	let prefix = 0;
+	while (prefix < shortest && current[prefix] === next[prefix]) prefix += 1;
+
+	let suffix = 0;
+	while (
+		suffix < shortest - prefix &&
+		current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
+	) {
+		suffix += 1;
+	}
+
+	return {
+		from: prefix,
+		to: current.length - suffix,
+		insert: next.slice(prefix, next.length - suffix)
+	};
 }
 
 const HIDE = Decoration.replace({});
@@ -267,8 +300,7 @@ function collectStyleSpans(
 	pending: PendingDecoration[]
 ): void {
 	const text = state.doc.sliceString(from, to);
-	STYLE_SPAN.lastIndex = 0;
-	for (let match; (match = STYLE_SPAN.exec(text)); ) {
+	for (const match of text.matchAll(STYLE_SPAN)) {
 		const [, property, value] = match;
 		const start = from + match.index;
 		const end = start + match[0].length;
@@ -507,20 +539,13 @@ export function notebookEditorExtensions(hooks: NotebookEditorHooks): Extension 
 					return true;
 				}
 			},
-			{
-				key: 'Mod-b',
+			...Object.entries(RIBBON_SHORTCUTS).map(([key, command]) => ({
+				key,
 				run: () => {
-					hooks.onCommand('bold');
+					hooks.onCommand(command);
 					return true;
 				}
-			},
-			{
-				key: 'Mod-i',
-				run: () => {
-					hooks.onCommand('italic');
-					return true;
-				}
-			},
+			})),
 			{ key: 'Escape', run: () => hooks.onEscape() },
 			...historyKeymap,
 			...defaultKeymap

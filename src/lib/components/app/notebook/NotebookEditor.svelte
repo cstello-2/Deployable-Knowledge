@@ -2,7 +2,12 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { EditorView } from '@codemirror/view';
 	import { applyRibbonCommand, type RibbonCommand } from './notebook-editing';
-	import { notebookEditorExtensions, setFindHighlights } from './notebook-codemirror';
+	import {
+		documentChanges,
+		externalEdit,
+		notebookEditorExtensions,
+		setFindHighlights
+	} from './notebook-codemirror';
 	import NotebookEditorFindBar from './NotebookEditorFindBar.svelte';
 	import NotebookEditorRibbon from './NotebookEditorRibbon.svelte';
 
@@ -33,8 +38,7 @@
 	const MAX_FIND_MATCHES = 500;
 
 	let editorHost = $state<HTMLElement | null>(null);
-	let editorView: EditorView | null = null;
-	let applyingExternal = false;
+	let editorView = $state<EditorView | null>(null);
 
 	let findQuery = $state('');
 	let activeMatchIndex = $state(0);
@@ -76,7 +80,10 @@
 					}
 				}),
 				EditorView.updateListener.of((update) => {
-					if (!update.docChanged || applyingExternal) return;
+					if (!update.docChanged) return;
+					if (update.transactions.some((transaction) => transaction.annotation(externalEdit))) {
+						return;
+					}
 					notes = update.state.doc.toString();
 					onInput();
 				})
@@ -91,11 +98,9 @@
 		const value = notes;
 		const view = editorView;
 		if (!view) return;
-		const current = view.state.doc.toString();
-		if (value === current) return;
-		applyingExternal = true;
-		view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
-		applyingExternal = false;
+		const changes = documentChanges(view.state.doc.toString(), value);
+		if (!changes) return;
+		view.dispatch({ changes, annotations: externalEdit.of(true) });
 	});
 
 	// Mirror find matches into the editor's highlight decorations
@@ -117,8 +122,9 @@
 		const text = view.state.doc.toString();
 		const result = applyRibbonCommand(text, { start: from, end: to }, command);
 		if (result.text.length > pageLimit) return;
+		const changes = documentChanges(text, result.text);
 		view.dispatch({
-			changes: { from: 0, to: text.length, insert: result.text },
+			...(changes ? { changes } : {}),
 			selection: { anchor: result.start, head: result.end },
 			scrollIntoView: true
 		});
