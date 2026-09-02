@@ -71,6 +71,7 @@
 	let editorRef = $state<NotebookEditor | null>(null);
 	let editorFindOpen = $state(false);
 	let importing = $state(false);
+	let pendingWrite: Promise<void> = Promise.resolve();
 
 	const collectionImportSupported = supportsFolderSync();
 
@@ -93,11 +94,12 @@
 	const nearLimit = $derived(characterCount >= NOTEBOOK_TEXT_WARNING_CHARACTER_COUNT);
 	const atLimit = $derived(characterCount >= NOTEBOOK_TEXT_CHARACTER_LIMIT);
 
-	async function saveCurrentPage(): Promise<void> {
+	async function writeCurrentPage(): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		const page = notebooksStore.activePage;
 		if (!notebook || !page) return;
 		const savedNotes = notes;
+		if (savedNotes === lastSavedNotes) return;
 		try {
 			await notebooksStore.updatePage(notebook.id, page.id, savedNotes);
 			lastSavedNotes = savedNotes;
@@ -112,7 +114,17 @@
 		}
 	}
 
+	function saveCurrentPage(): Promise<void> {
+		pendingWrite = pendingWrite.then(writeCurrentPage, writeCurrentPage);
+		return pendingWrite;
+	}
+
 	const autosave = createAutosave(saveCurrentPage);
+
+	async function flushPage(): Promise<void> {
+		await autosave.flush();
+		await pendingWrite;
+	}
 
 	$effect(() => {
 		const page = notebooksStore.activePage;
@@ -143,7 +155,7 @@
 	}
 
 	async function openNotebook(notebook: NotebookWithPages): Promise<void> {
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (notebook.id !== notebooksStore.activeNotebookId) {
 				await notebooksStore.select(notebook.id);
@@ -157,7 +169,7 @@
 	async function openPage(page: NotebookPage): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook) return;
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (page.id !== notebooksStore.activePage?.id) {
 				await notebooksStore.selectPage(notebook.id, page.id);
@@ -223,7 +235,7 @@
 	}
 
 	async function openSearchResult(result: NotebookSearchResult): Promise<void> {
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (result.notebookId !== notebooksStore.activeNotebookId) {
 				await notebooksStore.select(result.notebookId);
@@ -244,7 +256,7 @@
 	async function movePageToNotebook(): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook || !movePageTarget || !moveDestinationId) return;
-		await autosave.flush();
+		await flushPage();
 		try {
 			await notebooksStore.movePage(notebook.id, movePageTarget.id, moveDestinationId);
 			movePageTarget = null;
@@ -258,7 +270,7 @@
 		event.preventDefault();
 		const value = textDialogValue.trim();
 		if (!value || !textDialogMode) return;
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (textDialogMode === 'create-notebook') {
 				await notebooksStore.create(value);
@@ -288,7 +300,7 @@
 
 	async function confirmDelete(): Promise<void> {
 		if (!deleteTarget) return;
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (deleteTarget.kind === 'notebook') {
 				await notebooksStore.delete(deleteTarget.id);
@@ -344,7 +356,7 @@
 	async function renameHeaderTitle(value: string): Promise<void> {
 		const notebook = notebooksStore.activeNotebook;
 		if (!notebook) return;
-		await autosave.flush();
+		await flushPage();
 		try {
 			if (view === 'pages') {
 				await notebooksStore.rename(notebook.id, value);
@@ -361,7 +373,7 @@
 	}
 
 	async function prepareExport(): Promise<boolean> {
-		await autosave.flush();
+		await flushPage();
 		if (notes === lastSavedNotes) return true;
 		toast.error('Save the current page before exporting.');
 		return false;
@@ -399,7 +411,7 @@
 			return;
 		}
 
-		await autosave.flush();
+		await flushPage();
 
 		if (notes !== lastSavedNotes) {
 			toast.error('Save the current page before importing.');
