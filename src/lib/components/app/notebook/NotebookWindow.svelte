@@ -341,6 +341,25 @@
 		toast.success(`Citations table updated with ${notebookCountLabel(sources.length, 'source')}`);
 	}
 
+	async function renameHeaderTitle(value: string): Promise<void> {
+		const notebook = notebooksStore.activeNotebook;
+		if (!notebook) return;
+		await autosave.flush();
+		try {
+			if (view === 'pages') {
+				await notebooksStore.rename(notebook.id, value);
+				toast.success('Notebook renamed');
+				return;
+			}
+			const page = notebooksStore.activePage;
+			if (!page) return;
+			await notebooksStore.renamePage(notebook.id, page.id, value);
+			toast.success('Page renamed');
+		} catch (error) {
+			toast.error(message(error));
+		}
+	}
+
 	async function prepareExport(): Promise<boolean> {
 		await autosave.flush();
 		if (notes === lastSavedNotes) return true;
@@ -466,6 +485,7 @@
 			onInsertCitation={insertCitation}
 			onInsertCitationsTable={insertCitationsTable}
 			onRemoveSource={removeSource}
+			onRenameTitle={renameHeaderTitle}
 			onToggleFind={() => (editorFindOpen = !editorFindOpen)}
 			sources={notebooksStore.sources}
 			sourcesLoading={notebooksStore.sourcesLoading}
