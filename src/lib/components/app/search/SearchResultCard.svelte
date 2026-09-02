@@ -7,6 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { documentViewerHref } from '$lib/constants';
 	import type { ApiSearchMatch } from '$lib/types';
+	import { describeDocumentLocation } from '$lib/utils';
 
 	interface Props {
 		index?: number;
@@ -21,13 +22,7 @@
 	const isTranscript = $derived(result.sourceType === 'AUDIO' || result.sourceType === 'YOUTUBE');
 	const isVideo = $derived(result.sourceType === 'YOUTUBE');
 
-	function describeLocation(match: ApiSearchMatch): string {
-		if (match.sourceType === 'AUDIO' || match.sourceType === 'YOUTUBE') return 'Transcript';
-		if (match.sourceType === 'XLSX') return `Sheet ${match.pageIndex + 1}`;
-		return `Page ${match.pageIndex + 1}`;
-	}
-
-	const locationLabel = $derived(describeLocation(result));
+	const locationLabel = $derived(describeDocumentLocation(result.sourceType, result.pageIndex));
 	const viewerHref = $derived(documentViewerHref(result.sourceType, result.documentId, result));
 </script>
 

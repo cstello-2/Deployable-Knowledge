@@ -36,6 +36,10 @@ export function insertNotebookSourceCitation(
 	};
 }
 
+export function notebookSourceHeading(title: string, href: string, location: string): string {
+	return `**[${escapeLabel(title.trim() || 'Source')}](${href})** — ${location}`;
+}
+
 function extractRows(text: string): string[] {
 	const start = text.lastIndexOf(TABLE_HEADER);
 	if (start < 0) return [];

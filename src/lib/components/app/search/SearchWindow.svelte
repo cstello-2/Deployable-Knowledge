@@ -4,10 +4,13 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { documentViewerHref } from '$lib/constants';
 	import { RetrievalMode } from '$lib/enums';
 	import { SearchService } from '$lib/services';
 	import { documentsStore, notebooksStore, settingsStore } from '$lib/stores';
 	import type { ApiSearchMatch, ApiSearchResults } from '$lib/types';
+	import { describeDocumentLocation } from '$lib/utils';
+	import { notebookSourceHeading } from '$lib/utils/notebook-citations';
 	import SearchForm from './SearchForm.svelte';
 	import SearchResultCard from './SearchResultCard.svelte';
 
@@ -77,8 +80,14 @@
 	async function sendToNotebook(result: ApiSearchMatch): Promise<void> {
 		try {
 			await notebooksStore.load();
-			await notebooksStore.appendToActivePage(result.content);
-			toast.success('Chunk text sent to notebook');
+			const heading = notebookSourceHeading(
+				result.sourceTitle,
+				documentViewerHref(result.sourceType, result.documentId, result),
+				describeDocumentLocation(result.sourceType, result.pageIndex)
+			);
+			await notebooksStore.appendToActivePage(`${heading}\n\n${result.content}`);
+			await notebooksStore.addSources([result.chunkId]);
+			toast.success('Chunk sent to notebook');
 		} catch (sendError) {
 			toast.error(sendError instanceof Error ? sendError.message : 'Failed to send to notebook');
 		}
