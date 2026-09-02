@@ -17,6 +17,7 @@
 		onCreate: () => void;
 		onImport: () => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
+		onInsertCitationsTable: () => Promise<void> | void;
 		onRemoveSource: (id: string) => Promise<void> | void;
 		onToggleFind?: () => void;
 		sources: readonly NotebookSourceItem[];
@@ -32,6 +33,7 @@
 		onCreate,
 		onImport,
 		onInsertCitation,
+		onInsertCitationsTable,
 		onRemoveSource,
 		onToggleFind = () => {},
 		sources,
@@ -85,8 +87,9 @@
 		>
 		<NotebookSourcesPanel
 			loading={sourcesLoading}
-			{onInsertCitation}
 			onClear={onClearSources}
+			{onInsertCitation}
+			{onInsertCitationsTable}
 			onRemove={onRemoveSource}
 			{sources}
 		/>

@@ -2,6 +2,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import FileStack from '@lucide/svelte/icons/files';
 	import Quote from '@lucide/svelte/icons/quote';
+	import Table from '@lucide/svelte/icons/table';
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
@@ -15,12 +16,20 @@
 	interface Props {
 		loading?: boolean;
 		onClear: () => Promise<void> | void;
-		onRemove: (id: string) => Promise<void> | void;
 		onInsertCitation: (source: NotebookSourceItem) => Promise<void> | void;
+		onInsertCitationsTable: () => Promise<void> | void;
+		onRemove: (id: string) => Promise<void> | void;
 		sources: readonly NotebookSourceItem[];
 	}
 
-	let { loading = false, onClear, onInsertCitation, onRemove, sources }: Props = $props();
+	let {
+		loading = false,
+		onClear,
+		onInsertCitation,
+		onInsertCitationsTable,
+		onRemove,
+		sources
+	}: Props = $props();
 	let clearOpen = $state(false);
 </script>
 
@@ -41,14 +50,24 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content align="end" class="w-96 max-w-[calc(100vw-2rem)] p-0">
-		<header class="flex items-center justify-between gap-2 border-b p-3">
+		<header class="flex flex-wrap items-center justify-between gap-2 border-b p-3">
 			<strong class="text-sm">Loaded sources ({sources.length})</strong>
-			<Button
-				variant="destructive"
-				size="sm"
-				disabled={!sources.length}
-				onclick={() => (clearOpen = true)}>Clear all</Button
-			>
+			<div class="flex items-center gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={!sources.length}
+					onclick={() => onInsertCitationsTable()}
+				>
+					<Table /> Insert citations table
+				</Button>
+				<Button
+					variant="destructive"
+					size="sm"
+					disabled={!sources.length}
+					onclick={() => (clearOpen = true)}>Clear all</Button
+				>
+			</div>
 		</header>
 		<div class="grid min-w-0 max-h-80 content-start gap-2 overflow-x-hidden overflow-y-auto p-3">
 			{#if loading}

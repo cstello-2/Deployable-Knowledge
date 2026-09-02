@@ -28,7 +28,7 @@ export function insertNotebookSourceCitation(
 	const suffix = after && !/^[\s.,;:!?)}\]]/.test(after) ? ' ' : '';
 	const insertion = `${prefix}${citation}${suffix}`;
 	const body = `${before}${insertion}${after}`.trimEnd();
-	const row = `| [${escapeTable(source.documentTitle)}](${href}) | ${page} |`;
+	const row = tableRow(source);
 	const rows = existingRows.includes(row) ? existingRows : [...existingRows, row];
 	return {
 		text: `${body}\n\n${TABLE_HEADER}\n${rows.join('\n')}`,
@@ -36,8 +36,27 @@ export function insertNotebookSourceCitation(
 	};
 }
 
+export function insertNotebookCitationsTable(
+	text: string,
+	sources: readonly NotebookSourceItem[]
+): string {
+	const rows = extractRows(text);
+	for (const source of sources) {
+		const row = tableRow(source);
+		if (!rows.includes(row)) rows.push(row);
+	}
+	if (!rows.length) return text;
+	const body = removeTable(text).trimEnd();
+	return `${body}\n\n${TABLE_HEADER}\n${rows.join('\n')}`;
+}
+
 export function notebookSourceHeading(title: string, href: string, location: string): string {
 	return `**[${escapeLabel(title.trim() || 'Source')}](${href})** — ${location}`;
+}
+
+function tableRow(source: NotebookSourceItem): string {
+	const href = APP_PREVIEW.page(source.documentId, source.pageIndex);
+	return `| [${escapeTable(source.documentTitle)}](${href}) | ${source.pageIndex + 1} |`;
 }
 
 function extractRows(text: string): string[] {

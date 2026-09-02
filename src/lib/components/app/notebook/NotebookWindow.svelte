@@ -31,7 +31,10 @@
 	import NotebookPageList from './NotebookPageList.svelte';
 	import NotebookSearch from './NotebookSearch.svelte';
 	import type { NotebookSearchResult } from './notebook-search';
-	import { insertNotebookSourceCitation } from '$lib/utils/notebook-citations';
+	import {
+		insertNotebookCitationsTable,
+		insertNotebookSourceCitation
+	} from '$lib/utils/notebook-citations';
 
 	interface Props {
 		collapsed?: boolean;
@@ -330,6 +333,14 @@
 		toast.success(`Citation inserted: ${source.documentTitle}, p. ${source.pageIndex + 1}`);
 	}
 
+	function insertCitationsTable(): void {
+		const sources = notebooksStore.sources;
+		if (!sources.length) return;
+		notes = insertNotebookCitationsTable(notes, sources);
+		autosave.schedule();
+		toast.success(`Citations table updated with ${notebookCountLabel(sources.length, 'source')}`);
+	}
+
 	async function prepareExport(): Promise<boolean> {
 		await autosave.flush();
 		if (notes === lastSavedNotes) return true;
@@ -453,6 +464,7 @@
 			onCreate={openCreate}
 			onImport={runImport}
 			onInsertCitation={insertCitation}
+			onInsertCitationsTable={insertCitationsTable}
 			onRemoveSource={removeSource}
 			onToggleFind={() => (editorFindOpen = !editorFindOpen)}
 			sources={notebooksStore.sources}
