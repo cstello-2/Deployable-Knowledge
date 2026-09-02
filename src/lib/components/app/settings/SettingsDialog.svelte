@@ -59,6 +59,7 @@
 				'agent turns',
 				'retrieval mode',
 				'semantic',
+				'lexical',
 				'bm25',
 				'hybrid',
 				'retrieved chunks',

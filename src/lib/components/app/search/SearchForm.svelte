@@ -23,7 +23,7 @@
 
 	const modes = [
 		{ value: RetrievalMode.SEMANTIC, label: 'Semantic' },
-		{ value: RetrievalMode.BM25, label: 'BM25' },
+		{ value: RetrievalMode.BM25, label: 'Lexical' },
 		{ value: RetrievalMode.HYBRID, label: 'Hybrid' }
 	];
 </script>
