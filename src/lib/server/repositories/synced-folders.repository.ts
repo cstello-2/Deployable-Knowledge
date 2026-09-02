@@ -1,14 +1,19 @@
 import { and, asc, count, eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import {
-	syncedFileFailures,
 	syncedFiles,
 	syncedFolders,
 	type NewSyncedFolder,
 	type SyncedFile,
-	type SyncedFileFailure,
+	type SyncedFileState,
 	type SyncedFolder
 } from '$lib/server/database/schema';
+
+export interface SyncedFileStat {
+	relativePath: string;
+	lastModified: number;
+	size: number;
+}
 
 export class SyncedFoldersRepository {
 	static list(): Promise<SyncedFolder[]> {
@@ -50,61 +55,68 @@ export class SyncedFoldersRepository {
 		return db.select().from(syncedFiles).where(eq(syncedFiles.folderId, folderId));
 	}
 
-	static async recordFileFailure(
+	/**
+	 * Parks a path in a terminal state so reconciles stop offering it. The row
+	 * keeps the stats it was resolved at, which is how a later edit on disk gets
+	 * the file another attempt without a manual retry.
+	 */
+	static async markFile(
 		folderId: string,
-		file: { relativePath: string; lastModified: number; size: number },
-		message: string
+		file: SyncedFileStat,
+		state: Exclude<SyncedFileState, 'synced'>,
+		message: string | null = null
 	): Promise<void> {
 		const values = {
 			folderId,
 			relativePath: file.relativePath,
+			managedPath: null,
+			documentId: null,
 			lastModified: file.lastModified,
 			size: file.size,
-			message,
-			failedAt: new Date().toISOString()
+			state,
+			message
 		};
 		await db
-			.insert(syncedFileFailures)
+			.insert(syncedFiles)
 			.values(values)
 			.onConflictDoUpdate({
-				target: [syncedFileFailures.folderId, syncedFileFailures.relativePath],
+				target: [syncedFiles.folderId, syncedFiles.relativePath],
 				set: values
 			});
 	}
 
-	static failedFiles(folderId: string): Promise<SyncedFileFailure[]> {
-		return db
-			.select()
-			.from(syncedFileFailures)
-			.where(eq(syncedFileFailures.folderId, folderId))
-			.orderBy(asc(syncedFileFailures.relativePath));
-	}
-
-	static async failedFileCounts(): Promise<Map<string, number>> {
-		const rows = await db
-			.select({ folderId: syncedFileFailures.folderId, failed: count() })
-			.from(syncedFileFailures)
-			.groupBy(syncedFileFailures.folderId);
-		return new Map(rows.map(({ folderId, failed }) => [folderId, failed]));
-	}
-
-	static async clearFileFailures(folderId: string): Promise<number> {
-		const cleared = await db
-			.delete(syncedFileFailures)
-			.where(eq(syncedFileFailures.folderId, folderId))
-			.returning({ relativePath: syncedFileFailures.relativePath });
-		return cleared.length;
-	}
-
-	static async clearFileFailure(folderId: string, relativePath: string): Promise<void> {
+	/**
+	 * Frees the paths parked as duplicates of `relativePath`. Once the file they
+	 * deferred to is gone, one of them has to be ingested in its place.
+	 */
+	static async clearDuplicatesOf(folderId: string, relativePath: string): Promise<void> {
 		await db
-			.delete(syncedFileFailures)
+			.delete(syncedFiles)
 			.where(
 				and(
-					eq(syncedFileFailures.folderId, folderId),
-					eq(syncedFileFailures.relativePath, relativePath)
+					eq(syncedFiles.folderId, folderId),
+					eq(syncedFiles.state, 'duplicate'),
+					eq(syncedFiles.message, relativePath)
 				)
 			);
+	}
+
+	static async malformedCounts(): Promise<Map<string, number>> {
+		const rows = await db
+			.select({ folderId: syncedFiles.folderId, malformed: count() })
+			.from(syncedFiles)
+			.where(eq(syncedFiles.state, 'malformed'))
+			.groupBy(syncedFiles.folderId);
+		return new Map(rows.map(({ folderId, malformed }) => [folderId, malformed]));
+	}
+
+	/** Drops the malformed rows so the next sync walks those paths again. */
+	static async clearMalformed(folderId: string): Promise<number> {
+		const cleared = await db
+			.delete(syncedFiles)
+			.where(and(eq(syncedFiles.folderId, folderId), eq(syncedFiles.state, 'malformed')))
+			.returning({ relativePath: syncedFiles.relativePath });
+		return cleared.length;
 	}
 
 	static async delete(id: string): Promise<void> {

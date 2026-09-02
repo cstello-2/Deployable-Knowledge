@@ -4,6 +4,7 @@ import type {
 	ApiDocumentFolderReconcileResponse,
 	ApiSyncFileStat
 } from '$lib/types';
+import { isSettledSyncFile } from '$lib/server/documents/folder-file-sync';
 import { isSyncableFile } from '$lib/server/documents/source-types';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
@@ -20,17 +21,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 	if (!Array.isArray(body.files)) throw error(400, 'Provide a file listing.');
 
-	const [tracked, failures] = await Promise.all([
-		SyncedFoldersRepository.syncedFiles(folder.id),
-		SyncedFoldersRepository.failedFiles(folder.id)
-	]);
+	const tracked = await SyncedFoldersRepository.syncedFiles(folder.id);
 	const trackedByPath = new Map(tracked.map((file) => [file.relativePath, file]));
-	const failedPaths = new Set(failures.map((failure) => failure.relativePath));
 	const clientPaths = new Set<string>();
 
 	const upload: ApiSyncFileStat[] = [];
 	let unchanged = 0;
-	let failed = 0;
+	let malformed = 0;
 
 	for (const file of body.files) {
 		if (
@@ -43,15 +40,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		clientPaths.add(file.path);
 		if (!isSyncableFile(file.path)) continue;
 
-		if (failedPaths.has(file.path)) {
-			failed += 1;
-			continue;
-		}
-
 		const row = trackedByPath.get(file.path);
-		if (row?.ignored) continue;
-		if (row?.documentId && row.lastModified === file.lastModified && row.size === file.size) {
-			unchanged += 1;
+		if (row && isSettledSyncFile(row, file)) {
+			if (row.state === 'malformed') malformed += 1;
+			else unchanged += 1;
 			continue;
 		}
 		upload.push({ path: file.path, lastModified: file.lastModified, size: file.size });
@@ -65,5 +57,5 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			size: file.size
 		}));
 
-	return json({ upload, stale, unchanged, failed } satisfies ApiDocumentFolderReconcileResponse);
+	return json({ upload, stale, unchanged, malformed } satisfies ApiDocumentFolderReconcileResponse);
 };

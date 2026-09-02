@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Check from '@lucide/svelte/icons/check';
-	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import Minus from '@lucide/svelte/icons/minus';
 	import X from '@lucide/svelte/icons/x';
@@ -13,10 +12,13 @@
 		files: ApiDocumentSyncFileProgress[];
 		open: boolean;
 		progress: ApiDocumentIngestProgress | null;
+		settled: number;
+		total: number;
 	}
 
-	let { files, open, progress }: Props = $props();
+	let { files, open, progress, settled, total }: Props = $props();
 	const percent = $derived(Math.max(0, Math.min(100, progress?.percent ?? 0)));
+	const counted = $derived(total > 1 ? `${Math.min(settled, total)} of ${total} files` : '');
 </script>
 
 <Dialog.Root {open}>
@@ -29,6 +31,9 @@
 			<Progress value={percent} />
 			<strong class="text-right text-sm tabular-nums">{Math.round(percent)}%</strong>
 		</div>
+		{#if counted}
+			<p class="text-xs tabular-nums text-muted-foreground">{counted}</p>
+		{/if}
 		{#if files.length}
 			<ScrollArea class="max-h-56 rounded-lg border" scrollbarYClasses="hidden">
 				<div class="grid divide-y divide-border/70">
@@ -40,10 +45,8 @@
 								<Check class="size-4 text-primary" />
 							{:else if file.status === 'failed'}
 								<X class="size-4 text-destructive" />
-							{:else if file.status === 'unchanged' || file.status === 'removed'}
-								<Minus class="size-4 text-muted-foreground" />
 							{:else}
-								<CircleDashed class="size-4 text-muted-foreground" />
+								<Minus class="size-4 text-muted-foreground" />
 							{/if}
 							<span class="truncate text-xs">{file.sourcePath}</span>
 							<span class="text-[11px] text-muted-foreground">{file.status}</span>

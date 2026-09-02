@@ -15,6 +15,12 @@ import type {
 const PAGE_SIZE = 50;
 const MAX_REFRESH_SIZE = 200;
 const QUERY_DEBOUNCE_MS = 250;
+// The per-file list is a running log of a sync, not a record of it. Keeping every
+// entry of a several-thousand file sync would put that many rows in the dialog and
+// grow the work of each update with the size of the corpus, so old entries are
+// dropped in blocks once the log is full.
+const SYNC_LOG_LIMIT = 200;
+const SYNC_LOG_TRIM = 100;
 
 class DocumentsStore {
 	private _documents = $state<DocumentRow[]>([]);
@@ -29,6 +35,8 @@ class DocumentsStore {
 	private _tagFilters = $state<string[]>([]);
 	private _mode = $state<DocumentListMode>('all');
 	private _sort = $state<DocumentSortMode>(DEFAULT_DOCUMENT_SORT);
+	private _syncTotal = $state(0);
+	private _syncSettled = $state(0);
 	private queryTimer: ReturnType<typeof setTimeout> | undefined;
 	private listRequest = 0;
 	private syncFileIndex = new Map<string, number>();
@@ -53,6 +61,14 @@ class DocumentsStore {
 
 	get syncFiles(): ApiDocumentSyncFileProgress[] {
 		return this._syncFiles;
+	}
+
+	get syncTotal(): number {
+		return this._syncTotal;
+	}
+
+	get syncSettled(): number {
+		return this._syncSettled;
 	}
 
 	get selectedIds(): ReadonlySet<string> {
@@ -295,33 +311,58 @@ class DocumentsStore {
 		for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 	}
 
-	beginFolderSync(): void {
+	beginFolderSync(total: number): void {
 		this.syncing = true;
 		this._syncFiles = [];
+		this._syncTotal = total;
+		this._syncSettled = 0;
 		this.syncFileIndex.clear();
 		this.syncProgress = { percent: 0, label: 'Syncing folder', message: 'Scanning folder' };
 	}
 
 	reportSyncFile(progress: ApiDocumentSyncFileProgress): void {
 		const existingIndex = this.syncFileIndex.get(progress.sourcePath);
+		// Entries are written in place: rebuilding the array on every ingest tick is
+		// what makes a large sync crawl once the log holds thousands of files.
 		if (existingIndex === undefined) {
 			this.syncFileIndex.set(progress.sourcePath, this._syncFiles.length);
-			this._syncFiles = [...this._syncFiles, progress];
+			this._syncFiles.push(progress);
+			this.trimSyncLog();
 		} else {
-			this._syncFiles = this._syncFiles.with(existingIndex, progress);
+			this._syncFiles[existingIndex] = progress;
 		}
-		if (progress.status === 'ingesting') {
-			this.syncProgress = {
-				percent: progress.percent ?? 0,
-				label: progress.label ?? 'Ingesting file',
-				message: progress.message ?? progress.sourcePath
-			};
-		}
+
+		const ingesting = progress.status === 'ingesting';
+		if (!ingesting) this._syncSettled += 1;
+		this.syncProgress = {
+			percent: this.overallSyncPercent(ingesting ? (progress.percent ?? 0) : 0),
+			label: progress.label ?? 'Syncing folder',
+			message: progress.message ?? progress.sourcePath
+		};
 	}
 
 	endFolderSync(): void {
 		this.syncing = false;
 		this.syncProgress = null;
+		this._syncTotal = 0;
+		this._syncSettled = 0;
+	}
+
+	// A per-file percentage restarts at zero once per file, so on a folder of any
+	// size the bar has to read as files settled plus how far the current one is.
+	private overallSyncPercent(filePercent: number): number {
+		if (this._syncTotal <= 0) return filePercent;
+		const settled = Math.min(this._syncSettled, this._syncTotal);
+		return ((settled + Math.min(Math.max(filePercent, 0), 100) / 100) / this._syncTotal) * 100;
+	}
+
+	private trimSyncLog(): void {
+		if (this._syncFiles.length <= SYNC_LOG_LIMIT) return;
+		this._syncFiles.splice(0, SYNC_LOG_TRIM);
+		this.syncFileIndex.clear();
+		for (let index = 0; index < this._syncFiles.length; index += 1) {
+			this.syncFileIndex.set(this._syncFiles[index].sourcePath, index);
+		}
 	}
 }
 

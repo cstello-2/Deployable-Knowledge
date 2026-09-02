@@ -109,7 +109,6 @@ CREATE TABLE `profiles` (
 	`retrieval_mode` text DEFAULT 'hybrid' NOT NULL,
 	`rag_top_k` integer DEFAULT 5 NOT NULL,
 	`agent_max_turns` integer DEFAULT 4 NOT NULL,
-	`context_size` integer,
 	`gpu_mode` text DEFAULT 'auto' NOT NULL,
 	`enabled_tools` text DEFAULT '[]' NOT NULL,
 	`prompt_template_id` text,
@@ -159,11 +158,12 @@ CREATE INDEX `sessions_updated_idx` ON `sessions` (`updated_at`);--> statement-b
 CREATE TABLE `synced_files` (
 	`folder_id` text NOT NULL,
 	`relative_path` text NOT NULL,
-	`managed_path` text NOT NULL,
+	`managed_path` text,
 	`document_id` text,
 	`last_modified` integer NOT NULL,
 	`size` integer NOT NULL,
-	`ignored` integer DEFAULT false NOT NULL,
+	`state` text DEFAULT 'synced' NOT NULL,
+	`message` text,
 	PRIMARY KEY(`folder_id`, `relative_path`),
 	FOREIGN KEY (`folder_id`) REFERENCES `synced_folders`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE set null
@@ -171,6 +171,7 @@ CREATE TABLE `synced_files` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `synced_files_managed_path_idx` ON `synced_files` (`managed_path`);--> statement-breakpoint
 CREATE UNIQUE INDEX `synced_files_document_idx` ON `synced_files` (`document_id`);--> statement-breakpoint
+CREATE INDEX `synced_files_state_idx` ON `synced_files` (`folder_id`,`state`);--> statement-breakpoint
 CREATE TABLE `synced_folders` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,

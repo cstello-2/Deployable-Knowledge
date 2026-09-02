@@ -158,7 +158,12 @@ export interface ApiDocumentFolderReconcileResponse {
 	upload: ApiSyncFileStat[];
 	stale: ApiSyncFileStat[];
 	unchanged: number;
-	failed: number;
+	/** Paths held back because a previous attempt marked them malformed. */
+	malformed: number;
+}
+
+export interface ApiDocumentFolderMalformedRequest extends ApiSyncFileStat {
+	message: string;
 }
 
 export interface ApiDocumentFolderRetryResponse {
@@ -174,13 +179,7 @@ export interface ApiDocumentFolderFileDeleteResponse {
 	removedDocumentIds: string[];
 }
 
-export type ApiDocumentSyncFileStatus =
-	| 'queued'
-	| 'ingesting'
-	| 'added'
-	| 'unchanged'
-	| 'removed'
-	| 'failed';
+export type ApiDocumentSyncFileStatus = 'ingesting' | 'added' | 'unchanged' | 'removed' | 'failed';
 
 export interface ApiDocumentSyncFileProgress extends Partial<ApiDocumentIngestProgress> {
 	sourcePath: string;
@@ -192,11 +191,12 @@ export interface ApiDocumentSyncResult {
 	failed: number;
 	removed: number;
 	unchanged: number;
+	/** Files a previous sync marked malformed and did not attempt again. */
 	heldBack: number;
 }
 
 export type ApiSyncedFolder = Pick<SyncedFolder, 'id' | 'name' | 'createdAt' | 'lastError'> & {
-	failedCount: number;
+	malformedCount: number;
 };
 
 export interface ApiDocumentFoldersResponse {

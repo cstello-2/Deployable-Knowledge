@@ -7,7 +7,7 @@ export const POST: RequestHandler = async ({ params }) => {
 	const folder = await SyncedFoldersRepository.find(params.id);
 	if (!folder) throw error(404, 'Synced folder not found.');
 
-	const cleared = await SyncedFoldersRepository.clearFileFailures(folder.id);
+	const cleared = await SyncedFoldersRepository.clearMalformed(folder.id);
 	await SyncedFoldersRepository.setLastError(folder.id, null);
 	return json({ cleared } satisfies ApiDocumentFolderRetryResponse);
 };

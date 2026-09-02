@@ -3,6 +3,7 @@ import type {
 	ApiDocumentActivationRequest,
 	ApiDocumentFolderFileDeleteRequest,
 	ApiDocumentFolderFileDeleteResponse,
+	ApiDocumentFolderMalformedRequest,
 	ApiDocumentFolderReconcileRequest,
 	ApiDocumentFolderReconcileResponse,
 	ApiDocumentFolderRegisterRequest,
@@ -133,10 +134,17 @@ export class DocumentsService {
 		);
 	}
 
-	static retryFolderFailures(id: string) {
+	static retryFolderMalformed(id: string) {
 		return apiPost<ApiDocumentFolderRetryResponse, Record<string, never>>(
 			API_DOCUMENTS.folderRetry(id),
 			{}
+		);
+	}
+
+	static markFolderFileMalformed(id: string, file: ApiDocumentFolderMalformedRequest) {
+		return apiPost<{ marked: true }, ApiDocumentFolderMalformedRequest>(
+			API_DOCUMENTS.folderMalformed(id),
+			file
 		);
 	}
 
@@ -184,8 +192,11 @@ export class DocumentsService {
 		signal?: AbortSignal
 	): Promise<ApiDocumentIngestResult> {
 		for await (const event of parseNdjsonStream<ApiDocumentIngestEvent>(response, signal)) {
-			if (event.status === 'progress') onProgress?.(event);
-			else if (event.status === 'complete') return event.result;
+			// Hand on the progress fields alone. Passing the event through leaks its
+			// `status` discriminant into callers that carry a status of their own.
+			if (event.status === 'progress') {
+				onProgress?.({ percent: event.percent, label: event.label, message: event.message });
+			} else if (event.status === 'complete') return event.result;
 			else throw new Error(event.message);
 		}
 		throw new Error('Document ingestion ended before completion.');

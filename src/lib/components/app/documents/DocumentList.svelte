@@ -177,16 +177,16 @@
 							{group.total} document{group.total === 1 ? '' : 's'}
 							{#if group.folder && syncStatuses.has(group.folder.id)}
 								· {SYNC_STATUS_LABELS[syncStatuses.get(group.folder.id)!]}{/if}
-							{#if group.folder && group.folder.failedCount > 0}
-								· <span class="text-destructive">{group.folder.failedCount} failed</span>{/if}
+							{#if group.folder && group.folder.malformedCount > 0}
+								· <span class="text-destructive">{group.folder.malformedCount} malformed</span>{/if}
 						</div>
 					</div>
 					{#if group.folder}
-						{#if group.folder.failedCount > 0}
+						{#if group.folder.malformedCount > 0}
 							<ActionIcon
 								class="border-0 bg-transparent text-destructive shadow-none"
 								disabled={busy}
-								label={`Retry ${group.folder.failedCount} failed file${group.folder.failedCount === 1 ? '' : 's'} in ${group.label}`}
+								label={`Retry ${group.folder.malformedCount} malformed file${group.folder.malformedCount === 1 ? '' : 's'} in ${group.label}`}
 								size="icon-sm"
 								variant="ghost"
 								onclick={() => onRetryFolder(group.folder!)}

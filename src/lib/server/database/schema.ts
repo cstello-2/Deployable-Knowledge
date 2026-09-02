@@ -12,6 +12,7 @@ import {
 	DEFAULT_ASSISTANT_CONFIG,
 	DEFAULT_THEME,
 	LAYOUT_NAME_MAX_LENGTH,
+	SYNCED_FILE_STATES,
 	THEME_COLORS,
 	THEME_MODES
 } from '$lib/constants';
@@ -282,6 +283,14 @@ export const syncedFolders = sqliteTable('synced_folders', {
 	lastError: text('last_error')
 });
 
+// Every walked path a folder sync resolves keeps a row here whatever the outcome,
+// and `state` is what stops the next reconcile from re-offering the same work.
+// Only `synced` rows are compared against disk for changes; the rest are terminal
+// until the file itself changes or the user retries the folder.
+//   synced    — ingested; `documentId` and `managedPath` are set
+//   ignored   — the document was deleted while the folder stayed watched
+//   duplicate — byte-identical to a document another path already owns
+//   malformed — ingestion failed; `message` records why
 export const syncedFiles = sqliteTable(
 	'synced_files',
 	{
@@ -289,34 +298,20 @@ export const syncedFiles = sqliteTable(
 			.notNull()
 			.references(() => syncedFolders.id, { onDelete: 'cascade' }),
 		relativePath: text('relative_path').notNull(),
-		managedPath: text('managed_path').notNull(),
+		// Only a `synced` row owns a managed copy on disk. The other states leave
+		// this null so removing one never unlinks a file another row still uses.
+		managedPath: text('managed_path'),
 		documentId: text('document_id').references(() => documents.id, { onDelete: 'set null' }),
 		lastModified: integer('last_modified').notNull(),
 		size: integer('size').notNull(),
-		ignored: integer('ignored', { mode: 'boolean' }).notNull().default(false)
+		state: text('state', { enum: SYNCED_FILE_STATES }).notNull().default('synced'),
+		message: text('message')
 	},
 	(table) => [
 		primaryKey({ columns: [table.folderId, table.relativePath] }),
 		uniqueIndex('synced_files_managed_path_idx').on(table.managedPath),
-		uniqueIndex('synced_files_document_idx').on(table.documentId)
-	]
-);
-
-export const syncedFileFailures = sqliteTable(
-	'synced_file_failures',
-	{
-		folderId: text('folder_id')
-			.notNull()
-			.references(() => syncedFolders.id, { onDelete: 'cascade' }),
-		relativePath: text('relative_path').notNull(),
-		lastModified: integer('last_modified').notNull(),
-		size: integer('size').notNull(),
-		message: text('message').notNull(),
-		failedAt: text('failed_at').notNull()
-	},
-	(table) => [
-		primaryKey({ columns: [table.folderId, table.relativePath] }),
-		index('synced_file_failures_folder_idx').on(table.folderId)
+		uniqueIndex('synced_files_document_idx').on(table.documentId),
+		index('synced_files_state_idx').on(table.folderId, table.state)
 	]
 );
 
@@ -369,8 +364,7 @@ export type NewSyncedFolder = typeof syncedFolders.$inferInsert;
 
 export type SyncedFile = typeof syncedFiles.$inferSelect;
 export type NewSyncedFile = typeof syncedFiles.$inferInsert;
-
-export type SyncedFileFailure = typeof syncedFileFailures.$inferSelect;
+export type SyncedFileState = (typeof SYNCED_FILE_STATES)[number];
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;

@@ -14,7 +14,7 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 			if (file.documentId) {
 				await removeDocument(file.documentId, { syncedFileDisposition: 'remove' });
 				removedDocumentIds.push(file.documentId);
-			} else {
+			} else if (file.managedPath) {
 				await removeManagedDocumentFile(file.managedPath);
 			}
 		}

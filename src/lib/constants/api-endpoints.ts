@@ -38,6 +38,7 @@ export const API_DOCUMENTS = {
 	byId: (id: string) => `/documents/${segment(id)}`,
 	folder: (id: string) => `/documents/folders/${segment(id)}`,
 	folderFiles: (id: string) => `/documents/folders/${segment(id)}/files`,
+	folderMalformed: (id: string) => `/documents/folders/${segment(id)}/malformed`,
 	folderReconcile: (id: string) => `/documents/folders/${segment(id)}/reconcile`,
 	folderRetry: (id: string) => `/documents/folders/${segment(id)}/retry`
 };

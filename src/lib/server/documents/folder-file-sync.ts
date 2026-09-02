@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { and, eq } from 'drizzle-orm';
 import type { ApiDocumentIngestProgress, ApiDocumentIngestResult } from '$lib/types';
 import { db } from '$lib/server/database/database';
-import { documents, syncedFiles } from '$lib/server/database/schema';
+import { documents, syncedFiles, type SyncedFile } from '$lib/server/database/schema';
 import { SyncedFoldersRepository } from '$lib/server/repositories';
 import { ingestDocument } from '$lib/server/rag/ingest-document';
 import { managedPathForHash, titleFor } from './ingest-file';
@@ -11,10 +11,13 @@ import { managedExtensionFor, writeManagedArtifacts } from './managed-artifacts'
 import { removeDocument, removeManagedDocumentFile } from './remove-document';
 import { handlerForPath } from './source-types';
 
-export interface UploadedSyncFile {
-	relativePath: string;
+export interface SyncFileStats {
 	lastModified: number;
 	size: number;
+}
+
+export interface UploadedSyncFile extends SyncFileStats {
+	relativePath: string;
 	replacesPath?: string;
 }
 
@@ -29,18 +32,34 @@ export async function syncUploadedFile(
 
 	try {
 		const result = await ingestSyncedFile(folderId, file, buffer, onProgress);
-		await SyncedFoldersRepository.clearFileFailure(folderId, file.relativePath);
-		await SyncedFoldersRepository.setLastError(folderId, null);
+		// Every ingested file would otherwise rewrite this column, and on a large
+		// corpus that is thousands of pointless writes behind the sync.
+		if (folder.lastError !== null) await SyncedFoldersRepository.setLastError(folderId, null);
 		return result;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(`[Folder Sync] ${file.relativePath}: ${message}`);
-		await SyncedFoldersRepository.recordFileFailure(folderId, file, message).catch((recordError) =>
-			console.error(`[Folder Sync] Could not record ${file.relativePath}:`, recordError)
-		);
-		await SyncedFoldersRepository.setLastError(folderId, message).catch(() => {});
+		await markMalformed(folderId, file, message);
+		if (folder.lastError !== message) {
+			await SyncedFoldersRepository.setLastError(folderId, message).catch(() => {});
+		}
 		throw error;
 	}
+}
+
+/**
+ * Parks a file that could not be ingested so folder syncs stop retrying it on
+ * every restart and reconnect. It stays parked until the bytes on disk change or
+ * the user retries the folder.
+ */
+export async function markMalformed(
+	folderId: string,
+	file: UploadedSyncFile,
+	message: string
+): Promise<void> {
+	console.error(`[Folder Sync] Marked malformed: ${file.relativePath} — ${message}`);
+	await SyncedFoldersRepository.markFile(folderId, file, 'malformed', message).catch((error) =>
+		console.error(`[Folder Sync] Could not mark ${file.relativePath} malformed:`, error)
+	);
 }
 
 async function ingestSyncedFile(
@@ -55,7 +74,7 @@ async function ingestSyncedFile(
 	handler.validateBuffer?.(buffer);
 
 	const tracked = await SyncedFoldersRepository.findFile(folderId, file.relativePath);
-	if (tracked?.ignored || (tracked?.documentId && sameStats(tracked, file))) {
+	if (tracked && isSettledSyncFile(tracked, file)) {
 		return unchangedResult(tracked.documentId, file.relativePath);
 	}
 
@@ -92,6 +111,15 @@ async function ingestSyncedFile(
 			if (tracked?.documentId) {
 				await removeDocument(tracked.documentId, { syncedFileDisposition: 'remove' });
 			}
+			// The bytes already live under another path, so this one owns nothing.
+			// Recording it as a duplicate is what keeps every later sync from
+			// re-uploading the file just because no row explained it away.
+			await SyncedFoldersRepository.markFile(
+				folderId,
+				file,
+				'duplicate',
+				existingOwner.relativePath
+			);
 			return unchangedResult(existingDocument?.id ?? null, file.relativePath);
 		}
 	}
@@ -124,26 +152,20 @@ async function ingestSyncedFile(
 			}
 		}
 
+		const row = {
+			managedPath,
+			documentId: ingestedDocumentId,
+			lastModified: file.lastModified,
+			size: file.size,
+			state: 'synced' as const,
+			message: null
+		};
 		await db
 			.insert(syncedFiles)
-			.values({
-				folderId,
-				relativePath: file.relativePath,
-				managedPath,
-				documentId: ingestedDocumentId,
-				lastModified: file.lastModified,
-				size: file.size,
-				ignored: false
-			})
+			.values({ folderId, relativePath: file.relativePath, ...row })
 			.onConflictDoUpdate({
 				target: [syncedFiles.folderId, syncedFiles.relativePath],
-				set: {
-					managedPath,
-					documentId: ingestedDocumentId,
-					lastModified: file.lastModified,
-					size: file.size,
-					ignored: false
-				}
+				set: row
 			});
 
 		if (tracked?.documentId && tracked.documentId !== ingestedDocumentId) {
@@ -177,6 +199,7 @@ export async function removeSyncedFiles(
 	for (const relativePath of paths) {
 		const tracked = await SyncedFoldersRepository.findFile(folderId, relativePath);
 		if (!tracked) continue;
+		await SyncedFoldersRepository.clearDuplicatesOf(folderId, relativePath);
 		if (tracked.documentId) {
 			await removeDocument(tracked.documentId, { syncedFileDisposition: 'remove' });
 			removedDocumentIds.push(tracked.documentId);
@@ -184,18 +207,24 @@ export async function removeSyncedFiles(
 			await db
 				.delete(syncedFiles)
 				.where(and(eq(syncedFiles.folderId, folderId), eq(syncedFiles.relativePath, relativePath)));
-			await removeManagedDocumentFile(tracked.managedPath);
+			// Only a synced row carries a managed copy; duplicate, ignored and
+			// malformed rows have none of their own to unlink.
+			if (tracked.managedPath) await removeManagedDocumentFile(tracked.managedPath);
 		}
 		removed += 1;
 	}
 	return { removed, removedDocumentIds };
 }
 
-function sameStats(
-	tracked: { lastModified: number; size: number },
-	file: { lastModified: number; size: number }
-): boolean {
-	return tracked.lastModified === file.lastModified && tracked.size === file.size;
+/**
+ * Whether a tracked path is already resolved and must not be offered for upload
+ * again. A deleted document stays deleted while its folder is watched, while a
+ * duplicate or malformed file earns another attempt once its bytes change.
+ */
+export function isSettledSyncFile(tracked: SyncedFile, stats: SyncFileStats): boolean {
+	if (tracked.state === 'ignored') return true;
+	if (tracked.lastModified !== stats.lastModified || tracked.size !== stats.size) return false;
+	return tracked.state !== 'synced' || tracked.documentId !== null;
 }
 
 function unchangedResult(documentId: string | null, relativePath: string): ApiDocumentIngestResult {

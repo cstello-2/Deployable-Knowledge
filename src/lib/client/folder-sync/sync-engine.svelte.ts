@@ -19,7 +19,10 @@ export type FolderSyncStatus =
 	| 'error';
 
 const OBSERVER_DEBOUNCE_MS = 2000;
-const RESCAN_INTERVAL_MS = 60_000;
+// Only browsers without FileSystemObserver poll, and a poll restats every file in
+// the folder. On a corpus of a few thousand documents a one-minute sweep never
+// stops running, so the fallback trades some latency for a quiet machine.
+const RESCAN_INTERVAL_MS = 300_000;
 
 class FolderSyncEngine {
 	private handles = new Map<string, FileSystemDirectoryHandle>();
@@ -156,13 +159,13 @@ class FolderSyncEngine {
 		}
 	}
 
-	async retryFailed(id: string): Promise<ApiDocumentSyncResult | null> {
+	async retryMalformed(id: string): Promise<ApiDocumentSyncResult | null> {
 		if (!this.handles.has(id)) {
 			this._statuses.set(id, 'handle-missing');
 			return null;
 		}
 		if (!(await this.ensurePermission(id, true))) return null;
-		await DocumentsService.retryFolderFailures(id);
+		await DocumentsService.retryFolderMalformed(id);
 		const result = await this.runSync(id);
 		await documentsStore.refresh();
 		return result;
@@ -197,19 +200,15 @@ class FolderSyncEngine {
 
 			const plan = await DocumentsService.reconcileFolder(id, stats);
 			result.unchanged = plan.unchanged;
-			result.heldBack = plan.failed;
+			result.heldBack = plan.malformed;
 
 			if (!plan.upload.length && !plan.stale.length) {
 				this._statuses.set(id, this.observers.has(id) ? 'watching' : 'idle');
 				return result;
 			}
 
-			documentsStore.beginFolderSync();
 			const { replaces, stale } = matchRenames(plan.upload, plan.stale);
-
-			for (const entry of plan.upload) {
-				documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'queued' });
-			}
+			documentsStore.beginFolderSync(plan.upload.length + stale.length);
 
 			for (const entry of plan.upload) {
 				const walkedFile = byPath.get(entry.path);
@@ -222,20 +221,23 @@ class FolderSyncEngine {
 						walkedFile.file,
 						(progress) =>
 							documentsStore.reportSyncFile({
+								...progress,
 								sourcePath: entry.path,
-								status: 'ingesting',
-								...progress
+								status: 'ingesting'
 							})
 					);
 					result.added += 1;
 					documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'added' });
 				} catch (cause) {
 					result.failed += 1;
-					documentsStore.reportSyncFile({
-						sourcePath: entry.path,
-						status: 'failed',
-						message: cause instanceof Error ? cause.message : String(cause)
-					});
+					const message = cause instanceof Error ? cause.message : String(cause);
+					// A request that never reached the ingest path leaves nothing
+					// recorded server-side, so the file would be retried on every
+					// reconnect. Report it so it lands in the same held-back state.
+					await DocumentsService.markFolderFileMalformed(id, { ...entry, message }).catch(
+						(reportError) => console.error(`[Folder Sync] ${entry.path}:`, reportError)
+					);
+					documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'failed', message });
 				}
 			}
 

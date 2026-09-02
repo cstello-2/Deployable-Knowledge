@@ -59,9 +59,16 @@ export async function removeDocument(
 		if (disposition === 'remove') {
 			await transaction.delete(syncedFiles).where(eq(syncedFiles.documentId, documentId));
 		} else {
+			// The managed copy goes with the document, so the row that outlives it
+			// keeps no path — it exists only to stop the folder re-ingesting the file.
 			await transaction
 				.update(syncedFiles)
-				.set({ documentId: null, ignored: true })
+				.set({
+					documentId: null,
+					managedPath: null,
+					state: 'ignored',
+					message: null
+				})
 				.where(eq(syncedFiles.documentId, documentId));
 		}
 

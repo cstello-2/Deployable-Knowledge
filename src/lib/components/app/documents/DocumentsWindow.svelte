@@ -160,7 +160,7 @@
 			`${unchanged} unchanged`,
 			`${failed} failed`
 		];
-		if (heldBack) parts.push(`${heldBack} awaiting retry`);
+		if (heldBack) parts.push(`${heldBack} malformed, awaiting retry`);
 		return `Synced: ${parts.join(', ')}.`;
 	}
 
@@ -186,12 +186,12 @@
 		}
 	}
 
-	async function retryFolderFailures(folder: ApiSyncedFolder): Promise<void> {
+	async function retryFolderMalformed(folder: ApiSyncedFolder): Promise<void> {
 		try {
-			const result = await folderSyncEngine.retryFailed(folder.id);
+			const result = await folderSyncEngine.retryMalformed(folder.id);
 			status = syncSummary(result);
 			toast.success(
-				`Retried ${folder.failedCount} failed file${folder.failedCount === 1 ? '' : 's'}`
+				`Retried ${folder.malformedCount} malformed file${folder.malformedCount === 1 ? '' : 's'}`
 			);
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
@@ -389,7 +389,7 @@
 				onReconnectFolder={(folder) => void reconnectFolder(folder)}
 				onRemoveFolder={(folder, removeDocuments) =>
 					(pendingFolderRemoval = { folder, removeDocuments })}
-				onRetryFolder={(folder) => void retryFolderFailures(folder)}
+				onRetryFolder={(folder) => void retryFolderMalformed(folder)}
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				syncStatuses={folderSyncEngine.statuses}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}
@@ -479,6 +479,8 @@
 	files={documentsStore.syncFiles}
 	open={documentsStore.syncing}
 	progress={documentsStore.syncProgress}
+	settled={documentsStore.syncSettled}
+	total={documentsStore.syncTotal}
 />
 
 <DialogConfirmation
