@@ -405,7 +405,7 @@ const editorTheme = EditorView.theme({
 });
 
 function linkUrlAt(state: EditorState, pos: number): string | null {
-	let node = syntaxTree(state).resolveInner(pos, -1);
+	let node = syntaxTree(state).resolveInner(pos, 1);
 	while (node.parent && node.name !== 'Link') node = node.parent;
 	if (node.name !== 'Link') return null;
 	const url = node.getChild('URL');
@@ -443,6 +443,27 @@ function openTableAt(target: HTMLElement, view: EditorView): boolean {
 	return true;
 }
 
+function charPosUnder(view: EditorView, event: MouseEvent): number | null {
+	const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+	if (pos == null) return null;
+
+	for (const candidate of [pos, pos - 1]) {
+		if (candidate < 0) continue;
+		const rect = view.coordsForChar(candidate);
+		if (!rect) continue;
+		if (
+			event.clientX >= rect.left &&
+			event.clientX <= rect.right &&
+			event.clientY >= rect.top &&
+			event.clientY <= rect.bottom
+		) {
+			return candidate;
+		}
+	}
+
+	return null;
+}
+
 const clickHandler = EditorView.domEventHandlers({
 	mousedown(event, view) {
 		if (event.button !== 0) return false;
@@ -451,7 +472,7 @@ const clickHandler = EditorView.domEventHandlers({
 			event.preventDefault();
 			return true;
 		}
-		const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+		const pos = charPosUnder(view, event);
 		if (pos == null) return false;
 		const href = linkUrlAt(view.state, pos);
 		if (!href) return false;
