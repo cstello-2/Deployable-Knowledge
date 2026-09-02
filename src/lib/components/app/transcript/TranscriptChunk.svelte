@@ -17,23 +17,40 @@
 			? 'no timing'
 			: `${formatTimestamp(chunk.startMs)} – ${formatTimestamp(chunk.endMs ?? chunk.startMs)}`
 	);
+
+	const cardClass = $derived([
+		'dk-panel grid w-full select-text gap-2 rounded-xl border p-3 text-left shadow-sm transition-colors',
+		active && 'border-primary bg-primary/5',
+		seekable && 'cursor-pointer',
+		seekable && !active && 'hover:border-primary/40'
+	]);
+
+	function seekUnlessSelecting(): void {
+		if (chunk.startMs === null) return;
+		if (window.getSelection()?.toString()) return;
+		onSeek(chunk.startMs);
+	}
 </script>
 
-<button
-	aria-current={active ? 'true' : undefined}
-	class={[
-		'dk-panel grid w-full gap-2 rounded-xl border p-3 text-left shadow-sm transition-colors',
-		active && 'border-primary bg-primary/5',
-		seekable ? 'cursor-pointer' : 'cursor-default',
-		seekable && !active && 'hover:border-primary/40'
-	]}
-	disabled={!seekable}
-	type="button"
-	onclick={() => chunk.startMs !== null && onSeek(chunk.startMs)}
->
+{#snippet body()}
 	<div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 		<span class="font-semibold text-primary">Chunk {chunk.chunkIndex + 1}</span>
 		<span class="font-mono">{range}</span>
 	</div>
 	<p class="m-0 whitespace-pre-wrap text-sm leading-relaxed">{chunk.content}</p>
-</button>
+{/snippet}
+
+{#if seekable}
+	<button
+		aria-current={active ? 'true' : undefined}
+		class={cardClass}
+		type="button"
+		onclick={seekUnlessSelecting}
+	>
+		{@render body()}
+	</button>
+{:else}
+	<div aria-current={active ? 'true' : undefined} class={cardClass}>
+		{@render body()}
+	</div>
+{/if}
