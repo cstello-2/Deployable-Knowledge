@@ -19,8 +19,8 @@
 	);
 
 	const cardClass = $derived([
-		'dk-panel grid w-full select-text gap-2 rounded-xl border p-3 text-left shadow-sm transition-colors',
-		active && 'border-primary bg-primary/5',
+		'grid w-full select-text gap-2 border-l-2 pl-3 text-left transition-colors',
+		active ? 'border-primary' : 'border-transparent',
 		seekable && 'cursor-pointer',
 		seekable && !active && 'hover:border-primary/40'
 	]);

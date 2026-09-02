@@ -262,7 +262,7 @@
 								<Skeleton class="h-16" /><Skeleton class="h-24" /><Skeleton class="h-40" />
 							</div>
 						{:else}
-							<div class="grid gap-4">
+							<div class="grid gap-6">
 								<SettingsFieldGroup
 									icon={Layers}
 									title="Profile"
@@ -280,7 +280,7 @@
 										<SettingsPromptTemplateSelector />
 									</div>
 								</SettingsFieldGroup>
-								<div class="grid items-start gap-4 @2xl:grid-cols-2">
+								<div class="grid items-start gap-6 @2xl:grid-cols-2">
 									<SettingsFieldGroup icon={SlidersHorizontal} title="Generation">
 										<SettingsGenerationFields />
 									</SettingsFieldGroup>
@@ -307,11 +307,7 @@
 								<Skeleton class="h-16" /><Skeleton class="h-24" />
 							</div>
 						{:else}
-							<div class="grid gap-4">
-								<SettingsFieldGroup icon={Wrench} title="Available tools">
-									<SettingsToolsSection />
-								</SettingsFieldGroup>
-							</div>
+							<SettingsToolsSection />
 						{/if}
 					{:else if activeSection.id === 'models'}
 						<div class="grid gap-6">

@@ -69,7 +69,7 @@
 				</div>
 			</header>
 
-			<div class="grid gap-2">
+			<div class="grid gap-5">
 				{#each chunks as chunk, index (chunk.id)}
 					<div bind:this={rows[index]} class="scroll-my-2">
 						<TranscriptChunk active={index === focusIndex} {chunk} onSeek={openAt} />

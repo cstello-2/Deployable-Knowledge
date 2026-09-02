@@ -5,6 +5,7 @@
 	import { LOCAL_MODELS, findLocalModelByFile } from '$lib/constants';
 	import { localModelsStore } from '$lib/stores';
 	import { LOCAL_MODEL_ICONS, type LocalModelCardData } from './local-model-catalog';
+	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsModelCard from './SettingsModelCard.svelte';
 
 	let pendingDelete = $state<string | null>(null);
@@ -43,17 +44,11 @@
 	onMount(() => void localModelsStore.refresh().catch(() => {}));
 </script>
 
-<section class="grid gap-5" aria-labelledby="local-models-heading">
-	<header class="flex items-center gap-3">
-		<HardDrive class="size-5 shrink-0" />
-		<div class="grid gap-1">
-			<h2 id="local-models-heading" class="text-base font-semibold">Local models</h2>
-			<p class="m-0 text-xs text-muted-foreground">
-				Models run in-app via llama.cpp, fully offline. Download one to get started.
-			</p>
-		</div>
-	</header>
-
+<SettingsFieldGroup
+	icon={HardDrive}
+	title="Local models"
+	hint="Models run in-app via llama.cpp, fully offline. Download one to get started."
+>
 	<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 		{#each cards as card (card.fileName)}
 			<SettingsModelCard model={card} onDelete={(fileName) => (pendingDelete = fileName)} />
@@ -63,7 +58,7 @@
 	{#if localModelsStore.error}
 		<p class="m-0 text-sm text-destructive">{localModelsStore.error}</p>
 	{/if}
-</section>
+</SettingsFieldGroup>
 
 <DialogConfirmation
 	open={pendingDelete !== null}
