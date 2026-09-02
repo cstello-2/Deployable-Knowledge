@@ -31,6 +31,7 @@ class DocumentsStore {
 	private _sort = $state<DocumentSortMode>(DEFAULT_DOCUMENT_SORT);
 	private queryTimer: ReturnType<typeof setTimeout> | undefined;
 	private listRequest = 0;
+	private syncFileIndex = new Map<string, number>();
 	progress = $state<ApiDocumentIngestProgress | null>(null);
 	syncProgress = $state<ApiDocumentIngestProgress | null>(null);
 	syncing = $state(false);
@@ -297,17 +298,18 @@ class DocumentsStore {
 	beginFolderSync(): void {
 		this.syncing = true;
 		this._syncFiles = [];
+		this.syncFileIndex.clear();
 		this.syncProgress = { percent: 0, label: 'Syncing folder', message: 'Scanning folder' };
 	}
 
 	reportSyncFile(progress: ApiDocumentSyncFileProgress): void {
-		const existingIndex = this._syncFiles.findIndex(
-			(file) => file.sourcePath === progress.sourcePath
-		);
-		this._syncFiles =
-			existingIndex < 0
-				? [...this._syncFiles, progress]
-				: this._syncFiles.map((file, index) => (index === existingIndex ? progress : file));
+		const existingIndex = this.syncFileIndex.get(progress.sourcePath);
+		if (existingIndex === undefined) {
+			this.syncFileIndex.set(progress.sourcePath, this._syncFiles.length);
+			this._syncFiles = [...this._syncFiles, progress];
+		} else {
+			this._syncFiles = this._syncFiles.with(existingIndex, progress);
+		}
 		if (progress.status === 'ingesting') {
 			this.syncProgress = {
 				percent: progress.percent ?? 0,

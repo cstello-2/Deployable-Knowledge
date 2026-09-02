@@ -153,8 +153,15 @@
 
 	function syncSummary(result: ApiDocumentSyncResult | null): string {
 		if (!result) return 'Folder sync finished.';
-		const { added, updated, removed, unchanged, failed } = result;
-		return `Synced: ${added} added, ${updated} updated, ${removed} removed, ${unchanged} unchanged, ${failed} failed.`;
+		const { added, removed, unchanged, failed, heldBack } = result;
+		const parts = [
+			`${added} added`,
+			`${removed} removed`,
+			`${unchanged} unchanged`,
+			`${failed} failed`
+		];
+		if (heldBack) parts.push(`${heldBack} awaiting retry`);
+		return `Synced: ${parts.join(', ')}.`;
 	}
 
 	async function syncNewFolder(): Promise<void> {
@@ -174,6 +181,18 @@
 			const result = await folderSyncEngine.syncFolder(folder.id);
 			status = syncSummary(result);
 			toast.success('Folder synced');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function retryFolderFailures(folder: ApiSyncedFolder): Promise<void> {
+		try {
+			const result = await folderSyncEngine.retryFailed(folder.id);
+			status = syncSummary(result);
+			toast.success(
+				`Retried ${folder.failedCount} failed file${folder.failedCount === 1 ? '' : 's'}`
+			);
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
 		}
@@ -370,6 +389,7 @@
 				onReconnectFolder={(folder) => void reconnectFolder(folder)}
 				onRemoveFolder={(folder, removeDocuments) =>
 					(pendingFolderRemoval = { folder, removeDocuments })}
+				onRetryFolder={(folder) => void retryFolderFailures(folder)}
 				onSyncFolder={(folder) => void syncFolder(folder)}
 				syncStatuses={folderSyncEngine.statuses}
 				onToggle={(documentId, selected) => documentsStore.setSelection([documentId], selected)}

@@ -27,6 +27,28 @@ export async function syncUploadedFile(
 	const folder = await SyncedFoldersRepository.find(folderId);
 	if (!folder) throw new Error(`Synced folder not found: ${folderId}`);
 
+	try {
+		const result = await ingestSyncedFile(folderId, file, buffer, onProgress);
+		await SyncedFoldersRepository.clearFileFailure(folderId, file.relativePath);
+		await SyncedFoldersRepository.setLastError(folderId, null);
+		return result;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`[Folder Sync] ${file.relativePath}: ${message}`);
+		await SyncedFoldersRepository.recordFileFailure(folderId, file, message).catch((recordError) =>
+			console.error(`[Folder Sync] Could not record ${file.relativePath}:`, recordError)
+		);
+		await SyncedFoldersRepository.setLastError(folderId, message).catch(() => {});
+		throw error;
+	}
+}
+
+async function ingestSyncedFile(
+	folderId: string,
+	file: UploadedSyncFile,
+	buffer: Buffer,
+	onProgress?: (progress: ApiDocumentIngestProgress) => void
+): Promise<ApiDocumentIngestResult> {
 	const handler = handlerForPath(file.relativePath);
 	if (!handler) throw new Error('Unsupported document type.');
 	handler.validateFile?.({ path: file.relativePath, size: buffer.byteLength });
@@ -128,7 +150,6 @@ export async function syncUploadedFile(
 			await removeDocument(tracked.documentId, { syncedFileDisposition: 'remove' });
 		}
 
-		await SyncedFoldersRepository.setLastError(folderId, null);
 		return {
 			documentId: ingestedDocumentId,
 			title: titleFor(file.relativePath),
@@ -137,9 +158,6 @@ export async function syncUploadedFile(
 			chunkCount: 0
 		};
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		console.error(`[Folder Sync] ${file.relativePath}: ${message}`);
-		await SyncedFoldersRepository.setLastError(folderId, message).catch(() => {});
 		if (!tracked && createdDocument) {
 			await removeDocument(ingestedDocumentId!, { syncedFileDisposition: 'remove' }).catch(
 				(cleanupError) =>

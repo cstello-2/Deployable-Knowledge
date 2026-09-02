@@ -6,6 +6,7 @@
 	import FolderX from '@lucide/svelte/icons/folder-x';
 	import Plug from '@lucide/svelte/icons/plug';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { infiniteScroll } from '$lib/actions';
@@ -50,6 +51,7 @@
 		manualTotal?: number;
 		onReconnectFolder?: (folder: ApiSyncedFolder) => void;
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
+		onRetryFolder?: (folder: ApiSyncedFolder) => void;
 		onSyncFolder: (folder: ApiSyncedFolder) => void;
 		syncStatuses?: ReadonlyMap<string, FolderSyncStatus>;
 		onToggle: (id: string, selected: boolean) => void;
@@ -74,6 +76,7 @@
 		onLoadMore = () => {},
 		onReconnectFolder = () => {},
 		onRemoveFolder,
+		onRetryFolder = () => {},
 		onSyncFolder,
 		syncStatuses = new Map(),
 		onToggle,
@@ -174,9 +177,23 @@
 							{group.total} document{group.total === 1 ? '' : 's'}
 							{#if group.folder && syncStatuses.has(group.folder.id)}
 								· {SYNC_STATUS_LABELS[syncStatuses.get(group.folder.id)!]}{/if}
+							{#if group.folder && group.folder.failedCount > 0}
+								· <span class="text-destructive">{group.folder.failedCount} failed</span>{/if}
 						</div>
 					</div>
 					{#if group.folder}
+						{#if group.folder.failedCount > 0}
+							<ActionIcon
+								class="border-0 bg-transparent text-destructive shadow-none"
+								disabled={busy}
+								label={`Retry ${group.folder.failedCount} failed file${group.folder.failedCount === 1 ? '' : 's'} in ${group.label}`}
+								size="icon-sm"
+								variant="ghost"
+								onclick={() => onRetryFolder(group.folder!)}
+							>
+								<RotateCcw />
+							</ActionIcon>
+						{/if}
 						{#if syncStatuses.get(group.folder.id) === 'handle-missing' || syncStatuses.get(group.folder.id) === 'permission-needed'}
 							<ActionIcon
 								class="border-0 bg-transparent shadow-none"

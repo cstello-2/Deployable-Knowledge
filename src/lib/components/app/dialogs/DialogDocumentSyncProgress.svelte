@@ -36,7 +36,7 @@
 						<div class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2">
 							{#if file.status === 'ingesting'}
 								<LoaderCircle class="size-4 animate-spin text-primary" />
-							{:else if file.status === 'added' || file.status === 'updated'}
+							{:else if file.status === 'added'}
 								<Check class="size-4 text-primary" />
 							{:else if file.status === 'failed'}
 								<X class="size-4 text-destructive" />

@@ -158,6 +158,11 @@ export interface ApiDocumentFolderReconcileResponse {
 	upload: ApiSyncFileStat[];
 	stale: ApiSyncFileStat[];
 	unchanged: number;
+	failed: number;
+}
+
+export interface ApiDocumentFolderRetryResponse {
+	cleared: number;
 }
 
 export interface ApiDocumentFolderFileDeleteRequest {
@@ -173,7 +178,6 @@ export type ApiDocumentSyncFileStatus =
 	| 'queued'
 	| 'ingesting'
 	| 'added'
-	| 'updated'
 	| 'unchanged'
 	| 'removed'
 	| 'failed';
@@ -188,10 +192,12 @@ export interface ApiDocumentSyncResult {
 	failed: number;
 	removed: number;
 	unchanged: number;
-	updated: number;
+	heldBack: number;
 }
 
-export type ApiSyncedFolder = Pick<SyncedFolder, 'id' | 'name' | 'createdAt' | 'lastError'>;
+export type ApiSyncedFolder = Pick<SyncedFolder, 'id' | 'name' | 'createdAt' | 'lastError'> & {
+	failedCount: number;
+};
 
 export interface ApiDocumentFoldersResponse {
 	folders: ApiSyncedFolder[];

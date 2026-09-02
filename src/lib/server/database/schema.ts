@@ -302,6 +302,24 @@ export const syncedFiles = sqliteTable(
 	]
 );
 
+export const syncedFileFailures = sqliteTable(
+	'synced_file_failures',
+	{
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => syncedFolders.id, { onDelete: 'cascade' }),
+		relativePath: text('relative_path').notNull(),
+		lastModified: integer('last_modified').notNull(),
+		size: integer('size').notNull(),
+		message: text('message').notNull(),
+		failedAt: text('failed_at').notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.folderId, table.relativePath] }),
+		index('synced_file_failures_folder_idx').on(table.folderId)
+	]
+);
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
@@ -351,6 +369,8 @@ export type NewSyncedFolder = typeof syncedFolders.$inferInsert;
 
 export type SyncedFile = typeof syncedFiles.$inferSelect;
 export type NewSyncedFile = typeof syncedFiles.$inferInsert;
+
+export type SyncedFileFailure = typeof syncedFileFailures.$inferSelect;
 
 export type AssistantProfile = typeof profiles.$inferSelect;
 export type NewAssistantProfile = typeof profiles.$inferInsert;

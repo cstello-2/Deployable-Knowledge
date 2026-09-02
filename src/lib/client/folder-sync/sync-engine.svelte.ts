@@ -6,6 +6,7 @@ import { documentsStore } from '$lib/stores/documents.svelte';
 import type { ApiDocumentSyncResult, ApiSyncFileStat } from '$lib/types';
 import { supportsFileObserver, supportsFolderSync } from '$lib/utils/fs-access';
 import { deleteFolder, listFolders, putFolder } from './handle-store';
+import { matchRenames } from './rename-plan';
 import { collectFiles, type WalkedFile } from './walk';
 
 export type FolderSyncStatus =
@@ -155,6 +156,18 @@ class FolderSyncEngine {
 		}
 	}
 
+	async retryFailed(id: string): Promise<ApiDocumentSyncResult | null> {
+		if (!this.handles.has(id)) {
+			this._statuses.set(id, 'handle-missing');
+			return null;
+		}
+		if (!(await this.ensurePermission(id, true))) return null;
+		await DocumentsService.retryFolderFailures(id);
+		const result = await this.runSync(id);
+		await documentsStore.refresh();
+		return result;
+	}
+
 	private async runSync(id: string): Promise<ApiDocumentSyncResult | null> {
 		if (this.running.has(id)) {
 			this.rerun.add(id);
@@ -165,13 +178,12 @@ class FolderSyncEngine {
 
 		this.running.add(id);
 		this._statuses.set(id, 'syncing');
-		documentsStore.beginFolderSync();
 		const result: ApiDocumentSyncResult = {
 			added: 0,
-			updated: 0,
 			removed: 0,
 			unchanged: 0,
-			failed: 0
+			failed: 0,
+			heldBack: 0
 		};
 
 		try {
@@ -185,21 +197,15 @@ class FolderSyncEngine {
 
 			const plan = await DocumentsService.reconcileFolder(id, stats);
 			result.unchanged = plan.unchanged;
+			result.heldBack = plan.failed;
 
-			const staleByPath = new SvelteMap(plan.stale.map((entry) => [entry.path, entry]));
-			const replaces = new SvelteMap<string, string>();
-			for (const entry of plan.upload) {
-				const match = plan.stale.find(
-					(stale) =>
-						staleByPath.has(stale.path) &&
-						stale.size === entry.size &&
-						stale.lastModified === entry.lastModified
-				);
-				if (match) {
-					replaces.set(entry.path, match.path);
-					staleByPath.delete(match.path);
-				}
+			if (!plan.upload.length && !plan.stale.length) {
+				this._statuses.set(id, this.observers.has(id) ? 'watching' : 'idle');
+				return result;
 			}
+
+			documentsStore.beginFolderSync();
+			const { replaces, stale } = matchRenames(plan.upload, plan.stale);
 
 			for (const entry of plan.upload) {
 				documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'queued' });
@@ -233,7 +239,6 @@ class FolderSyncEngine {
 				}
 			}
 
-			const stale = [...staleByPath.keys()];
 			if (stale.length) {
 				const removedResult = await DocumentsService.deleteFolderFiles(id, stale);
 				result.removed = removedResult.removed;
@@ -291,7 +296,7 @@ class FolderSyncEngine {
 			setTimeout(() => {
 				this.debounceTimers.delete(id);
 				void this.runSync(id).then((result) => {
-					if (result && result.added + result.updated + result.removed > 0) {
+					if (result && result.added + result.removed > 0) {
 						void documentsStore.refresh();
 					}
 				});

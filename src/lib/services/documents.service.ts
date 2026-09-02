@@ -7,6 +7,7 @@ import type {
 	ApiDocumentFolderReconcileResponse,
 	ApiDocumentFolderRegisterRequest,
 	ApiDocumentFolderRegisterResponse,
+	ApiDocumentFolderRetryResponse,
 	ApiDocumentFoldersResponse,
 	ApiDocumentIdsResponse,
 	ApiDocumentIngestEvent,
@@ -129,6 +130,13 @@ export class DocumentsService {
 		return apiPost<ApiDocumentFolderReconcileResponse, ApiDocumentFolderReconcileRequest>(
 			API_DOCUMENTS.folderReconcile(id),
 			{ files }
+		);
+	}
+
+	static retryFolderFailures(id: string) {
+		return apiPost<ApiDocumentFolderRetryResponse, Record<string, never>>(
+			API_DOCUMENTS.folderRetry(id),
+			{}
 		);
 	}
 

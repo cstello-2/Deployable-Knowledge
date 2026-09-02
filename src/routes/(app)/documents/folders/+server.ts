@@ -8,7 +8,14 @@ import { SyncedFoldersRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
-	const folders = await SyncedFoldersRepository.list();
+	const [rows, failedCounts] = await Promise.all([
+		SyncedFoldersRepository.list(),
+		SyncedFoldersRepository.failedFileCounts()
+	]);
+	const folders = rows.map((folder) => ({
+		...folder,
+		failedCount: failedCounts.get(folder.id) ?? 0
+	}));
 	return json({ folders } satisfies ApiDocumentFoldersResponse);
 };
 
@@ -31,7 +38,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	});
 	const folder = await SyncedFoldersRepository.find(id);
 	if (!folder) throw error(500, 'Folder registration failed.');
-	return json({ folder } satisfies ApiDocumentFolderRegisterResponse, {
-		status: existing ? 200 : 201
-	});
+	return json(
+		{ folder: { ...folder, failedCount: 0 } } satisfies ApiDocumentFolderRegisterResponse,
+		{
+			status: existing ? 200 : 201
+		}
+	);
 };

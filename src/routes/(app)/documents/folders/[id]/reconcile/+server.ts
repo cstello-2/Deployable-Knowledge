@@ -20,12 +20,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 	if (!Array.isArray(body.files)) throw error(400, 'Provide a file listing.');
 
-	const tracked = await SyncedFoldersRepository.syncedFiles(folder.id);
+	const [tracked, failures] = await Promise.all([
+		SyncedFoldersRepository.syncedFiles(folder.id),
+		SyncedFoldersRepository.failedFiles(folder.id)
+	]);
 	const trackedByPath = new Map(tracked.map((file) => [file.relativePath, file]));
+	const failedPaths = new Set(failures.map((failure) => failure.relativePath));
 	const clientPaths = new Set<string>();
 
 	const upload: ApiSyncFileStat[] = [];
 	let unchanged = 0;
+	let failed = 0;
 
 	for (const file of body.files) {
 		if (
@@ -37,6 +42,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		}
 		clientPaths.add(file.path);
 		if (!isSyncableFile(file.path)) continue;
+
+		if (failedPaths.has(file.path)) {
+			failed += 1;
+			continue;
+		}
 
 		const row = trackedByPath.get(file.path);
 		if (row?.ignored) continue;
@@ -55,5 +65,5 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			size: file.size
 		}));
 
-	return json({ upload, stale, unchanged } satisfies ApiDocumentFolderReconcileResponse);
+	return json({ upload, stale, unchanged, failed } satisfies ApiDocumentFolderReconcileResponse);
 };
