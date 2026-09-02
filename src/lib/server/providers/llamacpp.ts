@@ -44,7 +44,6 @@ export class LlamaCpp extends Provider {
 			topK: options.topK,
 			maxTokens: options.maxTokens,
 			reasoningBudget: options.reasoningBudget,
-			contextSize: options.contextSize,
 			gpuMode: options.gpuMode,
 			signal: options.signal,
 			onText: (text) => queue.push({ content: text }),

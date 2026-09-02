@@ -212,7 +212,6 @@ class SettingsStore {
 			retrievalMode: profile.retrievalMode as RetrievalMode,
 			ragTopK: profile.ragTopK,
 			agentMaxTurns: profile.agentMaxTurns,
-			contextSize: profile.contextSize ?? null,
 			gpuMode: profile.gpuMode ?? 'auto',
 			promptTemplateId: profile.promptTemplateId,
 			persona: profile.persona ?? '',

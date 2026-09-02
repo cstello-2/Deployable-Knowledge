@@ -10,6 +10,3 @@ export const ESTIMATED_CHARACTERS_PER_TOKEN = 3.2;
 export const CONTEXT_OVERHEAD_TOKENS = 768;
 
 export const CONTEXT_WINDOW_TOKENS_MAX = 32_768;
-
-export const CONTEXT_SIZE_MIN = 2_048;
-export const CONTEXT_SIZE_STEP = 1_024;

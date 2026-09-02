@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
@@ -20,16 +20,11 @@ export type SupportedGpuType = Exclude<LlamaGpuMode, 'auto' | 'cpu'>;
 export const MODELS_DIR = resolve(process.cwd(), 'models');
 
 const MODEL_FILE_PATTERN = /^[\w][\w.-]*\.gguf$/i;
-// Ceiling only — node-llama-cpp still auto-sizes below this based on free
-// memory and the model's train context. Notebook mode alone can feed ~20k
-// tokens of reference material, so a low ceiling silently truncates context.
-const CONTEXT_SIZE_MAX = 32768;
 
 type LlamaModuleState = {
 	nlc?: Promise<typeof import('node-llama-cpp')>;
 	llamaInstance?: { gpu: LlamaGpuMode; promise: Promise<Llama> };
 	gpuTypes?: Promise<SupportedGpuType[]>;
-	ggufContextSizes?: Map<string, { size: number; mtimeMs: number; value: number | null }>;
 	runtime: Runtime | null;
 	opQueue: Promise<unknown>;
 	activeDownload: { fileName: string; downloader: ModelDownloader | null } | null;
@@ -86,32 +81,6 @@ export function getSupportedGpuTypes(): Promise<SupportedGpuType[]> {
 			types.filter((type): type is SupportedGpuType => type === 'cuda' || type === 'vulkan')
 		)
 		.catch(() => []));
-}
-
-export async function readModelTrainContextSize(fileName: string): Promise<number | null> {
-	const path = resolveLocalModelPath(fileName);
-	if (!existsSync(path)) return null;
-
-	const { size, mtimeMs } = await stat(path);
-	const cache = (state.ggufContextSizes ??= new Map());
-	const cached = cache.get(path);
-	if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.value;
-
-	let value: number | null = null;
-	try {
-		const { readGgufFileInfo } = await loadNlc();
-		const info = await readGgufFileInfo(path, { sourceType: 'filesystem', readTensorInfo: false });
-		const contextLength = (info.architectureMetadata as { context_length?: unknown })
-			.context_length;
-		if (typeof contextLength === 'number' && Number.isFinite(contextLength)) {
-			value = contextLength;
-		}
-	} catch {
-		return null;
-	}
-
-	cache.set(path, { size, mtimeMs, value });
-	return value;
 }
 
 export async function listLocalModelFiles(): Promise<string[]> {
@@ -181,7 +150,6 @@ type Runtime = {
 	context: LlamaContext;
 	chat: LlamaChat;
 	modelPath: string;
-	contextSize: number | null;
 	gpu: LlamaGpuMode;
 };
 
@@ -202,22 +170,8 @@ async function disposeRuntimeUnlocked(): Promise<void> {
 	await model.dispose();
 }
 
-async function getRuntime(
-	modelPath: string,
-	settings: { contextSize: number | null; gpu: LlamaGpuMode }
-): Promise<Runtime> {
-	const requestedSize = settings.contextSize;
-	const contextSize =
-		typeof requestedSize === 'number' && Number.isFinite(requestedSize) && requestedSize >= 1024
-			? Math.floor(requestedSize)
-			: null;
-	const gpu = settings.gpu;
-
-	if (
-		state.runtime?.modelPath === modelPath &&
-		state.runtime.contextSize === contextSize &&
-		state.runtime.gpu === gpu
-	) {
+async function getRuntime(modelPath: string, gpu: LlamaGpuMode): Promise<Runtime> {
+	if (state.runtime?.modelPath === modelPath && state.runtime.gpu === gpu) {
 		return state.runtime;
 	}
 
@@ -226,9 +180,7 @@ async function getRuntime(
 	const { LlamaChat } = await loadNlc();
 	const llama = await getLlamaFor(gpu);
 	const model = await llama.loadModel({ modelPath });
-	const context = await model.createContext({
-		contextSize: { max: contextSize ?? CONTEXT_SIZE_MAX }
-	});
+	const context = await model.createContext({ contextSize: 'auto' });
 	console.info(
 		`[llamacpp] ${basename(modelPath)}: context ${context.contextSize} tokens, train max ${model.trainContextSize}, backend ${llama.gpu || 'cpu'}`
 	);
@@ -237,7 +189,7 @@ async function getRuntime(
 		autoDisposeSequence: false
 	});
 
-	state.runtime = { llama, model, context, chat, modelPath, contextSize, gpu };
+	state.runtime = { llama, model, context, chat, modelPath, gpu };
 
 	return state.runtime;
 }
@@ -261,7 +213,6 @@ export function generateChatResponse(params: {
 	topK?: number;
 	maxTokens?: number;
 	reasoningBudget?: number;
-	contextSize?: number | null;
 	gpuMode?: LlamaGpuMode;
 	signal?: AbortSignal;
 	onText: (text: string) => void;
@@ -269,10 +220,7 @@ export function generateChatResponse(params: {
 }): Promise<{ functionCalls: LocalFunctionCall[] }> {
 	return withLock(async () => {
 		params.signal?.throwIfAborted();
-		const { chat } = await getRuntime(params.modelPath, {
-			contextSize: params.contextSize ?? null,
-			gpu: params.gpuMode ?? 'auto'
-		});
+		const { chat } = await getRuntime(params.modelPath, params.gpuMode ?? 'auto');
 
 		const thoughtTokens = resolveThoughtTokens(params.reasoningBudget);
 		// generateResponse counts thought tokens against maxTokens, so a thinking

@@ -16,7 +16,6 @@ export const DEFAULT_ASSISTANT_CONFIG: Readonly<AssistantConfig> = {
 	retrievalMode: RetrievalMode.HYBRID,
 	ragTopK: 5,
 	agentMaxTurns: 4,
-	contextSize: null,
 	gpuMode: 'auto',
 	promptTemplateId: null,
 	persona: '',

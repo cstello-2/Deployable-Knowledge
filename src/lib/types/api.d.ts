@@ -24,7 +24,6 @@ export interface AssistantConfig {
 	retrievalMode: RetrievalMode;
 	ragTopK: number;
 	agentMaxTurns: number;
-	contextSize: number | null;
 	gpuMode: LlamaGpuMode;
 	promptTemplateId: string | null;
 	persona: string;
@@ -307,7 +306,6 @@ export interface ApiLocalModelInfo {
 	fileName: string;
 	sizeBytes: number | null;
 	downloaded: boolean;
-	trainContextSize: number | null;
 }
 
 export interface ApiLocalModelsStatus {

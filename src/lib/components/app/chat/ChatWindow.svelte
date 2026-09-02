@@ -10,11 +10,7 @@
 		settingsStore
 	} from '$lib/stores';
 	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
-	import {
-		CONTEXT_OVERHEAD_TOKENS,
-		CONTEXT_WINDOW_TOKENS_MAX,
-		LOCAL_MODEL_PROVIDER_ID
-	} from '$lib/constants';
+	import { CONTEXT_OVERHEAD_TOKENS, CONTEXT_WINDOW_TOKENS_MAX } from '$lib/constants';
 	import {
 		estimateHistoryTokens,
 		estimateMessageTokens,
@@ -85,12 +81,6 @@
 	);
 
 	let retrievalPending = $derived(!notebookMode && effectiveToolsEnabled);
-
-	let contextLimit = $derived.by(() => {
-		const { provider, contextSize } = settingsStore.config;
-		const configurable = provider === LOCAL_MODEL_PROVIDER_ID || provider === 'ollama';
-		return configurable && contextSize ? contextSize : CONTEXT_WINDOW_TOKENS_MAX;
-	});
 
 	async function notebookContext(): Promise<string> {
 		await notebooksStore.load();
@@ -222,7 +212,7 @@
 		<ChatForm
 			bind:draft
 			busy={chatStore.isStreaming}
-			{contextLimit}
+			contextLimit={CONTEXT_WINDOW_TOKENS_MAX}
 			{contextReserved}
 			{contextUsed}
 			{notebookMode}

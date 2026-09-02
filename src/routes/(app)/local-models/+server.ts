@@ -6,8 +6,7 @@ import {
 	downloadLocalModel,
 	getActiveDownloadFile,
 	getSupportedGpuTypes,
-	listLocalModelFiles,
-	readModelTrainContextSize
+	listLocalModelFiles
 } from '$lib/server/providers/llamacpp-runtime';
 import type {
 	ApiLocalModelDownloadEvent,
@@ -20,25 +19,15 @@ export const GET: RequestHandler = async () => {
 	const files = await listLocalModelFiles();
 	const downloaded = new Set(files);
 
-	const models: ApiLocalModelInfo[] = await Promise.all(
-		LOCAL_MODELS.map(async (model) => ({
-			fileName: model.fileName,
-			sizeBytes: model.sizeBytes,
-			downloaded: downloaded.has(model.fileName),
-			trainContextSize: downloaded.has(model.fileName)
-				? await readModelTrainContextSize(model.fileName)
-				: null
-		}))
-	);
+	const models: ApiLocalModelInfo[] = LOCAL_MODELS.map((model) => ({
+		fileName: model.fileName,
+		sizeBytes: model.sizeBytes,
+		downloaded: downloaded.has(model.fileName)
+	}));
 
 	for (const fileName of files) {
 		if (!findLocalModelByFile(fileName)) {
-			models.push({
-				fileName,
-				sizeBytes: null,
-				downloaded: true,
-				trainContextSize: await readModelTrainContextSize(fileName)
-			});
+			models.push({ fileName, sizeBytes: null, downloaded: true });
 		}
 	}
 

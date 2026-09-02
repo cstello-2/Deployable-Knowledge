@@ -9,7 +9,6 @@ export type ProviderChatOptions = {
 	topK?: number;
 	maxTokens?: number;
 	reasoningBudget?: number;
-	contextSize?: number | null;
 	gpuMode?: LlamaGpuMode;
 	tools?: ProviderToolDefinition[];
 	toolChoice?: 'auto' | 'none';

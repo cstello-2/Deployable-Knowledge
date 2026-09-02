@@ -12,6 +12,7 @@ import { createReasoningTrace, createToolTrace } from '$lib/utils/agent-trace';
 import type { AgentProgressEvent } from '$lib/types';
 import {
 	AGENT_MAX_TURNS_MIN,
+	CONTEXT_WINDOW_TOKENS_MAX,
 	DEFAULT_ASSISTANT_CONFIG,
 	ESTIMATED_CHARACTERS_PER_TOKEN
 } from '$lib/constants';
@@ -305,7 +306,7 @@ const MIN_COMPACT_BUDGET_CHARS = 24_000;
 const COMPACT_SKIP_UNDER_CHARS = 320;
 
 function transcriptBudgetChars(chatOptions: ProviderChatOptions): number {
-	const contextTokens = chatOptions.contextSize ?? 16_384;
+	const contextTokens = CONTEXT_WINDOW_TOKENS_MAX;
 	const reservedTokens =
 		(chatOptions.maxTokens ?? 1_024) + Math.max(0, chatOptions.reasoningBudget ?? 0);
 	const budget = Math.round(

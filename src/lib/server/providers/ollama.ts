@@ -38,8 +38,7 @@ export class Ollama extends Provider {
 				options: {
 					temperature: options.temperature,
 					top_k: options.topK,
-					num_predict: options.maxTokens,
-					...(options.contextSize ? { num_ctx: options.contextSize } : {})
+					num_predict: options.maxTokens
 				},
 				stream: true
 			}),

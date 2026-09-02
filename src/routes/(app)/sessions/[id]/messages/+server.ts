@@ -55,7 +55,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			typeof body.reasoning_budget === 'number'
 				? Math.max(-1, Math.floor(body.reasoning_budget))
 				: undefined,
-		contextSize: profile?.contextSize ?? undefined,
 		gpuMode: profile?.gpuMode ?? 'auto',
 		signal: abortController.signal
 	};
