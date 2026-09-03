@@ -7,11 +7,8 @@
 		status?: string;
 	}
 
-	const POLL_INTERVAL_MS = 5_000;
-	const REQUEST_TIMEOUT_MS = 4_000;
-	// A single dropped poll is not an outage. Localhost round-trips occasionally
-	// stall (notably on Windows), and a reloading dev server drops requests, so
-	// the banner waits for consecutive failures instead of flashing on a blip.
+	const POLL_INTERVAL_MS = 25_000;
+	const REQUEST_TIMEOUT_MS = 10_000;
 	const FAILURE_THRESHOLD = 3;
 
 	let lastCheckedAt = $state<string | null>(null);
