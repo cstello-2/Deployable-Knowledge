@@ -17,6 +17,10 @@ export const APP_PREVIEW = {
 	page: (id: string, pageIndex: number) => `/preview/${segment(id)}#page=${pageIndex + 1}`
 };
 
+export const API_CHUNK_RATINGS = {
+	byChunkId: (chunkId: string) => `/chunks/${segment(chunkId)}/rating`
+};
+
 export function documentViewerHref(
 	sourceType: Document['sourceType'] | undefined,
 	documentId: string,

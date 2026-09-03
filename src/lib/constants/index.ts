@@ -11,3 +11,4 @@ export * from './ndjson';
 export * from './storage';
 export * from './theme-defaults';
 export * from './workspace-defaults';
+export * from './chunk-rating';
