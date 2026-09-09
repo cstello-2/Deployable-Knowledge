@@ -14,6 +14,8 @@ export const APP_TRANSCRIPTS = {
 
 export const APP_PREVIEW = {
 	byId: (id: string) => `/preview/${segment(id)}`,
+	chunk: (id: string, chunkIndex: number) =>
+		`/preview/${segment(id)}?chunk=${segment(String(chunkIndex))}`,
 	page: (id: string, pageIndex: number) => `/preview/${segment(id)}#page=${pageIndex + 1}`
 };
 
@@ -24,6 +26,12 @@ export function documentViewerHref(
 ): string {
 	if (sourceType === 'AUDIO' || sourceType === 'YOUTUBE') {
 		return APP_TRANSCRIPTS.chunk(documentId, location.chunkIndex ?? 0);
+	}
+	if (sourceType === 'TEXT') {
+		if (location.chunkIndex === null || location.chunkIndex === undefined) {
+			return APP_PREVIEW.byId(documentId);
+		}
+		return APP_PREVIEW.chunk(documentId, location.chunkIndex);
 	}
 	return APP_PREVIEW.page(documentId, location.pageIndex ?? 0);
 }

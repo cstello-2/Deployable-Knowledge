@@ -11,10 +11,26 @@
 
 	let { data }: Props = $props();
 
+	let chunkElements = $state<(HTMLElement | undefined)[]>([]);
+	let focused = $state(false);
+
 	const pdfBacked = $derived(['PDF', 'DOCX', 'PPTX', 'XLSX'].includes(data.document.sourceType));
 	const iframeSrc = $derived(
 		browser ? `${API_DOCUMENT_FILES.byId(data.document.id)}${location.hash}` : ''
 	);
+	const segments = $derived(data.segments ?? []);
+	const focusChunkIndex = $derived(data.focusChunkIndex ?? null);
+	const focusIndex = $derived(
+		focusChunkIndex === null
+			? -1
+			: segments.findIndex((segment) => segment.chunkIndexes.includes(focusChunkIndex))
+	);
+
+	$effect(() => {
+		if (focused || focusIndex < 0) return;
+		focused = true;
+		chunkElements[focusIndex]?.scrollIntoView({ block: 'center' });
+	});
 </script>
 
 <svelte:head>
@@ -27,6 +43,11 @@
 		<h1 class="m-0 min-w-0 truncate text-lg font-semibold tracking-tight">
 			{data.document.title}
 		</h1>
+		{#if focusIndex >= 0}
+			<span class="shrink-0 text-xs font-semibold text-primary">
+				Chunk {(focusChunkIndex ?? 0) + 1}
+			</span>
+		{/if}
 	</header>
 
 	{#if pdfBacked}
@@ -46,9 +67,34 @@
 					</p>
 				{/if}
 				{#if data.format === 'markdown'}
-					<MarkdownContent content={data.content ?? ''} />
+					<div class="grid gap-4">
+						{#each segments as segment, index (index)}
+							<div
+								bind:this={chunkElements[index]}
+								class={[
+									'scroll-my-24 rounded-sm',
+									index === focusIndex && 'bg-primary/15 ring-1 ring-primary/40'
+								]}
+								id={segment.chunkIndexes.length === 0
+									? undefined
+									: `chunk-${segment.chunkIndexes[0]}`}
+							>
+								<MarkdownContent content={segment.content} />
+							</div>
+						{/each}
+					</div>
 				{:else}
-					<pre class="m-0 text-sm leading-relaxed whitespace-pre-wrap">{data.content}</pre>
+					<pre
+						class="m-0 text-sm leading-relaxed whitespace-pre-wrap">{#each segments as segment, index (index)}<span
+								bind:this={chunkElements[index]}
+								class={[
+									'scroll-my-24 rounded-sm',
+									index === focusIndex && 'bg-primary/15 ring-1 ring-primary/40'
+								]}
+								id={segment.chunkIndexes.length === 0
+									? undefined
+									: `chunk-${segment.chunkIndexes[0]}`}>{segment.content}</span
+							>{/each}</pre>
 				{/if}
 			</div>
 		</div>
