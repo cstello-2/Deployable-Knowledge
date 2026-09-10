@@ -4,7 +4,7 @@
 | --------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `/{provider_id}/{model_id}/chat`        | POST       | Single chat turn; form fields `message`, `session_id`, optional `persona`, `template_id`, `top_k`, `stream`                               |
 | `/{provider_id}/{model_id}/chat-stream` | POST       | Same as provider/model chat but always streams Server Sent Events                                                                         |
-| `/providers`                            | GET/PATCH  | List providers and update provider API keys or current model                                                                              |
+| `/providers`                            | GET/POST   | List providers and add OpenAI-compatible providers                                                                                        |
 | `/{provider_id}/models`                 | GET        | List models for a provider                                                                                                                |
 | `/search`                               | GET        | Query documents through the registered `search` tool with `query`, optional `topK`, and repeated `documentIds`                            |
 | `/upload`                               | POST       | Multipart upload of one or more documents                                                                                                 |

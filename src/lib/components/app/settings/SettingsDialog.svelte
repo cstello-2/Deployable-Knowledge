@@ -12,7 +12,6 @@
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import Wrench from '@lucide/svelte/icons/wrench';
 	import type { Component } from 'svelte';
-	import SettingsApiKeys from './SettingsApiKeys.svelte';
 	import SettingsAppearance from './SettingsAppearance.svelte';
 	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsGenerationFields from './SettingsGenerationFields.svelte';
@@ -22,6 +21,7 @@
 	import SettingsPersonaField from './SettingsPersonaField.svelte';
 	import SettingsProfileSelector from './SettingsProfileSelector.svelte';
 	import SettingsPromptTemplateSelector from './SettingsPromptTemplateSelector.svelte';
+	import SettingsProviders from './SettingsProviders.svelte';
 	import SettingsRetrievalSection from './SettingsRetrievalSection.svelte';
 	import SettingsToolsSection from './SettingsToolsSection.svelte';
 	import { DiagnosticsConsole } from '$lib/components/app/diagnostics';
@@ -82,7 +82,7 @@
 		{
 			id: 'models',
 			label: 'Models',
-			description: 'Local models, the llama.cpp runtime, and hosted provider API keys.',
+			description: 'Local models, the llama.cpp runtime, and OpenAI-compatible providers.',
 			icon: HardDrive,
 			keywords: [
 				'local models',
@@ -98,8 +98,9 @@
 				'cuda',
 				'vulkan',
 				'runtime',
-				'api keys',
-				'hosted providers'
+				'openai-compatible providers',
+				'base url',
+				'api keys'
 			]
 		},
 		{
@@ -313,7 +314,7 @@
 						<div class="grid gap-6">
 							<SettingsLocalModels />
 							<SettingsLocalRuntimeSection />
-							<SettingsApiKeys />
+							<SettingsProviders />
 						</div>
 					{:else if activeSection.id === 'diagnostics'}
 						<DiagnosticsConsole />

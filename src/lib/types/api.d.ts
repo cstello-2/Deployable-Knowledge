@@ -1,3 +1,4 @@
+import type { CustomProviderType } from '$lib/constants/providers';
 import type { ThemeColor, ThemeMode } from '$lib/constants/theme-defaults';
 import type { RetrievalMode } from '$lib/enums';
 import type { AgentGoal, AgentProgressEvent } from './agent';
@@ -273,18 +274,33 @@ export interface ApiPromptTemplateRequest {
 	systemPrompt: string;
 }
 
-export interface ApiProviderApiKeyRequest {
-	apiKey: string;
-}
-
 export interface ApiProviderInfo {
 	id: string;
 	name: string;
-	apiKeyRequired: boolean;
+	custom: ApiCustomProviderSettings | null;
+}
+
+export interface ApiCustomProviderSettings {
+	type: CustomProviderType;
+	baseUrl: string;
 	hasApiKey: boolean;
 }
 
-export interface ApiProviderModelGroup extends Pick<ApiProviderInfo, 'id' | 'name'> {
+export interface ApiCustomProviderInfo extends ApiProviderInfo {
+	custom: ApiCustomProviderSettings;
+}
+
+export interface ApiCustomProviderRequest {
+	name: string;
+	baseUrl: string;
+	apiKey: string | null;
+}
+
+export interface ApiCustomProviderCreateRequest extends ApiCustomProviderRequest {
+	type: CustomProviderType;
+}
+
+export interface ApiProviderModelGroup extends ApiProviderInfo {
 	models: string[];
 }
 

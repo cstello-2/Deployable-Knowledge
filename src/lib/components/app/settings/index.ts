@@ -1,4 +1,3 @@
-export { default as SettingsApiKeys } from './SettingsApiKeys.svelte';
 export { default as SettingsAppearance } from './SettingsAppearance.svelte';
 export { default as SettingsDialog } from './SettingsDialog.svelte';
 export { default as SettingsFieldGroup } from './SettingsFieldGroup.svelte';
@@ -9,6 +8,7 @@ export { default as SettingsModelSelector } from './SettingsModelSelector.svelte
 export { default as SettingsPersonaField } from './SettingsPersonaField.svelte';
 export { default as SettingsProfileSelector } from './SettingsProfileSelector.svelte';
 export { default as SettingsPromptTemplateSelector } from './SettingsPromptTemplateSelector.svelte';
+export { default as SettingsProviders } from './SettingsProviders.svelte';
 export { default as SettingsRetrievalSection } from './SettingsRetrievalSection.svelte';
 export { default as SettingsToolsSection } from './SettingsToolsSection.svelte';
 export * from './settings-profiles';

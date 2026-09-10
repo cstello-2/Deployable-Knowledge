@@ -8,6 +8,7 @@ export * from './folder-sync';
 export * from './ingest-formats';
 export * from './local-models';
 export * from './ndjson';
+export * from './providers';
 export * from './storage';
 export * from './theme-defaults';
 export * from './workspace-defaults';

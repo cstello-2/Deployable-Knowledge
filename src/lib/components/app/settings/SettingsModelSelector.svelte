@@ -1,5 +1,5 @@
 <script lang="ts">
-	import KeyRound from '@lucide/svelte/icons/key-round';
+	import Plug from '@lucide/svelte/icons/plug';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
@@ -21,7 +21,7 @@
 	<div class="flex items-center justify-between gap-2">
 		<Label for="settings-model">Provider and model</Label>
 		<Button variant="ghost" size="sm" onclick={() => settingsDialogStore.show('models')}>
-			<KeyRound /> API keys
+			<Plug /> Providers
 		</Button>
 	</div>
 	<Select.Root type="single" value={selectedValue} onValueChange={selectModel}>

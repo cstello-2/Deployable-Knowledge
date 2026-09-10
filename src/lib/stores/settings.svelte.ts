@@ -13,6 +13,8 @@ import type {
 	AssistantProfileCreateValues,
 	AssistantProfileValues,
 	ApiAgentTool,
+	ApiCustomProviderCreateRequest,
+	ApiCustomProviderRequest,
 	ApiPromptTemplateRequest,
 	ApiProviderModelGroup,
 	PromptTemplate
@@ -194,6 +196,21 @@ class SettingsStore {
 		if (selected?.models.includes(this._config.model)) return;
 		const first = this.providerModelGroups.find(({ models }) => models.length);
 		if (first) this.updateConfig({ provider: first.id, model: first.models[0] });
+	}
+
+	async addProvider(value: ApiCustomProviderCreateRequest): Promise<void> {
+		await ProvidersService.create(value);
+		await this.loadProviders();
+	}
+
+	async updateProvider(id: string, value: ApiCustomProviderRequest): Promise<void> {
+		await ProvidersService.update(id, value);
+		await this.loadProviders();
+	}
+
+	async removeProvider(id: string): Promise<void> {
+		await ProvidersService.delete(id);
+		await this.loadProviders();
 	}
 
 	private applyProfile(profile: AssistantProfile | null): void {

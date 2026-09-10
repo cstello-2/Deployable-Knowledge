@@ -7,11 +7,7 @@ import type {
 } from './provider';
 
 type ChatCodecOptions = Readonly<{
-	assistantNullContent: 'empty' | 'preserve';
-	reasoningField: 'reasoning_content' | 'thinking';
-	toolArguments: 'json' | 'string';
-	toolCallChunks: 'delta' | 'snapshot';
-	toolResultNameField: 'name' | 'tool_name';
+	reasoningField: 'reasoning_content' | 'reasoning';
 }>;
 
 type WireChatMessage = {
@@ -35,37 +31,27 @@ export function createChatCodec(options: ChatCodecOptions): ChatCodec {
 function encodeMessage(message: ProviderChatMessage, options: ChatCodecOptions): WireChatMessage {
 	const encoded: WireChatMessage = {
 		role: message.role,
-		content:
-			message.content ??
-			(message.role === 'assistant' && options.assistantNullContent === 'preserve' ? null : '')
+		content: message.content ?? (message.role === 'assistant' ? null : '')
 	};
 
 	if (message.role === 'assistant') {
 		if (message.reasoningContent) encoded[options.reasoningField] = message.reasoningContent;
-		if (message.toolCalls?.length) {
-			encoded.tool_calls = message.toolCalls.map((call) => encodeToolCall(call, options));
-		}
+		if (message.toolCalls?.length) encoded.tool_calls = message.toolCalls.map(encodeToolCall);
 	}
 
 	if (message.role === 'tool') {
 		if (message.toolCallId) encoded.tool_call_id = message.toolCallId;
-		if (message.name) encoded[options.toolResultNameField] = message.name;
+		if (message.name) encoded.name = message.name;
 	}
 
 	return encoded;
 }
 
-function encodeToolCall(call: ProviderToolCall, options: ChatCodecOptions) {
+function encodeToolCall(call: ProviderToolCall) {
 	return {
 		id: call.id,
 		type: call.type,
-		function: {
-			name: call.function.name,
-			arguments:
-				options.toolArguments === 'json'
-					? (JSON.parse(call.function.arguments || '{}') as unknown)
-					: call.function.arguments
-		}
+		function: { name: call.function.name, arguments: call.function.arguments }
 	};
 }
 
@@ -74,9 +60,7 @@ function decodeChunk(value: unknown, options: ChatCodecOptions): ProviderChatChu
 	const reasoning = message[options.reasoningField];
 	const content = typeof message.content === 'string' ? message.content : '';
 	const reasoningContent = typeof reasoning === 'string' ? reasoning : '';
-	const toolCalls = Array.isArray(message.tool_calls)
-		? message.tool_calls.map((call, index) => decodeToolCall(call, index, options))
-		: [];
+	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(decodeToolCall) : [];
 
 	if (!content && !reasoningContent && !toolCalls.length) return null;
 
@@ -87,25 +71,12 @@ function decodeChunk(value: unknown, options: ChatCodecOptions): ProviderChatChu
 	};
 }
 
-function decodeToolCall(
-	value: unknown,
-	fallbackIndex: number,
-	options: ChatCodecOptions
-): ProviderToolCallDelta {
+function decodeToolCall(value: unknown, fallbackIndex: number): ProviderToolCallDelta {
 	const call = readObject(value);
 	const fn = readObject(call.function);
 	const index = Number.isInteger(call.index) ? Number(call.index) : fallbackIndex;
 	const id = typeof call.id === 'string' && call.id ? call.id : undefined;
 	const name = typeof fn.name === 'string' && fn.name ? fn.name : undefined;
-
-	if (options.toolCallChunks === 'snapshot') {
-		return {
-			index,
-			id,
-			nameSnapshot: name,
-			argumentsSnapshot: fn.arguments ?? {}
-		};
-	}
 
 	return {
 		index,

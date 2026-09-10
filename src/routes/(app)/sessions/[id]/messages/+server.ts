@@ -14,7 +14,7 @@ import { getNotebookSourceExcerpts } from '$lib/server/chat/notebook-context';
 import { db } from '$lib/server/database/database';
 import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
 import { diagnosticEvents } from '$lib/server/diagnostics/events';
-import { getProvider } from '$lib/server/providers/registry';
+import { findProvider } from '$lib/server/providers/registry';
 import type { ProviderChatOptions } from '$lib/server/providers/provider';
 import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
 import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
@@ -30,11 +30,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		return json({ error: 'Invalid request body' }, { status: 400 });
 	}
 
+	const providerId = body.provider_id.trim();
+	const provider = await findProvider(providerId);
+
+	if (!provider) {
+		return json(
+			{ error: 'The selected provider no longer exists. Choose another model in settings.' },
+			{ status: 404 }
+		);
+	}
+
 	const profile = await ProfilesRepository.getActive();
 
 	const message = body.message.trim();
 	const modelId = body.model_id.trim();
-	const providerId = body.provider_id.trim();
 	const supportedRetrievalModes: readonly RagRetrievalMode[] = [
 		RetrievalMode.SEMANTIC,
 		RetrievalMode.BM25,
@@ -76,7 +85,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		messages.length === 0 &&
 		(!existing || existing.title.trim().toLowerCase() === 'new conversation');
 
-	const provider = getProvider(providerId);
 	const promptTemplateId = body.conversational ? null : body.prompt_template_id;
 	const promptTemplate = promptTemplateId
 		? await db.select().from(promptTemplates).where(eq(promptTemplates.id, promptTemplateId)).get()

@@ -19,7 +19,6 @@ import {
 export class LlamaCpp extends Provider {
 	override id = 'llamacpp';
 	override name = 'Local (llama.cpp)';
-	override apiKeyRequired = false;
 
 	override async *streamChat(
 		messages: ProviderChatMessage[],

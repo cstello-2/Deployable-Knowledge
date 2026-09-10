@@ -1,29 +1,41 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 
-import { db } from '$lib/server/database/database';
-import { apiKeys } from '$lib/server/database/schema';
-import { getProviders } from '$lib/server/providers/registry';
+import { CUSTOM_PROVIDER_TYPES } from '$lib/constants';
+import type { ApiCustomProviderCreateRequest, ApiProviderInfo } from '$lib/types';
+import {
+	parseCustomProviderRequest,
+	toApiProviderInfo
+} from '$lib/server/providers/custom-provider-values';
+import { listBuiltInProviders } from '$lib/server/providers/registry';
+import { CustomProvidersRepository } from '$lib/server/repositories';
 
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ url }) => {
-	const available = url.searchParams.get('available') === 'true';
-	const savedApiKeyProviderIds = new Set(
-		(await db.select({ providerId: apiKeys.providerId }).from(apiKeys)).map((x) => x.providerId)
-	);
+export const GET: RequestHandler = async () => {
+	const builtIn: ApiProviderInfo[] = listBuiltInProviders().map(({ id, name }) => ({
+		id,
+		name,
+		custom: null
+	}));
+	const custom = (await CustomProvidersRepository.list()).map(toApiProviderInfo);
 
-	let providers = getProviders();
+	return json([...builtIn, ...custom]);
+};
 
-	if (available) {
-		providers = providers.filter((x) => !x.apiKeyRequired || savedApiKeyProviderIds.has(x.id));
+export const POST: RequestHandler = async ({ request }) => {
+	const body = (await request.json()) as ApiCustomProviderCreateRequest;
+
+	if (!CUSTOM_PROVIDER_TYPES.includes(body.type)) {
+		throw error(400, 'Unknown provider type');
 	}
 
-	return json(
-		providers.map((provider) => ({
-			id: provider.id,
-			name: provider.name,
-			apiKeyRequired: provider.apiKeyRequired,
-			hasApiKey: savedApiKeyProviderIds.has(provider.id)
-		}))
-	);
+	const { name, baseUrl, apiKey } = parseCustomProviderRequest(body);
+	const record = await CustomProvidersRepository.create({
+		type: body.type,
+		name,
+		baseUrl,
+		apiKey: apiKey ?? ''
+	});
+
+	return json(toApiProviderInfo(record), { status: 201 });
 };

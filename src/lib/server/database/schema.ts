@@ -9,9 +9,11 @@ import {
 	uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 import {
+	CUSTOM_PROVIDER_TYPES,
 	DEFAULT_ASSISTANT_CONFIG,
 	DEFAULT_THEME,
 	LAYOUT_NAME_MAX_LENGTH,
+	PROVIDER_NAME_MAX_LENGTH,
 	SYNCED_FILE_STATES,
 	THEME_COLORS,
 	THEME_MODES
@@ -52,18 +54,6 @@ export const promptTemplates = sqliteTable(
 		updatedAt: integer('updated_at', { mode: 'timestamp' })
 	},
 	(table) => [index('prompt_templates_updated_idx').on(table.updatedAt)]
-);
-
-export const apiKeys = sqliteTable(
-	'api_keys',
-	{
-		id: text('id').primaryKey(),
-		providerId: text('provider_id', { length: 128 }).notNull(),
-		apiKey: text('api_key').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp' }),
-		updatedAt: integer('updated_at', { mode: 'timestamp' })
-	},
-	(table) => [uniqueIndex('api_keys_provider_idx').on(table.providerId)]
 );
 
 export const sessions = sqliteTable(
@@ -159,10 +149,14 @@ export const notebookSources = sqliteTable(
 	]
 );
 
-export const providerRecords = sqliteTable('providers', {
+export const customProviders = sqliteTable('custom_providers', {
 	id: text('id').primaryKey(),
+	type: text('type', { enum: CUSTOM_PROVIDER_TYPES }).notNull(),
+	name: text('name', { length: PROVIDER_NAME_MAX_LENGTH }).notNull(),
+	baseUrl: text('base_url').notNull(),
 	apiKey: text('api_key').notNull().default(''),
-	updatedAt: text('updated_at').notNull()
+	createdAt: integer('created_at', { mode: 'timestamp' }),
+	updatedAt: integer('updated_at', { mode: 'timestamp' })
 });
 
 export const profiles = sqliteTable(
@@ -344,8 +338,8 @@ export type NewWorkspaceLayout = typeof workspaceLayouts.$inferInsert;
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
 
-export type ApiKey = typeof apiKeys.$inferSelect;
-export type NewApiKey = typeof apiKeys.$inferInsert;
+export type CustomProviderRecord = typeof customProviders.$inferSelect;
+export type NewCustomProviderRecord = typeof customProviders.$inferInsert;
 
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;

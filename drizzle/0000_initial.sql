@@ -1,18 +1,19 @@
-CREATE TABLE `api_keys` (
-	`id` text PRIMARY KEY NOT NULL,
-	`provider_id` text(128) NOT NULL,
-	`api_key` text NOT NULL,
-	`created_at` integer,
-	`updated_at` integer
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `api_keys_provider_idx` ON `api_keys` (`provider_id`);--> statement-breakpoint
 CREATE TABLE `app_state` (
 	`id` text PRIMARY KEY DEFAULT 'app' NOT NULL,
 	`active_profile_id` text,
 	`active_layout_id` text,
 	`theme_color` text DEFAULT 'classic' NOT NULL,
 	`theme_mode` text DEFAULT 'system' NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `custom_providers` (
+	`id` text PRIMARY KEY NOT NULL,
+	`type` text NOT NULL,
+	`name` text(80) NOT NULL,
+	`base_url` text NOT NULL,
+	`api_key` text DEFAULT '' NOT NULL,
+	`created_at` integer,
+	`updated_at` integer
 );
 --> statement-breakpoint
 CREATE TABLE `document_chunks` (
@@ -129,12 +130,6 @@ CREATE TABLE `prompt_templates` (
 );
 --> statement-breakpoint
 CREATE INDEX `prompt_templates_updated_idx` ON `prompt_templates` (`updated_at`);--> statement-breakpoint
-CREATE TABLE `providers` (
-	`id` text PRIMARY KEY NOT NULL,
-	`api_key` text DEFAULT '' NOT NULL,
-	`updated_at` text NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `session_messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,

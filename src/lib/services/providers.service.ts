@@ -1,16 +1,16 @@
 import { API_PROVIDERS } from '$lib/constants';
 import type {
-	ApiProviderApiKeyRequest,
+	ApiCustomProviderCreateRequest,
+	ApiCustomProviderRequest,
 	ApiProviderInfo,
 	ApiProviderModelCapabilities,
 	ApiProviderModelGroup
 } from '$lib/types';
-import { apiDelete, apiFetch, apiPatch } from '$lib/utils';
+import { apiDelete, apiFetch, apiPatch, apiPost } from '$lib/utils';
 
 export class ProvidersService {
-	static list(availableOnly = false) {
-		const query = availableOnly ? '?available=true' : '';
-		return apiFetch<ApiProviderInfo[]>(`${API_PROVIDERS.BASE}${query}`);
+	static list() {
+		return apiFetch<ApiProviderInfo[]>(API_PROVIDERS.BASE);
 	}
 
 	static listModels(id: string, availableOnly = false) {
@@ -19,12 +19,11 @@ export class ProvidersService {
 	}
 
 	static async listModelGroups(availableOnly = true): Promise<ApiProviderModelGroup[]> {
-		const providers = await this.list(availableOnly);
+		const providers = await this.list();
 		return Promise.all(
-			providers.map(async ({ id, name }) => ({
-				id,
-				name,
-				models: await this.listModels(id, availableOnly).catch(() => [])
+			providers.map(async (provider) => ({
+				...provider,
+				models: await this.listModels(provider.id, availableOnly).catch(() => [])
 			}))
 		);
 	}
@@ -33,14 +32,15 @@ export class ProvidersService {
 		return apiFetch<ApiProviderModelCapabilities>(API_PROVIDERS.capabilities(id, model));
 	}
 
-	static saveApiKey(id: string, apiKey: string) {
-		return apiPatch<{ providerId: string; hasApiKey: boolean }, ApiProviderApiKeyRequest>(
-			API_PROVIDERS.byId(id),
-			{ apiKey }
-		);
+	static create(value: ApiCustomProviderCreateRequest) {
+		return apiPost<ApiProviderInfo, ApiCustomProviderCreateRequest>(API_PROVIDERS.BASE, value);
 	}
 
-	static deleteApiKey(id: string) {
-		return apiDelete<{ providerId: string; hasApiKey: boolean }>(API_PROVIDERS.byId(id));
+	static update(id: string, value: ApiCustomProviderRequest) {
+		return apiPatch<ApiProviderInfo, ApiCustomProviderRequest>(API_PROVIDERS.byId(id), value);
+	}
+
+	static delete(id: string) {
+		return apiDelete<ApiProviderInfo>(API_PROVIDERS.byId(id));
 	}
 }

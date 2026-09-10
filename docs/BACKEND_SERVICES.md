@@ -5,7 +5,7 @@ The TypeScript backend is organized under `src/lib/server`:
 - `agent/` runs bounded multi-turn model/tool conversations.
 - `tools/` registers and executes `search`, `get_datetime`, and future tools.
 - `providers/` translates normalized chat messages and tool schemas to Ollama
-  or GitHub Models, then normalizes their streamed responses.
+  or OpenAI-compatible APIs, then normalizes their streamed responses.
 - `rag/` ingests documents, computes embeddings, and implements semantic,
   BM25, and hybrid retrieval used by the search tool.
 - `database/` defines the Drizzle schema and local database access.

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getProvider } from '$lib/server/providers/registry';
+import { findProvider } from '$lib/server/providers/registry';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, url }) => {
@@ -9,10 +9,9 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		return json({ error: 'model query parameter is required' }, { status: 400 });
 	}
 
-	let provider;
-	try {
-		provider = getProvider(params.id);
-	} catch {
+	const provider = await findProvider(params.id);
+
+	if (!provider) {
 		return json({ error: `Unknown provider: ${params.id}` }, { status: 404 });
 	}
 

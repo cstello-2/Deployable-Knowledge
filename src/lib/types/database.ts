@@ -1,6 +1,5 @@
 export type {
 	ActiveAssistantProfile,
-	ApiKey,
 	AppState,
 	AssistantProfile,
 	AssistantProfileActivationResponse,
@@ -11,7 +10,6 @@ export type {
 	Document,
 	DocumentChunk,
 	DocumentTag,
-	NewApiKey,
 	NewAppState,
 	NewAssistantProfile,
 	NewDocument,

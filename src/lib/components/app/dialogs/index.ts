@@ -1,4 +1,3 @@
-export { default as DialogApiKeys } from './DialogApiKeys.svelte';
 export { default as DialogConfirmation } from './DialogConfirmation.svelte';
 export { default as DialogDocumentSyncProgress } from './DialogDocumentSyncProgress.svelte';
 export { default as DialogDocumentTagPicker } from './DialogDocumentTagPicker.svelte';
@@ -6,4 +5,6 @@ export { default as DialogDocumentTextEntry } from './DialogDocumentTextEntry.sv
 export { default as DialogDocumentYoutubeEntry } from './DialogDocumentYoutubeEntry.svelte';
 export { default as DialogProgress } from './DialogProgress.svelte';
 export { default as DialogPromptTemplate } from './DialogPromptTemplate.svelte';
+export { default as DialogProvider } from './DialogProvider.svelte';
 export * from './prompt-template-presets';
+export * from './provider-types';

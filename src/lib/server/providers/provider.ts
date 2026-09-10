@@ -1,7 +1,3 @@
-import { eq } from 'drizzle-orm';
-
-import { db } from '../database/database';
-import { apiKeys } from '../database/schema';
 import type { LlamaGpuMode } from '$lib/types';
 
 export type ProviderChatOptions = {
@@ -65,19 +61,6 @@ export type ProviderChatChunk = {
 export abstract class Provider {
 	abstract id: string;
 	abstract name: string;
-	abstract apiKeyRequired: boolean;
-
-	async getApiKey() {
-		if (!this.apiKeyRequired) return null;
-
-		const key = await db
-			.select({ apiKey: apiKeys.apiKey })
-			.from(apiKeys)
-			.where(eq(apiKeys.providerId, this.id))
-			.get();
-
-		return key?.apiKey ?? null;
-	}
 
 	async *chat(
 		prompt: string,

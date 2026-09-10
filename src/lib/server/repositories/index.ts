@@ -1,4 +1,5 @@
 export { ChunksRepository } from './chunks.repository';
+export { CustomProvidersRepository } from './custom-providers.repository';
 export { DocumentsRepository } from './documents.repository';
 export { NotebooksRepository } from './notebooks.repository';
 export { ProfilesRepository } from './profiles.repository';

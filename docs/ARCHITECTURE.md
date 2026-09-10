@@ -24,7 +24,7 @@ Chat UI -> session message route -> agent runner -> provider stream
                                   tool result -> next model turn -> final answer
 ```
 
-Providers normalize Ollama and GitHub Models streams into content, reasoning,
+Providers normalize Ollama and OpenAI-compatible streams into content, reasoning,
 and tool-call deltas. The agent assembles those deltas, preserves
 assistant/tool messages between turns, executes registered tools, and buffers
 intermediate model content. The session route streams model-turn and tool-call

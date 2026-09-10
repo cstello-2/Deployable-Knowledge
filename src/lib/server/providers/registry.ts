@@ -1,22 +1,26 @@
-import { Github } from './github';
+import type { CustomProviderType } from '$lib/constants';
+import type { CustomProviderRecord } from '$lib/server/database/schema';
+import { CustomProvidersRepository } from '$lib/server/repositories';
 import { LlamaCpp } from './llamacpp';
 import { Ollama } from './ollama';
+import { OpenAiCompatible } from './openai-compatible';
 import type { Provider } from './provider';
 
-const providers: Record<string, () => Provider> = {
-	llamacpp: () => new LlamaCpp(),
-	ollama: () => new Ollama(),
-	github: () => new Github()
+const customProviderFactories: Record<
+	CustomProviderType,
+	(record: CustomProviderRecord) => Provider
+> = {
+	openai: (record) => new OpenAiCompatible(record)
 };
 
-export function getProviders(): Provider[] {
-	return Object.values(providers).map((provider) => provider());
+export function listBuiltInProviders(): Provider[] {
+	return [new LlamaCpp(), new Ollama()];
 }
 
-export function getProvider(provider: string): Provider {
-	const createProvider = providers[provider];
+export async function findProvider(id: string): Promise<Provider | null> {
+	const builtIn = listBuiltInProviders().find((provider) => provider.id === id);
+	if (builtIn) return builtIn;
 
-	if (!createProvider) throw new Error('no provider found');
-
-	return createProvider();
+	const record = await CustomProvidersRepository.find(id);
+	return record ? customProviderFactories[record.type](record) : null;
 }
