@@ -3,6 +3,7 @@
 import { searchSemantic } from './semantic-search';
 import { searchBm25 } from './bm25-search';
 import { rerankCandidates } from './cross-rerank';
+import { feedbackCandidateLimit, rerankWithRetrievalFeedback } from './feedback-rerank';
 import {
 	type ScoredSearchMatch,
 	type SearchMatchBase,
@@ -24,15 +25,15 @@ function withoutScore(match: ScoredSearchMatch): SearchMatchBase {
 
 async function collectMethodResults(options: SearchOptionsBase): Promise<{
 	query: string;
-	semantic: SearchMatchBase[];
-	bm25: SearchMatchBase[];
+	semanticScored: ScoredSearchMatch[];
+	bm25Scored: ScoredSearchMatch[];
 	hybridScored: ScoredSearchMatch[];
 }> {
 	const query = options.query.trim();
 	const topK = Math.max(0, Math.floor(options.topK ?? 10));
 
 	if (!query || topK === 0) {
-		return { query, semantic: [], bm25: [], hybridScored: [] };
+		return { query, semanticScored: [], bm25Scored: [], hybridScored: [] };
 	}
 
 	const sharedOptions = {
@@ -44,8 +45,10 @@ async function collectMethodResults(options: SearchOptionsBase): Promise<{
 		searchSemantic(sharedOptions),
 		searchBm25(sharedOptions)
 	]);
-	const semantic = semanticSearch.results.map(withoutScore);
-	const bm25 = bm25Search.results.map(withoutScore);
+	const semanticScored = semanticSearch.results.slice(0, topK);
+	const bm25Scored = bm25Search.results.slice(0, topK);
+	const semantic = semanticScored.map(withoutScore);
+	const bm25 = bm25Scored.map(withoutScore);
 	const byChunkId = new Map<string, SearchMatchBase>();
 
 	for (const match of [...semantic, ...bm25]) {
@@ -71,19 +74,29 @@ async function collectMethodResults(options: SearchOptionsBase): Promise<{
 
 	return {
 		query,
-		semantic: semantic.slice(0, topK),
-		bm25: bm25.slice(0, topK),
+		semanticScored,
+		bm25Scored,
 		hybridScored
 	};
 }
 
 export async function searchAllMethods(options: SearchOptionsBase): Promise<SearchMethodResults> {
-	const search = await collectMethodResults(options);
+	const topK = Math.max(0, Math.floor(options.topK ?? 10));
+	const search = await collectMethodResults({
+		...options,
+		topK: feedbackCandidateLimit(topK)
+	});
+	const [semantic, bm25, hybrid] = await Promise.all([
+		rerankWithRetrievalFeedback(search.query, search.semanticScored, topK),
+		rerankWithRetrievalFeedback(search.query, search.bm25Scored, topK),
+		rerankWithRetrievalFeedback(search.query, search.hybridScored, topK)
+	]);
+
 	return {
 		query: search.query,
-		semantic: search.semantic,
-		bm25: search.bm25,
-		hybrid: search.hybridScored.map(withoutScore)
+		semantic: semantic.map(withoutScore),
+		bm25: bm25.map(withoutScore),
+		hybrid: hybrid.map(withoutScore)
 	};
 }
 

@@ -4,6 +4,7 @@ import { db } from '../database/database';
 import {
 	documentChunks,
 	documents,
+	retrievalFeedback,
 	type NewDocument,
 	type NewDocumentChunk
 } from '../database/schema';
@@ -112,6 +113,22 @@ export async function storeDocumentChunks(
 				}
 			});
 
+		const existingFeedback = await tx
+			.select({
+				id: retrievalFeedback.id,
+				chunkId: retrievalFeedback.chunkId,
+				query: retrievalFeedback.query,
+				queryHash: retrievalFeedback.queryHash,
+				rating: retrievalFeedback.rating,
+				retrievalMode: retrievalFeedback.retrievalMode,
+				resultRank: retrievalFeedback.resultRank,
+				createdAt: retrievalFeedback.createdAt,
+				updatedAt: retrievalFeedback.updatedAt
+			})
+			.from(retrievalFeedback)
+			.innerJoin(documentChunks, eq(documentChunks.id, retrievalFeedback.chunkId))
+			.where(eq(documentChunks.documentId, documentRow.id));
+
 		await tx.delete(documentChunks).where(eq(documentChunks.documentId, documentRow.id));
 
 		// Batch SQL inserts so large PDFs do not break the code
@@ -122,6 +139,16 @@ export async function storeDocumentChunks(
 				current: Math.min(index + INSERT_BATCH_SIZE, chunkRows.length),
 				total: chunkRows.length
 			});
+		}
+
+		const nextChunkIds = new Set(chunkRows.map(({ id }) => id));
+		const retainedFeedback = existingFeedback.filter(({ chunkId }) => nextChunkIds.has(chunkId));
+
+		for (let index = 0; index < retainedFeedback.length; index += INSERT_BATCH_SIZE) {
+			await tx
+				.insert(retrievalFeedback)
+				.values(retainedFeedback.slice(index, index + INSERT_BATCH_SIZE))
+				.onConflictDoNothing();
 		}
 	});
 

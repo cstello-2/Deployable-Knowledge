@@ -1,5 +1,8 @@
+import { sql } from 'drizzle-orm';
+
 import {
 	blob,
+	check,
 	index,
 	integer,
 	primaryKey,
@@ -276,6 +279,31 @@ export const documentChunks = sqliteTable(
 	]
 );
 
+export const retrievalFeedback = sqliteTable(
+	'retrieval_feedback',
+	{
+		id: text('id').primaryKey(),
+		chunkId: text('chunk_id')
+			.notNull()
+			.references(() => documentChunks.id, { onDelete: 'cascade' }),
+		query: text('query').notNull(),
+		queryHash: text('query_hash', { length: 64 }).notNull(),
+		rating: integer('rating').notNull(),
+		retrievalMode: text('retrieval_mode', {
+			enum: ['semantic', 'bm25', 'hybrid']
+		}).notNull(),
+		resultRank: integer('result_rank').notNull(),
+		createdAt: text('created_at').notNull(),
+		updatedAt: text('updated_at').notNull()
+	},
+	(table) => [
+		check('retrieval_feedback_rating_check', sql`${table.rating} between 1 and 5`),
+		index('retrieval_feedback_chunk_idx').on(table.chunkId),
+		index('retrieval_feedback_query_idx').on(table.queryHash),
+		uniqueIndex('retrieval_feedback_chunk_query_idx').on(table.chunkId, table.queryHash)
+	]
+);
+
 export const syncedFolders = sqliteTable('synced_folders', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
@@ -358,6 +386,9 @@ export type NewDocumentTag = typeof documentTags.$inferInsert;
 
 export type DocumentChunk = typeof documentChunks.$inferSelect;
 export type NewDocumentChunk = typeof documentChunks.$inferInsert;
+
+export type RetrievalFeedback = typeof retrievalFeedback.$inferSelect;
+export type NewRetrievalFeedback = typeof retrievalFeedback.$inferInsert;
 
 export type SyncedFolder = typeof syncedFolders.$inferSelect;
 export type NewSyncedFolder = typeof syncedFolders.$inferInsert;
