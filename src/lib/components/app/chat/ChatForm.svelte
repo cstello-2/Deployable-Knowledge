@@ -1,11 +1,10 @@
 <script lang="ts">
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
-	import BookOpen from '@lucide/svelte/icons/book-open';
 	import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus';
-	import Wrench from '@lucide/svelte/icons/wrench';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import ChatContextMeter from './ChatContextMeter.svelte';
+	import ChatModeMenu from './ChatModeMenu.svelte';
 
 	interface Props {
 		busy?: boolean;
@@ -15,10 +14,12 @@
 		draft: string;
 		notebookMode?: boolean;
 		onNewChat: () => void;
+		onNotebookModeChange: (enabled: boolean) => void;
+		onSearchChange: (enabled: boolean) => void;
 		onSubmit: () => void;
-		onToggleNotebookMode: () => void;
-		onToggleTools: () => void;
-		retrievalPending?: boolean;
+		onToolsChange: (enabled: boolean) => void;
+		searchEnabled?: boolean;
+		searchToolActive?: boolean;
 		toolsEnabled?: boolean;
 		toolsSupported?: boolean;
 	}
@@ -31,21 +32,15 @@
 		draft = $bindable(),
 		notebookMode = false,
 		onNewChat,
+		onNotebookModeChange,
+		onSearchChange,
 		onSubmit,
-		onToggleNotebookMode,
-		onToggleTools,
-		retrievalPending = false,
+		onToolsChange,
+		searchEnabled = false,
+		searchToolActive = false,
 		toolsEnabled = false,
 		toolsSupported = true
 	}: Props = $props();
-
-	let toolsLabel = $derived.by(() => {
-		if (!toolsSupported) {
-			return "This model doesn't support tool calls — automatic document search is used instead";
-		}
-		if (toolsEnabled) return 'Tool calls enabled — click to answer without search or tools';
-		return 'Tool calls disabled — click to allow search and other tools';
-	});
 
 	function handleKeydown(event: KeyboardEvent): void {
 		if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
@@ -76,29 +71,17 @@
 		/>
 		<div class="flex items-center justify-between gap-2 px-2.5 pb-2">
 			<div class="flex items-center gap-1">
-				<ActionIcon
-					class={`size-8 rounded-full bg-transparent shadow-none hover:bg-transparent active:translate-y-0 ${notebookMode ? 'text-foreground hover:text-foreground' : 'text-foreground/40 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'}`}
+				<ChatModeMenu
 					disabled={busy}
-					label={notebookMode
-						? 'Notebook context enabled — click to use selected documents'
-						: 'Use the active notebook as chat context'}
-					onclick={onToggleNotebookMode}
-					pressed={notebookMode}
-					variant="ghost"
-				>
-					<BookOpen />
-				</ActionIcon>
-				<ActionIcon
-					class={`size-8 rounded-full bg-transparent shadow-none hover:bg-transparent active:translate-y-0 ${toolsEnabled ? 'text-foreground hover:text-foreground' : 'text-foreground/40 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'} ${toolsSupported ? '' : 'cursor-not-allowed opacity-50'}`}
-					disabled={busy}
-					label={toolsLabel}
-					onclick={toolsSupported ? onToggleTools : () => {}}
-					pressed={toolsEnabled}
-					triggerProps={{ 'aria-disabled': !toolsSupported || undefined }}
-					variant="ghost"
-				>
-					<Wrench />
-				</ActionIcon>
+					{notebookMode}
+					{onNotebookModeChange}
+					{onSearchChange}
+					{onToolsChange}
+					{searchEnabled}
+					{searchToolActive}
+					{toolsEnabled}
+					{toolsSupported}
+				/>
 				<ActionIcon
 					class="size-8 rounded-full bg-transparent text-foreground/40 shadow-none hover:bg-transparent hover:text-foreground active:translate-y-0 active:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
 					disabled={busy}
@@ -113,7 +96,7 @@
 				<ChatContextMeter
 					limit={contextLimit}
 					reserved={contextReserved}
-					{retrievalPending}
+					retrievalPending={searchEnabled}
 					used={contextUsed}
 				/>
 				<ActionIcon

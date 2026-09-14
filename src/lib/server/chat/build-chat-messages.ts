@@ -49,7 +49,7 @@ export function createDocumentMessages({
 	context = '',
 	toolsEnabled = true,
 	toolInstructions = [],
-	searchToolEnabled = toolsEnabled
+	autoSearchEnabled = false
 }: {
 	messages: SessionMessage[];
 	userMessage: string;
@@ -58,15 +58,15 @@ export function createDocumentMessages({
 	context?: string;
 	toolsEnabled?: boolean;
 	toolInstructions?: readonly string[];
-	searchToolEnabled?: boolean;
+	autoSearchEnabled?: boolean;
 }): ProviderChatMessage[] {
 	const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : '';
-	// Each enabled tool contributes its own policy block. Without the search
-	// tool the search already ran for this prompt, so the model works from the
-	// retrieved context instead of being told to search.
+	// Each enabled tool contributes its own policy block. When the search already
+	// ran for this prompt, the model works from the retrieved context instead of
+	// being told to search.
 	const retrievalPolicy = [
 		...(toolsEnabled ? [AGENT_SYSTEM_PROMPT, ...toolInstructions] : []),
-		...(searchToolEnabled ? [] : [DOCUMENT_CONTEXT_SYSTEM_PROMPT])
+		...(autoSearchEnabled ? [DOCUMENT_CONTEXT_SYSTEM_PROMPT] : [])
 	];
 	const systemContent = joinPrompts([systemPrompt, personaBlock, ...retrievalPolicy]);
 	const output: ProviderChatMessage[] = [];

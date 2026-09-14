@@ -35,16 +35,7 @@ export type SourceTypeHandler = {
 	finalize?: (chunks: ParsedChunk[], extraction: ExtractionResult) => ParsedChunk[];
 };
 
-const MAX_TEXT_FILE_BYTES = 25 * 1024 * 1024;
-
-function assertIngestableTextSize(byteLength: number): void {
-	if (byteLength > MAX_TEXT_FILE_BYTES) {
-		throw new Error('Text files larger than 25 MB are not supported.');
-	}
-}
-
 function assertTextBuffer(buffer: Buffer): void {
-	assertIngestableTextSize(buffer.byteLength);
 	if (buffer.subarray(0, 8192).includes(0)) {
 		throw new Error('This file contains binary data, not text.');
 	}
@@ -138,7 +129,6 @@ const csvHandler: SourceTypeHandler = {
 	progressLabel: 'Ingesting CSV file',
 	startMessage: 'Reading CSV rows',
 	emptyResultMessage: 'No table data was found in this CSV file.',
-	validateFile: ({ size }) => assertIngestableTextSize(size),
 	validateBuffer: assertTextBuffer,
 	extract: (source) => extractCsv(source)
 };
@@ -150,7 +140,6 @@ const textHandler: SourceTypeHandler = {
 	progressLabel: 'Ingesting text file',
 	startMessage: 'Reading text',
 	emptyResultMessage: 'No readable text was found in this file.',
-	validateFile: ({ size }) => assertIngestableTextSize(size),
 	validateBuffer: assertTextBuffer,
 	extract: (source) => extractPlainText(source)
 };

@@ -15,8 +15,8 @@ same way, no matter what it started as.
 - PDF (`.pdf`): text extraction, with OCR for pages that need it
 - Word and PowerPoint (`.docx`, `.pptx`): converted to PDF, then read as PDF
 - Spreadsheets (`.xlsx`): cell data
-- CSV (`.csv`): up to 25 MB
-- Text and Markdown (`.txt`, `.md`, `.markdown`): up to 25 MB
+- CSV (`.csv`)
+- Text and Markdown (`.txt`, `.md`, `.markdown`)
 - Audio (`.aac`, `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, `.opus`, `.wav`,
   `.webm`, `.wma`): transcribed, up to 100 MB and 2 hours
 - YouTube videos: the video's own captions, imported as a timestamped transcript

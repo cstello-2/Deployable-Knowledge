@@ -117,9 +117,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		: body.rag_top_k;
 	const documentIds = body.conversational ? undefined : body.document_ids;
 	const toolContext: ToolExecutionContext = { documentIds, retrievalMode, ragTopK };
-	// Document chat without the search tool still has to reach the corpus, so
-	// the search runs automatically for every prompt.
-	const autoSearchEnabled = !body.conversational && !searchToolEnabled;
+	// Document chat without the search tool reaches the corpus by searching
+	// automatically for every prompt, unless search mode is off and the user is
+	// chatting with the model and system prompt alone.
+	const autoSearchEnabled =
+		!body.conversational && body.search_enabled !== false && !searchToolEnabled;
 
 	const timestamp = new Date();
 
@@ -177,7 +179,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 							context: autoSearch?.context ?? '',
 							toolsEnabled,
 							toolInstructions,
-							searchToolEnabled
+							autoSearchEnabled
 						});
 
 				const agentResult = await runAgent({

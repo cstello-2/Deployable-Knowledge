@@ -21,6 +21,7 @@ class ChatStore {
 	error = $state<string | null>(null);
 	isStreaming = $state(false);
 	private _toolsEnabled = persisted(STORAGE_KEYS.CHAT_TOOLS_ENABLED, false);
+	private _searchEnabled = persisted(STORAGE_KEYS.CHAT_SEARCH_ENABLED, true);
 
 	get session(): Session | undefined {
 		return this._session;
@@ -37,6 +38,14 @@ class ChatStore {
 
 	set toolsEnabled(value: boolean) {
 		this._toolsEnabled.value = value;
+	}
+
+	get searchEnabled(): boolean {
+		return this._searchEnabled.value;
+	}
+
+	set searchEnabled(value: boolean) {
+		this._searchEnabled.value = value;
 	}
 
 	async loadMessages(sessionId = this.session?.id): Promise<void> {

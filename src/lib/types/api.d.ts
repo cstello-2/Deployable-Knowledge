@@ -364,6 +364,7 @@ export interface ApiDocumentChatMessageRequest extends ApiChatMessageBase {
 	persona: string;
 	document_ids: string[];
 	rag_top_k: number;
+	search_enabled?: boolean;
 }
 
 export interface ApiNotebookChatMessageRequest extends ApiChatMessageBase {

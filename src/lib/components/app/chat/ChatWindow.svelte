@@ -66,9 +66,17 @@
 
 	let toolsSupported = $derived(settingsStore.modelToolSupport !== 'unsupported');
 	let effectiveToolsEnabled = $derived(chatStore.toolsEnabled && toolsSupported);
+	let searchToolActive = $derived(
+		!notebookMode && effectiveToolsEnabled && settingsStore.config.enabledTools.includes('search')
+	);
+	let autoSearchEnabled = $derived(!notebookMode && !searchToolActive && chatStore.searchEnabled);
 
 	let contextUsed = $derived(
-		estimateSystemPromptTokens({ notebookMode, toolsEnabled: effectiveToolsEnabled }) +
+		estimateSystemPromptTokens({
+			autoSearchEnabled,
+			notebookMode,
+			toolsEnabled: effectiveToolsEnabled
+		}) +
 			estimateHistoryTokens(chatStore.messages) +
 			notebookContextTokens +
 			estimateMessageTokens(draft)
@@ -79,8 +87,6 @@
 			Math.max(0, settingsStore.config.reasoningBudget) +
 			CONTEXT_OVERHEAD_TOKENS
 	);
-
-	let retrievalPending = $derived(!notebookMode && effectiveToolsEnabled);
 
 	async function notebookContext(): Promise<string> {
 		await notebooksStore.load();
@@ -148,7 +154,8 @@
 						prompt_template_id: config.promptTemplateId,
 						persona: config.persona,
 						document_ids: [...documentsStore.selectedIds],
-						rag_top_k: config.ragTopK
+						rag_top_k: config.ragTopK,
+						search_enabled: chatStore.searchEnabled
 					};
 			await chatStore.sendMessage(request);
 			await sessionsStore.refresh();
@@ -217,10 +224,12 @@
 			{contextUsed}
 			{notebookMode}
 			onNewChat={() => void startNewChat()}
+			onNotebookModeChange={(enabled) => (notebookMode = enabled)}
+			onSearchChange={(enabled) => (chatStore.searchEnabled = enabled)}
 			onSubmit={() => void send()}
-			onToggleNotebookMode={() => (notebookMode = !notebookMode)}
-			onToggleTools={() => (chatStore.toolsEnabled = !chatStore.toolsEnabled)}
-			{retrievalPending}
+			onToolsChange={(enabled) => (chatStore.toolsEnabled = enabled)}
+			searchEnabled={searchToolActive || autoSearchEnabled}
+			{searchToolActive}
 			toolsEnabled={effectiveToolsEnabled}
 			{toolsSupported}
 		/>
