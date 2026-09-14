@@ -31,10 +31,14 @@
 	}: Props = $props();
 
 	let activeModes = $derived(
-		[notebookMode && 'notebook', toolsEnabled && 'tools', searchEnabled && 'search']
-			.filter(Boolean)
-			.join(', ')
+		[
+			notebookMode && { icon: BookOpen, name: 'notebook' },
+			toolsEnabled && { icon: Wrench, name: 'tools' },
+			searchEnabled && { icon: Search, name: 'search' }
+		].filter((mode) => mode !== false)
 	);
+
+	let TriggerIcon = $derived(activeModes[0]?.icon ?? EllipsisVertical);
 
 	let searchDescription = $derived.by(() => {
 		if (notebookMode) return 'Not used in notebook mode';
@@ -56,11 +60,13 @@
 			<ActionIcon
 				class="size-8 rounded-full bg-transparent text-foreground/40 shadow-none hover:bg-transparent hover:text-foreground active:translate-y-0 aria-expanded:text-foreground dark:text-muted-foreground dark:hover:text-foreground dark:aria-expanded:text-foreground"
 				{disabled}
-				label={activeModes ? `Chat modes: ${activeModes}` : 'Chat modes: plain chat'}
+				label={activeModes.length
+					? `Chat modes: ${activeModes.map((mode) => mode.name).join(', ')}`
+					: 'Chat modes: plain chat'}
 				triggerProps={props}
 				variant="ghost"
 			>
-				<EllipsisVertical />
+				<TriggerIcon />
 			</ActionIcon>
 		{/snippet}
 	</DropdownMenu.Trigger>
