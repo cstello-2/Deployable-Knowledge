@@ -45,7 +45,11 @@ Built-in tools:
   returned to the model. Open Matplotlib figures are captured automatically as
   compact PNG images and returned through the same typed output list as source
   context; there is no chart-specific browser renderer or graph specification
-  format.
+  format. The managed `documents/` directory is mounted read-only at
+  `/documents`, showing only files of active documents in the chat's selected
+  scope, and each call writes `/documents.json` mapping every such document's
+  ID, title, and source type to its path so the model can load CSV or text data
+  directly.
 
 The Pyodide worker is reused between calls, but each call receives fresh Python
 globals. Calls are serialized and interrupted after ten seconds. The first use

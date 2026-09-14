@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, posix, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import type { ImageArtifact } from '$lib/types';
-import type { AgentTool } from './types';
+import type { AgentTool, ToolExecutionContext } from './types';
 import { createToolResult, imageOutput } from './result';
 import { clampText, readObject, toJsonValue } from '../utils/values';
+import { DocumentsRepository } from '../repositories/documents.repository';
 
 const MAX_CODE_CHARS = 24_000;
 const MAX_TEXT_CHARS = 32_000;
@@ -17,6 +18,9 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 // Pyodide runs WebAssembly-speed Python, so pandas-style data work needs more
 // headroom than native Python would.
 const EXECUTION_TIMEOUT_MS = 20_000;
+const DOCUMENTS_DIR = 'documents';
+const DOCUMENTS_MOUNT = '/documents';
+const DOCUMENTS_INDEX = '/documents.json';
 
 const RETRY_HINT =
 	'The code did not run to completion. Read the error, fix the code (or make it faster if it timed out), and call python again with the complete corrected script. Small errors are expected and fixable — do not give up after a failed attempt.';
@@ -112,6 +116,74 @@ _dk_execute(__dk_code)
 const WORKER_SOURCE = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
 
+let visibleDocumentFiles = new Set();
+
+// Emscripten has no read-only mounts, so this wraps NODEFS and rejects every
+// write. The FS caches nodes it has already looked up, so getattr and open
+// re-check visibility for files that have since left the chat's scope.
+function mountDocuments(pyodide, hostRoot, mountPoint) {
+  const { FS, ERRNO_CODES } = pyodide;
+  const NODEFS = FS.filesystems.NODEFS;
+  const fail = (code) => {
+    throw new FS.ErrnoError(code);
+  };
+  const readOnly = () => fail(ERRNO_CODES.EROFS);
+  const assertVisible = (node) => {
+    if (node === node.mount.root) return;
+    while (node.parent !== node.mount.root) node = node.parent;
+    if (!visibleDocumentFiles.has(node.name)) fail(ERRNO_CODES.ENOENT);
+  };
+  const nodeOps = {
+    ...NODEFS.node_ops,
+    getattr(node) {
+      assertVisible(node);
+      return NODEFS.node_ops.getattr(node);
+    },
+    lookup(parent, name) {
+      if (parent === parent.mount.root && !visibleDocumentFiles.has(name)) {
+        fail(ERRNO_CODES.ENOENT);
+      }
+      return withReadOnlyOps(NODEFS.node_ops.lookup(parent, name));
+    },
+    readdir(node) {
+      const names = NODEFS.node_ops.readdir(node);
+      return node === node.mount.root
+        ? names.filter((name) => visibleDocumentFiles.has(name))
+        : names;
+    },
+    setattr: readOnly,
+    mknod: readOnly,
+    rename: readOnly,
+    unlink: readOnly,
+    rmdir: readOnly,
+    symlink: readOnly,
+  };
+  const streamOps = {
+    ...NODEFS.stream_ops,
+    open(stream) {
+      assertVisible(stream.node);
+      // O_ACCMODE bits: anything other than O_RDONLY requests write access.
+      if ((stream.flags & 3) !== 0) readOnly();
+      NODEFS.stream_ops.open(stream);
+    },
+    setattr: readOnly,
+    write: readOnly,
+    msync: readOnly,
+  };
+  function withReadOnlyOps(node) {
+    node.node_ops = nodeOps;
+    node.stream_ops = streamOps;
+    return node;
+  }
+
+  FS.mkdirTree(mountPoint);
+  FS.mount(
+    { mount: (mount) => withReadOnlyOps(NODEFS.mount(mount)) },
+    { root: hostRoot },
+    mountPoint
+  );
+}
+
 async function start() {
   const { loadPyodide } = await import("pyodide");
   const pyodide = await loadPyodide({
@@ -127,15 +199,18 @@ async function start() {
   await pyodide.runPythonAsync(
     'import matplotlib\nmatplotlib.use("Agg")\nimport matplotlib.pyplot, numpy, pandas'
   );
+  mountDocuments(pyodide, workerData.documentsRoot, workerData.documentsMount);
   const interruptBuffer = new Int32Array(workerData.interruptBuffer);
   pyodide.setInterruptBuffer(interruptBuffer);
   parentPort.postMessage({ type: "ready" });
 
-  parentPort.on("message", async ({ id, code }) => {
+  parentPort.on("message", async ({ id, code, documentFiles, documentIndex }) => {
     Atomics.store(interruptBuffer, 0, 0);
     let globals;
 
     try {
+      visibleDocumentFiles = new Set(documentFiles);
+      pyodide.FS.writeFile(workerData.documentsIndex, documentIndex);
       globals = pyodide.toPy({ __dk_code: code });
       const envelope = await pyodide.runPythonAsync(workerData.runner, {
         globals,
@@ -180,6 +255,13 @@ type PythonToolData = {
 	images: Array<Pick<ImageArtifact, 'id' | 'mimeType' | 'alt'>>;
 };
 
+type ExecutionRequest = {
+	code: string;
+	// File names inside the documents directory that this call may read.
+	documentFiles: string[];
+	documentIndex: string;
+};
+
 type WorkerMessage =
 	| { type: 'ready' }
 	| { type: 'fatal'; error: string }
@@ -213,29 +295,29 @@ const moduleState = ((
 export const pythonTool: AgentTool<PythonToolData> = {
 	id: 'python',
 	label: 'Python',
-	description: 'Runs Python with NumPy, pandas, and Matplotlib for calculations and charts.',
+	description:
+		'Runs Python with NumPy, pandas, and Matplotlib for calculations and charts, with read-only access to document files.',
 	modes: ['document', 'notebook'],
 	instructions: `PYTHON TOOL POLICY:
 - Use the python tool for exact calculations, data transformations, statistics, or requested visualizations instead of doing substantial arithmetic manually. Python runs in the backend through Pyodide and includes NumPy, pandas, and Matplotlib.
 - You can create visualizations with normal Pyodide/Matplotlib code. Any open Matplotlib figures are automatically sent to the user as images. A request for a chart, plot, graph, or data visualization is incomplete until you successfully create it with the python tool; do not substitute an ASCII chart or text-only table unless the user asks for one.
+- Python can read the user's document files directly. ${DOCUMENTS_INDEX} is a JSON list of the documents available in this chat, each with documentId, title, sourceType, and path. When the user wants calculations, statistics, or charts over a document's data, load that list, pick the document by title (or by a documentId from search results), and read its path in the same script — for example pandas.read_csv(path) for CSV data or open(path) for text and Markdown — rather than rebuilding the data from search excerpts. Files under ${DOCUMENTS_MOUNT} are read-only. Word and PowerPoint documents are stored as PDFs, and no PDF or Excel parser is installed, so only CSV and plain-text files can be parsed.
 - If a python call returns an error, do not apologize or give up: read the reported error, fix the code, and call python again with the complete corrected script. Small mistakes such as typos, missing imports, or wrong variable names are normal and easy to fix.`,
 	definition: {
-		description:
-			'Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, and visualizations. NumPy, pandas, and Matplotlib are installed. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself. If a call fails, fix the code and call again with the corrected script.',
+		description: `Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, and visualizations. NumPy, pandas, and Matplotlib are installed. The user's document files are mounted read-only under ${DOCUMENTS_MOUNT}, and ${DOCUMENTS_INDEX} lists each document's documentId, title, sourceType, and path. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself. If a call fails, fix the code and call again with the corrected script.`,
 		parameters: {
 			type: 'object',
 			properties: {
 				code: {
 					type: 'string',
-					description:
-						'Complete Python code. NumPy is available as numpy, pandas as pandas, and Matplotlib as matplotlib. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.'
+					description: `Complete Python code. NumPy is available as numpy, pandas as pandas, and Matplotlib as matplotlib. Read document files through the paths listed in ${DOCUMENTS_INDEX}. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.`
 				}
 			},
 			required: ['code'],
 			additionalProperties: false
 		}
 	},
-	async execute(argumentsValue) {
+	async execute(argumentsValue, context) {
 		const args = readObject(argumentsValue);
 		const code = clampText(args.code, MAX_CODE_CHARS + 1);
 
@@ -250,7 +332,8 @@ export const pythonTool: AgentTool<PythonToolData> = {
 
 		let envelope: PythonEnvelope;
 		try {
-			envelope = parseEnvelope(await enqueueExecution(code));
+			const documents = await documentFilesInScope(context);
+			envelope = parseEnvelope(await enqueueExecution({ code, ...documents }));
 		} catch (error) {
 			envelope = {
 				status: 'error',
@@ -285,8 +368,36 @@ function pythonErrorResult(error: string) {
 	);
 }
 
-function enqueueExecution(code: string): Promise<string> {
-	const execution = moduleState.executionQueue.then(() => executeInWorker(code));
+async function documentFilesInScope(
+	context: ToolExecutionContext
+): Promise<Omit<ExecutionRequest, 'code'>> {
+	const documentIds =
+		Array.isArray(context.documentIds) && context.documentIds.length > 0
+			? context.documentIds
+			: undefined;
+	const root = resolve(DOCUMENTS_DIR);
+	const index = (await DocumentsRepository.files({ documentIds })).flatMap((document) => {
+		const hostPath = resolve(document.sourcePath);
+		// YouTube documents have no managed copy, so they have no file to read.
+		if (dirname(hostPath) !== root) return [];
+		return [
+			{
+				documentId: document.id,
+				title: document.title,
+				sourceType: document.sourceType,
+				path: posix.join(DOCUMENTS_MOUNT, basename(hostPath))
+			}
+		];
+	});
+
+	return {
+		documentFiles: index.map(({ path }) => posix.basename(path)),
+		documentIndex: JSON.stringify(index)
+	};
+}
+
+function enqueueExecution(request: ExecutionRequest): Promise<string> {
+	const execution = moduleState.executionQueue.then(() => executeInWorker(request));
 	moduleState.executionQueue = execution.then(
 		() => undefined,
 		() => undefined
@@ -294,7 +405,7 @@ function enqueueExecution(code: string): Promise<string> {
 	return execution;
 }
 
-async function executeInWorker(code: string): Promise<string> {
+async function executeInWorker(request: ExecutionRequest): Promise<string> {
 	const state = getWorkerState();
 	await state.ready;
 	const id = randomUUID();
@@ -320,7 +431,7 @@ async function executeInWorker(code: string): Promise<string> {
 			timeout,
 			timedOut: false
 		});
-		state.worker.postMessage({ id, code });
+		state.worker.postMessage({ id, ...request });
 	});
 }
 
@@ -338,6 +449,8 @@ function getWorkerState(): WorkerState {
 	const packageCacheDir =
 		process.env.PYODIDE_PACKAGE_CACHE_DIR?.trim() || join(tmpdir(), 'deployable-knowledge-pyodide');
 	mkdirSync(packageCacheDir, { recursive: true });
+	const documentsRoot = resolve(DOCUMENTS_DIR);
+	mkdirSync(documentsRoot, { recursive: true });
 	const indexURL = dirname(createRequire(import.meta.url).resolve('pyodide/package.json'));
 	const worker = new Worker(WORKER_SOURCE, {
 		eval: true,
@@ -346,7 +459,10 @@ function getWorkerState(): WorkerState {
 			interruptBuffer: sharedBuffer,
 			indexURL,
 			packageCacheDir,
-			runner: PYTHON_RUNNER
+			runner: PYTHON_RUNNER,
+			documentsRoot,
+			documentsMount: DOCUMENTS_MOUNT,
+			documentsIndex: DOCUMENTS_INDEX
 		}
 	});
 	const state: WorkerState = {

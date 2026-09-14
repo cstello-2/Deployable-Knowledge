@@ -221,6 +221,24 @@ export class DocumentsRepository {
 		return { total, documents: rows };
 	}
 
+	static async files(
+		options: { documentIds?: string[] } = {}
+	): Promise<Pick<DocumentRow, 'id' | 'title' | 'sourceType' | 'sourcePath'>[]> {
+		const conditions: SQL[] = [eq(documents.active, true)];
+		if (options.documentIds?.length) conditions.push(inArray(documents.id, options.documentIds));
+
+		return db
+			.select({
+				id: documents.id,
+				title: documents.title,
+				sourceType: documents.sourceType,
+				sourcePath: documents.sourcePath
+			})
+			.from(documents)
+			.where(and(...conditions))
+			.orderBy(asc(sql`${documents.title} COLLATE NOCASE`), asc(documents.id));
+	}
+
 	static async transcript(documentId: string): Promise<ApiTranscriptResponse | null> {
 		const [document] = await db
 			.select({

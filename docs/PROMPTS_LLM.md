@@ -22,7 +22,8 @@ to ground those claims in the returned chunks. Search is not used as a generic
 uncertainty or tool-failure recovery mechanism. Notebook reference material
 continues to be supplied directly; notebook chat exposes `get_datetime` and
 `python`, while document chat also exposes `search`. The agent prompt explains
-that Pyodide provides NumPy and Matplotlib and that Matplotlib figures are sent
-to the user as images.
+that Pyodide provides NumPy and Matplotlib, that Matplotlib figures are sent
+to the user as images, and that document files can be read from `/documents`
+through the `/documents.json` index.
 
 Return to [docs](README.md).
