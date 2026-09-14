@@ -1,6 +1,10 @@
 import { API_DOCUMENTS } from '$lib/constants';
 import type {
 	ApiDocumentActivationRequest,
+	ApiDocumentAutotagEntry,
+	ApiDocumentAutotagEvent,
+	ApiDocumentAutotagRequest,
+	ApiDocumentAutotagResult,
 	ApiDocumentFolderFileDeleteRequest,
 	ApiDocumentFolderFileDeleteResponse,
 	ApiDocumentFolderMalformedRequest,
@@ -72,6 +76,28 @@ export class DocumentsService {
 
 	static setTagAssignment(value: ApiDocumentTagAssignmentRequest) {
 		return apiPatch<{ status: 'ok' }, ApiDocumentTagAssignmentRequest>(API_DOCUMENTS.TAGS, value);
+	}
+
+	static async autotag(
+		documentIds: string[],
+		onProgress?: (progress: ApiDocumentIngestProgress, entry?: ApiDocumentAutotagEntry) => void,
+		signal?: AbortSignal
+	): Promise<ApiDocumentAutotagResult> {
+		const response = await apiStream(API_DOCUMENTS.AUTOTAG, {
+			method: 'POST',
+			body: JSON.stringify({ documentIds } satisfies ApiDocumentAutotagRequest),
+			signal
+		});
+		for await (const event of parseNdjsonStream<ApiDocumentAutotagEvent>(response, signal)) {
+			if (event.status === 'progress') {
+				onProgress?.(
+					{ percent: event.percent, label: event.label, message: event.message },
+					event.entry
+				);
+			} else if (event.status === 'complete') return event.result;
+			else throw new Error(event.message);
+		}
+		throw new Error('Autotagging ended before completion.');
 	}
 
 	static setActivation(value: ApiDocumentActivationRequest) {

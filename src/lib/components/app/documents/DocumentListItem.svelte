@@ -6,6 +6,7 @@
 	import PowerOff from '@lucide/svelte/icons/power-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Video from '@lucide/svelte/icons/video';
+	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { documentViewerHref } from '$lib/constants';
@@ -16,6 +17,7 @@
 	interface Props {
 		busy?: boolean;
 		document: DocumentRow;
+		onAutotag: () => void;
 		onCreateTag: (tag: string) => Promise<void> | void;
 		onDelete: () => void;
 		onToggle: (selected: boolean) => void;
@@ -28,6 +30,7 @@
 	let {
 		busy = false,
 		document,
+		onAutotag,
 		onCreateTag,
 		onDelete,
 		onToggle,
@@ -78,6 +81,16 @@
 			{/if}
 			<ActionIcon
 				class="ml-auto border-0 bg-transparent shadow-none"
+				disabled={busy || document.chunkCount === 0}
+				label={`Autotag ${document.title}`}
+				size="icon-sm"
+				variant="ghost"
+				onclick={onAutotag}
+			>
+				<WandSparkles />
+			</ActionIcon>
+			<ActionIcon
+				class="border-0 bg-transparent shadow-none"
 				disabled={busy}
 				label={document.active ? `Deactivate ${document.title}` : `Activate ${document.title}`}
 				size="icon-sm"

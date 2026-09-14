@@ -2,6 +2,8 @@ import { SvelteSet } from 'svelte/reactivity';
 import { DocumentsService } from '$lib/services';
 import { DEFAULT_DOCUMENT_SORT } from '$lib/utils';
 import type {
+	ApiDocumentAutotagEntry,
+	ApiDocumentAutotagResult,
 	ApiDocumentIngestProgress,
 	ApiDocumentListQuery,
 	ApiDocumentSyncFileProgress,
@@ -37,12 +39,17 @@ class DocumentsStore {
 	private _sort = $state<DocumentSortMode>(DEFAULT_DOCUMENT_SORT);
 	private _syncTotal = $state(0);
 	private _syncSettled = $state(0);
+	private _autotagEntries = $state<ApiDocumentAutotagEntry[]>([]);
+	private _autotagSettled = $state(0);
+	private _autotagTotal = $state(0);
 	private queryTimer: ReturnType<typeof setTimeout> | undefined;
 	private listRequest = 0;
 	private syncFileIndex = new Map<string, number>();
 	progress = $state<ApiDocumentIngestProgress | null>(null);
 	syncProgress = $state<ApiDocumentIngestProgress | null>(null);
+	autotagProgress = $state<ApiDocumentIngestProgress | null>(null);
 	syncing = $state(false);
+	autotagging = $state(false);
 	loading = $state(false);
 	loadingMore = $state(false);
 	error = $state<string | null>(null);
@@ -69,6 +76,18 @@ class DocumentsStore {
 
 	get syncSettled(): number {
 		return this._syncSettled;
+	}
+
+	get autotagEntries(): ApiDocumentAutotagEntry[] {
+		return this._autotagEntries;
+	}
+
+	get autotagSettled(): number {
+		return this._autotagSettled;
+	}
+
+	get autotagTotal(): number {
+		return this._autotagTotal;
 	}
 
 	get selectedIds(): ReadonlySet<string> {
@@ -205,6 +224,35 @@ class DocumentsStore {
 	async setTagAssignment(documentIds: string[], tag: string, assigned: boolean): Promise<void> {
 		await DocumentsService.setTagAssignment({ documentIds, tag, assigned });
 		await this.refresh();
+	}
+
+	async autotagDocuments(documentIds: string[]): Promise<ApiDocumentAutotagResult | null> {
+		if (this.autotagging || documentIds.length === 0) return null;
+		this.autotagging = true;
+		this._autotagEntries = [];
+		this._autotagSettled = 0;
+		this._autotagTotal = documentIds.length;
+		this.autotagProgress = { percent: 0, label: 'Autotagging', message: 'Preparing tags' };
+		try {
+			return await DocumentsService.autotag(documentIds, (progress, entry) => {
+				this.autotagProgress = progress;
+				if (!entry) return;
+				this._autotagSettled += 1;
+				this._autotagEntries.push(entry);
+				if (this._autotagEntries.length > SYNC_LOG_LIMIT) {
+					this._autotagEntries.splice(0, SYNC_LOG_TRIM);
+				}
+			});
+		} finally {
+			this.autotagging = false;
+			this.autotagProgress = null;
+			await this.refresh();
+		}
+	}
+
+	async autotagGroup(group: string): Promise<ApiDocumentAutotagResult | null> {
+		const { ids } = await DocumentsService.listIds(this.listQuery(), group);
+		return this.autotagDocuments(ids);
 	}
 
 	async setActivation(documentIds: string[] | null, active: boolean): Promise<void> {

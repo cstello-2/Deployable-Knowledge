@@ -38,6 +38,7 @@ export function documentViewerHref(
 
 export const API_DOCUMENTS = {
 	ACTIVATION: '/documents/activation',
+	AUTOTAG: '/documents/autotag',
 	BASE: '/documents',
 	FOLDERS: '/documents/folders',
 	IDS: '/documents/ids',

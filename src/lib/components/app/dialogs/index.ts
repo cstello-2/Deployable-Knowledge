@@ -1,4 +1,5 @@
 export { default as DialogConfirmation } from './DialogConfirmation.svelte';
+export { default as DialogDocumentAutotagProgress } from './DialogDocumentAutotagProgress.svelte';
 export { default as DialogDocumentSyncProgress } from './DialogDocumentSyncProgress.svelte';
 export { default as DialogDocumentTagPicker } from './DialogDocumentTagPicker.svelte';
 export { default as DialogDocumentTextEntry } from './DialogDocumentTextEntry.svelte';

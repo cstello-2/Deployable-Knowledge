@@ -83,6 +83,32 @@ export type ApiDocumentIngestEvent =
 	| { status: 'complete'; result: ApiDocumentIngestResult }
 	| { status: 'error'; message: string };
 
+export interface ApiDocumentAutotagRequest {
+	documentIds: string[];
+}
+
+export type ApiDocumentAutotagStatus = 'tagged' | 'unchanged' | 'skipped';
+
+export interface ApiDocumentAutotagEntry {
+	documentId: string;
+	status: ApiDocumentAutotagStatus;
+	/** Tags this run added; matches the document already carried are left out. */
+	tags: string[];
+	title: string;
+}
+
+export interface ApiDocumentAutotagResult {
+	applied: number;
+	skipped: number;
+	tagged: number;
+	unchanged: number;
+}
+
+export type ApiDocumentAutotagEvent =
+	| ({ status: 'progress'; entry?: ApiDocumentAutotagEntry } & ApiDocumentIngestProgress)
+	| { status: 'complete'; result: ApiDocumentAutotagResult }
+	| { status: 'error'; message: string };
+
 export type DocumentRow = Pick<
 	Document,
 	'id' | 'title' | 'sourcePath' | 'sourceType' | 'origin' | 'createdAt' | 'updatedAt' | 'active'

@@ -8,6 +8,7 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import WandSparkles from '@lucide/svelte/icons/wand-sparkles';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { infiniteScroll } from '$lib/actions';
 	import { ActionIcon } from '$lib/components/app/actions';
@@ -45,6 +46,8 @@
 		folders: ApiSyncedFolder[];
 		hasMore?: boolean;
 		loadingMore?: boolean;
+		onAutotagDocument: (document: DocumentRow) => void;
+		onAutotagGroup: (group: string) => void;
 		onCreateTag: (document: DocumentRow, tag: string) => Promise<void> | void;
 		onDeleteDocument: (document: DocumentRow) => void;
 		onLoadMore?: () => void;
@@ -71,6 +74,8 @@
 		hasMore = false,
 		loadingMore = false,
 		manualTotal = 0,
+		onAutotagDocument,
+		onAutotagGroup,
 		onCreateTag,
 		onDeleteDocument,
 		onLoadMore = () => {},
@@ -181,6 +186,16 @@
 								· <span class="text-destructive">{group.folder.malformedCount} malformed</span>{/if}
 						</div>
 					</div>
+					<ActionIcon
+						class="border-0 bg-transparent shadow-none"
+						disabled={busy || !group.total}
+						label={`Autotag ${group.label}`}
+						size="icon-sm"
+						variant="ghost"
+						onclick={() => onAutotagGroup(group.folder?.id ?? group.kind)}
+					>
+						<WandSparkles />
+					</ActionIcon>
 					{#if group.folder}
 						{#if group.folder.malformedCount > 0}
 							<ActionIcon
@@ -260,6 +275,7 @@
 								{busy}
 								{document}
 								{tags}
+								onAutotag={() => onAutotagDocument(document)}
 								onCreateTag={(tag) => onCreateTag(document, tag)}
 								onDelete={() => onDeleteDocument(document)}
 								onToggle={(selected) => onToggle(document.id, selected)}

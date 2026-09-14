@@ -10,6 +10,7 @@
 	import { folderSyncEngine } from '$lib/client/folder-sync/sync-engine.svelte';
 	import {
 		DialogConfirmation,
+		DialogDocumentAutotagProgress,
 		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
 		DialogDocumentTextEntry,
@@ -76,7 +77,9 @@
 	let tagPickerMode = $state<TagPickerMode>('add');
 	let status = $state('');
 
-	const busy = $derived(uploading || documentsStore.loading || documentsStore.syncing);
+	const busy = $derived(
+		uploading || documentsStore.loading || documentsStore.syncing || documentsStore.autotagging
+	);
 	const selectedCount = $derived(documentsStore.selectedIds.size);
 	const folderSyncSupported = supportsFolderSync();
 
@@ -310,13 +313,46 @@
 		}
 	}
 
+	function requireTags(): boolean {
+		if (documentsStore.tags.length) return true;
+		toast.info('Create a tag first');
+		return false;
+	}
+
 	function openBulkPicker(mode: TagPickerMode): void {
-		if (!documentsStore.tags.length) {
-			toast.info('Create a tag first');
-			return;
-		}
+		if (!requireTags()) return;
 		tagPickerMode = mode;
 		tagPickerOpen = true;
+	}
+
+	async function autotagDocument(document: DocumentRow): Promise<void> {
+		if (!requireTags()) return;
+		try {
+			if (!(await documentsStore.autotagDocuments([document.id]))) return;
+			const applied = documentsStore.autotagEntries[0]?.tags ?? [];
+			if (applied.length) {
+				toast.success(`Tagged ${applied.map((tag) => `#${tag}`).join(', ')}`);
+			} else {
+				toast.info(`No new tags matched “${document.title}”`);
+			}
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function autotagGroup(group: string): Promise<void> {
+		if (!requireTags()) return;
+		try {
+			const result = await documentsStore.autotagGroup(group);
+			if (!result) return;
+			const { applied, skipped, tagged, unchanged } = result;
+			status = `Autotagged: ${tagged} tagged, ${unchanged} unchanged${skipped ? `, ${skipped} without embeddings` : ''}.`;
+			toast.success(
+				`${applied} tag${applied === 1 ? '' : 's'} applied across ${tagged} document${tagged === 1 ? '' : 's'}`
+			);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	async function applyBulkTag(tag: string): Promise<void> {
@@ -383,6 +419,8 @@
 				hasMore={documentsStore.hasMore}
 				loadingMore={documentsStore.loadingMore}
 				manualTotal={documentsStore.manualTotal}
+				onAutotagDocument={(document) => void autotagDocument(document)}
+				onAutotagGroup={(group) => void autotagGroup(group)}
 				onCreateTag={(document, tag) => createAndAssignTag(document, tag)}
 				onDeleteDocument={(document) => (pendingDeleteDocument = document)}
 				onLoadMore={() => void documentsStore.loadMore()}
@@ -474,6 +512,13 @@
 	open={uploading && progressDialogOpen}
 	progress={documentsStore.progress}
 	title="Ingesting file"
+/>
+<DialogDocumentAutotagProgress
+	entries={documentsStore.autotagEntries}
+	open={documentsStore.autotagging}
+	progress={documentsStore.autotagProgress}
+	settled={documentsStore.autotagSettled}
+	total={documentsStore.autotagTotal}
 />
 <DialogDocumentSyncProgress
 	files={documentsStore.syncFiles}
