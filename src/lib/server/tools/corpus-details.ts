@@ -2,7 +2,6 @@ import type { AgentTool } from './types';
 import { createToolResult } from './result';
 import { clampInteger, readObject } from '../utils/values';
 import { DocumentsRepository } from '../repositories/documents.repository';
-import { pythonDocumentPath } from '../documents/python-path';
 
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_PAGE_SIZE = 100;
@@ -77,7 +76,7 @@ export const corpusDetailsTool: AgentTool<CorpusDetailsData> = {
 			returned: documents.length,
 			documents: documents.map((document) => ({
 				documentId: document.id,
-				documentPath: pythonDocumentPath(document.sourcePath),
+				documentPath: document.sourceType === 'YOUTUBE' ? null : `/${document.sourcePath}`,
 				title: document.title,
 				sourceType: document.sourceType
 			})),

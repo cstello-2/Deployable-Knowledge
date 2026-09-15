@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, posix, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import type { ImageArtifact } from '$lib/types';
@@ -10,11 +10,6 @@ import type { AgentTool, ToolExecutionContext } from './types';
 import { createToolResult, imageOutput } from './result';
 import { clampText, readObject, toJsonValue } from '../utils/values';
 import { DocumentsRepository } from '../repositories/documents.repository';
-import {
-	DOCUMENTS_DIR,
-	PYTHON_DOCUMENTS_MOUNT,
-	pythonDocumentPath
-} from '../documents/python-path';
 
 const MAX_CODE_CHARS = 24_000;
 const MAX_TEXT_CHARS = 32_000;
@@ -23,6 +18,8 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 // Pyodide runs WebAssembly-speed Python, so pandas-style data work needs more
 // headroom than native Python would.
 const EXECUTION_TIMEOUT_MS = 20_000;
+const DOCUMENTS_DIR = 'documents';
+const DOCUMENTS_MOUNT = '/documents';
 
 const RETRY_HINT =
 	'The code did not run to completion. Read the error, fix the code (or make it faster if it timed out), and call python again with the complete corrected script. Small errors are expected and fixable — do not give up after a failed attempt.';
@@ -377,9 +374,11 @@ async function documentFilesInScope(
 		Array.isArray(context.documentIds) && context.documentIds.length > 0
 			? context.documentIds
 			: undefined;
+	const documentsRoot = resolve(DOCUMENTS_DIR);
 	const documentFiles = (await DocumentsRepository.files({ documentIds })).flatMap((document) => {
-		const path = pythonDocumentPath(document.sourcePath);
-		return path ? [posix.basename(path)] : [];
+		const path = resolve(document.sourcePath);
+		if (dirname(path) !== documentsRoot) return [];
+		return [basename(path)];
 	});
 
 	return { documentFiles };
@@ -450,7 +449,7 @@ function getWorkerState(): WorkerState {
 			packageCacheDir,
 			runner: PYTHON_RUNNER,
 			documentsRoot,
-			documentsMount: PYTHON_DOCUMENTS_MOUNT
+			documentsMount: DOCUMENTS_MOUNT
 		}
 	});
 	const state: WorkerState = {
