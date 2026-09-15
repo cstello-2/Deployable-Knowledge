@@ -202,13 +202,13 @@ export class DocumentsRepository {
 
 	static async titles(
 		options: { documentIds?: string[]; limit?: number; offset?: number } = {}
-	): Promise<{ total: number; documents: Pick<DocumentRow, 'id' | 'title' | 'sourceType'>[] }> {
+	): Promise<{ total: number; documents: Pick<DocumentRow, 'id' | 'title' | 'sourceType' | 'sourcePath'>[] }> {
 		const conditions: SQL[] = [eq(documents.active, true)];
 		if (options.documentIds?.length) conditions.push(inArray(documents.id, options.documentIds));
 		const where = and(...conditions);
 
 		const page = db
-			.select({ id: documents.id, title: documents.title, sourceType: documents.sourceType })
+			.select({ id: documents.id, title: documents.title, sourceType: documents.sourceType, sourcePath: documents.sourcePath })
 			.from(documents)
 			.where(where)
 			.orderBy(asc(sql`${documents.title} COLLATE NOCASE`), asc(documents.id));

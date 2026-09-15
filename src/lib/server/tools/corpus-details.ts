@@ -75,6 +75,7 @@ export const corpusDetailsTool: AgentTool<CorpusDetailsData> = {
 			returned: documents.length,
 			documents: documents.map((document) => ({
 				documentId: document.id,
+				documentPath: document.sourcePath,
 				title: document.title,
 				sourceType: document.sourceType
 			})),
