@@ -23,19 +23,14 @@ const MAX_ANSWER_LENGTH = 500;
 const MAX_NUDGES = 3;
 
 // Called by the agent runner when the model tries to give a final answer while
-// goals remain unfinished. Nudges at most once per distinct goal-list state:
-// if the model comes back without updating its goals, it has decided the list
-// is stale and its answer stands.
+// goals remain unfinished. Bound retries even when the model ignores the
+// checklist, so an unresponsive model cannot keep the run alive indefinitely.
 export function createGoalNudger(): (context: ToolExecutionContext) => string | null {
 	let nudges = 0;
-	let lastSnapshot = '';
 
 	return (context) => {
 		const unfinished = unfinishedGoals(context);
 		if (!unfinished.length || nudges >= MAX_NUDGES) return null;
-		const snapshot = JSON.stringify(readGoals(context));
-		if (snapshot === lastSnapshot) return null;
-		lastSnapshot = snapshot;
 		nudges += 1;
 		return [
 			'Do not answer yet. These goals are still unfinished:',

@@ -17,7 +17,7 @@ import {
 	ESTIMATED_CHARACTERS_PER_TOKEN
 } from '$lib/constants';
 import { readObject } from '../utils/values';
-import { createGoalNudger } from '../tools/goals';
+import { createGoalNudger, unfinishedGoals } from '../tools/goals';
 import {
 	logAgentComplete,
 	logModelCall,
@@ -199,13 +199,23 @@ export async function runAgent({
 				continue;
 			}
 
-			const finalContent =
+			let finalContent =
 				turn.content ||
 				(turn.toolCalls.length
 					? "I couldn't produce a final response within the configured tool-turn limit."
 					: "I couldn't produce a final response.");
 
 			if (!turn.contentChunks.length) onText?.(finalContent);
+
+			const unfinished = unfinishedGoals(toolContext);
+			if (unfinished.length) {
+				const notice = [
+					'\n\n**Work remains incomplete.** The run ended with these goals unfinished:',
+					...unfinished.map((goal) => `- ${goal.text}`)
+				].join('\n');
+				finalContent += notice;
+				onText?.(notice);
+			}
 
 			logAgentComplete({ modelTurns, toolTurns });
 
