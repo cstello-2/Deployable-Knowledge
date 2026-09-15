@@ -41,12 +41,8 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 		return { query, results: [] };
 	}
 
-	// Same embedding path as chunking/storage so query vectors stay in sync with the corpus
-	const [queryEmbedding, index] = await Promise.all([
-		embedTexts([query], 'search_query').then((vectors) => vectors[0] ?? new Float32Array(0)),
-		getVectorIndex()
-	]);
-	if (index.count === 0 || queryEmbedding.length !== index.dimensions) {
+	const index = await getVectorIndex();
+	if (index.count === 0) {
 		return { query, results: [] };
 	}
 
@@ -60,6 +56,14 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 		.where(and(...documentFilters));
 	const allowedDocuments = new Set(allowedRows.map(({ id }) => id));
 	const allowedTypes = chunkTypes.length > 0 ? new Set(chunkTypes) : null;
+	const hasSearchableChunks = index.documentIds.some((documentId, row) => {
+		if (!allowedDocuments.has(documentId)) return false;
+		return !allowedTypes || allowedTypes.has(index.chunkTypes[row]);
+	});
+	if (!hasSearchableChunks) return { query, results: [] };
+
+	const [queryEmbedding] = await embedTexts([query], 'search_query');
+	if (queryEmbedding.length !== index.dimensions) return { query, results: [] };
 
 	const { matrix, dimensions } = index;
 	const top: TopCandidate[] = [];

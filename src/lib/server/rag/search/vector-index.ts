@@ -1,7 +1,7 @@
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
-import { asc, count, gt } from 'drizzle-orm';
+import { and, asc, count, eq, gt, isNotNull, ne } from 'drizzle-orm';
 import { db } from '../../database/database';
-import { documentChunks } from '../../database/schema';
+import { documentChunks, documents } from '../../database/schema';
 import type { SearchChunkType } from './search-shared';
 
 const LOAD_BATCH_SIZE = 4000;
@@ -30,12 +30,9 @@ export function invalidateVectorIndex(): void {
 }
 
 function toFloat32(embedding: unknown): Float32Array | null {
-	const bytes =
-		embedding instanceof Uint8Array
-			? embedding
-			: embedding instanceof ArrayBuffer
-				? new Uint8Array(embedding)
-				: null;
+	let bytes: Uint8Array | null = null;
+	if (embedding instanceof Uint8Array) bytes = embedding;
+	else if (embedding instanceof ArrayBuffer) bytes = new Uint8Array(embedding);
 	if (!bytes || bytes.byteLength < Float32Array.BYTES_PER_ELEMENT) return null;
 	return new Float32Array(
 		bytes.buffer,
@@ -46,7 +43,12 @@ function toFloat32(embedding: unknown): Float32Array | null {
 
 async function build(): Promise<VectorIndex> {
 	const started = Date.now();
-	const [{ total }] = await db.select({ total: count() }).from(documentChunks);
+	const embeddedChunks = and(isNotNull(documentChunks.embedding), ne(documents.sourceType, 'CSV'));
+	const [{ total }] = await db
+		.select({ total: count() })
+		.from(documentChunks)
+		.innerJoin(documents, eq(documents.id, documentChunks.documentId))
+		.where(embeddedChunks);
 
 	const chunkIds: string[] = [];
 	const documentIds: string[] = [];
@@ -65,7 +67,8 @@ async function build(): Promise<VectorIndex> {
 				embedding: documentChunks.embedding
 			})
 			.from(documentChunks)
-			.where(gt(documentChunks.id, lastId))
+			.innerJoin(documents, eq(documents.id, documentChunks.documentId))
+			.where(and(embeddedChunks, gt(documentChunks.id, lastId)))
 			.orderBy(asc(documentChunks.id))
 			.limit(LOAD_BATCH_SIZE);
 		if (batch.length === 0) break;

@@ -25,7 +25,7 @@ CREATE TABLE `document_chunks` (
 	`content` text NOT NULL,
 	`start_ms` integer,
 	`end_ms` integer,
-	`embedding` blob NOT NULL,
+	`embedding` blob,
 	`created_at` text NOT NULL,
 	FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade
 );

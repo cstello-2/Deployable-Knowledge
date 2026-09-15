@@ -49,7 +49,7 @@ function buildDocumentRow(chunks: ParsedChunk[], now: string): NewDocument {
 function buildChunkRow(
 	chunk: ParsedChunk,
 	documentId: string,
-	embedding: Float32Array,
+	embedding: Float32Array | null,
 	now: string
 ): NewDocumentChunk {
 	return {
@@ -61,7 +61,7 @@ function buildChunkRow(
 		content: chunk.content,
 		startMs: chunk.startMs ?? null,
 		endMs: chunk.endMs ?? null,
-		embedding: embeddingToBuffer(embedding),
+		embedding: embedding === null ? null : embeddingToBuffer(embedding),
 		createdAt: now
 	};
 }
@@ -76,21 +76,25 @@ export async function storeDocumentChunks(
 
 	const now = new Date().toISOString();
 	const documentRow = buildDocumentRow(chunks, now);
+	const shouldEmbed = documentRow.sourceType !== 'CSV';
 	const chunkRows: NewDocumentChunk[] = [];
 
 	// Embed the final assembled chunks only, so stored vectors match the exact stored content
 	for (let offset = 0; offset < chunks.length; offset += EMBED_SLICE_SIZE) {
 		const slice = chunks.slice(offset, offset + EMBED_SLICE_SIZE);
-		const embeddings = await embedTexts(
-			slice.map((chunk) => chunk.content),
-			'search_document',
-			(current) =>
-				onProgress?.({ stage: 'embedding', current: offset + current, total: chunks.length })
-		);
+		let embeddings: Float32Array[] = [];
+		if (shouldEmbed) {
+			embeddings = await embedTexts(
+				slice.map((chunk) => chunk.content),
+				'search_document',
+				(current) =>
+					onProgress?.({ stage: 'embedding', current: offset + current, total: chunks.length })
+			);
+		}
 
 		for (let index = 0; index < slice.length; index += 1) {
 			chunkRows.push(
-				buildChunkRow(slice[index], documentRow.id, embeddings[index] ?? new Float32Array(0), now)
+				buildChunkRow(slice[index], documentRow.id, shouldEmbed ? embeddings[index] : null, now)
 			);
 		}
 	}

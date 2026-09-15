@@ -259,7 +259,7 @@ export const documentChunks = sqliteTable(
 		content: text('content').notNull(),
 		startMs: integer('start_ms'),
 		endMs: integer('end_ms'),
-		embedding: blob('embedding', { mode: 'buffer' }).notNull(),
+		embedding: blob('embedding', { mode: 'buffer' }),
 		createdAt: text('created_at').notNull()
 	},
 	(table) => [

@@ -52,22 +52,24 @@ export async function ingestDocument(
 		const chunks = handler.finalize?.(assembled, extraction) ?? assembled;
 
 		if (chunks.length === 0) throw new Error(identity.emptyResultMessage);
+		const shouldEmbed = source.type !== 'CSV';
+		const action = shouldEmbed ? 'Embedding' : 'Indexing';
 
 		console.log(
-			`[Ingest] Extracted ${extraction.pageCount} page(s); embedding ${chunks.length} chunk(s)...`
+			`[Ingest] Extracted ${extraction.pageCount} page(s); ${action.toLowerCase()} ${chunks.length} chunk(s)...`
 		);
-		report(50, `Embedding 0 of ${chunks.length} chunks`);
+		report(50, `${action} 0 of ${chunks.length} chunks`);
 
 		let lastMilestone = 0;
 		const stored = await storeDocumentChunks(chunks, ({ stage, current, total }) => {
-			if (stage !== 'embedding') return;
+			if (stage !== (shouldEmbed ? 'embedding' : 'storing')) return;
 			const ratio = total > 0 ? current / total : 1;
 			const milestone = Math.floor(ratio * 4);
 			if (milestone > lastMilestone && milestone < 4) {
 				lastMilestone = milestone;
-				console.log(`[Ingest] Embedded ${current}/${total} chunk(s)`);
+				console.log(`[Ingest] ${action} ${current}/${total} chunk(s)`);
 			}
-			report(50 + ratio * 50, `Embedding ${current} of ${total} chunks`);
+			report(50 + ratio * 50, `${action} ${current} of ${total} chunks`);
 		});
 
 		console.log(`[Ingest] Stored ${stored.chunkCount} chunk(s).`);
