@@ -75,7 +75,8 @@ export const corpusDetailsTool: AgentTool<CorpusDetailsData> = {
 			returned: documents.length,
 			documents: documents.map((document) => ({
 				documentId: document.id,
-				documentPath: document.sourcePath,
+				// We interpolate it to be at root because we mount documents into our sandboxxed pyodide environment.
+				documentPath: `/${document.sourcePath}`,
 				title: document.title,
 				sourceType: document.sourceType
 			})),
