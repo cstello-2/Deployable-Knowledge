@@ -64,7 +64,9 @@
 		if (!pendingDelete) return;
 		try {
 			await sessionsStore.delete(pendingDelete.id);
-			if (chatStore.session?.id === pendingDelete.id) {
+			const wasSelected = chatStore.session?.id === pendingDelete.id;
+			chatStore.forgetSession(pendingDelete.id);
+			if (wasSelected) {
 				chatStore.session = sessionsStore.sessions[0];
 				await chatStore.loadMessages();
 			}

@@ -84,7 +84,6 @@
 				/>
 				<ActionIcon
 					class="size-8 rounded-full bg-transparent text-foreground/40 shadow-none hover:bg-transparent hover:text-foreground active:translate-y-0 active:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
-					disabled={busy}
 					label="Start a new chat — the current chat stays in history"
 					onclick={onNewChat}
 					variant="ghost"

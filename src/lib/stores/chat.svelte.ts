@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '$lib/constants';
+import { SvelteMap } from 'svelte/reactivity';
 import { ChatService } from '$lib/services';
 import { persisted } from './persisted.svelte';
 import type {
@@ -11,8 +12,8 @@ import type {
 	SessionMessage
 } from '$lib/types';
 
-class ChatStore {
-	private _session = $state<Session | undefined>(undefined);
+class ChatConversation {
+	session = $state<Session | undefined>(undefined);
 	messages = $state<SessionMessage[]>([]);
 	streamedText = $state('');
 	liveTrace = $state<AgentTraceItem[]>([]);
@@ -20,47 +21,28 @@ class ChatStore {
 	agentStatus = $state('Thinking…');
 	error = $state<string | null>(null);
 	isStreaming = $state(false);
-	private _toolsEnabled = persisted(STORAGE_KEYS.CHAT_TOOLS_ENABLED, false);
-	private _searchEnabled = persisted(STORAGE_KEYS.CHAT_SEARCH_ENABLED, true);
+	removed = false;
+	private messageLoad = 0;
 
-	get session(): Session | undefined {
-		return this._session;
-	}
-
-	set session(value: Session | undefined) {
-		if (value?.id !== this._session?.id) this.goals = [];
-		this._session = value;
-	}
-
-	get toolsEnabled(): boolean {
-		return this._toolsEnabled.value;
-	}
-
-	set toolsEnabled(value: boolean) {
-		this._toolsEnabled.value = value;
-	}
-
-	get searchEnabled(): boolean {
-		return this._searchEnabled.value;
-	}
-
-	set searchEnabled(value: boolean) {
-		this._searchEnabled.value = value;
-	}
-
-	async loadMessages(sessionId = this.session?.id): Promise<void> {
+	async loadMessages(): Promise<void> {
+		if (!this.session || this.removed) return;
+		const load = ++this.messageLoad;
 		this.error = null;
-		this.messages = sessionId ? await ChatService.getMessages(sessionId) : [];
+		const messages = await ChatService.getMessages(this.session.id);
+		if (load === this.messageLoad && !this.removed) this.messages = messages;
 	}
 
 	async sendMessage(request: ApiChatMessageRequest): Promise<void> {
 		if (!this.session) throw new Error('A chat session is required.');
+		if (this.isStreaming || this.removed) return;
+		const sessionId = this.session.id;
+		this.messageLoad += 1;
 
 		this.messages = [
 			...this.messages,
 			{
 				id: (this.messages.at(-1)?.id ?? 0) + 1,
-				sessionId: this.session.id,
+				sessionId,
 				role: 'user',
 				content: request.message,
 				metadata: null,
@@ -88,7 +70,7 @@ class ChatStore {
 			})());
 
 		try {
-			await ChatService.streamMessage(this.session.id, request, {
+			await ChatService.streamMessage(sessionId, request, {
 				onAgent: (progress) => this.applyAgentProgress(progress),
 				onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
 				onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
@@ -152,6 +134,59 @@ class ChatStore {
 			index === -1
 				? [...this.liveTrace, item]
 				: this.liveTrace.map((entry, current) => (current === index ? item : entry));
+	}
+}
+
+class ChatStore {
+	private conversations = new SvelteMap<string, ChatConversation>();
+	current = $state(new ChatConversation());
+	private _toolsEnabled = persisted(STORAGE_KEYS.CHAT_TOOLS_ENABLED, false);
+	private _searchEnabled = persisted(STORAGE_KEYS.CHAT_SEARCH_ENABLED, true);
+
+	get session(): Session | undefined {
+		return this.current.session;
+	}
+
+	set session(value: Session | undefined) {
+		if (!value) {
+			if (this.session) this.current = new ChatConversation();
+			return;
+		}
+		let conversation = this.conversations.get(value.id);
+		if (!conversation) {
+			conversation = new ChatConversation();
+			this.conversations.set(value.id, conversation);
+		}
+		conversation.session = value;
+		this.current = conversation;
+	}
+
+	get toolsEnabled(): boolean {
+		return this._toolsEnabled.value;
+	}
+
+	set toolsEnabled(value: boolean) {
+		this._toolsEnabled.value = value;
+	}
+
+	get searchEnabled(): boolean {
+		return this._searchEnabled.value;
+	}
+
+	set searchEnabled(value: boolean) {
+		this._searchEnabled.value = value;
+	}
+
+	async loadMessages(): Promise<void> {
+		if (!this.current.isStreaming) await this.current.loadMessages();
+	}
+
+	forgetSession(sessionId: string): void {
+		const conversation = this.conversations.get(sessionId);
+		if (!conversation) return;
+		conversation.removed = true;
+		this.conversations.delete(sessionId);
+		if (this.current === conversation) this.current = new ChatConversation();
 	}
 }
 

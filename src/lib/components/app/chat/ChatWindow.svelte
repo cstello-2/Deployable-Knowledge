@@ -77,7 +77,7 @@
 			notebookMode,
 			toolsEnabled: effectiveToolsEnabled
 		}) +
-			estimateHistoryTokens(chatStore.messages) +
+			estimateHistoryTokens(chatStore.current.messages) +
 			notebookContextTokens +
 			estimateMessageTokens(draft)
 	);
@@ -100,11 +100,6 @@
 
 	async function createSession(): Promise<void> {
 		chatStore.session = await sessionsStore.create();
-		chatStore.messages = [];
-		chatStore.streamedText = '';
-		chatStore.liveTrace = [];
-		chatStore.error = null;
-		chatStore.agentStatus = 'Thinking…';
 	}
 
 	async function startNewChat(): Promise<void> {
@@ -121,12 +116,14 @@
 	}
 
 	async function send(): Promise<void> {
-		if (chatStore.isStreaming || !draft.trim()) return;
+		if (chatStore.current.isStreaming || !draft.trim()) return;
 		const text = draft.trim();
 		draft = '';
 		settingsStore.lastQuery = text;
+		let conversation = chatStore.current;
 		try {
 			if (!chatStore.session) await createSession();
+			conversation = chatStore.current;
 			await scrollToBottom();
 			const config = settingsStore.config;
 			const requestBase = {
@@ -157,12 +154,12 @@
 						rag_top_k: config.ragTopK,
 						search_enabled: chatStore.searchEnabled
 					};
-			await chatStore.sendMessage(request);
+			await conversation.sendMessage(request);
 			await sessionsStore.refresh();
 		} catch (error) {
 			toast.error(`Chat failed: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
-			await scrollToBottom();
+			if (chatStore.current === conversation) await scrollToBottom();
 		}
 	}
 
@@ -204,21 +201,21 @@
 	contentLabel="Assistant chat"
 >
 	<div class="flex h-full min-h-0 flex-col overflow-hidden">
-		<ChatGoalsBar goals={chatStore.goals} />
+		<ChatGoalsBar goals={chatStore.current.goals} />
 		<ChatMessageList
 			bind:ref={logElement}
-			messages={chatStore.messages}
-			busy={chatStore.isStreaming}
-			streamedText={chatStore.streamedText}
-			trace={chatStore.liveTrace}
-			status={chatStore.agentStatus}
-			error={chatStore.error ?? ''}
+			messages={chatStore.current.messages}
+			busy={chatStore.current.isStreaming}
+			streamedText={chatStore.current.streamedText}
+			trace={chatStore.current.liveTrace}
+			status={chatStore.current.agentStatus}
+			error={chatStore.current.error ?? ''}
 			onSaveChunk={(chunkId) => void saveChunk(chunkId)}
 			onSendToNotebook={(message) => void sendToNotebook(message)}
 		/>
 		<ChatForm
 			bind:draft
-			busy={chatStore.isStreaming}
+			busy={chatStore.current.isStreaming}
 			contextLimit={CONTEXT_WINDOW_TOKENS_MAX}
 			{contextReserved}
 			{contextUsed}
