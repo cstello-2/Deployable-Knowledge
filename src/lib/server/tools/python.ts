@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, posix, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import type { ImageArtifact } from '$lib/types';
@@ -10,6 +10,11 @@ import type { AgentTool, ToolExecutionContext } from './types';
 import { createToolResult, imageOutput } from './result';
 import { clampText, readObject, toJsonValue } from '../utils/values';
 import { DocumentsRepository } from '../repositories/documents.repository';
+import {
+	DOCUMENTS_DIR,
+	PYTHON_DOCUMENTS_MOUNT,
+	pythonDocumentPath
+} from '../documents/python-path';
 
 const MAX_CODE_CHARS = 24_000;
 const MAX_TEXT_CHARS = 32_000;
@@ -18,9 +23,6 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 // Pyodide runs WebAssembly-speed Python, so pandas-style data work needs more
 // headroom than native Python would.
 const EXECUTION_TIMEOUT_MS = 20_000;
-const DOCUMENTS_DIR = 'documents';
-const DOCUMENTS_MOUNT = '/documents';
-const DOCUMENTS_INDEX = '/documents.json';
 
 const RETRY_HINT =
 	'The code did not run to completion. Read the error, fix the code (or make it faster if it timed out), and call python again with the complete corrected script. Small errors are expected and fixable — do not give up after a failed attempt.';
@@ -204,13 +206,12 @@ async function start() {
   pyodide.setInterruptBuffer(interruptBuffer);
   parentPort.postMessage({ type: "ready" });
 
-  parentPort.on("message", async ({ id, code, documentFiles, documentIndex }) => {
+  parentPort.on("message", async ({ id, code, documentFiles }) => {
     Atomics.store(interruptBuffer, 0, 0);
     let globals;
 
     try {
       visibleDocumentFiles = new Set(documentFiles);
-      pyodide.FS.writeFile(workerData.documentsIndex, documentIndex);
       globals = pyodide.toPy({ __dk_code: code });
       const envelope = await pyodide.runPythonAsync(workerData.runner, {
         globals,
@@ -259,7 +260,6 @@ type ExecutionRequest = {
 	code: string;
 	// File names inside the documents directory that this call may read.
 	documentFiles: string[];
-	documentIndex: string;
 };
 
 type WorkerMessage =
@@ -301,16 +301,18 @@ export const pythonTool: AgentTool<PythonToolData> = {
 	instructions: `PYTHON TOOL POLICY:
 - Use the python tool for exact calculations, data transformations, statistics, or requested visualizations instead of doing substantial arithmetic manually. Python runs in the backend through Pyodide and includes NumPy, pandas, and Matplotlib.
 - You can create visualizations with normal Pyodide/Matplotlib code. Any open Matplotlib figures are automatically sent to the user as images. A request for a chart, plot, graph, or data visualization is incomplete until you successfully create it with the python tool; do not substitute an ASCII chart or text-only table unless the user asks for one.
-- Python can read the user's document files directly, and corpus_details gives the source path. ${DOCUMENTS_INDEX} is a JSON list of the documents available in this chat, each with documentId, title, sourceType, and sourcePath. When the user wants calculations, statistics, or charts over a document's data, load that list, pick the document by title (or by a documentId from search results), and read its path in the same script — for example pandas.read_csv(path) for CSV data or open(path) for text and Markdown — rather than rebuilding the data from search excerpts. Files under ${DOCUMENTS_MOUNT} are read-only. Word and PowerPoint documents are stored as PDFs, and no PDF or Excel parser is installed, so only CSV and plain-text files can be parsed.
+- For CSV data, call corpus_details to get documentPath, then use pandas.read_csv(documentPath). Use chunksize for large CSVs. Document files are read-only; CSV and plain text are supported, with no PDF or Excel parser installed.
 - If a python call returns an error, do not apologize or give up: read the reported error, fix the code, and call python again with the complete corrected script. Small mistakes such as typos, missing imports, or wrong variable names are normal and easy to fix.`,
 	definition: {
-		description: `Run Python in the backend Pyodide WebAssembly runtime for exact calculations, data analysis, and visualizations. NumPy, pandas, and Matplotlib are installed. The user's document files are mounted read-only under ${DOCUMENTS_MOUNT}, and ${DOCUMENTS_INDEX} lists each document's documentId, title, sourceType, and path. Printed text and the final expression are returned. Any open Matplotlib figures are automatically returned to the user as PNG images, so use normal Matplotlib APIs and do not encode images yourself. If a call fails, fix the code and call again with the corrected script.`,
+		description:
+			'Run Python with NumPy, pandas, and Matplotlib for calculations, data analysis, and charts. Get CSV paths from corpus_details and read them with pandas.read_csv. Printed text, the final expression, and open Matplotlib figures are returned automatically. If a call fails, fix the code and retry.',
 		parameters: {
 			type: 'object',
 			properties: {
 				code: {
 					type: 'string',
-					description: `Complete Python code. NumPy is available as numpy, pandas as pandas, and Matplotlib as matplotlib. Read document files through the paths listed in ${DOCUMENTS_INDEX}. The value of the final expression is returned, and every open Matplotlib figure is sent as an image.`
+					description:
+						'Complete Python code. Read CSVs using paths from corpus_details. The final expression and open Matplotlib figures are returned.'
 				}
 			},
 			required: ['code'],
@@ -375,25 +377,12 @@ async function documentFilesInScope(
 		Array.isArray(context.documentIds) && context.documentIds.length > 0
 			? context.documentIds
 			: undefined;
-	const root = resolve(DOCUMENTS_DIR);
-	const index = (await DocumentsRepository.files({ documentIds })).flatMap((document) => {
-		const hostPath = resolve(document.sourcePath);
-		// YouTube documents have no managed copy, so they have no file to read.
-		if (dirname(hostPath) !== root) return [];
-		return [
-			{
-				documentId: document.id,
-				title: document.title,
-				sourceType: document.sourceType,
-				path: posix.join(DOCUMENTS_MOUNT, basename(hostPath))
-			}
-		];
+	const documentFiles = (await DocumentsRepository.files({ documentIds })).flatMap((document) => {
+		const path = pythonDocumentPath(document.sourcePath);
+		return path ? [posix.basename(path)] : [];
 	});
 
-	return {
-		documentFiles: index.map(({ path }) => posix.basename(path)),
-		documentIndex: JSON.stringify(index)
-	};
+	return { documentFiles };
 }
 
 function enqueueExecution(request: ExecutionRequest): Promise<string> {
@@ -461,8 +450,7 @@ function getWorkerState(): WorkerState {
 			packageCacheDir,
 			runner: PYTHON_RUNNER,
 			documentsRoot,
-			documentsMount: DOCUMENTS_MOUNT,
-			documentsIndex: DOCUMENTS_INDEX
+			documentsMount: PYTHON_DOCUMENTS_MOUNT
 		}
 	});
 	const state: WorkerState = {

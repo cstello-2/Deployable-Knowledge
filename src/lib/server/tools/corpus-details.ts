@@ -2,6 +2,7 @@ import type { AgentTool } from './types';
 import { createToolResult } from './result';
 import { clampInteger, readObject } from '../utils/values';
 import { DocumentsRepository } from '../repositories/documents.repository';
+import { pythonDocumentPath } from '../documents/python-path';
 
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_PAGE_SIZE = 100;
@@ -12,6 +13,7 @@ type CorpusDetailsData = {
 	returned: number;
 	documents: {
 		documentId: string;
+		documentPath: string | null;
 		title: string;
 		sourceType: string;
 	}[];
@@ -21,15 +23,15 @@ type CorpusDetailsData = {
 export const corpusDetailsTool: AgentTool<CorpusDetailsData> = {
 	id: 'corpus_details',
 	label: 'Corpus details',
-	description: 'Reports how many documents are in the corpus and lists their titles.',
-	modes: ['document'],
+	description: 'Lists corpus documents with their titles and paths for Python.',
+	modes: ['document', 'notebook'],
 	instructions: `CORPUS DETAILS POLICY:
 - corpus_details reports what the corpus contains — the document count and document titles — not what the documents say. Use it when the user asks what documents exist, how many there are, or which documents are available.
-- Do not use corpus_details to answer content questions; use the search tool for anything about what the documents contain.
+- Use the returned path to read a CSV with Python. A null path means the source has no managed file available to Python. Use search for document excerpts and Python for calculations over CSV data.
 - Titles are returned alphabetically in pages of at most ${MAX_PAGE_SIZE}. When totalDocuments is larger than offset + returned, call again with offset advanced past the titles already seen; only claim a complete list after every page has been read.`,
 	definition: {
 		description:
-			'Get details about the document corpus available in this chat: the total number of documents and their titles in alphabetical order. Use this when asked what documents exist, how many there are, or which titles are available. It does not search document content — use the search tool for that.',
+			'List documents available in this chat: the total count, titles, source types, and read-only paths for Python, in alphabetical order. Use this to find a CSV path before analyzing it with Python. It does not search document content.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -75,8 +77,7 @@ export const corpusDetailsTool: AgentTool<CorpusDetailsData> = {
 			returned: documents.length,
 			documents: documents.map((document) => ({
 				documentId: document.id,
-				// We interpolate it to be at root because we mount documents into our sandboxxed pyodide environment.
-				documentPath: `/${document.sourcePath}`,
+				documentPath: pythonDocumentPath(document.sourcePath),
 				title: document.title,
 				sourceType: document.sourceType
 			})),

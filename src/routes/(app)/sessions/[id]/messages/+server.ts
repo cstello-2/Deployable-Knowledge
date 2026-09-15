@@ -109,6 +109,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		toolsRequested && modelSupportsTools
 			? modeTools.filter((name) => enabledTools.includes(name))
 			: [];
+	if (toolNames.includes('python') && !toolNames.includes('corpus_details')) {
+		toolNames.push('corpus_details');
+	}
 	const toolsEnabled = toolNames.length > 0;
 	const searchToolEnabled = toolNames.includes('search');
 	const toolInstructions = toolRegistry.instructions(toolNames);
