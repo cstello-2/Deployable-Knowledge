@@ -7,10 +7,6 @@
 
 	let { outputs }: Props = $props();
 
-	function imageSource(output: Extract<AgentOutput, { type: 'image' }>): string {
-		return `data:${output.data.mimeType};base64,${output.data.base64}`;
-	}
-
 	function formatData(value: unknown): string {
 		try {
 			return JSON.stringify(value, null, 2) ?? String(value);
@@ -21,20 +17,20 @@
 </script>
 
 {#if outputs.length}
-	<ul class="grid list-none gap-1.5 p-0">
+	<ul class="flex list-none flex-wrap items-start gap-1.5 p-0">
 		{#each outputs as output (`${output.type}-${output.id}`)}
 			<li
 				class={[
-					'min-w-0 text-xs',
-					output.type !== 'image' && 'rounded-md border-l-2 bg-muted/40 p-2'
+					'min-w-0 max-w-full text-xs',
+					output.type !== 'image' && 'w-full rounded-md border-l-2 bg-muted/40 p-2'
 				]}
 			>
 				{#if output.type === 'image'}
 					<img
-						class="max-h-60 max-w-full rounded bg-white object-contain"
-						src={imageSource(output)}
 						alt={output.data.alt}
+						class="max-h-60 max-w-full rounded bg-white object-contain"
 						loading="lazy"
+						src={`data:${output.data.mimeType};base64,${output.data.base64}`}
 					/>
 				{:else if output.type === 'text'}
 					{#if output.label}<strong
