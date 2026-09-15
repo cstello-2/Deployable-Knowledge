@@ -8,6 +8,7 @@ import type { Source } from '$lib/server/rag/chunk/parse-shared';
 import { storeDocumentChunks } from './embedding';
 
 export type IngestDocumentInput = {
+	fileName?: string;
 	filePath: string;
 	title?: string;
 	sourceType?: Document['sourceType'];
@@ -22,7 +23,7 @@ export type IngestDocumentResult = {
 };
 
 export async function ingestDocument(
-	{ filePath, title, sourceType }: IngestDocumentInput,
+	{ fileName, filePath, title, sourceType }: IngestDocumentInput,
 	onProgress?: (progress: ApiDocumentIngestProgress) => void
 ): Promise<IngestDocumentResult> {
 	const handler = handlerForPath(filePath) ?? (sourceType ? handlerForType(sourceType) : null);
@@ -39,6 +40,8 @@ export async function ingestDocument(
 		type: sourceType ?? handler.type,
 		path: filePath
 	};
+
+	const diagnosticFileName = fileName?.trim() || source.title;
 
 	report(0, handler.startMessage);
 
@@ -74,6 +77,7 @@ export async function ingestDocument(
 		diagnosticEvents.documentIngestCompleted({
 			chunkCount: stored.chunkCount,
 			durationMs: Date.now() - started,
+			fileName: diagnosticFileName,
 			pageCount: extraction.pageCount,
 			sourceType: source.type
 		});
@@ -86,7 +90,10 @@ export async function ingestDocument(
 			chunkCount: stored.chunkCount
 		};
 	} catch (error) {
-		diagnosticEvents.documentIngestFailed(source.type);
+		diagnosticEvents.documentIngestFailed({
+			fileName: diagnosticFileName,
+			sourceType: source.type
+		});
 		throw error;
 	}
 }
