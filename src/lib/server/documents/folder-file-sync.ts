@@ -138,6 +138,7 @@ async function ingestSyncedFile(
 				ingestedDocumentId = (
 					await ingestDocument(
 						{
+							fileName: file.relativePath,
 							filePath: managedPath,
 							title: titleFor(file.relativePath),
 							sourceType: handler.type
