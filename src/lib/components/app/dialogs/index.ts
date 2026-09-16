@@ -7,5 +7,4 @@ export { default as DialogDocumentYoutubeEntry } from './DialogDocumentYoutubeEn
 export { default as DialogProgress } from './DialogProgress.svelte';
 export { default as DialogPromptTemplate } from './DialogPromptTemplate.svelte';
 export { default as DialogProvider } from './DialogProvider.svelte';
-export * from './prompt-template-presets';
 export * from './provider-types';

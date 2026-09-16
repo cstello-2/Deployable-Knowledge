@@ -7,12 +7,14 @@
 	import { DialogConfirmation, DialogPromptTemplate } from '$lib/components/app/dialogs';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
+	import { DEFAULT_PROMPT_TEMPLATE } from '$lib/constants';
 	import { settingsStore } from '$lib/stores';
 	import type { ApiPromptTemplateRequest, PromptTemplate } from '$lib/types';
 
 	let editorOpen = $state(false);
 	let deleteOpen = $state(false);
 	let editing = $state<PromptTemplate | null>(null);
+	const defaultPromptLabel = `${DEFAULT_PROMPT_TEMPLATE.name} (default)`;
 
 	const selected = $derived(
 		settingsStore.promptTemplates.find(({ id }) => id === settingsStore.config.promptTemplateId) ??
@@ -59,10 +61,10 @@
 			onValueChange={select}
 		>
 			<Select.Trigger id="settings-prompt-template" class="min-w-0 flex-1">
-				<span class="truncate">{selected?.name ?? 'Default prompt'}</span>
+				<span class="truncate">{selected?.name ?? defaultPromptLabel}</span>
 			</Select.Trigger>
 			<Select.Content>
-				<Select.Item value="" label="Default prompt" />
+				<Select.Item value="" label={defaultPromptLabel} />
 				{#each settingsStore.promptTemplates as template (template.id)}
 					<Select.Item value={template.id} label={template.name} />
 				{/each}

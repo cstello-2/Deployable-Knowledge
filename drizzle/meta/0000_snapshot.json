@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6e7760a2-82fa-444f-bab3-5f9e9dda2d72",
+  "id": "5a2e25f0-9c6b-4ad6-8241-4310dcde8161",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "app_state": {
@@ -704,7 +704,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 1024
+          "default": 4096
         },
         "temperature": {
           "name": "temperature",
@@ -752,7 +752,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 4
+          "default": 6
         },
         "gpu_mode": {
           "name": "gpu_mode",

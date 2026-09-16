@@ -4,8 +4,8 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { PROMPT_TEMPLATE_PRESETS } from '$lib/constants';
 	import type { ApiPromptTemplateRequest, PromptTemplate } from '$lib/types';
-	import { PROMPT_TEMPLATE_PRESETS } from './prompt-template-presets';
 
 	interface Props {
 		onOpenChange: (open: boolean) => void;

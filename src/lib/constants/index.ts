@@ -8,6 +8,7 @@ export * from './folder-sync';
 export * from './ingest-formats';
 export * from './local-models';
 export * from './ndjson';
+export * from './prompt-template-presets';
 export * from './providers';
 export * from './reasoning-presets';
 export * from './storage';

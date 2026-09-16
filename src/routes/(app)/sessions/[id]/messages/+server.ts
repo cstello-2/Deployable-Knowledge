@@ -181,7 +181,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					: createDocumentMessages({
 							messages,
 							userMessage: message,
-							systemPrompt: promptTemplate?.systemPrompt || '',
+							systemPrompt: promptTemplate?.systemPrompt,
 							persona,
 							context: autoSearch?.context ?? '',
 							toolsEnabled,

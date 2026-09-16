@@ -318,7 +318,8 @@ const COMPACT_SKIP_UNDER_CHARS = 320;
 function transcriptBudgetChars(chatOptions: ProviderChatOptions): number {
 	const contextTokens = CONTEXT_WINDOW_TOKENS_MAX;
 	const reservedTokens =
-		(chatOptions.maxTokens ?? 1_024) + Math.max(0, chatOptions.reasoningBudget ?? 0);
+		(chatOptions.maxTokens ?? DEFAULT_ASSISTANT_CONFIG.maxTokens) +
+		Math.max(0, chatOptions.reasoningBudget ?? 0);
 	const budget = Math.round(
 		(contextTokens - reservedTokens) * ESTIMATED_CHARACTERS_PER_TOKEN * 0.6
 	);

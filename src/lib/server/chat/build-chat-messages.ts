@@ -1,4 +1,4 @@
-import { CHAT_HISTORY_MESSAGE_LIMIT } from '$lib/constants';
+import { CHAT_HISTORY_MESSAGE_LIMIT, DEFAULT_PROMPT_TEMPLATE } from '$lib/constants';
 import type { SessionMessage } from '$lib/server/database/schema';
 import type { ProviderChatMessage } from '$lib/server/providers/provider';
 import {
@@ -44,7 +44,7 @@ export function createConversationalMessages({
 export function createDocumentMessages({
 	messages,
 	userMessage,
-	systemPrompt = '',
+	systemPrompt = DEFAULT_PROMPT_TEMPLATE.systemPrompt,
 	persona = '',
 	context = '',
 	toolsEnabled = true,
