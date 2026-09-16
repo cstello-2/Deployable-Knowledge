@@ -89,10 +89,7 @@ export const diagnosticEvents = {
 		});
 	},
 
-	documentIngestFailed(input: {
-		fileName: string;
-		sourceType: Document['sourceType'];
-	}): void {
+	documentIngestFailed(input: { fileName: string; sourceType: Document['sourceType'] }): void {
 		append('error', 'documents', 'DOCUMENT_INGEST_FAILED', 'Document ingestion failed', {
 			fileName: input.fileName,
 			sourceType: input.sourceType
