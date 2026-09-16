@@ -1,8 +1,13 @@
 <script lang="ts">
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
+	import Brain from '@lucide/svelte/icons/brain';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus';
 	import { ActionIcon } from '$lib/components/app/actions';
+	import { Button } from '$lib/components/ui/button';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { REASONING_PRESETS, type ReasoningEffort } from '$lib/constants';
 	import ChatContextMeter from './ChatContextMeter.svelte';
 	import ChatModeMenu from './ChatModeMenu.svelte';
 
@@ -15,9 +20,11 @@
 		notebookMode?: boolean;
 		onNewChat: () => void;
 		onNotebookModeChange: (enabled: boolean) => void;
+		onReasoningEffortChange: (effort: ReasoningEffort) => void;
 		onSearchChange: (enabled: boolean) => void;
 		onSubmit: () => void;
 		onToolsChange: (enabled: boolean) => void;
+		reasoningEffort: ReasoningEffort;
 		searchEnabled?: boolean;
 		searchToolActive?: boolean;
 		toolsEnabled?: boolean;
@@ -33,9 +40,11 @@
 		notebookMode = false,
 		onNewChat,
 		onNotebookModeChange,
+		onReasoningEffortChange,
 		onSearchChange,
 		onSubmit,
 		onToolsChange,
+		reasoningEffort,
 		searchEnabled = false,
 		searchToolActive = false,
 		toolsEnabled = false,
@@ -90,6 +99,35 @@
 				>
 					<MessageSquarePlus />
 				</ActionIcon>
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger disabled={busy}>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								aria-label={`Reasoning effort: ${REASONING_PRESETS[reasoningEffort].label}`}
+								class="h-8 rounded-full text-muted-foreground hover:text-foreground aria-expanded:text-foreground"
+								disabled={busy}
+								size="sm"
+								variant="ghost"
+							>
+								<Brain aria-hidden="true" class="size-3.5" />
+								{REASONING_PRESETS[reasoningEffort].label}
+								<ChevronDown class="size-3" />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="start" class="w-40" side="top" sideOffset={8}>
+						<DropdownMenu.Label>Reasoning effort</DropdownMenu.Label>
+						<DropdownMenu.RadioGroup
+							onValueChange={(value) => onReasoningEffortChange(value as ReasoningEffort)}
+							value={reasoningEffort}
+						>
+							{#each Object.entries(REASONING_PRESETS) as [value, preset] (value)}
+								<DropdownMenu.RadioItem {value}>{preset.label}</DropdownMenu.RadioItem>
+							{/each}
+						</DropdownMenu.RadioGroup>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
 			</div>
 			<div class="flex items-center gap-2">
 				<ChatContextMeter

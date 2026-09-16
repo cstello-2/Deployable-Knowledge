@@ -54,8 +54,6 @@
 				'temperature',
 				'max output tokens',
 				'sampling top k',
-				'reasoning budget',
-				'thinking',
 				'agent turns',
 				'retrieval mode',
 				'semantic',

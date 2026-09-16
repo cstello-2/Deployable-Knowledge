@@ -1,5 +1,10 @@
 import { toast } from 'svelte-sonner';
-import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
+import {
+	DEFAULT_ASSISTANT_CONFIG,
+	REASONING_PRESETS,
+	reasoningEffortForBudget,
+	type ReasoningEffort
+} from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
 import {
 	ProfilesService,
@@ -42,6 +47,16 @@ class SettingsStore {
 
 	get activeProfile(): AssistantProfile | null {
 		return this.profiles.find(({ id }) => id === this.activeProfileId) ?? null;
+	}
+
+	get reasoningEffort(): ReasoningEffort {
+		return reasoningEffortForBudget(this._config.reasoningBudget);
+	}
+
+	setReasoningEffort(effort: ReasoningEffort): void {
+		const reasoningBudget = REASONING_PRESETS[effort].budget;
+		if (this._config.reasoningBudget === reasoningBudget) return;
+		this.updateConfig({ reasoningBudget });
 	}
 
 	updateConfig(values: Partial<AssistantConfig>): void {
@@ -225,7 +240,7 @@ class SettingsStore {
 			maxTokens: profile.maxTokens,
 			temperature: profile.temperature,
 			topK: profile.topK,
-			reasoningBudget: profile.reasoningBudget,
+			reasoningBudget: REASONING_PRESETS[reasoningEffortForBudget(profile.reasoningBudget)].budget,
 			retrievalMode: profile.retrievalMode as RetrievalMode,
 			ragTopK: profile.ragTopK,
 			agentMaxTurns: profile.agentMaxTurns,

@@ -222,9 +222,11 @@
 			{notebookMode}
 			onNewChat={() => void startNewChat()}
 			onNotebookModeChange={(enabled) => (notebookMode = enabled)}
+			onReasoningEffortChange={(effort) => settingsStore.setReasoningEffort(effort)}
 			onSearchChange={(enabled) => (chatStore.searchEnabled = enabled)}
 			onSubmit={() => void send()}
 			onToolsChange={(enabled) => (chatStore.toolsEnabled = enabled)}
+			reasoningEffort={settingsStore.reasoningEffort}
 			searchEnabled={searchToolActive || autoSearchEnabled}
 			{searchToolActive}
 			toolsEnabled={effectiveToolsEnabled}
