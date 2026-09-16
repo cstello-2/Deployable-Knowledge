@@ -92,7 +92,9 @@ async function downloadYoutubeTranscript(videoId: string): Promise<YoutubeTransc
 		throw new Error('This video has no captions to import.');
 	}
 
-	const track = tracks.find((entry) => entry.kind !== 'asr') ?? tracks[0];
+	const englishTracks = tracks.filter((entry) => /^en(?:-|$)/i.test(entry.language_code));
+	const preferredTracks = englishTracks.length > 0 ? englishTracks : tracks;
+	const track = preferredTracks.find((entry) => entry.kind !== 'asr') ?? preferredTracks[0];
 
 	const events = await fetchCaptionEvents(track.base_url, videoId);
 
