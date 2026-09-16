@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { AGENT_MAX_TURNS_UNLIMITED } from '$lib/constants';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { settingsStore } from '$lib/stores';
@@ -57,22 +56,5 @@
 					topK: Math.max(1, Math.floor(numberValue(event, settingsStore.config.topK)))
 				})}
 		/>
-	</div>
-	<div class="grid gap-2">
-		<Label for="settings-agent-turns">Agent turns</Label>
-		<Input
-			id="settings-agent-turns"
-			type="number"
-			min={AGENT_MAX_TURNS_UNLIMITED}
-			value={settingsStore.config.agentMaxTurns}
-			oninput={(event) =>
-				settingsStore.updateConfig({
-					agentMaxTurns: Math.max(
-						AGENT_MAX_TURNS_UNLIMITED,
-						Math.floor(numberValue(event, settingsStore.config.agentMaxTurns))
-					)
-				})}
-		/>
-		<p class="m-0 text-xs text-muted-foreground">-1 = unlimited tool turns</p>
 	</div>
 </section>

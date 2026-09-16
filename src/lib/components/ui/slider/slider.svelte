@@ -3,8 +3,12 @@
 	import { cn } from '$lib/components/ui/utils';
 
 	interface Props {
+		'aria-describedby'?: string;
+		'aria-labelledby'?: string;
+		'aria-valuetext'?: string;
 		class?: string;
 		disabled?: boolean;
+		id?: string;
 		max?: number;
 		min?: number;
 		onValueChange?: (value: number) => void;
@@ -13,8 +17,12 @@
 	}
 
 	let {
+		'aria-describedby': ariaDescribedby,
+		'aria-labelledby': ariaLabelledby,
+		'aria-valuetext': ariaValuetext,
 		class: className,
 		disabled = false,
+		id,
 		max = 100,
 		min = 0,
 		onValueChange,
@@ -39,6 +47,10 @@
 		</span>
 		{#each thumbs as index (index)}
 			<SliderPrimitive.Thumb
+				aria-describedby={ariaDescribedby}
+				aria-labelledby={ariaLabelledby}
+				aria-valuetext={ariaValuetext}
+				{id}
 				{index}
 				class="block size-4 rounded-full border-2 border-primary bg-background shadow transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
 			/>

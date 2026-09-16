@@ -54,7 +54,6 @@
 				'temperature',
 				'max output tokens',
 				'sampling top k',
-				'agent turns',
 				'retrieval mode',
 				'semantic',
 				'lexical',
@@ -72,6 +71,9 @@
 			icon: Wrench,
 			keywords: [
 				'tool calls',
+				'agent turns',
+				'turn limit',
+				'unlimited',
 				'enable',
 				'disable',
 				...settingsStore.availableTools.map(({ label }) => label.toLowerCase())
