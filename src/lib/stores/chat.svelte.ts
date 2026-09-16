@@ -23,6 +23,7 @@ class ChatConversation {
 	isStreaming = $state(false);
 	removed = false;
 	private messageLoad = 0;
+	private generationController: AbortController | null = null;
 
 	async loadMessages(): Promise<void> {
 		if (!this.session || this.removed) return;
@@ -36,6 +37,8 @@ class ChatConversation {
 		if (!this.session) throw new Error('A chat session is required.');
 		if (this.isStreaming || this.removed) return;
 		const sessionId = this.session.id;
+		const controller = new AbortController();
+		this.generationController = controller;
 		this.messageLoad += 1;
 
 		this.messages = [
@@ -70,28 +73,59 @@ class ChatConversation {
 			})());
 
 		try {
-			await ChatService.streamMessage(sessionId, request, {
-				onAgent: (progress) => this.applyAgentProgress(progress),
-				onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
-				onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
-				onGoals: (goals) => (this.goals = goals),
-				onTitle: (title) => this.applyStreamEvent({ type: 'title', title }),
-				onComplete: (event) => {
-					this.applyStreamEvent(event);
-					void finish(event.saved !== false).catch(() => undefined);
-				}
-			});
+			await ChatService.streamMessage(
+				sessionId,
+				request,
+				{
+					onAgent: (progress) => this.applyAgentProgress(progress),
+					onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
+					onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
+					onGoals: (goals) => (this.goals = goals),
+					onTitle: (title) => this.applyStreamEvent({ type: 'title', title }),
+					onComplete: (event) => {
+						this.applyStreamEvent(event);
+						void finish(event.saved !== false).catch(() => undefined);
+					}
+				},
+				controller.signal
+			);
+			controller.signal.throwIfAborted();
 			await finish();
 		} catch (error) {
+			if (controller.signal.aborted) {
+				if (!finishing) {
+					this.agentStatus = 'Generation stopped';
+					if (this.streamedText) {
+						this.messages = [
+							...this.messages,
+							{
+								id: (this.messages.at(-1)?.id ?? 0) + 1,
+								sessionId,
+								role: 'assistant',
+								content: this.streamedText,
+								metadata: null,
+								createdAt: new Date()
+							}
+						];
+					}
+				}
+				return;
+			}
 			this.error = error instanceof Error ? error.message : String(error);
 			this.agentStatus = 'Agent run failed';
 			throw error;
 		} finally {
+			if (this.generationController === controller) this.generationController = null;
 			if (!finishing) {
 				this.isStreaming = false;
 				this.streamedText = '';
 			}
 		}
+	}
+
+	stopGeneration(): void {
+		if (!this.isStreaming) return;
+		this.generationController?.abort();
 	}
 
 	applyStreamEvent(event: ApiChatStreamEvent): void {

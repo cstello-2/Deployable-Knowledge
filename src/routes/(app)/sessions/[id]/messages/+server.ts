@@ -129,15 +129,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const timestamp = new Date();
 
 	let closed = false;
+	let partialContent = '';
+	let persistence: Promise<boolean> | undefined;
 
 	const persistTurn = (assistantContent: string, metadata: unknown) =>
-		SessionsRepository.appendTurn({
+		(persistence ??= SessionsRepository.appendTurn({
 			sessionId: params.id,
 			userMessage: message,
 			assistantContent,
 			metadata,
 			createdAt: timestamp
-		});
+		}));
 
 	const stream = new ReadableStream({
 		async start(controller) {
@@ -145,6 +147,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			const generationStarted = Date.now();
 			const send = (event: ApiChatStreamEvent) => {
 				if (closed) return;
+				if (event.type === 'text') partialContent += event.delta;
+				else if (event.type === 'text-reset') partialContent = '';
 				try {
 					controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
 				} catch {
@@ -213,6 +217,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					}
 				});
 
+				abortController.signal.throwIfAborted();
 				const trace = [...(autoSearch?.trace ?? []), ...agentResult.trace];
 				const outputs = [...(autoSearch?.outputs ?? []), ...agentResult.outputs];
 				const toolCallCount = agentResult.toolExecutions.length + (autoSearch ? 1 : 0);
@@ -253,7 +258,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					toolTurns: agentResult.toolTurns
 				});
 
-				if (shouldGenerateTitle && saved) {
+				if (shouldGenerateTitle && saved && !abortController.signal.aborted) {
 					try {
 						const title = await generateChatTitle(message, provider, modelId, options);
 						await db
@@ -284,12 +289,18 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				}
 			}
 		},
-		cancel() {
+		async cancel() {
 			// The client disconnected. Abort the generation so it stops consuming
 			// the model runtime instead of blocking every following request.
 			if (!closed) diagnosticEvents.chatCancelled();
 			closed = true;
 			abortController.abort();
+			try {
+				await persistTurn(partialContent, null);
+			} catch {
+				console.error('Failed to persist stopped chat turn.');
+				diagnosticEvents.chatPersistenceFailed();
+			}
 		}
 	});
 

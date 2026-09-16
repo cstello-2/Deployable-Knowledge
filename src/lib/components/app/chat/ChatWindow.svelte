@@ -224,6 +224,7 @@
 			onNotebookModeChange={(enabled) => (notebookMode = enabled)}
 			onReasoningEffortChange={(effort) => settingsStore.setReasoningEffort(effort)}
 			onSearchChange={(enabled) => (chatStore.searchEnabled = enabled)}
+			onStop={() => chatStore.current.stopGeneration()}
 			onSubmit={() => void send()}
 			onToolsChange={(enabled) => (chatStore.toolsEnabled = enabled)}
 			reasoningEffort={settingsStore.reasoningEffort}

@@ -3,6 +3,7 @@
 	import Brain from '@lucide/svelte/icons/brain';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquarePlus from '@lucide/svelte/icons/message-square-plus';
+	import Square from '@lucide/svelte/icons/square';
 	import { ActionIcon } from '$lib/components/app/actions';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -22,6 +23,7 @@
 		onNotebookModeChange: (enabled: boolean) => void;
 		onReasoningEffortChange: (effort: ReasoningEffort) => void;
 		onSearchChange: (enabled: boolean) => void;
+		onStop: () => void;
 		onSubmit: () => void;
 		onToolsChange: (enabled: boolean) => void;
 		reasoningEffort: ReasoningEffort;
@@ -42,6 +44,7 @@
 		onNotebookModeChange,
 		onReasoningEffortChange,
 		onSearchChange,
+		onStop,
 		onSubmit,
 		onToolsChange,
 		reasoningEffort,
@@ -138,11 +141,20 @@
 				/>
 				<ActionIcon
 					class="size-8 rounded-full shadow-sm"
-					disabled={busy || !draft.trim()}
-					label="Send message"
-					type="submit"
+					disabled={!busy && !draft.trim()}
+					label={busy ? 'Stop generation' : 'Send message'}
+					onclick={(event) => {
+						if (!busy) return;
+						event.preventDefault();
+						onStop();
+					}}
+					type={busy ? 'button' : 'submit'}
 				>
-					<ArrowUp />
+					{#if busy}
+						<Square aria-hidden="true" class="size-3.5 fill-current" />
+					{:else}
+						<ArrowUp />
+					{/if}
 				</ActionIcon>
 			</div>
 		</div>
