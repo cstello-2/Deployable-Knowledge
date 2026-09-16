@@ -24,7 +24,7 @@ export function formatDiagnosticsReport(
 	return [
 		'Deployable Knowledge Diagnostic Report',
 		`Generated: ${snapshot.generatedAt}`,
-		'Privacy: prompts, messages, document content, names, paths, search queries, credentials, and raw errors are excluded.',
+		'Privacy: ingestion events include document names and synced-folder-relative paths; document content, absolute paths, prompts, messages, search queries, credentials, and raw errors are excluded.',
 		'',
 		'[Application]',
 		`Version: ${snapshot.application.version}`,

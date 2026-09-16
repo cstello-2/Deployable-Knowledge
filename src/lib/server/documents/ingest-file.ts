@@ -62,7 +62,12 @@ export async function ingestFileBuffer(
 	await writeManagedArtifacts(handler, buffer, savedPath);
 	try {
 		return await ingestDocument(
-			{ filePath: savedPath, title: titleFor(originalName), sourceType: handler.type },
+			{
+				fileName: originalName,
+				filePath: savedPath,
+				title: titleFor(originalName),
+				sourceType: handler.type
+			},
 			onProgress
 		);
 	} catch (error) {

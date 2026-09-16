@@ -76,20 +76,23 @@ export const diagnosticEvents = {
 	documentIngestCompleted(input: {
 		chunkCount: number;
 		durationMs: number;
+		fileName: string;
 		pageCount: number;
 		sourceType: Document['sourceType'];
 	}): void {
 		append('info', 'documents', 'DOCUMENT_INGEST_COMPLETED', 'Document ingestion completed', {
-			chunkCount: count(input.chunkCount),
-			durationMs: duration(input.durationMs),
+			fileName: input.fileName,
+			sourceType: input.sourceType,
 			pageCount: count(input.pageCount),
-			sourceType: input.sourceType
+			chunkCount: count(input.chunkCount),
+			durationMs: duration(input.durationMs)
 		});
 	},
 
-	documentIngestFailed(sourceType: Document['sourceType']): void {
+	documentIngestFailed(input: { fileName: string; sourceType: Document['sourceType'] }): void {
 		append('error', 'documents', 'DOCUMENT_INGEST_FAILED', 'Document ingestion failed', {
-			sourceType
+			fileName: input.fileName,
+			sourceType: input.sourceType
 		});
 	},
 
