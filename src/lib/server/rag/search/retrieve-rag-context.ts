@@ -2,6 +2,7 @@ import { searchSemantic } from './semantic-search';
 import { searchHybrid } from './hybrid-search';
 import { searchBm25 } from './bm25-search';
 import { getChunkPositions, type ChunkPosition } from './chunk-positions';
+import { feedbackCandidateLimit, rerankWithRetrievalFeedback } from './feedback-rerank';
 import type { ScoredSearchMatch, SearchChunkType, SearchMatchBase } from './search-shared';
 import { DEFAULT_ASSISTANT_CONFIG, RAG_CHUNK_CHARACTER_LIMIT } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
@@ -145,9 +146,10 @@ export async function retrieveRagContext({
 	mode?: RagRetrievalMode;
 	confidence?: SearchConfidence;
 }): Promise<RagContextResult> {
+	const resultLimit = Math.max(0, Math.floor(topK));
 	const searchOptions = {
 		query: question,
-		topK,
+		topK: feedbackCandidateLimit(resultLimit),
 		documentIds,
 		chunkTypes
 	};
@@ -161,9 +163,12 @@ export async function retrieveRagContext({
 		scored = (await searchSemantic(searchOptions)).results;
 	}
 
-	const matches: SearchMatchBase[] = filterByConfidence(scored, mode, confidence).map(
-		({ score: _score, ...match }) => match
+	const reranked = await rerankWithRetrievalFeedback(
+		question,
+		filterByConfidence(scored, mode, confidence),
+		resultLimit
 	);
+	const matches: SearchMatchBase[] = reranked.map(({ score: _score, ...match }) => match);
 
 	const positions = await getChunkPositions(matches);
 

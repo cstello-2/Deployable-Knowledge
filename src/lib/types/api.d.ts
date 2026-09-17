@@ -12,6 +12,7 @@ import type {
 	WorkspaceLayout
 } from './database';
 import type { WorkspaceLayoutSnapshot } from './workspace';
+import type { ChunkRatingValue } from '$lib/constants';
 
 export type LlamaGpuMode = 'auto' | 'cpu' | 'cuda' | 'vulkan';
 
@@ -32,6 +33,8 @@ export interface AssistantConfig {
 }
 
 export type ChatMode = 'document' | 'notebook';
+
+export type { ChunkRatingValue } from '$lib/constants/chunk-rating';
 
 export interface ApiAgentTool {
 	id: string;
@@ -422,6 +425,22 @@ export type ApiChatStreamEvent =
 	  }
 	| { type: 'error'; message: string };
 
+export interface ApiChunkRatingRequest {
+	query: string;
+	rating: ChunkRatingValue;
+	retrievalMode: RetrievalMode;
+	resultRank: number;
+}
+
+export interface ApiChunkRatingDeleteRequest {
+	query: string;
+}
+
+export interface ApiChunkRatingResponse {
+	chunkId: string;
+	rating: ChunkRatingValue | null;
+}
+
 export interface ApiSearchMatch {
 	chunkId: string;
 	documentId: string;
@@ -430,6 +449,7 @@ export interface ApiSearchMatch {
 	pageIndex: number;
 	chunkIndex: number;
 	content: string;
+	rating: ChunkRatingValue | null;
 }
 
 export type ApiSearchResults = Record<RetrievalMode, ApiSearchMatch[]>;
