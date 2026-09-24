@@ -24,6 +24,9 @@ const SEMANTIC_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
 	medium: 0.55,
 	high: 0.7
 };
+
+// Hybrid search exposes RRF scores normalized against the theoretical maximum.
+// These values measure cross-retriever rank agreement, not calibrated probabilities.
 const HYBRID_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
 	low: 0,
 	medium: 0.2,
