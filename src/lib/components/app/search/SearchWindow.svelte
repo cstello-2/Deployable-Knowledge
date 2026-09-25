@@ -7,8 +7,8 @@
 	import { documentViewerHref } from '$lib/constants';
 	import { RetrievalMode } from '$lib/enums';
 	import { SearchService } from '$lib/services';
-	import { documentsStore, notebooksStore, settingsStore } from '$lib/stores';
-	import type { ApiSearchMatch, ApiSearchResults } from '$lib/types';
+	import { chunkRatingsStore, documentsStore, notebooksStore, settingsStore } from '$lib/stores';
+	import type { ApiSearchMatch, ApiSearchResults, ChunkRatingValue } from '$lib/types';
 	import { describeDocumentLocation } from '$lib/utils';
 	import { notebookSourceHeading } from '$lib/utils/notebook-citations';
 	import SearchForm from './SearchForm.svelte';
@@ -37,9 +37,15 @@
 	let query = $state(settingsStore.lastQuery);
 	let retrievalMode = $state<RetrievalMode>(settingsStore.config.retrievalMode);
 	let ragTopK = $state(settingsStore.config.ragTopK);
-	let results = $state<ApiSearchResults>({ semantic: [], bm25: [], hybrid: [] });
+	let results = $state<ApiSearchResults>({
+		semantic: [],
+		bm25: [],
+		hybrid: []
+	});
+	let resultQuery = $state('');
 	let loading = $state(false);
 	let error = $state('');
+
 	const activeResults = $derived(results[retrievalMode] ?? []);
 
 	async function runSearch(): Promise<void> {
@@ -47,6 +53,7 @@
 
 		if (!value) {
 			results = { semantic: [], bm25: [], hybrid: [] };
+			resultQuery = '';
 			return;
 		}
 
@@ -55,16 +62,40 @@
 		settingsStore.lastQuery = value;
 
 		try {
-			results = await SearchService.search(
+			const searchResults = await SearchService.search(
 				value,
 				Math.max(1, Math.floor(ragTopK || settingsStore.config.ragTopK)),
 				[...documentsStore.selectedIds]
 			);
+			results = searchResults;
+			resultQuery = value;
+			chunkRatingsStore.hydrate(value, searchResults);
 		} catch (searchError) {
 			error = searchError instanceof Error ? searchError.message : 'Search failed';
 			results = { semantic: [], bm25: [], hybrid: [] };
+			resultQuery = '';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function rateChunk(
+		result: ApiSearchMatch,
+		index: number,
+		rating: ChunkRatingValue | null
+	): Promise<void> {
+		if (!resultQuery) return;
+
+		try {
+			await chunkRatingsStore.update({
+				chunkId: result.chunkId,
+				query: resultQuery,
+				rating,
+				retrievalMode,
+				resultRank: index + 1
+			});
+		} catch (ratingError) {
+			toast.error(ratingError instanceof Error ? ratingError.message : 'Failed to save rating');
 		}
 	}
 
@@ -106,7 +137,8 @@
 >
 	<div class="grid min-h-full grid-rows-[auto_1fr] gap-3">
 		<SearchForm bind:query bind:ragTopK bind:retrievalMode {loading} onSubmit={runSearch} />
-		<ScrollArea class="min-h-0" scrollbarYClasses="hidden" aria-live="polite">
+
+		<ScrollArea aria-live="polite" class="min-h-0" scrollbarYClasses="hidden">
 			<div class="grid content-start gap-2">
 				{#if error}
 					<p
@@ -115,22 +147,25 @@
 						{error}
 					</p>
 				{:else if loading}
-					<Skeleton class="h-28" /><Skeleton class="h-28" />
+					<Skeleton class="h-28" />
+					<Skeleton class="h-28" />
 				{:else}
 					{#each activeResults as result, index (result.chunkId)}
 						<SearchResultCard
-							{result}
 							{index}
+							onRatingChange={(rating) => void rateChunk(result, index, rating)}
 							onSaveChunk={(chunkId) => void saveChunk(chunkId)}
 							onSendToNotebook={(match) => void sendToNotebook(match)}
+							rating={chunkRatingsStore.ratingFor(resultQuery, result.chunkId)}
+							ratingSaving={chunkRatingsStore.isSaving(resultQuery, result.chunkId)}
+							{result}
 						/>
 					{:else}
 						<Empty.Root>
-							<Empty.Header
-								><Empty.Title>No context</Empty.Title><Empty.Description
-									>Run a search to inspect matching chunks.</Empty.Description
-								></Empty.Header
-							>
+							<Empty.Header>
+								<Empty.Title>No context</Empty.Title>
+								<Empty.Description>Run a search to inspect matching chunks.</Empty.Description>
+							</Empty.Header>
 						</Empty.Root>
 					{/each}
 				{/if}

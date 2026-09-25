@@ -12,3 +12,4 @@ export * from './provider-base-url';
 export * from './tokens';
 export * from './audio-format';
 export * from './youtube-url';
+export * from './retrieval-feedback';

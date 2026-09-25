@@ -14,3 +14,4 @@ export * from './reasoning-presets';
 export * from './storage';
 export * from './theme-defaults';
 export * from './workspace-defaults';
+export * from './chunk-rating';
