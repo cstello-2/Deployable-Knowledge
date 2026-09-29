@@ -7,7 +7,7 @@ export type RerankCandidate = {
 };
 
 export type RerankedCandidate = RerankCandidate & {
-	score: number;
+	relevance: number;
 };
 
 function validateScores(
@@ -56,6 +56,6 @@ export async function rerankCandidates(
 		.sort((left, right) => right.score - left.score || left.originalIndex - right.originalIndex)
 		.map(({ candidate, score }) => ({
 			...candidate,
-			score
+			relevance: score
 		}));
 }

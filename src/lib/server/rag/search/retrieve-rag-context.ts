@@ -24,9 +24,6 @@ const SEMANTIC_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
 	medium: 0.55,
 	high: 0.7
 };
-
-// Hybrid search exposes RRF scores normalized against the theoretical maximum.
-// These values measure cross-retriever rank agreement, not calibrated probabilities.
 const HYBRID_CONFIDENCE_THRESHOLDS: Record<SearchConfidence, number> = {
 	low: 0,
 	medium: 0.2,
@@ -92,7 +89,6 @@ export type RagContextResult = {
 	sources: RagSource[];
 };
 
-// Format retrieved chunks in the old RAG prompt style
 function formatContext(matches: SearchMatchBase[]) {
 	if (matches.length === 0) return '';
 
@@ -106,7 +102,6 @@ function formatContext(matches: SearchMatchBase[]) {
 	return ['Relevant context:', ...items].join('\n');
 }
 
-// Sources are the user-facing citation list, so keep them shorter than the model context
 export function buildSources(
 	matches: SearchMatchBase[],
 	positions?: Map<string, ChunkPosition>
@@ -131,8 +126,6 @@ export function buildSources(
 	});
 }
 
-// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 to force one path
-// May want to switch to hybrid only in the future, kept for now to test/validate
 export async function retrieveRagContext({
 	question,
 	documentIds = [],
