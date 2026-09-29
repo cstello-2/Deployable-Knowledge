@@ -1,3 +1,4 @@
+import type { EmbeddingDevice } from '$lib/constants/embedding';
 import type { CustomProviderType } from '$lib/constants/providers';
 import type { ThemeColor, ThemeMode } from '$lib/constants/theme-defaults';
 import type { RetrievalMode } from '$lib/enums';
@@ -131,6 +132,8 @@ export type DocumentSortMode =
 	| 'least-chunks';
 
 export interface ApiDocumentListQuery {
+	/** A synced folder id, or the loose group for documents no folder owns. */
+	group?: string;
 	limit?: number;
 	mode?: DocumentListMode;
 	offset?: number;
@@ -139,17 +142,13 @@ export interface ApiDocumentListQuery {
 	tags?: string[];
 }
 
-export interface ApiFolderDocumentCount {
-	folderId: string | null;
+export interface ApiDocumentListResponse {
+	documents: DocumentRow[];
 	total: number;
 }
 
-export interface ApiDocumentListResponse {
-	documents: DocumentRow[];
-	folderCounts: ApiFolderDocumentCount[];
-	manualTotal: number;
+export interface ApiDocumentTagsResponse {
 	tags: string[];
-	total: number;
 }
 
 export interface ApiDocumentIdsResponse {
@@ -339,16 +338,35 @@ export interface ApiSessionTitleRequest {
 	title: string;
 }
 
-export interface ApiEmbeddingModelStatus {
-	installed: boolean;
+export interface EmbeddingSettings {
+	provider: string;
 	model: string;
-	dtype: string;
+	device: EmbeddingDevice;
 }
 
-export type ApiEmbeddingModelInstallEvent =
-	| { status: 'progress'; progress: number; loaded: number; total: number }
-	| { status: 'ready' }
-	| { status: 'error'; message: string };
+export type EmbeddingBackend = 'cpu' | 'cuda' | 'vulkan' | 'metal';
+
+export interface ApiEmbeddingProviderOption {
+	id: string;
+	name: string;
+}
+
+export interface ApiLocalEmbeddingModelInfo {
+	fileName: string;
+	downloaded: boolean;
+}
+
+export interface ApiEmbeddingStatus {
+	settings: EmbeddingSettings;
+	providers: ApiEmbeddingProviderOption[];
+	localModels: ApiLocalEmbeddingModelInfo[];
+	/** False while the active local model still has to be downloaded. */
+	ready: boolean;
+	/** What the active local model runs on; null before its first use or for remote providers. */
+	backend: EmbeddingBackend | null;
+	/** Chunks embedded by another model that are waiting to be re-embedded. */
+	pendingChunks: number;
+}
 
 export interface ApiLocalModelInfo {
 	fileName: string;

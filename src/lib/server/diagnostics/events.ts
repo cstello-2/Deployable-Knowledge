@@ -2,7 +2,8 @@ import type {
 	ApiDiagnosticEventsResponse,
 	DiagnosticEvent,
 	DiagnosticLevel,
-	DiagnosticSubsystem
+	DiagnosticSubsystem,
+	EmbeddingBackend
 } from '$lib/types';
 import type { Document } from '$lib/server/database/schema';
 
@@ -100,9 +101,28 @@ export const diagnosticEvents = {
 		append('error', 'embedding', 'EMBEDDING_MODEL_FAILED', 'Embedding model failed to load');
 	},
 
-	embeddingReady(durationMs: number): void {
+	embeddingReady(input: { backend: EmbeddingBackend; durationMs: number; model: string }): void {
 		append('info', 'embedding', 'EMBEDDING_MODEL_READY', 'Embedding model ready', {
-			durationMs: duration(durationMs)
+			backend: input.backend,
+			durationMs: duration(input.durationMs),
+			model: input.model
+		});
+	},
+
+	embeddingRefreshCompleted(input: { chunks: number; durationMs: number }): void {
+		append('info', 'embedding', 'EMBEDDING_REFRESH_COMPLETED', 'Stored embeddings refreshed', {
+			chunks: count(input.chunks),
+			durationMs: duration(input.durationMs)
+		});
+	},
+
+	embeddingRefreshFailed(): void {
+		append('error', 'embedding', 'EMBEDDING_REFRESH_FAILED', 'Stored embedding refresh failed');
+	},
+
+	embeddingRefreshStarted(chunks: number): void {
+		append('info', 'embedding', 'EMBEDDING_REFRESH_STARTED', 'Refreshing stored embeddings', {
+			chunks: count(chunks)
 		});
 	},
 

@@ -41,7 +41,7 @@ export class OpenAiCompatible extends Provider {
 
 		const resp = await fetch(`${this.baseUrl}/chat/completions`, {
 			method: 'POST',
-			headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+			headers: { ...openAiAuthHeaders(this.apiKey), 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				model,
 				messages: messages.map(this.chatCodec.encodeMessage),
@@ -68,7 +68,7 @@ export class OpenAiCompatible extends Provider {
 
 	override async listModels(): Promise<string[]> {
 		const resp = await fetch(`${this.baseUrl}/models`, {
-			headers: this.authHeaders(),
+			headers: openAiAuthHeaders(this.apiKey),
 			signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)
 		});
 
@@ -89,10 +89,10 @@ export class OpenAiCompatible extends Provider {
 			})
 			.sort((a, b) => a.localeCompare(b));
 	}
+}
 
-	private authHeaders(): Record<string, string> {
-		return this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {};
-	}
+export function openAiAuthHeaders(apiKey: string): Record<string, string> {
+	return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
 async function* streamChatCompletion(

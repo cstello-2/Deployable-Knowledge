@@ -1,6 +1,10 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { ApiDocumentTagAssignmentRequest, ApiDocumentTagRequest } from '$lib/types';
+import type {
+	ApiDocumentTagAssignmentRequest,
+	ApiDocumentTagRequest,
+	ApiDocumentTagsResponse
+} from '$lib/types';
 import { DOCUMENT_TAG_PATTERN, normalizeDocumentTag } from '$lib/utils';
 import { db } from '$lib/server/database/database';
 import { documentTags, tags } from '$lib/server/database/schema';
@@ -11,7 +15,7 @@ async function listTags(): Promise<string[]> {
 }
 
 export const GET: RequestHandler = async () => {
-	return json({ tags: await listTags() });
+	return json({ tags: await listTags() } satisfies ApiDocumentTagsResponse);
 };
 
 export const POST: RequestHandler = async ({ request }) => {

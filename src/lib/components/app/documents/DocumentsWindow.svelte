@@ -413,17 +413,13 @@
 			/>
 			<DocumentList
 				{busy}
-				documents={documentsStore.documents}
-				folderCounts={documentsStore.folderCounts}
 				folders={documentsStore.folders}
-				hasMore={documentsStore.hasMore}
-				loadingMore={documentsStore.loadingMore}
-				manualTotal={documentsStore.manualTotal}
+				loadingGroups={documentsStore.loadingGroups}
 				onAutotagDocument={(document) => void autotagDocument(document)}
 				onAutotagGroup={(group) => void autotagGroup(group)}
 				onCreateTag={(document, tag) => createAndAssignTag(document, tag)}
 				onDeleteDocument={(document) => (pendingDeleteDocument = document)}
-				onLoadMore={() => void documentsStore.loadMore()}
+				onLoadMore={(group) => void documentsStore.loadMore(group)}
 				onReconnectFolder={(folder) => void reconnectFolder(folder)}
 				onRemoveFolder={(folder, removeDocuments) =>
 					(pendingFolderRemoval = { folder, removeDocuments })}
@@ -434,9 +430,9 @@
 				onToggleActive={(document) => void toggleDocumentActive(document)}
 				onToggleGroup={(group, selected) => void documentsStore.selectGroup(group, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
+				pages={documentsStore.pages}
 				selectedIds={documentsStore.selectedIds}
 				tags={documentsStore.tags}
-				total={documentsStore.total}
 			/>
 		</div>
 		<div class="grid gap-2 border-t pt-3">

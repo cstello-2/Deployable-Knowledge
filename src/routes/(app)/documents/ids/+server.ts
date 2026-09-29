@@ -12,18 +12,11 @@ export const GET: RequestHandler = async ({ url }) => {
 	}
 
 	const query: ApiDocumentListQuery = {
+		group: url.searchParams.get('group') ?? undefined,
 		mode: mode as DocumentListMode,
 		query: url.searchParams.get('q') ?? undefined,
 		tags: url.searchParams.getAll('tag')
 	};
 
-	const groupValue = url.searchParams.get('group');
-	const group =
-		groupValue === null
-			? undefined
-			: groupValue === 'manual'
-				? ('manual' as const)
-				: { folderId: groupValue === 'individual' ? null : groupValue };
-
-	return json({ ids: await DocumentsRepository.listIds(query, group) });
+	return json({ ids: await DocumentsRepository.listIds(query) });
 };

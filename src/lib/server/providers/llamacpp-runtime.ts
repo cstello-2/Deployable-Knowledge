@@ -12,7 +12,7 @@ import type {
 	ModelDownloader
 } from 'node-llama-cpp';
 
-import type { LocalModel } from '$lib/constants/local-models';
+import type { DownloadableModel, LocalModel } from '$lib/constants/local-models';
 import type { LlamaGpuMode } from '$lib/types';
 
 export type SupportedGpuType = Exclude<LlamaGpuMode, 'auto' | 'cpu'>;
@@ -108,10 +108,28 @@ export function resolveLocalModelPath(fileName: string): string {
 
 export const getActiveDownloadFile = (): string | null => state.activeDownload?.fileName ?? null;
 
+export async function createGgufDownloader(
+	model: Pick<DownloadableModel, 'repo' | 'fileName'>,
+	dirPath: string,
+	onProgress: (loaded: number, total: number) => void
+): Promise<ModelDownloader> {
+	await mkdir(dirPath, { recursive: true });
+
+	const { createModelDownloader } = await loadNlc();
+	return createModelDownloader({
+		modelUri: `hf:${model.repo}/${model.fileName}`,
+		dirPath,
+		fileName: model.fileName,
+		skipExisting: true,
+		deleteTempFileOnCancel: false,
+		onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
+	});
+}
+
 export async function downloadLocalModel(
 	model: LocalModel,
 	onProgress: (loaded: number, total: number) => void
-): Promise<string> {
+): Promise<void> {
 	if (state.activeDownload) {
 		throw new Error(`A model download is already in progress (${state.activeDownload.fileName}).`);
 	}
@@ -119,22 +137,9 @@ export async function downloadLocalModel(
 	state.activeDownload = { fileName: model.fileName, downloader: null };
 
 	try {
-		await mkdir(MODELS_DIR, { recursive: true });
-
-		const { createModelDownloader } = await loadNlc();
-		const downloader = await createModelDownloader({
-			modelUri: `hf:${model.repo}/${model.fileName}`,
-			dirPath: MODELS_DIR,
-			fileName: model.fileName,
-			skipExisting: true,
-			deleteTempFileOnCancel: false,
-			onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
-		});
-
+		const downloader = await createGgufDownloader(model, MODELS_DIR, onProgress);
 		state.activeDownload.downloader = downloader;
 		await downloader.download();
-
-		return model.fileName;
 	} finally {
 		state.activeDownload = null;
 	}

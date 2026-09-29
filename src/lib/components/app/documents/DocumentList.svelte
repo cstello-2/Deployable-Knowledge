@@ -17,7 +17,8 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { cn } from '$lib/components/ui/utils';
-	import type { ApiFolderDocumentCount, ApiSyncedFolder, DocumentRow } from '$lib/types';
+	import { LOOSE_DOCUMENT_GROUPS, type LooseDocumentGroup } from '$lib/constants';
+	import type { ApiDocumentListResponse, ApiSyncedFolder, DocumentRow } from '$lib/types';
 	import DocumentListItem from './DocumentListItem.svelte';
 
 	const SYNC_STATUS_LABELS: Record<FolderSyncStatus, string> = {
@@ -30,28 +31,29 @@
 		error: 'sync error'
 	};
 
+	const LOOSE_GROUP_LABELS: Record<LooseDocumentGroup, string> = {
+		individual: 'Individual files',
+		manual: 'Manually Loaded'
+	};
+
 	interface DocumentGroup {
 		documents: DocumentRow[];
 		folder: ApiSyncedFolder | null;
 		key: string;
-		kind: 'folder' | 'individual' | 'manual';
+		kind: 'folder' | LooseDocumentGroup;
 		label: string;
 		total: number;
 	}
 
 	interface Props {
 		busy?: boolean;
-		documents: DocumentRow[];
-		folderCounts?: ApiFolderDocumentCount[];
 		folders: ApiSyncedFolder[];
-		hasMore?: boolean;
-		loadingMore?: boolean;
+		loadingGroups: ReadonlySet<string>;
 		onAutotagDocument: (document: DocumentRow) => void;
 		onAutotagGroup: (group: string) => void;
 		onCreateTag: (document: DocumentRow, tag: string) => Promise<void> | void;
 		onDeleteDocument: (document: DocumentRow) => void;
-		onLoadMore?: () => void;
-		manualTotal?: number;
+		onLoadMore: (group: string) => void;
 		onReconnectFolder?: (folder: ApiSyncedFolder) => void;
 		onRemoveFolder: (folder: ApiSyncedFolder, removeDocuments: boolean) => void;
 		onRetryFolder?: (folder: ApiSyncedFolder) => void;
@@ -61,24 +63,20 @@
 		onToggleActive: (document: DocumentRow) => void;
 		onToggleGroup: (group: string, selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
+		pages: Record<string, ApiDocumentListResponse>;
 		selectedIds: ReadonlySet<string>;
 		tags: string[];
-		total?: number;
 	}
 
 	let {
 		busy = false,
-		documents,
-		folderCounts = [],
 		folders,
-		hasMore = false,
-		loadingMore = false,
-		manualTotal = 0,
+		loadingGroups,
 		onAutotagDocument,
 		onAutotagGroup,
 		onCreateTag,
 		onDeleteDocument,
-		onLoadMore = () => {},
+		onLoadMore,
 		onReconnectFolder = () => {},
 		onRemoveFolder,
 		onRetryFolder = () => {},
@@ -88,53 +86,32 @@
 		onToggleActive,
 		onToggleGroup,
 		onToggleTag,
+		pages,
 		selectedIds,
-		tags,
-		total = 0
+		tags
 	}: Props = $props();
 	const collapsed = new SvelteSet<string>();
 	let viewport = $state<HTMLDivElement | null>(null);
 
 	const groups = $derived.by(() => {
-		const registeredIds = new Set(folders.map(({ id }) => id));
-		const countByFolder = new Map(folderCounts.map(({ folderId, total }) => [folderId, total]));
-		const registeredTotal = folderCounts.reduce(
-			(sum, { folderId, total }) =>
-				folderId !== null && registeredIds.has(folderId) ? sum + total : sum,
-			0
-		);
 		const values: DocumentGroup[] = folders.map((folder) => ({
 			key: folder.id,
 			kind: 'folder' as const,
 			label: folder.name,
-			documents: documents.filter((document) => document.folderId === folder.id),
+			documents: pages[folder.id]?.documents ?? [],
 			folder,
-			total: countByFolder.get(folder.id) ?? 0
+			total: pages[folder.id]?.total ?? 0
 		}));
-		const loose = documents.filter(
-			(document) => !document.folderId || !registeredIds.has(document.folderId)
-		);
-		const individual = loose.filter((document) => document.origin !== 'MANUAL');
-		const manual = loose.filter((document) => document.origin === 'MANUAL');
-		const individualTotal = total - registeredTotal - manualTotal;
-		if (individual.length || individualTotal > 0) {
+		for (const kind of LOOSE_DOCUMENT_GROUPS) {
+			const page = pages[kind];
+			if (!page?.total) continue;
 			values.push({
-				key: 'individual',
-				kind: 'individual',
-				label: 'Individual files',
-				documents: individual,
+				key: kind,
+				kind,
+				label: LOOSE_GROUP_LABELS[kind],
+				documents: page.documents,
 				folder: null,
-				total: individualTotal
-			});
-		}
-		if (manual.length || manualTotal > 0) {
-			values.push({
-				key: 'manual',
-				kind: 'manual',
-				label: 'Manually Loaded',
-				documents: manual,
-				folder: null,
-				total: manualTotal
+				total: page.total
 			});
 		}
 		return values;
@@ -165,7 +142,7 @@
 						disabled={!group.documents.length && !group.total}
 						indeterminate={group.documents.some((document) => selectedIds.has(document.id)) &&
 							!group.documents.every((document) => selectedIds.has(document.id))}
-						onCheckedChange={(selected) => onToggleGroup(group.folder?.id ?? group.kind, selected)}
+						onCheckedChange={(selected) => onToggleGroup(group.key, selected)}
 					/>
 					{#if group.folder}
 						<FolderSync class="size-4 shrink-0 text-muted-foreground" />
@@ -192,7 +169,7 @@
 						label={`Autotag ${group.label}`}
 						size="icon-sm"
 						variant="ghost"
-						onclick={() => onAutotagGroup(group.folder?.id ?? group.kind)}
+						onclick={() => onAutotagGroup(group.key)}
 					>
 						<WandSparkles />
 					</ActionIcon>
@@ -284,13 +261,24 @@
 								selected={selectedIds.has(document.id)}
 							/>
 						{:else}
-							<p class="px-2 py-3 text-xs text-muted-foreground">
-								{group.total > 0
-									? 'Not loaded yet — scroll the list to load more.'
-									: 'No matching documents.'}
-							</p>
+							<p class="px-2 py-3 text-xs text-muted-foreground">No matching documents.</p>
 						{/each}
 					</div>
+					{#if group.documents.length < group.total}
+						<div
+							aria-hidden="true"
+							use:infiniteScroll={{
+								disabled: busy || loadingGroups.has(group.key),
+								onLoadMore: () => onLoadMore(group.key),
+								root: viewport
+							}}
+						></div>
+						<p class="border-t px-2 py-1.5 text-center text-xs text-muted-foreground">
+							{loadingGroups.has(group.key)
+								? 'Loading more documents…'
+								: `Showing ${group.documents.length} of ${group.total} documents`}
+						</p>
+					{/if}
 				{/if}
 			</section>
 		{:else}
@@ -301,16 +289,5 @@
 				</Empty.Header>
 			</Empty.Root>
 		{/each}
-		{#if hasMore}
-			<div
-				aria-hidden="true"
-				use:infiniteScroll={{ disabled: busy || loadingMore, onLoadMore, root: viewport }}
-			></div>
-			<p class="pb-2 text-center text-xs text-muted-foreground">
-				{loadingMore
-					? 'Loading more documents…'
-					: `Showing ${documents.length} of ${total} documents`}
-			</p>
-		{/if}
 	</div>
 </ScrollArea>

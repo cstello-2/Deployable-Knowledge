@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
 
-import { parseThemeColor, parseThemeMode } from '$lib/constants';
-import type { ThemeSettings } from '$lib/types';
+import { DEFAULT_EMBEDDING_SETTINGS, parseThemeColor, parseThemeMode } from '$lib/constants';
+import type { EmbeddingSettings, ThemeSettings } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { appState, profiles } from '$lib/server/database/schema';
 import { toolRegistry } from '$lib/server/tools';
@@ -80,6 +80,27 @@ export async function setThemeSettings({ color, mode }: ThemeSettings): Promise<
 			set: { themeColor: color, themeMode: mode }
 		});
 	return { color, mode };
+}
+
+export async function getEmbeddingSettings(): Promise<EmbeddingSettings> {
+	const state = await db.select().from(appState).where(eq(appState.id, APP_STATE_ID)).get();
+	return {
+		provider: state?.embeddingProvider ?? DEFAULT_EMBEDDING_SETTINGS.provider,
+		model: state?.embeddingModel ?? DEFAULT_EMBEDDING_SETTINGS.model,
+		device: state?.embeddingDevice ?? DEFAULT_EMBEDDING_SETTINGS.device
+	};
+}
+
+export async function setEmbeddingSettings(settings: EmbeddingSettings): Promise<void> {
+	const values = {
+		embeddingProvider: settings.provider,
+		embeddingModel: settings.model,
+		embeddingDevice: settings.device
+	};
+	await db
+		.insert(appState)
+		.values({ id: APP_STATE_ID, ...values })
+		.onConflictDoUpdate({ target: appState.id, set: values });
 }
 
 export async function clearActiveLayoutId(layoutId: string): Promise<void> {

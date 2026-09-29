@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5a2e25f0-9c6b-4ad6-8241-4310dcde8161",
+  "id": "63d17f94-8f28-4aa5-a1ac-6aecd02666b6",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "app_state": {
@@ -44,6 +44,30 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'system'"
+        },
+        "embedding_provider": {
+          "name": "embedding_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'llamacpp'"
+        },
+        "embedding_model": {
+          "name": "embedding_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'nomic-embed-text-v1.5.Q8_0.gguf'"
+        },
+        "embedding_device": {
+          "name": "embedding_device",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'auto'"
         }
       },
       "indexes": {},
@@ -178,6 +202,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "embedding_model": {
+          "name": "embedding_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -215,6 +246,16 @@
             "chunk_index"
           ],
           "isUnique": false
+        },
+        "document_chunks_embedding_model_idx": {
+          "name": "document_chunks_embedding_model_idx",
+          "columns": [
+            "embedding_model",
+            "id",
+            "document_id"
+          ],
+          "isUnique": false,
+          "where": "\"document_chunks\".\"embedding\" is not null"
         }
       },
       "foreignKeys": {

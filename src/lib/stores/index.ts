@@ -1,11 +1,11 @@
 export { chatStore } from './chat.svelte';
 export { documentsStore } from './documents.svelte';
+export { embeddingStore } from './embedding.svelte';
 export { localModelsStore } from './local-models.svelte';
 export { notebooksStore } from './notebooks.svelte';
 export { sessionsStore } from './sessions.svelte';
 export { settingsDialogStore } from './settings-dialog.svelte';
 export { settingsStore } from './settings.svelte';
-export { setupStore } from './setup.svelte';
 export { themeStore } from './theme.svelte';
 export { workspaceStore } from './workspace.svelte';
 export { diagnosticsStore } from './diagnostics.svelte';

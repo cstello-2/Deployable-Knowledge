@@ -8,11 +8,8 @@ import {
 	getSupportedGpuTypes,
 	listLocalModelFiles
 } from '$lib/server/providers/llamacpp-runtime';
-import type {
-	ApiLocalModelDownloadEvent,
-	ApiLocalModelInfo,
-	ApiLocalModelsStatus
-} from '$lib/types';
+import { modelDownloadResponse } from '$lib/server/utils/model-download-response';
+import type { ApiLocalModelInfo, ApiLocalModelsStatus } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -49,58 +46,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: 'A model download is already in progress.' }, { status: 409 });
 	}
 
-	const encoder = new TextEncoder();
-	let connected = true;
-
-	const stream = new ReadableStream({
-		async start(controller) {
-			const send = (event: ApiLocalModelDownloadEvent) => {
-				if (!connected) return;
-
-				try {
-					controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-				} catch {
-					connected = false;
-				}
-			};
-
-			let lastProgress = 0;
-			let lastSentAt = 0;
-
-			try {
-				const fileName = await downloadLocalModel(model, (loaded, total) => {
-					if (!total) return;
-
-					const progress = loaded / total;
-					const now = Date.now();
-
-					if (progress - lastProgress < 0.01 && now - lastSentAt < 300 && progress < 1) return;
-
-					lastProgress = progress;
-					lastSentAt = now;
-					send({ status: 'progress', progress, loaded, total });
-				});
-
-				send({ status: 'ready', fileName });
-			} catch (error) {
-				send({
-					status: 'error',
-					message: error instanceof Error ? error.message : 'Model download failed'
-				});
-			} finally {
-				if (connected) controller.close();
-			}
-		},
-		cancel() {
-			connected = false;
-			cancelActiveDownload();
-		}
-	});
-
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'application/x-ndjson; charset=utf-8',
-			'Cache-Control': 'no-cache'
-		}
-	});
+	return modelDownloadResponse(
+		'Model download',
+		model.fileName,
+		(onProgress) => downloadLocalModel(model, onProgress),
+		cancelActiveDownload
+	);
 };

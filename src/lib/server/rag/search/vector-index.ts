@@ -2,31 +2,69 @@ import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { and, asc, count, eq, gt, isNotNull, ne } from 'drizzle-orm';
 import { db } from '../../database/database';
 import { documentChunks, documents } from '../../database/schema';
-import type { SearchChunkType } from './search-shared';
+import {
+	VectorStore,
+	type VectorIndex,
+	type VectorIndexChange,
+	type VectorIndexRow
+} from './vector-store';
 
 const LOAD_BATCH_SIZE = 4000;
+const MAX_PENDING_ROWS = 8192;
 
-export type VectorIndex = {
-	chunkIds: string[];
-	documentIds: string[];
-	chunkTypes: SearchChunkType[];
-	dimensions: number;
-	matrix: Float32Array;
-	count: number;
+type IndexEntry = {
+	key: string;
+	store: Promise<VectorStore>;
+	ready: VectorStore | null;
+	pending: VectorIndexChange[];
+	pendingRows: number;
 };
 
-let indexPromise: Promise<VectorIndex> | undefined;
+let current: IndexEntry | undefined;
 
-export function getVectorIndex(): Promise<VectorIndex> {
-	indexPromise ??= build().catch((error) => {
-		indexPromise = undefined;
-		throw error;
-	});
-	return indexPromise;
+export async function getVectorIndex(key: string): Promise<VectorIndex> {
+	if (current?.key !== key) current = createEntry(key);
+	const entry = current;
+	const store = await entry.store;
+	applyPending(entry, store);
+	return store.view();
 }
 
-export function invalidateVectorIndex(): void {
-	indexPromise = undefined;
+export function removeDocumentVectors(documentId: string): void {
+	record({ type: 'remove-document', documentId }, 0);
+}
+
+export function putChunkVectors(rows: VectorIndexRow[]): void {
+	if (rows.length) record({ type: 'put-chunks', rows }, rows.length);
+}
+
+function record(change: VectorIndexChange, rows: number): void {
+	const entry = current;
+	if (!entry) return;
+	entry.pending.push(change);
+	entry.pendingRows += rows;
+	if (entry.ready && entry.pendingRows >= MAX_PENDING_ROWS) applyPending(entry, entry.ready);
+}
+
+function applyPending(entry: IndexEntry, store: VectorStore): void {
+	if (entry.pending.length === 0) return;
+	const changes = entry.pending;
+	entry.pending = [];
+	entry.pendingRows = 0;
+	store.apply(changes);
+}
+
+function createEntry(key: string): IndexEntry {
+	const entry: IndexEntry = { key, store: build(key), ready: null, pending: [], pendingRows: 0 };
+	entry.store.then(
+		(store) => {
+			entry.ready = store;
+		},
+		() => {
+			if (current === entry) current = undefined;
+		}
+	);
+	return entry;
 }
 
 function toFloat32(embedding: unknown): Float32Array | null {
@@ -41,21 +79,20 @@ function toFloat32(embedding: unknown): Float32Array | null {
 	);
 }
 
-async function build(): Promise<VectorIndex> {
+async function build(key: string): Promise<VectorStore> {
 	const started = Date.now();
-	const embeddedChunks = and(isNotNull(documentChunks.embedding), ne(documents.sourceType, 'CSV'));
+	const embeddedChunks = and(
+		isNotNull(documentChunks.embedding),
+		eq(documentChunks.embeddingModel, key),
+		ne(documents.sourceType, 'CSV')
+	);
 	const [{ total }] = await db
 		.select({ total: count() })
 		.from(documentChunks)
 		.innerJoin(documents, eq(documents.id, documentChunks.documentId))
 		.where(embeddedChunks);
 
-	const chunkIds: string[] = [];
-	const documentIds: string[] = [];
-	const chunkTypes: SearchChunkType[] = [];
-	let dimensions = 0;
-	let matrix = new Float32Array(0);
-	let rows = 0;
+	const store = new VectorStore(key, total);
 	let lastId = '';
 
 	for (;;) {
@@ -80,38 +117,20 @@ async function build(): Promise<VectorIndex> {
 				console.warn(`[Search] Chunk ${row.id} has no readable embedding; skipping it.`);
 				continue;
 			}
-			if (dimensions === 0) {
-				dimensions = vector.length;
-				matrix = new Float32Array(total * dimensions);
-			}
-			if (vector.length !== dimensions) {
-				console.warn(`[Search] Chunk ${row.id} embedding has mismatched dimensions; skipping it.`);
-				continue;
-			}
-			if ((rows + 1) * dimensions > matrix.length) {
-				const grown = new Float32Array(Math.ceil(matrix.length * 1.5) + dimensions);
-				grown.set(matrix);
-				matrix = grown;
-			}
-			matrix.set(vector, rows * dimensions);
-			chunkIds.push(row.id);
-			documentIds.push(row.documentId);
-			chunkTypes.push(row.chunkType);
-			rows += 1;
+			store.append({
+				chunkId: row.id,
+				documentId: row.documentId,
+				chunkType: row.chunkType,
+				key,
+				vector
+			});
 		}
 
 		await yieldEventLoop();
 	}
 
 	console.log(
-		`[Search] Vector index ready: ${rows} chunk(s), ${dimensions} dims, in ${((Date.now() - started) / 1000).toFixed(1)}s.`
+		`[Search] Vector index ready: ${store.size} chunk(s), ${store.view().dimensions} dims, in ${((Date.now() - started) / 1000).toFixed(1)}s.`
 	);
-	return {
-		chunkIds,
-		documentIds,
-		chunkTypes,
-		dimensions,
-		matrix: matrix.subarray(0, rows * dimensions),
-		count: rows
-	};
+	return store;
 }

@@ -9,7 +9,7 @@
 	import { SettingsDialog } from '$lib/components/app/settings';
 	import EngineHeartbeat from '$lib/components/app/navigation/EngineHeartbeat.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { settingsStore, setupStore, themeStore, workspaceStore } from '$lib/stores';
+	import { embeddingStore, settingsStore, themeStore, workspaceStore } from '$lib/stores';
 
 	let { children } = $props();
 	let framesPainted = $state(false);
@@ -21,7 +21,7 @@
 		themeStore.init();
 		void workspaceStore.init();
 		void settingsStore.init();
-		void setupStore.init();
+		void embeddingStore.init();
 
 		let secondFrame = 0;
 		const firstFrame = requestAnimationFrame(() => {
@@ -49,14 +49,14 @@
 	<SettingsDialog />
 
 	<DialogProgress
-		open={setupStore.open}
+		open={embeddingStore.setupOpen}
 		title="Preparing semantic search"
-		progress={setupStore.progress}
-		error={setupStore.error ?? ''}
+		progress={embeddingStore.progress}
+		error={embeddingStore.error ?? ''}
 		errorTitle="Semantic search setup failed"
 		errorDetail="You can continue without semantic search and retry later."
-		onRetry={() => void setupStore.install()}
-		onClose={() => (setupStore.open = false)}
+		onRetry={() => void embeddingStore.retrySetup()}
+		onClose={() => (embeddingStore.setupOpen = false)}
 	/>
 
 	<AppStartupOverlay ready={layoutReady} version={packageMetadata.version} />

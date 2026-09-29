@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity';
+import { LOOSE_DOCUMENT_GROUPS } from '$lib/constants';
 import { DocumentsService } from '$lib/services';
 import { DEFAULT_DOCUMENT_SORT } from '$lib/utils';
 import type {
@@ -6,11 +7,10 @@ import type {
 	ApiDocumentAutotagResult,
 	ApiDocumentIngestProgress,
 	ApiDocumentListQuery,
+	ApiDocumentListResponse,
 	ApiDocumentSyncFileProgress,
-	ApiFolderDocumentCount,
 	ApiSyncedFolder,
 	DocumentListMode,
-	DocumentRow,
 	DocumentSortMode
 } from '$lib/types';
 
@@ -24,15 +24,19 @@ const QUERY_DEBOUNCE_MS = 250;
 const SYNC_LOG_LIMIT = 200;
 const SYNC_LOG_TRIM = 100;
 
+interface DocumentGroupPage extends ApiDocumentListResponse {
+	// Rows consumed from the server. Runs ahead of `documents.length` when an ingest
+	// shifts shown rows into the next page and the repeats are dropped.
+	offset: number;
+}
+
 class DocumentsStore {
-	private _documents = $state<DocumentRow[]>([]);
+	private _pages = $state.raw<Record<string, DocumentGroupPage>>({});
+	private _loadingGroups = new SvelteSet<string>();
 	private _tags = $state<string[]>([]);
 	private _folders = $state<ApiSyncedFolder[]>([]);
 	private _selectedIds = $state(new SvelteSet<string>());
 	private _syncFiles = $state<ApiDocumentSyncFileProgress[]>([]);
-	private _total = $state(0);
-	private _manualTotal = $state(0);
-	private _folderCounts = $state<ApiFolderDocumentCount[]>([]);
 	private _query = $state('');
 	private _tagFilters = $state<string[]>([]);
 	private _mode = $state<DocumentListMode>('all');
@@ -51,11 +55,15 @@ class DocumentsStore {
 	syncing = $state(false);
 	autotagging = $state(false);
 	loading = $state(false);
-	loadingMore = $state(false);
 	error = $state<string | null>(null);
 
-	get documents(): DocumentRow[] {
-		return this._documents;
+	/** Keyed by folder id or loose group. */
+	get pages(): Record<string, ApiDocumentListResponse> {
+		return this._pages;
+	}
+
+	get loadingGroups(): ReadonlySet<string> {
+		return this._loadingGroups;
 	}
 
 	get tags(): string[] {
@@ -94,22 +102,6 @@ class DocumentsStore {
 		return this._selectedIds;
 	}
 
-	get total(): number {
-		return this._total;
-	}
-
-	get folderCounts(): ApiFolderDocumentCount[] {
-		return this._folderCounts;
-	}
-
-	get manualTotal(): number {
-		return this._manualTotal;
-	}
-
-	get hasMore(): boolean {
-		return this._documents.length < this._total;
-	}
-
 	get query(): string {
 		return this._query;
 	}
@@ -131,33 +123,42 @@ class DocumentsStore {
 	}
 
 	async load(): Promise<void> {
-		await this.fetchList(PAGE_SIZE);
+		await this.fetchList(() => PAGE_SIZE);
 	}
 
 	async refresh(): Promise<void> {
-		await this.fetchList(Math.min(Math.max(this._documents.length, PAGE_SIZE), MAX_REFRESH_SIZE));
+		await this.fetchList((group) =>
+			Math.min(Math.max(this._pages[group]?.documents.length ?? 0, PAGE_SIZE), MAX_REFRESH_SIZE)
+		);
 	}
 
-	async loadMore(): Promise<void> {
-		if (this.loading || this.loadingMore || this.error || !this.hasMore) return;
-		const request = ++this.listRequest;
-		this.loadingMore = true;
+	async loadMore(group: string): Promise<void> {
+		const page = this._pages[group];
+		if (!page || page.offset >= page.total) return;
+		if (this.loading || this.error || this._loadingGroups.has(group)) return;
+		const request = this.listRequest;
+		this._loadingGroups.add(group);
 		try {
 			const result = await DocumentsService.list({
 				...this.listQuery(),
-				offset: this._documents.length,
+				group,
+				offset: page.offset,
 				limit: PAGE_SIZE
 			});
 			if (request !== this.listRequest) return;
-			this._documents = [...this._documents, ...result.documents];
-			this._tags = result.tags;
-			this._total = result.total;
-			this._manualTotal = result.manualTotal;
-			this._folderCounts = result.folderCounts;
+			const shown = new Set(page.documents.map(({ id }) => id));
+			this._pages = {
+				...this._pages,
+				[group]: {
+					documents: [...page.documents, ...result.documents.filter(({ id }) => !shown.has(id))],
+					offset: page.offset + result.documents.length,
+					total: result.total
+				}
+			};
 		} catch (error) {
 			if (request === this.listRequest) this.error = message(error);
 		} finally {
-			this.loadingMore = false;
+			this._loadingGroups.delete(group);
 		}
 	}
 
@@ -203,7 +204,7 @@ class DocumentsStore {
 
 	async selectGroup(group: string, selected: boolean): Promise<void> {
 		try {
-			const result = await DocumentsService.listIds(this.listQuery(), group);
+			const result = await DocumentsService.listIds({ ...this.listQuery(), group });
 			this.setSelection(result.ids, selected);
 		} catch (error) {
 			this.error = message(error);
@@ -251,7 +252,7 @@ class DocumentsStore {
 	}
 
 	async autotagGroup(group: string): Promise<ApiDocumentAutotagResult | null> {
-		const { ids } = await DocumentsService.listIds(this.listQuery(), group);
+		const { ids } = await DocumentsService.listIds({ ...this.listQuery(), group });
 		return this.autotagDocuments(ids);
 	}
 
@@ -328,23 +329,32 @@ class DocumentsStore {
 		};
 	}
 
-	private async fetchList(limit: number): Promise<void> {
+	private async fetchList(limitFor: (group: string) => number): Promise<void> {
 		const request = ++this.listRequest;
+		const query = this.listQuery();
 		this.loading = true;
 		this.error = null;
 		try {
-			const [result, folderResult] = await Promise.all([
-				DocumentsService.list({ ...this.listQuery(), offset: 0, limit }),
-				DocumentsService.listFolders()
+			const [{ folders }, { tags }] = await Promise.all([
+				DocumentsService.listFolders(),
+				DocumentsService.listTags()
 			]);
+			const groups = [...folders.map(({ id }) => id), ...LOOSE_DOCUMENT_GROUPS];
+			const results = await Promise.all(
+				groups.map((group) =>
+					DocumentsService.list({ ...query, group, offset: 0, limit: limitFor(group) })
+				)
+			);
 			if (request !== this.listRequest) return;
-			this._documents = result.documents;
-			this._tags = result.tags;
-			this._folders = folderResult.folders;
-			this._total = result.total;
-			this._manualTotal = result.manualTotal;
-			this._folderCounts = result.folderCounts;
-			this._tagFilters = this._tagFilters.filter((tag) => result.tags.includes(tag));
+			this._folders = folders;
+			this._tags = tags;
+			this._pages = Object.fromEntries(
+				groups.map((group, index) => [
+					group,
+					{ ...results[index], offset: results[index].documents.length }
+				])
+			);
+			this._tagFilters = this._tagFilters.filter((tag) => tags.includes(tag));
 			this.pruneSelection();
 		} catch (error) {
 			if (request === this.listRequest) this.error = message(error);
@@ -354,8 +364,9 @@ class DocumentsStore {
 	}
 
 	private pruneSelection(): void {
-		if (this.filtered || this.hasMore) return;
-		const validIds = new Set(this._documents.map(({ id }) => id));
+		const pages = Object.values(this._pages);
+		if (this.filtered || pages.some(({ offset, total }) => offset < total)) return;
+		const validIds = new Set(pages.flatMap(({ documents }) => documents.map(({ id }) => id)));
 		for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
 	}
 
