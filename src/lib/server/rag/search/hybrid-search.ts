@@ -1,7 +1,9 @@
-// Hybrid search gathers semantic and BM25 candidates, then fuses their rankings with RRF.
+// Hybrid search fuses semantic and BM25 candidates with RRF, then reranks the shortlist.
 
 import { searchSemantic } from './semantic-search';
 import { searchBm25 } from './bm25-search';
+import { rerankCandidates } from './cross-rerank';
+import { getActiveCrossEncoder } from './cross-encoders/registry';
 import { fuseSearchResultsRrf } from './rrf-fusion';
 import {
 	type ScoredSearchMatch,
@@ -9,6 +11,9 @@ import {
 	type SearchOptionsBase,
 	type SearchResult
 } from './search-shared';
+
+const RETRIEVAL_CANDIDATE_MULTIPLIER = 2;
+const RERANK_CANDIDATE_MULTIPLIER = 2;
 
 type SearchMethodResults = {
 	query: string;
@@ -43,7 +48,7 @@ async function collectMethodResults(options: SearchOptionsBase): Promise<{
 	const sharedOptions = {
 		...options,
 		query,
-		topK: topK * 2
+		topK: topK * RETRIEVAL_CANDIDATE_MULTIPLIER
 	};
 
 	const [semanticSearch, bm25Search] = await Promise.all([
@@ -52,13 +57,33 @@ async function collectMethodResults(options: SearchOptionsBase): Promise<{
 	]);
 
 	const fusedCandidates = fuseSearchResultsRrf(semanticSearch.results, bm25Search.results);
+	const rrfShortlist = fusedCandidates.slice(0, topK * RERANK_CANDIDATE_MULTIPLIER);
+	const matchesByChunkId = new Map(rrfShortlist.map(({ match }) => [match.chunkId, match]));
+	const crossEncoder = getActiveCrossEncoder();
+	const rerankedCandidates = await rerankCandidates(
+		query,
+		rrfShortlist.map(({ match }) => ({
+			chunkId: match.chunkId,
+			content: match.content
+		})),
+		crossEncoder
+	);
+	const hybridScored: ScoredSearchMatch[] = [];
 
-	const hybridScored: ScoredSearchMatch[] = fusedCandidates
-		.slice(0, topK)
-		.map(({ match, score }) => ({
+	for (const candidate of rerankedCandidates) {
+		const match = matchesByChunkId.get(candidate.chunkId);
+
+		if (!match) {
+			throw new Error(`${crossEncoder.name} returned an unknown chunk ID: ${candidate.chunkId}`);
+		}
+
+		hybridScored.push({
 			...match,
-			score
-		}));
+			score: candidate.score
+		});
+
+		if (hybridScored.length === topK) break;
+	}
 
 	return {
 		query,
