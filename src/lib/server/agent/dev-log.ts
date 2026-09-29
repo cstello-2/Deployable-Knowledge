@@ -137,9 +137,9 @@ function logMessage(message: ProviderChatMessage, position: number): void {
 	const header = paint(`[${position}] ${roleLabel}`, [ansi.bold, roleStyles[message.role]]);
 	const chars = paint(`(${message.content?.length ?? 0} chars)`, [ansi.dim]);
 	write(`\n ${header} ${chars}\n`);
-	if (message.reasoningContent) writeIndented(paint(message.reasoningContent, [ansi.dim]));
+	if (message.reasoning_content) writeIndented(paint(message.reasoning_content, [ansi.dim]));
 	if (message.content) writeIndented(message.content);
-	for (const call of message.toolCalls ?? []) {
+	for (const call of message.tool_calls ?? []) {
 		write(`   ${paint(`↳ ${call.function.name} ${call.function.arguments}`, [ansi.yellow])}\n`);
 	}
 }

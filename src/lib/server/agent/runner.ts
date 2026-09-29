@@ -124,9 +124,7 @@ export async function runAgent({
 		let lastReasoningEmit = 0;
 		const turnOptions: ProviderChatOptions = {
 			...chatOptions,
-			tools: toolsAvailable ? definitions : undefined,
-			toolChoice: toolsAvailable ? 'auto' : 'none',
-			parallelToolCalls: true
+			tools: toolsAvailable ? definitions : undefined
 		};
 		logModelCall({
 			providerName: provider.name,
@@ -234,8 +232,8 @@ export async function runAgent({
 		transcript.push({
 			role: 'assistant',
 			content: turn.content || null,
-			reasoningContent: turn.reasoningContent || undefined,
-			toolCalls: turn.toolCalls
+			reasoning_content: turn.reasoningContent || undefined,
+			tool_calls: turn.toolCalls
 		});
 
 		for (const call of turn.toolCalls) {
@@ -302,7 +300,7 @@ export async function runAgent({
 			transcript.push({
 				role: 'tool',
 				content: result.content,
-				toolCallId: call.id,
+				tool_call_id: call.id,
 				name: call.function.name
 			});
 		}
@@ -330,8 +328,8 @@ function transcriptBudgetChars(chatOptions: ProviderChatOptions): number {
 function messageChars(message: ProviderChatMessage): number {
 	return (
 		(message.content?.length ?? 0) +
-		(message.reasoningContent?.length ?? 0) +
-		(message.toolCalls ? JSON.stringify(message.toolCalls).length : 0)
+		(message.reasoning_content?.length ?? 0) +
+		(message.tool_calls ? JSON.stringify(message.tool_calls).length : 0)
 	);
 }
 
@@ -399,7 +397,7 @@ async function collectTurn(
 	const contentChunks: string[] = [];
 	let content = '';
 	let reasoningContent = '';
-	const toolCalls = new Map<number, MutableToolCall>();
+	const toolCalls = new Map<number, ProviderToolCall>();
 
 	logStreamStart(turnIndex + 1);
 
@@ -411,20 +409,20 @@ async function collectTurn(
 			onText?.(chunk.content);
 		}
 
-		if (chunk.reasoningContent) {
-			reasoningContent += chunk.reasoningContent;
-			logStreamReasoning(chunk.reasoningContent);
+		if (chunk.reasoning_content) {
+			reasoningContent += chunk.reasoning_content;
+			logStreamReasoning(chunk.reasoning_content);
 			onReasoning?.(reasoningContent);
 		}
 
-		for (const delta of chunk.toolCalls ?? []) {
-			mergeToolCallDelta(toolCalls, delta, turnIndex);
-		}
+		chunk.tool_calls?.forEach((delta, position) => {
+			mergeToolCallDelta(toolCalls, delta, delta.index ?? position, turnIndex);
+		});
 	}
 
 	const orderedToolCalls = [...toolCalls.entries()]
 		.sort(([left], [right]) => left - right)
-		.map(([, call]) => call as ProviderToolCall);
+		.map(([, call]) => call);
 
 	logStreamEnd(orderedToolCalls.map((call) => call.function.name));
 
@@ -436,36 +434,23 @@ async function collectTurn(
 	};
 }
 
-type MutableToolCall = ProviderToolCall;
-
 function mergeToolCallDelta(
-	calls: Map<number, MutableToolCall>,
+	calls: Map<number, ProviderToolCall>,
 	delta: ProviderToolCallDelta,
+	index: number,
 	turnIndex: number
 ) {
-	const current = calls.get(delta.index) ?? {
-		id: delta.id || `call_${turnIndex + 1}_${delta.index + 1}`,
+	const current = calls.get(index) ?? {
+		id: `call_${turnIndex + 1}_${index + 1}`,
 		type: 'function' as const,
 		function: { name: '', arguments: '' }
 	};
 
 	if (delta.id) current.id = delta.id;
-	if (delta.nameSnapshot !== undefined) {
-		current.function.name = delta.nameSnapshot;
-	} else if (delta.nameDelta) {
-		current.function.name += delta.nameDelta;
-	}
+	current.function.name += delta.function?.name ?? '';
+	current.function.arguments += delta.function?.arguments ?? '';
 
-	if (delta.argumentsSnapshot !== undefined) {
-		current.function.arguments =
-			typeof delta.argumentsSnapshot === 'string'
-				? delta.argumentsSnapshot
-				: JSON.stringify(delta.argumentsSnapshot);
-	} else if (delta.argumentsDelta) {
-		current.function.arguments += delta.argumentsDelta;
-	}
-
-	calls.set(delta.index, current);
+	calls.set(index, current);
 }
 
 function parseJson(value: string): unknown {

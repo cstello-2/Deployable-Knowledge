@@ -1,9 +1,5 @@
 import type { EmbeddingTask } from '$lib/constants';
-import {
-	openAiAuthHeaders,
-	type OpenAiCompatibleConfig
-} from '$lib/server/providers/openai-compatible';
-import { readObject } from '$lib/server/utils/values';
+import type { CustomProviderRecord } from '$lib/server/database/schema';
 import { EmbeddingProvider, normalizeVector } from './provider';
 
 export class OpenAiCompatibleEmbeddingProvider extends EmbeddingProvider {
@@ -12,12 +8,12 @@ export class OpenAiCompatibleEmbeddingProvider extends EmbeddingProvider {
 	private readonly baseUrl: string;
 	private readonly apiKey: string;
 
-	constructor(config: OpenAiCompatibleConfig) {
+	constructor(record: CustomProviderRecord) {
 		super();
-		this.id = config.id;
-		this.name = config.name;
-		this.baseUrl = config.baseUrl;
-		this.apiKey = config.apiKey;
+		this.id = record.id;
+		this.name = record.name;
+		this.baseUrl = record.baseUrl;
+		this.apiKey = record.apiKey;
 	}
 
 	override async embed(
@@ -27,7 +23,7 @@ export class OpenAiCompatibleEmbeddingProvider extends EmbeddingProvider {
 	): Promise<Float32Array[]> {
 		const response = await fetch(`${this.baseUrl}/embeddings`, {
 			method: 'POST',
-			headers: { ...openAiAuthHeaders(this.apiKey), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
 			body: JSON.stringify({ model, input: texts })
 		});
 
@@ -37,24 +33,15 @@ export class OpenAiCompatibleEmbeddingProvider extends EmbeddingProvider {
 			);
 		}
 
-		const data = readObject(await response.json()).data;
-		if (!Array.isArray(data) || data.length !== texts.length) {
+		const { data } = (await response.json()) as {
+			data: { index: number; embedding: number[] }[];
+		};
+
+		if (data.length !== texts.length) {
 			throw new Error(`${this.name} did not return one embedding per input.`);
 		}
 
-		const entries = data.map((entry) => {
-			const { index, embedding } = readObject(entry);
-			if (
-				typeof index !== 'number' ||
-				!Array.isArray(embedding) ||
-				!embedding.every((value) => typeof value === 'number')
-			) {
-				throw new Error(`${this.name} returned a malformed embedding.`);
-			}
-			return { index, embedding };
-		});
-
-		return entries
+		return data
 			.sort((left, right) => left.index - right.index)
 			.map(({ embedding }) => normalizeVector(embedding));
 	}
