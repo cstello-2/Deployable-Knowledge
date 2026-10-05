@@ -1,3 +1,4 @@
+import { NEW_CHAT_TITLE } from '$lib/constants';
 import { TITLE_GENERATION_PROMPT } from '$lib/server/agent/prompts';
 import type { Provider, ProviderChatOptions } from '$lib/server/providers/provider';
 
@@ -24,5 +25,6 @@ export async function generateChatTitle(
 	})) {
 		title += chunk;
 	}
-	return title.trim().split('\n')[0] || 'New conversation';
+
+	return title.trim().split('\n')[0] || NEW_CHAT_TITLE;
 }

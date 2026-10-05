@@ -1,38 +1,44 @@
 import { json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
+import { DEFAULT_ASSISTANT_CONFIG, DEFAULT_PROMPT_TEMPLATE, NEW_CHAT_TITLE } from '$lib/constants';
 import { RetrievalMode } from '$lib/enums';
-import type { ApiChatMessageRequest, ApiChatStreamEvent } from '$lib/types';
+import type {
+	AgentProgressEvent,
+	ApiChatMessageRequest,
+	ApiChatStreamEvent,
+	ApiNotebookChatMessageRequest,
+	AssistantProfile
+} from '$lib/types';
 import { runAgent } from '$lib/server/agent/runner';
 import { runAutoSearch } from '$lib/server/chat/auto-search';
 import {
-	createConversationalMessages,
-	createDocumentMessages
+	createDocumentMessages,
+	createNotebookMessages
 } from '$lib/server/chat/build-chat-messages';
 import { generateChatTitle } from '$lib/server/chat/generate-chat-title';
 import { getNotebookSourceExcerpts } from '$lib/server/chat/notebook-context';
 import { db } from '$lib/server/database/database';
-import { promptTemplates, type SessionMessage, sessions } from '$lib/server/database/schema';
+import { promptTemplates } from '$lib/server/database/schema';
 import { diagnosticEvents } from '$lib/server/diagnostics/events';
 import { findProvider } from '$lib/server/providers/registry';
-import type { ProviderChatOptions } from '$lib/server/providers/provider';
-import type { RagRetrievalMode } from '$lib/server/rag/search/retrieve-rag-context';
+import type { Provider, ProviderChatOptions } from '$lib/server/providers/provider';
 import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
 import { toolRegistry } from '$lib/server/tools';
 import { readGoals } from '$lib/server/tools/goals';
 import type { ToolExecutionContext } from '$lib/server/tools/types';
+import { ndjsonTaskResponse } from '$lib/server/utils/ndjson-response';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const body = (await request.json()) as ApiChatMessageRequest;
-
-	if (!body.message.trim() || !body.model_id.trim() || !body.provider_id.trim()) {
+	const message = body.message.trim();
+	const modelId = body.model_id.trim();
+	const providerId = body.provider_id.trim();
+	if (!message || !modelId || !providerId) {
 		return json({ error: 'Invalid request body' }, { status: 400 });
 	}
 
-	const providerId = body.provider_id.trim();
 	const provider = await findProvider(providerId);
-
 	if (!provider) {
 		return json(
 			{ error: 'The selected provider no longer exists. Choose another model in settings.' },
@@ -41,19 +47,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 
 	const profile = await ProfilesRepository.getActive();
+	const session = await SessionsRepository.find(params.id);
+	if (!session) await SessionsRepository.create(params.id);
+	const history = await SessionsRepository.listMessages(params.id);
+	const shouldGenerateTitle =
+		!history.length &&
+		(!session || session.title.trim().toLowerCase() === NEW_CHAT_TITLE.toLowerCase());
 
-	const message = body.message.trim();
-	const modelId = body.model_id.trim();
-	const supportedRetrievalModes: readonly RagRetrievalMode[] = [
-		RetrievalMode.SEMANTIC,
-		RetrievalMode.BM25,
-		RetrievalMode.HYBRID
-	];
-	const storedRetrievalMode = profile?.retrievalMode as RagRetrievalMode | undefined;
-	const retrievalMode: RagRetrievalMode =
-		storedRetrievalMode && supportedRetrievalModes.includes(storedRetrievalMode)
-			? storedRetrievalMode
-			: DEFAULT_ASSISTANT_CONFIG.retrievalMode;
+	const toolNames = await resolveToolNames(body, provider, modelId, profile);
+
+	const retrievalMode =
+		Object.values(RetrievalMode).find((mode) => mode === profile?.retrievalMode) ??
+		DEFAULT_ASSISTANT_CONFIG.retrievalMode;
+
+	const toolContext: ToolExecutionContext = body.conversational
+		? { retrievalMode, ragTopK: profile?.ragTopK ?? DEFAULT_ASSISTANT_CONFIG.ragTopK }
+		: { retrievalMode, ragTopK: body.rag_top_k, documentIds: body.document_ids };
+
+	const autoSearchEnabled =
+		!body.conversational && body.search_enabled !== false && !toolNames.includes('search');
 
 	const abortController = new AbortController();
 	const options: ProviderChatOptions = {
@@ -68,247 +80,150 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		signal: abortController.signal
 	};
 
-	const existing = await SessionsRepository.find(params.id);
-
-	if (!existing) {
-		const timestamp = new Date();
-		await db.insert(sessions).values({
-			id: params.id,
-			title: 'New Conversation',
-			createdAt: timestamp,
-			updatedAt: timestamp
-		});
-	}
-
-	const messages: SessionMessage[] = await SessionsRepository.listMessages(params.id);
-	const shouldGenerateTitle =
-		messages.length === 0 &&
-		(!existing || existing.title.trim().toLowerCase() === 'new conversation');
-
-	const promptTemplateId = body.conversational ? null : body.prompt_template_id;
-	const promptTemplate = promptTemplateId
-		? await db.select().from(promptTemplates).where(eq(promptTemplates.id, promptTemplateId)).get()
-		: null;
-	const persona = body.conversational ? '' : body.persona;
-	const pageContext = body.conversational ? body.context : '';
-	const notebookId = body.conversational ? body.notebook_id : null;
-
-	// Notebook-mode context = the visible page text + the notebook's attached
-	// sources (hidden from the notebook page, invisible to the user, but the
-	// model sees the full excerpts).
-	const sourceExcerpts =
-		body.conversational && notebookId ? await getNotebookSourceExcerpts(notebookId) : '';
-
-	const context = [pageContext, sourceExcerpts].filter(Boolean).join('\n\n');
-
-	const modeTools = toolRegistry.idsForMode(body.conversational ? 'notebook' : 'document');
-	const enabledTools = toolRegistry.filterIds(body.enabled_tools ?? profile?.enabledTools);
-	const toolsRequested = body.tools_enabled !== false;
-	const modelSupportsTools = toolsRequested ? await provider.supportsTools(modelId) : true;
-	const toolNames =
-		toolsRequested && modelSupportsTools
-			? modeTools.filter((name) => enabledTools.includes(name))
-			: [];
-	if (toolNames.includes('python') && !toolNames.includes('corpus_details')) {
-		toolNames.push('corpus_details');
-	}
-	const toolsEnabled = toolNames.length > 0;
-	const searchToolEnabled = toolNames.includes('search');
-	const toolInstructions = toolRegistry.instructions(toolNames);
-	const ragTopK = body.conversational
-		? (profile?.ragTopK ?? DEFAULT_ASSISTANT_CONFIG.ragTopK)
-		: body.rag_top_k;
-	const documentIds = body.conversational ? undefined : body.document_ids;
-	const toolContext: ToolExecutionContext = { documentIds, retrievalMode, ragTopK };
-	// Document chat without the search tool reaches the corpus by searching
-	// automatically for every prompt, unless search mode is off and the user is
-	// chatting with the model and system prompt alone.
-	const autoSearchEnabled =
-		!body.conversational && body.search_enabled !== false && !searchToolEnabled;
-
-	const timestamp = new Date();
-
-	let closed = false;
+	const createdAt = new Date();
 	let partialContent = '';
+	let finished = false;
 	let persistence: Promise<boolean> | undefined;
-
+	// Runs at most once: either when the answer completes or, if the client
+	// disconnects first, with whatever text had streamed by then.
 	const persistTurn = (assistantContent: string, metadata: unknown) =>
 		(persistence ??= SessionsRepository.appendTurn({
 			sessionId: params.id,
 			userMessage: message,
 			assistantContent,
 			metadata,
-			createdAt: timestamp
+			createdAt
+		}).catch(() => {
+			console.error('Failed to persist chat turn.');
+			diagnosticEvents.chatPersistenceFailed();
+			return false;
 		}));
 
-	const stream = new ReadableStream({
-		async start(controller) {
-			const encoder = new TextEncoder();
-			const generationStarted = Date.now();
-			const send = (event: ApiChatStreamEvent) => {
-				if (closed) return;
-				if (event.type === 'text') partialContent += event.delta;
-				else if (event.type === 'text-reset') partialContent = '';
-				try {
-					controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-				} catch {
-					// The client is gone; stop emitting and let the abort below
-					// wind down the generation.
-					closed = true;
-					abortController.abort();
-				}
-			};
+	const generate = async (emit: (event: ApiChatStreamEvent) => void): Promise<void> => {
+		const started = Date.now();
+		const send = (event: ApiChatStreamEvent) => {
+			if (event.type === 'text') partialContent += event.delta;
+			if (event.type === 'text-reset') partialContent = '';
+			emit(event);
+		};
+		const onProgress = (progress: AgentProgressEvent) => {
+			send({ type: 'agent', progress });
+			if (
+				progress.kind === 'tool' &&
+				progress.status === 'completed' &&
+				progress.name === 'goals'
+			) {
+				send({ type: 'goals', goals: readGoals(toolContext) });
+			}
+		};
 
+		const autoSearch = autoSearchEnabled
+			? await runAutoSearch(message, toolContext, onProgress)
+			: null;
+		const chat = { history, userMessage: message, toolNames };
+		const messages = body.conversational
+			? createNotebookMessages({ ...chat, context: await notebookContext(body) })
+			: createDocumentMessages({
+					...chat,
+					context: autoSearch?.context ?? '',
+					systemPrompt: await promptTemplateSystemPrompt(body.prompt_template_id),
+					persona: body.persona,
+					autoSearch: autoSearchEnabled
+				});
+
+		const result = await runAgent({
+			provider,
+			model: modelId,
+			messages,
+			chatOptions: options,
+			toolNames,
+			toolContext,
+			maxToolTurns: body.agent_max_turns,
+			onProgress,
+			onText: (delta) => send({ type: 'text', delta }),
+			onTextReset: () => send({ type: 'text-reset' })
+		});
+		abortController.signal.throwIfAborted();
+
+		const trace = [...(autoSearch?.trace ?? []), ...result.trace];
+		const outputs = [...(autoSearch?.outputs ?? []), ...result.outputs];
+		const toolCalls = trace.filter((item) => item.kind === 'tool').length;
+		const saved = await persistTurn(result.content, {
+			agent: {
+				providerId,
+				modelId,
+				modelTurns: result.modelTurns,
+				toolTurns: result.toolTurns,
+				trace
+			},
+			...(outputs.length ? { outputs } : {})
+		});
+
+		send({ type: 'complete', modelTurns: result.modelTurns, toolCalls, saved });
+		diagnosticEvents.chatCompleted({
+			durationMs: Date.now() - started,
+			modelTurns: result.modelTurns,
+			toolCalls,
+			toolTurns: result.toolTurns
+		});
+
+		if (!shouldGenerateTitle || !saved || abortController.signal.aborted) return;
+		try {
+			const title = await generateChatTitle(message, provider, modelId, options);
+			await SessionsRepository.rename(params.id, title);
+			send({ type: 'title', title });
+		} catch {
+			console.error('Title generation error.');
+			diagnosticEvents.chatTitleFailed();
+		}
+	};
+
+	return ndjsonTaskResponse<ApiChatStreamEvent>(
+		'Chat generation',
+		async (emit) => {
 			try {
-				const autoSearch = autoSearchEnabled
-					? await runAutoSearch({
-							query: message,
-							toolContext,
-							onProgress(progress) {
-								send({ type: 'agent', progress });
-							}
-						})
-					: null;
-
-				const chatMessages = body.conversational
-					? createConversationalMessages({
-							messages,
-							userMessage: message,
-							context,
-							toolsEnabled,
-							toolInstructions
-						})
-					: createDocumentMessages({
-							messages,
-							userMessage: message,
-							systemPrompt: promptTemplate?.systemPrompt,
-							persona,
-							context: autoSearch?.context ?? '',
-							toolsEnabled,
-							toolInstructions,
-							autoSearchEnabled
-						});
-
-				const agentResult = await runAgent({
-					provider,
-					model: modelId,
-					messages: chatMessages,
-					chatOptions: options,
-					registry: toolRegistry,
-					toolNames,
-					maxToolTurns: toolsEnabled ? body.agent_max_turns : 0,
-					toolContext,
-					onProgress(progress) {
-						send({ type: 'agent', progress });
-						if (
-							progress.kind === 'tool' &&
-							progress.status === 'completed' &&
-							progress.name === 'goals' &&
-							!progress.isError
-						) {
-							send({ type: 'goals', goals: readGoals(toolContext) });
-						}
-					},
-					onText(chunk) {
-						send({ type: 'text', delta: chunk });
-					},
-					onTextReset() {
-						send({ type: 'text-reset' });
-					}
-				});
-
-				abortController.signal.throwIfAborted();
-				const trace = [...(autoSearch?.trace ?? []), ...agentResult.trace];
-				const outputs = [...(autoSearch?.outputs ?? []), ...agentResult.outputs];
-				const toolCallCount = agentResult.toolExecutions.length + (autoSearch ? 1 : 0);
-
-				let saved = false;
-				try {
-					saved = await persistTurn(agentResult.content, {
-						agent: {
-							providerId,
-							modelId,
-							modelTurns: agentResult.modelTurns,
-							toolTurns: agentResult.toolTurns,
-							trace
-						},
-						...(outputs.length ? { outputs } : {})
-					});
-				} catch {
-					console.error('Failed to persist chat turn.');
-					diagnosticEvents.chatPersistenceFailed();
-				}
-
-				// The turn is over for the user once the messages are persisted. Title
-				// generation is a second model call, so `complete` has to go out
-				// before it — otherwise the client holds the composer disabled for
-				// the length of another generation with the answer already on screen.
-				send({
-					type: 'complete',
-					modelTurns: agentResult.modelTurns,
-					toolTurns: agentResult.toolTurns,
-					toolCalls: toolCallCount,
-					contextItems: outputs.length,
-					saved
-				});
-				diagnosticEvents.chatCompleted({
-					durationMs: Date.now() - generationStarted,
-					modelTurns: agentResult.modelTurns,
-					toolCalls: toolCallCount,
-					toolTurns: agentResult.toolTurns
-				});
-
-				if (shouldGenerateTitle && saved && !abortController.signal.aborted) {
-					try {
-						const title = await generateChatTitle(message, provider, modelId, options);
-						await db
-							.update(sessions)
-							.set({ title, updatedAt: new Date() })
-							.where(eq(sessions.id, params.id));
-						send({ type: 'title', title });
-					} catch {
-						console.error('Title generation error.');
-						diagnosticEvents.chatTitleFailed();
-					}
-				}
+				await generate(emit);
 			} catch (error) {
-				if (!abortController.signal.aborted) {
-					console.error('Streaming error.');
-					diagnosticEvents.chatGenerationFailed();
-					const message = error instanceof Error ? error.message : String(error);
-					send({ type: 'error', message });
-				}
+				if (abortController.signal.aborted) return;
+				diagnosticEvents.chatGenerationFailed();
+				throw error;
 			} finally {
-				if (!closed) {
-					closed = true;
-					try {
-						controller.close();
-					} catch {
-						// The stream was cancelled between the last send and here.
-					}
-				}
+				finished = true;
 			}
 		},
-		async cancel() {
-			// The client disconnected. Abort the generation so it stops consuming
-			// the model runtime instead of blocking every following request.
-			if (!closed) diagnosticEvents.chatCancelled();
-			closed = true;
+		(error) => ({ type: 'error', message: error instanceof Error ? error.message : String(error) }),
+		() => {
+			if (!finished) diagnosticEvents.chatCancelled();
 			abortController.abort();
-			try {
-				await persistTurn(partialContent, null);
-			} catch {
-				console.error('Failed to persist stopped chat turn.');
-				diagnosticEvents.chatPersistenceFailed();
-			}
+			void persistTurn(partialContent, null);
 		}
-	});
-
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'application/x-ndjson; charset=utf-8',
-			'Cache-Control': 'no-cache',
-			Connection: 'keep-alive'
-		}
-	});
+	);
 };
+
+async function resolveToolNames(
+	body: ApiChatMessageRequest,
+	provider: Provider,
+	modelId: string,
+	profile: AssistantProfile | null
+): Promise<string[]> {
+	if (body.tools_enabled === false || !(await provider.supportsTools(modelId))) return [];
+	const enabled = toolRegistry.filterIds(body.enabled_tools ?? profile?.enabledTools);
+	const names = toolRegistry
+		.idsForMode(body.conversational ? 'notebook' : 'document')
+		.filter((name) => enabled.includes(name));
+
+	if (names.includes('python') && !names.includes('corpus_details')) names.push('corpus_details');
+	return names;
+}
+
+async function notebookContext(body: ApiNotebookChatMessageRequest): Promise<string> {
+	const sources = body.notebook_id ? await getNotebookSourceExcerpts(body.notebook_id) : '';
+	return [body.context, sources].filter(Boolean).join('\n\n');
+}
+
+async function promptTemplateSystemPrompt(id: string | null): Promise<string> {
+	const template = id
+		? await db.select().from(promptTemplates).where(eq(promptTemplates.id, id)).get()
+		: undefined;
+	return template?.systemPrompt ?? DEFAULT_PROMPT_TEMPLATE.systemPrompt;
+}

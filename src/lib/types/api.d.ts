@@ -430,14 +430,7 @@ export type ApiChatStreamEvent =
 	| { type: 'text-reset' }
 	| { type: 'goals'; goals: AgentGoal[] }
 	| { type: 'title'; title: string }
-	| {
-			type: 'complete';
-			modelTurns: number;
-			toolTurns: number;
-			toolCalls: number;
-			contextItems: number;
-			saved?: boolean;
-	  }
+	| { type: 'complete'; modelTurns: number; toolCalls: number; saved: boolean }
 	| { type: 'error'; message: string };
 
 export interface ApiSearchMatch {

@@ -73,19 +73,12 @@ export type AgentProgressEvent =
 	| {
 			kind: 'model';
 			status: 'started' | 'completed';
-			modelTurn: number;
-			toolTurn: number;
 			requestedTools?: string[];
 			trace?: AgentTraceItem;
 	  }
 	| {
 			kind: 'tool';
 			status: 'started' | 'completed';
-			modelTurn: number;
-			toolTurn: number;
-			callId: string;
 			name: string;
 			trace: AgentTraceItem;
-			isError?: boolean;
-			error?: string;
 	  };

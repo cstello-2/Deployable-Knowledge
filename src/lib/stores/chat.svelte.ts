@@ -40,19 +40,7 @@ class ChatConversation {
 		const controller = new AbortController();
 		this.generationController = controller;
 		this.messageLoad += 1;
-
-		this.messages = [
-			...this.messages,
-			{
-				id: (this.messages.at(-1)?.id ?? 0) + 1,
-				sessionId,
-				role: 'user',
-				content: request.message,
-				metadata: null,
-				createdAt: new Date()
-			}
-		];
-
+		this.appendLocalMessage(sessionId, 'user', request.message);
 		this.isStreaming = true;
 		this.streamedText = '';
 		this.liveTrace = [];
@@ -60,60 +48,30 @@ class ChatConversation {
 		this.error = null;
 		this.agentStatus = 'Thinking…';
 
+		// Starts on `complete`, while the server may still be generating the
+		// title, so the composer unlocks as soon as the answer is saved.
 		let finishing: Promise<void> | null = null;
-
-		const finish = (saved = true) =>
-			(finishing ??= (async () => {
-				try {
-					if (saved) await this.loadMessages();
-				} finally {
-					if (saved) this.streamedText = '';
-					this.isStreaming = false;
-				}
-			})());
-
 		try {
-			await ChatService.streamMessage(
-				sessionId,
-				request,
-				{
-					onAgent: (progress) => this.applyAgentProgress(progress),
-					onText: (delta) => this.applyStreamEvent({ type: 'text', delta }),
-					onTextReset: () => this.applyStreamEvent({ type: 'text-reset' }),
-					onGoals: (goals) => (this.goals = goals),
-					onTitle: (title) => this.applyStreamEvent({ type: 'title', title }),
-					onComplete: (event) => {
-						this.applyStreamEvent(event);
-						void finish(event.saved !== false).catch(() => undefined);
-					}
-				},
-				controller.signal
-			);
-			controller.signal.throwIfAborted();
-			await finish();
-		} catch (error) {
-			if (controller.signal.aborted) {
-				if (!finishing) {
-					this.agentStatus = 'Generation stopped';
-					if (this.streamedText) {
-						this.messages = [
-							...this.messages,
-							{
-								id: (this.messages.at(-1)?.id ?? 0) + 1,
-								sessionId,
-								role: 'assistant',
-								content: this.streamedText,
-								metadata: null,
-								createdAt: new Date()
-							}
-						];
-					}
+			for await (const event of ChatService.streamMessage(sessionId, request, controller.signal)) {
+				if (event.type === 'error') throw new Error(event.message);
+				this.applyStreamEvent(event);
+				if (event.type === 'complete') {
+					finishing = this.finish(event.saved);
+					finishing.catch(() => undefined);
 				}
-				return;
 			}
-			this.error = error instanceof Error ? error.message : String(error);
-			this.agentStatus = 'Agent run failed';
-			throw error;
+			controller.signal.throwIfAborted();
+			await (finishing ??= this.finish(true));
+		} catch (error) {
+			if (!controller.signal.aborted) {
+				this.error = error instanceof Error ? error.message : String(error);
+				this.agentStatus = 'Agent run failed';
+				throw error;
+			}
+			if (!finishing) {
+				this.agentStatus = 'Generation stopped';
+				if (this.streamedText) this.appendLocalMessage(sessionId, 'assistant', this.streamedText);
+			}
 		} finally {
 			if (this.generationController === controller) this.generationController = null;
 			if (!finishing) {
@@ -128,38 +86,56 @@ class ChatConversation {
 		this.generationController?.abort();
 	}
 
-	applyStreamEvent(event: ApiChatStreamEvent): void {
-		if (event.type === 'agent') this.applyAgentProgress(event.progress);
-		else if (event.type === 'text') {
-			this.streamedText += event.delta;
-			this.agentStatus = 'Writing final response';
-		} else if (event.type === 'text-reset') {
-			this.streamedText = '';
-		} else if (event.type === 'goals') {
-			this.goals = event.goals;
-		} else if (event.type === 'title') {
-			if (this.session) {
-				this.session = { ...this.session, title: event.title, updatedAt: new Date() };
-			}
-		} else if (event.type === 'complete') {
-			this.agentStatus =
-				event.saved === false
-					? 'Finished · not saved (the conversation was removed)'
-					: `Finished · ${event.modelTurns} model turn${event.modelTurns === 1 ? '' : 's'}, ${event.toolCalls} tool call${event.toolCalls === 1 ? '' : 's'}`;
-		} else {
-			this.error = event.message;
-			this.agentStatus = 'Agent run failed';
+	private async finish(saved: boolean): Promise<void> {
+		try {
+			if (saved) await this.loadMessages();
+		} finally {
+			// An unsaved answer (the conversation was removed mid-stream) stays on screen.
+			if (saved) this.streamedText = '';
+			this.isStreaming = false;
 		}
 	}
 
-	private applyAgentProgress(progress: AgentProgressEvent): void {
-		if (progress.kind !== 'model') {
-			this.upsertTrace(progress.trace);
-			return;
-		}
+	private appendLocalMessage(sessionId: string, role: 'user' | 'assistant', content: string): void {
+		const id = (this.messages.at(-1)?.id ?? 0) + 1;
+		this.messages = [
+			...this.messages,
+			{ id, sessionId, role, content, metadata: null, createdAt: new Date() }
+		];
+	}
 
-		if (progress.trace) this.upsertTrace(progress.trace);
-		this.agentStatus = modelStatus(progress);
+	private applyStreamEvent(event: Exclude<ApiChatStreamEvent, { type: 'error' }>): void {
+		switch (event.type) {
+			case 'agent':
+				if (event.progress.trace) this.upsertTrace(event.progress.trace);
+				if (event.progress.kind === 'model') this.agentStatus = modelStatus(event.progress);
+				break;
+			case 'text':
+				this.streamedText += event.delta;
+				this.agentStatus = 'Writing final response';
+				break;
+			case 'text-reset':
+				this.streamedText = '';
+				break;
+			case 'goals':
+				this.goals = event.goals;
+				break;
+			case 'title':
+				if (this.session) {
+					this.session = { ...this.session, title: event.title, updatedAt: new Date() };
+				}
+				break;
+			case 'complete': {
+				if (!event.saved) {
+					this.agentStatus = 'Finished · not saved (the conversation was removed)';
+					break;
+				}
+				const turns = event.modelTurns === 1 ? 'turn' : 'turns';
+				const calls = event.toolCalls === 1 ? 'call' : 'calls';
+				this.agentStatus = `Finished · ${event.modelTurns} model ${turns}, ${event.toolCalls} tool ${calls}`;
+				break;
+			}
+		}
 	}
 
 	private upsertTrace(item: AgentTraceItem): void {

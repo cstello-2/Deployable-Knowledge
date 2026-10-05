@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { asc, desc, eq } from 'drizzle-orm';
+import { NEW_CHAT_TITLE } from '$lib/constants';
 import { db } from '$lib/server/database/database';
 import { sessionMessages, sessions } from '$lib/server/database/schema';
 
@@ -9,6 +11,19 @@ export class SessionsRepository {
 
 	static find(id: string) {
 		return db.select().from(sessions).where(eq(sessions.id, id)).get();
+	}
+
+	static async create(id: string = randomUUID()) {
+		const timestamp = new Date();
+		const [row] = await db
+			.insert(sessions)
+			.values({ id, title: NEW_CHAT_TITLE, createdAt: timestamp, updatedAt: timestamp })
+			.returning();
+		return row;
+	}
+
+	static async rename(id: string, title: string) {
+		await db.update(sessions).set({ title, updatedAt: new Date() }).where(eq(sessions.id, id));
 	}
 
 	static listMessages(sessionId: string) {
