@@ -38,8 +38,8 @@
 		"@types/jsdom": "^30.0.0",
 		"@types/markdown-it": "^14.1.2",
 		"@types/node": "^25.9.2",
-		"drizzle-kit": "^0.31.10",
-		"electron": "^43.3.0",
+		"drizzle-kit": "^0.31.11",
+		"electron": "^43.7.7",
 		"electron-builder": "^26.15.3",
 		"eslint": "10.8.0",
 		"eslint-config-prettier": "10.1.8",
@@ -61,27 +61,27 @@
 		"@codemirror/language": "^6.12.4",
 		"@codemirror/state": "^6.7.1",
 		"@codemirror/view": "^6.43.8",
-		"@huggingface/transformers": "^4.2.0",
+		"@huggingface/transformers": "^4.3.0",
 		"@lezer/highlight": "^1.2.3",
 		"@libsql/client": "^0.17.3",
 		"@lucide/svelte": "1.25.0",
 		"@matbee/libreoffice-converter": "^2.7.2",
-		"adm-zip": "^0.6.0",
+		"adm-zip": "^0.6.1",
 		"bgutils-js": "^4.0.3",
 		"bits-ui": "2.18.1",
 		"clsx": "2.1.1",
-		"dompurify": "^3.4.11",
+		"dompurify": "^3.4.16",
 		"dotenv": "^17.4.2",
 		"drizzle-orm": "^0.45.2",
 		"exceljs": "^4.4.0",
 		"ffmpeg-static": "^5.3.0",
 		"jsdom": "^30.0.1",
-		"markdown-it": "^14.3.0",
+		"markdown-it": "^14.3.2",
 		"node-llama-cpp": "^3.19.1",
-		"onnxruntime-node": "^1.24.3",
+		"onnxruntime-node": "^1.30.0",
 		"pdf-parse": "^2.4.5",
 		"pyodide": "^314.0.2",
-		"sharp": "^0.35.3",
+		"sharp": "^0.35.5",
 		"svelte-sonner": "1.1.1",
 		"tailwind-merge": "3.6.0",
 		"tailwind-variants": "3.2.2",
@@ -90,12 +90,15 @@
 		"youtubei.js": "^18.0.0"
 	},
 	"overrides": {
-		"adm-zip": "^0.6.0",
+		"adm-zip": "^0.6.1",
 		"cookie": "^0.7.2",
-		"sharp": "^0.35.3",
+		"global-agent": "^4.1.3",
+		"sharp": "^0.35.5",
 		"uuid": "^11.1.1",
-		"@esbuild-kit/core-utils": {
-			"esbuild": "^0.25.12"
+		"@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",
+		"exceljs": {
+			"fast-csv": "^5.0.8",
+			"unzipper": "^0.12.3"
 		}
 	},
 	"allowScripts": {
@@ -105,9 +108,8 @@
 		"esbuild@0.28.1": true,
 		"ffmpeg-static@5.3.0": true,
 		"node-llama-cpp@3.19.1": true,
-		"onnxruntime-node@1.24.3": true,
-		"protobufjs@7.6.5": true,
-		"sharp@0.35.3": true,
+		"onnxruntime-node@1.30.0": true,
+		"protobufjs@7.6.6": true,
 		"tesseract.js@7.0.0": true
 	}
 }
