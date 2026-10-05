@@ -109,6 +109,33 @@
 {#if status}
 	<div class="grid gap-6">
 		<SettingsFieldGroup
+			icon={HardDrive}
+			title="Local embedding models"
+			hint="Run in-app via llama.cpp, fully offline."
+		>
+			<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+				{#each cards as card (card.fileName)}
+					{@const active =
+						status.settings.provider === LOCAL_MODEL_PROVIDER_ID &&
+						status.settings.model === card.fileName}
+					<SettingsModelCard
+						{active}
+						downloadDisabled={embeddingStore.downloadingFile !== null}
+						downloaded={status.localModels.some(
+							({ fileName, downloaded }) => fileName === card.fileName && downloaded
+						)}
+						downloading={embeddingStore.downloadingFile === card.fileName}
+						model={card}
+						onDelete={active ? undefined : () => (pendingDelete = card.fileName)}
+						onDownload={() => void embeddingStore.download(card.fileName)}
+						onUse={() => requestSwitch(LOCAL_MODEL_PROVIDER_ID, card.fileName)}
+						percent={embeddingStore.progress?.percent ?? 0}
+					/>
+				{/each}
+			</div>
+		</SettingsFieldGroup>
+
+		<SettingsFieldGroup
 			icon={ScanSearch}
 			title="Embedding model"
 			hint="Changing the model re-embeds existing documents in the background. OpenAI-compatible providers added under Models can serve embeddings too."
@@ -187,38 +214,11 @@
 				<p class="m-0 text-sm text-destructive">{embeddingStore.error}</p>
 			{/if}
 		</SettingsFieldGroup>
-
-		<SettingsFieldGroup
-			icon={HardDrive}
-			title="Local embedding models"
-			hint="Run in-app via llama.cpp, fully offline."
-		>
-			<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-				{#each cards as card (card.fileName)}
-					{@const active =
-						status.settings.provider === LOCAL_MODEL_PROVIDER_ID &&
-						status.settings.model === card.fileName}
-					<SettingsModelCard
-						{active}
-						downloadDisabled={embeddingStore.downloadingFile !== null}
-						downloaded={status.localModels.some(
-							({ fileName, downloaded }) => fileName === card.fileName && downloaded
-						)}
-						downloading={embeddingStore.downloadingFile === card.fileName}
-						model={card}
-						onDelete={active ? undefined : () => (pendingDelete = card.fileName)}
-						onDownload={() => void embeddingStore.download(card.fileName)}
-						onUse={() => requestSwitch(LOCAL_MODEL_PROVIDER_ID, card.fileName)}
-						percent={embeddingStore.progress?.percent ?? 0}
-					/>
-				{/each}
-			</div>
-		</SettingsFieldGroup>
 	</div>
 {:else}
 	<div class="grid gap-3">
-		<Skeleton class="h-16" />
 		<Skeleton class="h-24" />
+		<Skeleton class="h-16" />
 	</div>
 {/if}
 
