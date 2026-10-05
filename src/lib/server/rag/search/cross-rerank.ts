@@ -1,68 +1,61 @@
-// Cross-encoder relevance scorer.
-
-import { AutoModelForSequenceClassification, AutoTokenizer } from '@huggingface/transformers';
-import { INFERENCE_THREADS } from '../embedding-model';
+import type { CrossEncoder } from './cross-encoders/cross-encoder';
+import { getActiveCrossEncoder } from './cross-encoders/registry';
 
 export type RerankCandidate = {
 	chunkId: string;
 	content: string;
 };
 
-type Tokenizer = Awaited<ReturnType<typeof AutoTokenizer.from_pretrained>>;
-type ClassificationModel = Awaited<
-	ReturnType<typeof AutoModelForSequenceClassification.from_pretrained>
->;
+export type RerankedCandidate = RerankCandidate & {
+	relevance: number;
+};
 
-let tokenizer: Tokenizer | undefined;
-let model: ClassificationModel | undefined;
-
-async function initializeModel() {
-	if (!tokenizer) {
-		const modelId = 'Xenova/ms-marco-MiniLM-L-6-v2';
-		tokenizer = await AutoTokenizer.from_pretrained(modelId);
-	}
-	if (!model) {
-		const modelId = 'Xenova/ms-marco-MiniLM-L-6-v2';
-		model = await AutoModelForSequenceClassification.from_pretrained(modelId, {
-			session_options: { intraOpNumThreads: INFERENCE_THREADS, interOpNumThreads: 1 }
-		});
+function validateScores(
+	crossEncoder: CrossEncoder,
+	scores: readonly number[],
+	expectedCount: number
+): void {
+	if (scores.length !== expectedCount) {
+		throw new Error(
+			`${crossEncoder.name} returned ${scores.length} scores ` + `for ${expectedCount} passages.`
+		);
 	}
 
-	return { tokenizer, model };
+	scores.forEach((score, index) => {
+		if (!Number.isFinite(score) || score < 0 || score > 1) {
+			throw new Error(`${crossEncoder.name} returned an invalid score ` + `at index ${index}.`);
+		}
+	});
 }
-
-export type RerankedCandidate = RerankCandidate & { relevance: number };
 
 export async function rerankCandidates(
 	query: string,
-	candidates: RerankCandidate[]
+	candidates: RerankCandidate[],
+	crossEncoder?: CrossEncoder
 ): Promise<RerankedCandidate[]> {
 	const uniqueCandidates = [
 		...new Map(candidates.map((candidate) => [candidate.chunkId, candidate])).values()
 	];
 
-	if (uniqueCandidates.length === 0) return [];
+	if (uniqueCandidates.length === 0) {
+		return [];
+	}
 
-	const { tokenizer, model } = await initializeModel();
-
-	const queries = new Array(uniqueCandidates.length).fill(query);
+	const selectedCrossEncoder = crossEncoder ?? getActiveCrossEncoder();
 	const passages = uniqueCandidates.map((candidate) => candidate.content);
-	const encodedInputs = await tokenizer(queries, {
-		text_pair: passages,
-		padding: true,
-		truncation: true,
-		max_length: 512
-	});
-	const { logits } = await model(encodedInputs);
+	const scores = await selectedCrossEncoder.predict(query, passages);
+
+	validateScores(selectedCrossEncoder, scores, uniqueCandidates.length);
 
 	return uniqueCandidates
 		.map((candidate, index) => ({
 			candidate,
-			logit: Number(logits.data[index])
+			originalIndex: index,
+			score: scores[index]
 		}))
-		.sort((left, right) => right.logit - left.logit)
-		.map(({ candidate, logit }) => ({
+		.sort((left, right) => right.score - left.score || left.originalIndex - right.originalIndex)
+		.map(({ candidate, score }) => ({
 			...candidate,
-			relevance: 1 / (1 + Math.exp(-logit))
+			relevance: score
 		}));
 }

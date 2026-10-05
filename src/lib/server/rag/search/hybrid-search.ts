@@ -1,5 +1,3 @@
-// Hybrid search gathers semantic and BM25 candidates, then reranks them together.
-
 import { searchSemantic } from './semantic-search';
 import { searchBm25 } from './bm25-search';
 import { rerankCandidates } from './cross-rerank';

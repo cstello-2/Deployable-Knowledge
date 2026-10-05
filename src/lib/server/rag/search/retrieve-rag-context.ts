@@ -89,7 +89,6 @@ export type RagContextResult = {
 	sources: RagSource[];
 };
 
-// Format retrieved chunks in the old RAG prompt style
 function formatContext(matches: SearchMatchBase[]) {
 	if (matches.length === 0) return '';
 
@@ -103,7 +102,6 @@ function formatContext(matches: SearchMatchBase[]) {
 	return ['Relevant context:', ...items].join('\n');
 }
 
-// Sources are the user-facing citation list, so keep them shorter than the model context
 export function buildSources(
 	matches: SearchMatchBase[],
 	positions?: Map<string, ChunkPosition>
@@ -128,8 +126,6 @@ export function buildSources(
 	});
 }
 
-// Chat uses hybrid by default. Set RAG_RETRIEVAL_MODE=semantic / bm25 to force one path
-// May want to switch to hybrid only in the future, kept for now to test/validate
 export async function retrieveRagContext({
 	question,
 	documentIds = [],
