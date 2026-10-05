@@ -22,6 +22,7 @@ import type {
 	ApiDocumentListResponse,
 	ApiDocumentTagAssignmentRequest,
 	ApiDocumentTagRequest,
+	ApiDocumentTagsResponse,
 	ApiDocumentTextRequest,
 	ApiDocumentUrlRequest,
 	ApiSyncFileStat
@@ -40,8 +41,9 @@ function searchString(entries: [string, string | number | string[] | undefined][
 }
 
 export class DocumentsService {
-	static list({ limit, mode, offset, query, sort, tags }: ApiDocumentListQuery = {}) {
+	static list({ group, limit, mode, offset, query, sort, tags }: ApiDocumentListQuery = {}) {
 		const search = searchString([
+			['group', group],
 			['q', query?.trim()],
 			['mode', mode],
 			['sort', sort],
@@ -52,7 +54,7 @@ export class DocumentsService {
 		return apiFetch<ApiDocumentListResponse>(`${API_DOCUMENTS.LIST}${search}`);
 	}
 
-	static listIds({ mode, query, tags }: ApiDocumentListQuery = {}, group?: string) {
+	static listIds({ group, mode, query, tags }: ApiDocumentListQuery = {}) {
 		const search = searchString([
 			['q', query?.trim()],
 			['mode', mode],
@@ -64,6 +66,10 @@ export class DocumentsService {
 
 	static listFolders() {
 		return apiFetch<ApiDocumentFoldersResponse>(API_DOCUMENTS.FOLDERS);
+	}
+
+	static listTags() {
+		return apiFetch<ApiDocumentTagsResponse>(API_DOCUMENTS.TAGS);
 	}
 
 	static createTag(tag: string) {

@@ -1,8 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
 import type { ApiSessionTitleRequest } from '$lib/types';
-import { db } from '$lib/server/database/database';
-import { sessions } from '$lib/server/database/schema';
 import { SessionsRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';
 
@@ -20,7 +17,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!title) {
 		return json({ error: 'Session title is required' }, { status: 400 });
 	}
-	await db.update(sessions).set({ title, updatedAt: new Date() }).where(eq(sessions.id, params.id));
+	await SessionsRepository.rename(params.id, title);
 
 	return json({ status: 'ok', session_id: params.id, title });
 };

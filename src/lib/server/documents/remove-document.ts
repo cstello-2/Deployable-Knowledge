@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/database/database';
 import { documents, syncedFiles } from '$lib/server/database/schema';
-import { invalidateVectorIndex } from '$lib/server/rag/search/vector-index';
+import { removeDocumentVectors } from '$lib/server/rag/search/vector-index';
 import { previewPathFor } from './managed-artifacts';
 
 export type SyncedFileDisposition = 'ignore' | 'remove';
@@ -75,7 +75,7 @@ export async function removeDocument(
 		await transaction.delete(documents).where(eq(documents.id, documentId));
 	});
 
-	invalidateVectorIndex();
+	removeDocumentVectors(documentId);
 
 	const managedPath = syncedFile?.managedPath ?? document?.sourcePath;
 	if (managedPath) await removeManagedDocumentFile(managedPath);

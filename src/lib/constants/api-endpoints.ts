@@ -101,6 +101,12 @@ export const API_DIAGNOSTICS = {
 	REPORT: '/diagnostics/report'
 };
 
+export const API_EMBEDDING = {
+	BASE: '/embedding',
+	LOCAL_MODELS: '/embedding/local-models',
+	localModel: (fileName: string) => `/embedding/local-models/${segment(fileName)}`
+};
+
 export const API_SEARCH = '/search';
 
 export const API_SESSIONS = {
@@ -108,8 +114,6 @@ export const API_SESSIONS = {
 	byId: (id: string) => `/sessions/${segment(id)}`,
 	messages: (id: string) => `/sessions/${segment(id)}/messages`
 };
-
-export const API_SETUP = '/setup';
 
 export const API_THEME = '/theme';
 

@@ -6,6 +6,7 @@ import {
 	toApiProviderInfo
 } from '$lib/server/providers/custom-provider-values';
 import { findProvider } from '$lib/server/providers/registry';
+import { resetEmbeddingProvider } from '$lib/server/rag/embedding-model';
 import { CustomProvidersRepository } from '$lib/server/repositories';
 
 import type { RequestHandler } from './$types';
@@ -51,5 +52,6 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		throw error(404, 'Provider not found');
 	}
 
+	await resetEmbeddingProvider(record.id);
 	return json(toApiProviderInfo(record));
 };

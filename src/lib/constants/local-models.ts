@@ -5,16 +5,19 @@ export const LOCAL_MODEL_PROVIDER_ID = 'llamacpp';
 const GEMMA_LICENSE = 'Gemma Terms of Use';
 const GEMMA_LICENSE_URL = 'https://ai.google.dev/gemma/terms';
 
-export interface LocalModel {
+export interface DownloadableModel {
 	name: string;
 	vendor: string;
 	description: string;
 	repo: string;
 	fileName: string;
 	sizeBytes: number;
-	minRamGiB: number;
 	license: string;
 	licenseUrl: string;
+}
+
+export interface LocalModel extends DownloadableModel {
+	minRamGiB: number;
 }
 
 export const LOCAL_MODELS: readonly LocalModel[] = [

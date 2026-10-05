@@ -1,14 +1,13 @@
-import { resolve } from 'node:path';
 import {
 	AutoModelForSequenceClassification,
 	AutoTokenizer,
 	type Tensor
 } from '@huggingface/transformers';
-import { INFERENCE_THREADS } from '../../embedding-model';
+import { INFERENCE_THREADS } from '$lib/server/utils/inference-threads';
+import { TRANSFORMERS_CACHE_DIR } from '$lib/server/utils/transformers-env';
 import { sigmoidScore, type CrossEncoder } from './cross-encoder';
 
 const MODEL_ID = 'Xenova/ms-marco-MiniLM-L-6-v2';
-const MODEL_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
 const MAX_LENGTH = 512;
 const BATCH_SIZE = 32;
 
@@ -60,10 +59,10 @@ export class MsMarco implements CrossEncoder {
 
 			this.runtimePromise = Promise.all([
 				AutoTokenizer.from_pretrained(MODEL_ID, {
-					cache_dir: MODEL_CACHE_DIR
+					cache_dir: TRANSFORMERS_CACHE_DIR
 				}),
 				AutoModelForSequenceClassification.from_pretrained(MODEL_ID, {
-					cache_dir: MODEL_CACHE_DIR,
+					cache_dir: TRANSFORMERS_CACHE_DIR,
 					session_options: {
 						intraOpNumThreads: INFERENCE_THREADS,
 						interOpNumThreads: 1

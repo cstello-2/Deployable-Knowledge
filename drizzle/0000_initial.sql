@@ -3,7 +3,10 @@ CREATE TABLE `app_state` (
 	`active_profile_id` text,
 	`active_layout_id` text,
 	`theme_color` text DEFAULT 'classic' NOT NULL,
-	`theme_mode` text DEFAULT 'system' NOT NULL
+	`theme_mode` text DEFAULT 'system' NOT NULL,
+	`embedding_provider` text DEFAULT 'llamacpp' NOT NULL,
+	`embedding_model` text DEFAULT 'nomic-embed-text-v1.5.Q8_0.gguf' NOT NULL,
+	`embedding_device` text DEFAULT 'auto' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `custom_providers` (
@@ -26,6 +29,7 @@ CREATE TABLE `document_chunks` (
 	`start_ms` integer,
 	`end_ms` integer,
 	`embedding` blob,
+	`embedding_model` text,
 	`created_at` text NOT NULL,
 	FOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -34,6 +38,7 @@ CREATE INDEX `document_chunks_document_id_idx` ON `document_chunks` (`document_i
 CREATE INDEX `document_chunks_chunk_type_idx` ON `document_chunks` (`chunk_type`);--> statement-breakpoint
 CREATE INDEX `document_chunks_page_idx` ON `document_chunks` (`page_index`);--> statement-breakpoint
 CREATE INDEX `document_chunks_document_chunk_idx` ON `document_chunks` (`document_id`,`chunk_index`);--> statement-breakpoint
+CREATE INDEX `document_chunks_embedding_model_idx` ON `document_chunks` (`embedding_model`,`id`,`document_id`) WHERE "document_chunks"."embedding" is not null;--> statement-breakpoint
 CREATE TABLE `document_tags` (
 	`document_id` text NOT NULL,
 	`tag` text(40) NOT NULL,

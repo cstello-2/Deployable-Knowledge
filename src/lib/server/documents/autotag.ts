@@ -7,8 +7,13 @@ import type {
 } from '$lib/types';
 import { db } from '$lib/server/database/database';
 import { documentTags, documents } from '$lib/server/database/schema';
-import { embedTexts } from '$lib/server/rag/embedding-model';
-import { getVectorIndex, type VectorIndex } from '$lib/server/rag/search/vector-index';
+import {
+	embedTexts,
+	getActiveEmbedding,
+	type EmbeddingBatch
+} from '$lib/server/rag/embedding-model';
+import { getVectorIndex } from '$lib/server/rag/search/vector-index';
+import type { VectorIndex } from '$lib/server/rag/search/vector-store';
 
 // A tag's raw similarity says little on its own: the similarity of unrelated words to a
 // document swings with its length and vocabulary (0.47 to 0.56 across one small corpus).
@@ -51,14 +56,13 @@ type AutotagProgress = (
 	entry?: ApiDocumentAutotagEntry
 ) => void;
 
-let backgroundVectors: Promise<Float32Array[]> | undefined;
+let background: EmbeddingBatch | undefined;
 
-function getBackgroundVectors(): Promise<Float32Array[]> {
-	backgroundVectors ??= embedTexts(BACKGROUND_TOPICS, 'search_query').catch((error) => {
-		backgroundVectors = undefined;
-		throw error;
-	});
-	return backgroundVectors;
+async function getBackgroundVectors(): Promise<EmbeddingBatch> {
+	if (background?.key !== (await getActiveEmbedding()).key) {
+		background = await embedTexts(BACKGROUND_TOPICS, 'search_query');
+	}
+	return background;
 }
 
 async function indexRowsByDocument(
@@ -66,8 +70,10 @@ async function indexRowsByDocument(
 	documentIds: Set<string>
 ): Promise<Map<string, number[]>> {
 	const rowsByDocument = new Map<string, number[]>();
-	for (let row = 0; row < index.count; row += 1) {
-		if (row > 0 && row % SCAN_BLOCK_SIZE === 0) await yieldEventLoop();
+	let scanned = 0;
+	for (const row of index.rows()) {
+		scanned += 1;
+		if (scanned % SCAN_BLOCK_SIZE === 0) await yieldEventLoop();
 		const documentId = index.documentIds[row];
 		if (!documentIds.has(documentId)) continue;
 		const rows = rowsByDocument.get(documentId);
@@ -129,17 +135,20 @@ export async function autotagDocuments(
 		label: LABEL,
 		message: `Embedding ${tagNames.length} tag${tagNames.length === 1 ? '' : 's'}`
 	});
-	const [tagVectors, background] = await Promise.all([
+	const [tagBatch, backgroundBatch] = await Promise.all([
 		embedTexts(
 			tagNames.map((tag) => tag.replace(/[-_]+/g, ' ')),
 			'search_query'
 		),
 		getBackgroundVectors()
 	]);
+	if (tagBatch.key !== backgroundBatch.key) {
+		throw new Error('The embedding model changed. Try again.');
+	}
 
 	onProgress({ percent: 5, label: LABEL, message: 'Loading document vectors' });
 	const [index, documentRows, assignmentRows] = await Promise.all([
-		getVectorIndex(),
+		getVectorIndex(tagBatch.key),
 		db
 			.select({ id: documents.id, title: documents.title })
 			.from(documents)
@@ -175,9 +184,13 @@ export async function autotagDocuments(
 		};
 		if (rows) {
 			const assigned = assignedByDocument.get(document.id);
-			entry.tags = matchTags(index, rows, tagNames, tagVectors, background).filter(
-				(tag) => !assigned?.has(tag)
-			);
+			entry.tags = matchTags(
+				index,
+				rows,
+				tagNames,
+				tagBatch.vectors,
+				backgroundBatch.vectors
+			).filter((tag) => !assigned?.has(tag));
 			entry.status = entry.tags.length ? 'tagged' : 'unchanged';
 			for (const tag of entry.tags) pending.push({ documentId: document.id, tag });
 		}

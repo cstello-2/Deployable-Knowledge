@@ -2,16 +2,10 @@
 Xenova Whisper Tiny English model. While it handles English audio transcription well, it may not perform 
 as accurately on complex/chaotic audio scenarios. Looking into using larger models*/
 
-import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
-import { resolve } from 'node:path';
+import { pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
+import { TRANSFORMERS_CACHE_DIR } from '$lib/server/utils/transformers-env';
 
 export const TRANSCRIPTION_MODEL = 'Xenova/whisper-tiny.en';
-
-const TRANSFORMERS_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
-
-env.allowRemoteModels = true;
-env.cacheDir = TRANSFORMERS_CACHE_DIR;
-env.localModelPath = TRANSFORMERS_CACHE_DIR;
 
 let transcriptionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | undefined;
 

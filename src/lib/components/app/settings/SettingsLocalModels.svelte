@@ -2,9 +2,9 @@
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import { onMount } from 'svelte';
 	import { DialogConfirmation } from '$lib/components/app/dialogs';
-	import { LOCAL_MODELS, findLocalModelByFile } from '$lib/constants';
-	import { localModelsStore } from '$lib/stores';
-	import { LOCAL_MODEL_ICONS, type LocalModelCardData } from './local-model-catalog';
+	import { LOCAL_MODEL_PROVIDER_ID, LOCAL_MODELS, findLocalModelByFile } from '$lib/constants';
+	import { localModelsStore, settingsStore } from '$lib/stores';
+	import { catalogModelCard, type LocalModelCardData } from './local-model-catalog';
 	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsModelCard from './SettingsModelCard.svelte';
 
@@ -12,18 +12,7 @@
 
 	const cards = $derived.by((): LocalModelCardData[] => {
 		const models = localModelsStore.status?.models ?? [];
-		const catalogCards = LOCAL_MODELS.map((model) => ({
-			fileName: model.fileName,
-			name: model.name,
-			vendor: model.vendor,
-			icon: LOCAL_MODEL_ICONS[model.fileName] ?? null,
-			description: model.description,
-			downloadable: true,
-			downloadSizeBytes: model.sizeBytes,
-			minRamGiB: model.minRamGiB,
-			license: model.license,
-			licenseUrl: model.licenseUrl
-		}));
+		const catalogCards = LOCAL_MODELS.map((model) => catalogModelCard(model, model.minRamGiB));
 		const customCards = models
 			.filter((model) => model.downloaded && !findLocalModelByFile(model.fileName))
 			.map((model) => ({
@@ -51,7 +40,22 @@
 >
 	<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 		{#each cards as card (card.fileName)}
-			<SettingsModelCard model={card} onDelete={(fileName) => (pendingDelete = fileName)} />
+			{@const info = localModelsStore.status?.models.find(
+				(entry) => entry.fileName === card.fileName
+			)}
+			<SettingsModelCard
+				active={settingsStore.config.provider === LOCAL_MODEL_PROVIDER_ID &&
+					settingsStore.config.model === card.fileName}
+				downloadDisabled={localModelsStore.downloadingFile !== null}
+				downloaded={info?.downloaded ?? false}
+				downloading={localModelsStore.downloadingFile === card.fileName}
+				model={card}
+				onDelete={() => (pendingDelete = card.fileName)}
+				onDownload={() => void localModelsStore.download(card.fileName)}
+				onUse={() => void localModelsStore.activateModel(card.fileName)}
+				percent={localModelsStore.progress?.percent ?? 0}
+				sizeOnDiskBytes={info?.sizeBytes ?? null}
+			/>
 		{/each}
 	</div>
 

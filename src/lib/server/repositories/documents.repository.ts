@@ -6,7 +6,6 @@ import {
 	eq,
 	exists,
 	inArray,
-	notExists,
 	or,
 	sql,
 	type Column,
@@ -20,13 +19,7 @@ import type {
 	DocumentSortMode
 } from '$lib/types';
 import { db } from '$lib/server/database/database';
-import {
-	documentChunks,
-	documentTags,
-	documents,
-	syncedFiles,
-	tags
-} from '$lib/server/database/schema';
+import { documentChunks, documentTags, documents, syncedFiles } from '$lib/server/database/schema';
 
 function likePattern(token: string): string {
 	return `%${token.replace(/[\\%_]/g, '\\$&')}%`;
@@ -54,8 +47,20 @@ function hasTagLike(token: string): SQL {
 	);
 }
 
-function listConditions({ mode, query, tags: tagFilter }: ApiDocumentListQuery): SQL | undefined {
+// At most one synced row carries a document's id, so this join never repeats a document.
+const ownedByFolder = eq(syncedFiles.documentId, documents.id);
+
+// Requires the `ownedByFolder` join.
+const documentGroup = sql<string>`coalesce(${syncedFiles.folderId}, case ${documents.origin} when 'MANUAL' then 'manual' else 'individual' end)`;
+
+function listConditions({
+	group,
+	mode,
+	query,
+	tags: tagFilter
+}: ApiDocumentListQuery): SQL | undefined {
 	const conditions: SQL[] = [];
+	if (group) conditions.push(eq(documentGroup, group));
 	if (mode === 'active') conditions.push(eq(documents.active, true));
 	if (mode === 'inactive') conditions.push(eq(documents.active, false));
 	if (tagFilter?.length) conditions.push(hasTagIn(tagFilter));
@@ -86,35 +91,12 @@ function orderFor(sort: DocumentSortMode | undefined): SQL[] {
 }
 
 export class DocumentsRepository {
-	static async listIds(
-		options: ApiDocumentListQuery = {},
-		group?: 'manual' | { folderId: string | null }
-	): Promise<string[]> {
-		const conditions: SQL[] = [];
-		const base = listConditions(options);
-		if (base) conditions.push(base);
-		if (group === 'manual') {
-			conditions.push(eq(documents.origin, 'MANUAL'));
-		} else if (group) {
-			const membership = db
-				.select({ one: sql`1` })
-				.from(syncedFiles)
-				.where(
-					group.folderId === null
-						? eq(syncedFiles.documentId, documents.id)
-						: and(
-								eq(syncedFiles.documentId, documents.id),
-								eq(syncedFiles.folderId, group.folderId)
-							)
-				);
-			conditions.push(group.folderId === null ? notExists(membership) : exists(membership));
-			// Manually loaded text lives outside every folder; keep it out of "Individual files"
-			if (group.folderId === null) conditions.push(eq(documents.origin, 'FILE'));
-		}
+	static async listIds(options: ApiDocumentListQuery = {}): Promise<string[]> {
 		const rows = await db
 			.select({ id: documents.id })
 			.from(documents)
-			.where(conditions.length ? and(...conditions) : undefined);
+			.leftJoin(syncedFiles, ownedByFolder)
+			.where(listConditions(options));
 		return rows.map(({ id }) => id);
 	}
 
@@ -131,31 +113,25 @@ export class DocumentsRepository {
 				origin: documents.origin,
 				createdAt: documents.createdAt,
 				updatedAt: documents.updatedAt,
-				active: documents.active
+				active: documents.active,
+				folderId: syncedFiles.folderId
 			})
 			.from(documents)
+			.leftJoin(syncedFiles, ownedByFolder)
 			.where(where)
 			.orderBy(...ordering, asc(documents.id));
 
-		const [rows, [{ total }], [{ total: manualTotal }], availableTags, folderCounts] =
-			await Promise.all([
-				options.limit === undefined ? page : page.limit(options.limit).offset(options.offset ?? 0),
-				db.select({ total: count() }).from(documents).where(where),
-				db
-					.select({ total: count() })
-					.from(documents)
-					.where(and(where, eq(documents.origin, 'MANUAL'))),
-				db.select({ name: tags.name }).from(tags).orderBy(asc(tags.name)),
-				db
-					.select({ folderId: syncedFiles.folderId, total: count() })
-					.from(documents)
-					.leftJoin(syncedFiles, eq(syncedFiles.documentId, documents.id))
-					.where(where)
-					.groupBy(syncedFiles.folderId)
-			]);
+		const [rows, [{ total }]] = await Promise.all([
+			options.limit === undefined ? page : page.limit(options.limit).offset(options.offset ?? 0),
+			db
+				.select({ total: count() })
+				.from(documents)
+				.leftJoin(syncedFiles, ownedByFolder)
+				.where(where)
+		]);
 
 		const documentIds = rows.map(({ id }) => id);
-		const [tagRows, chunkRows, folderRows] = documentIds.length
+		const [tagRows, chunkRows] = documentIds.length
 			? await Promise.all([
 					db
 						.select({ documentId: documentTags.documentId, tag: documentTags.tag })
@@ -166,13 +142,9 @@ export class DocumentsRepository {
 						.select({ documentId: documentChunks.documentId, total: count() })
 						.from(documentChunks)
 						.where(inArray(documentChunks.documentId, documentIds))
-						.groupBy(documentChunks.documentId),
-					db
-						.select({ documentId: syncedFiles.documentId, folderId: syncedFiles.folderId })
-						.from(syncedFiles)
-						.where(inArray(syncedFiles.documentId, documentIds))
+						.groupBy(documentChunks.documentId)
 				])
-			: [[], [], []];
+			: [[], []];
 
 		const tagsByDocument = new Map<string, string[]>();
 
@@ -183,21 +155,13 @@ export class DocumentsRepository {
 		}
 
 		const chunkCountByDocument = new Map(chunkRows.map((row) => [row.documentId, row.total]));
-		const folderByDocument = new Map(folderRows.map((row) => [row.documentId, row.folderId]));
 
 		const documentRows: DocumentRow[] = rows.map((row) => ({
 			...row,
 			chunkCount: chunkCountByDocument.get(row.id) ?? 0,
-			folderId: folderByDocument.get(row.id) ?? null,
 			tags: tagsByDocument.get(row.id) ?? []
 		}));
-		return {
-			documents: documentRows,
-			folderCounts,
-			manualTotal,
-			tags: availableTags.map(({ name }) => name),
-			total
-		};
+		return { documents: documentRows, total };
 	}
 
 	static async titles(

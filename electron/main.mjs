@@ -14,7 +14,13 @@ const SERVER_START_TIMEOUT_MS = 120_000;
 // In a packaged app that directory is per-user and starts empty, so the shipped
 // copies have to be seeded on first launch.
 const SEEDED_RUNTIME_FILES = ['eng.traineddata'];
-const RUNTIME_DIRECTORIES = ['documents', 'models', join('.cache', 'transformersjs'), 'logs'];
+const RUNTIME_DIRECTORIES = [
+	'documents',
+	'models',
+	join('.cache', 'embeddings'),
+	join('.cache', 'transformersjs'),
+	'logs'
+];
 
 /** @type {import('node:child_process').ChildProcess | null} */
 let serverProcess = null;

@@ -1,61 +1,72 @@
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { LOOSE_DOCUMENT_GROUPS, type LooseDocumentGroup } from '$lib/constants';
 import { DocumentsService } from '$lib/services';
 import { DEFAULT_DOCUMENT_SORT } from '$lib/utils';
 import type {
 	ApiDocumentAutotagEntry,
 	ApiDocumentAutotagResult,
 	ApiDocumentIngestProgress,
+	ApiDocumentIngestResult,
 	ApiDocumentListQuery,
-	ApiDocumentSyncFileProgress,
-	ApiFolderDocumentCount,
+	ApiDocumentListResponse,
 	ApiSyncedFolder,
 	DocumentListMode,
-	DocumentRow,
-	DocumentSortMode
+	DocumentSortMode,
+	PendingDocument
 } from '$lib/types';
 
 const PAGE_SIZE = 50;
 const MAX_REFRESH_SIZE = 200;
 const QUERY_DEBOUNCE_MS = 250;
-// The per-file list is a running log of a sync, not a record of it. Keeping every
-// entry of a several-thousand file sync would put that many rows in the dialog and
-// grow the work of each update with the size of the corpus, so old entries are
-// dropped in blocks once the log is full.
-const SYNC_LOG_LIMIT = 200;
-const SYNC_LOG_TRIM = 100;
+// The per-document list is a running log of an autotag run, not a record of it.
+// Keeping every entry of a several-thousand document run would put that many rows
+// in the dialog and grow the work of each update with the size of the corpus, so
+// old entries are dropped in blocks once the log is full.
+const AUTOTAG_LOG_LIMIT = 200;
+const AUTOTAG_LOG_TRIM = 100;
+
+interface DocumentGroupPage extends ApiDocumentListResponse {
+	// Rows consumed from the server. Runs ahead of `documents.length` when an ingest
+	// shifts shown rows into the next page and the repeats are dropped.
+	offset: number;
+}
+
+type IngestRequest = (
+	onProgress: (progress: ApiDocumentIngestProgress) => void
+) => Promise<ApiDocumentIngestResult>;
 
 class DocumentsStore {
-	private _documents = $state<DocumentRow[]>([]);
+	private _pages = $state.raw<Record<string, DocumentGroupPage>>({});
+	private _loadingGroups = new SvelteSet<string>();
 	private _tags = $state<string[]>([]);
 	private _folders = $state<ApiSyncedFolder[]>([]);
 	private _selectedIds = $state(new SvelteSet<string>());
-	private _syncFiles = $state<ApiDocumentSyncFileProgress[]>([]);
-	private _total = $state(0);
-	private _manualTotal = $state(0);
-	private _folderCounts = $state<ApiFolderDocumentCount[]>([]);
+	// Progress lives apart from the queue so a per-chunk tick only touches the row
+	// being ingested, not every queued row of a several-thousand file sync.
+	private _pending = $state.raw<PendingDocument[]>([]);
+	private _ingestProgress = new SvelteMap<string, ApiDocumentIngestProgress>();
 	private _query = $state('');
 	private _tagFilters = $state<string[]>([]);
 	private _mode = $state<DocumentListMode>('all');
 	private _sort = $state<DocumentSortMode>(DEFAULT_DOCUMENT_SORT);
-	private _syncTotal = $state(0);
-	private _syncSettled = $state(0);
 	private _autotagEntries = $state<ApiDocumentAutotagEntry[]>([]);
 	private _autotagSettled = $state(0);
 	private _autotagTotal = $state(0);
 	private queryTimer: ReturnType<typeof setTimeout> | undefined;
 	private listRequest = 0;
-	private syncFileIndex = new Map<string, number>();
-	progress = $state<ApiDocumentIngestProgress | null>(null);
-	syncProgress = $state<ApiDocumentIngestProgress | null>(null);
 	autotagProgress = $state<ApiDocumentIngestProgress | null>(null);
 	syncing = $state(false);
 	autotagging = $state(false);
 	loading = $state(false);
-	loadingMore = $state(false);
 	error = $state<string | null>(null);
 
-	get documents(): DocumentRow[] {
-		return this._documents;
+	/** Keyed by folder id or loose group. */
+	get pages(): Record<string, ApiDocumentListResponse> {
+		return this._pages;
+	}
+
+	get loadingGroups(): ReadonlySet<string> {
+		return this._loadingGroups;
 	}
 
 	get tags(): string[] {
@@ -66,16 +77,14 @@ class DocumentsStore {
 		return this._folders;
 	}
 
-	get syncFiles(): ApiDocumentSyncFileProgress[] {
-		return this._syncFiles;
+	/** Documents queued or mid-ingest, shown in their group until the stored row replaces them. */
+	get pendingDocuments(): PendingDocument[] {
+		return this._pending;
 	}
 
-	get syncTotal(): number {
-		return this._syncTotal;
-	}
-
-	get syncSettled(): number {
-		return this._syncSettled;
+	/** Keyed by pending document key; absent while the document is still queued. */
+	get ingestProgress(): ReadonlyMap<string, ApiDocumentIngestProgress> {
+		return this._ingestProgress;
 	}
 
 	get autotagEntries(): ApiDocumentAutotagEntry[] {
@@ -92,22 +101,6 @@ class DocumentsStore {
 
 	get selectedIds(): ReadonlySet<string> {
 		return this._selectedIds;
-	}
-
-	get total(): number {
-		return this._total;
-	}
-
-	get folderCounts(): ApiFolderDocumentCount[] {
-		return this._folderCounts;
-	}
-
-	get manualTotal(): number {
-		return this._manualTotal;
-	}
-
-	get hasMore(): boolean {
-		return this._documents.length < this._total;
 	}
 
 	get query(): string {
@@ -131,33 +124,42 @@ class DocumentsStore {
 	}
 
 	async load(): Promise<void> {
-		await this.fetchList(PAGE_SIZE);
+		await this.fetchList(() => PAGE_SIZE);
 	}
 
 	async refresh(): Promise<void> {
-		await this.fetchList(Math.min(Math.max(this._documents.length, PAGE_SIZE), MAX_REFRESH_SIZE));
+		await this.fetchList((group) =>
+			Math.min(Math.max(this._pages[group]?.documents.length ?? 0, PAGE_SIZE), MAX_REFRESH_SIZE)
+		);
 	}
 
-	async loadMore(): Promise<void> {
-		if (this.loading || this.loadingMore || this.error || !this.hasMore) return;
-		const request = ++this.listRequest;
-		this.loadingMore = true;
+	async loadMore(group: string): Promise<void> {
+		const page = this._pages[group];
+		if (!page || page.offset >= page.total) return;
+		if (this.loading || this.error || this._loadingGroups.has(group)) return;
+		const request = this.listRequest;
+		this._loadingGroups.add(group);
 		try {
 			const result = await DocumentsService.list({
 				...this.listQuery(),
-				offset: this._documents.length,
+				group,
+				offset: page.offset,
 				limit: PAGE_SIZE
 			});
 			if (request !== this.listRequest) return;
-			this._documents = [...this._documents, ...result.documents];
-			this._tags = result.tags;
-			this._total = result.total;
-			this._manualTotal = result.manualTotal;
-			this._folderCounts = result.folderCounts;
+			const shown = new Set(page.documents.map(({ id }) => id));
+			this._pages = {
+				...this._pages,
+				[group]: {
+					documents: [...page.documents, ...result.documents.filter(({ id }) => !shown.has(id))],
+					offset: page.offset + result.documents.length,
+					total: result.total
+				}
+			};
 		} catch (error) {
 			if (request === this.listRequest) this.error = message(error);
 		} finally {
-			this.loadingMore = false;
+			this._loadingGroups.delete(group);
 		}
 	}
 
@@ -203,7 +205,7 @@ class DocumentsStore {
 
 	async selectGroup(group: string, selected: boolean): Promise<void> {
 		try {
-			const result = await DocumentsService.listIds(this.listQuery(), group);
+			const result = await DocumentsService.listIds({ ...this.listQuery(), group });
 			this.setSelection(result.ids, selected);
 		} catch (error) {
 			this.error = message(error);
@@ -239,8 +241,8 @@ class DocumentsStore {
 				if (!entry) return;
 				this._autotagSettled += 1;
 				this._autotagEntries.push(entry);
-				if (this._autotagEntries.length > SYNC_LOG_LIMIT) {
-					this._autotagEntries.splice(0, SYNC_LOG_TRIM);
+				if (this._autotagEntries.length > AUTOTAG_LOG_LIMIT) {
+					this._autotagEntries.splice(0, AUTOTAG_LOG_TRIM);
 				}
 			});
 		} finally {
@@ -251,7 +253,7 @@ class DocumentsStore {
 	}
 
 	async autotagGroup(group: string): Promise<ApiDocumentAutotagResult | null> {
-		const { ids } = await DocumentsService.listIds(this.listQuery(), group);
+		const { ids } = await DocumentsService.listIds({ ...this.listQuery(), group });
 		return this.autotagDocuments(ids);
 	}
 
@@ -266,44 +268,80 @@ class DocumentsStore {
 		await this.refresh();
 	}
 
-	async ingestFile(file: File) {
-		this.progress = { percent: 0, label: 'Ingesting file', message: 'Preparing file' };
-		const result = await DocumentsService.ingestFile(
-			file,
-			(progress) => (this.progress = progress)
+	/** Queues every file up front so the whole batch is listed, then ingests them in order. */
+	async ingestFiles(files: File[], onFailure: (error: unknown) => void): Promise<number> {
+		const entries = this.enqueueDocuments(
+			'individual',
+			files.map(({ name }) => name)
 		);
-		this._selectedIds.add(result.documentId);
-		this.progress = null;
-		await this.refresh();
-		return result;
+		let succeeded = 0;
+		try {
+			for (const [index, file] of files.entries()) {
+				try {
+					const result = await this.ingestPending(entries[index], (onProgress) =>
+						DocumentsService.ingestFile(file, onProgress)
+					);
+					this._selectedIds.add(result.documentId);
+					succeeded += 1;
+				} catch (error) {
+					onFailure(error);
+				}
+			}
+		} finally {
+			this.dropPending(entries);
+		}
+		return succeeded;
 	}
 
-	async ingestYoutube(url: string) {
-		this.progress = {
-			percent: 0,
-			label: 'Importing YouTube transcript',
-			message: 'Reading video details'
-		};
-		const result = await DocumentsService.ingestYoutube(
-			url,
-			(progress) => (this.progress = progress)
+	ingestYoutube(url: string): Promise<ApiDocumentIngestResult> {
+		return this.ingestSingle('manual', url, (onProgress) =>
+			DocumentsService.ingestYoutube(url, onProgress)
 		);
-		this._selectedIds.add(result.documentId);
-		this.progress = null;
-		await this.refresh();
-		return result;
 	}
 
-	async ingestText(title: string, text: string) {
-		this.progress = { percent: 0, label: 'Embedding text', message: 'Preparing text' };
-		const result = await DocumentsService.ingestText(
-			title,
-			text,
-			(progress) => (this.progress = progress)
+	ingestText(title: string, text: string): Promise<ApiDocumentIngestResult> {
+		return this.ingestSingle('manual', title, (onProgress) =>
+			DocumentsService.ingestText(title, text, onProgress)
 		);
+	}
+
+	enqueueDocuments(group: string, titles: string[]): PendingDocument[] {
+		const entries = titles.map((title) => ({ key: crypto.randomUUID(), group, title }));
+		if (entries.length) this._pending = [...this._pending, ...entries];
+		return entries;
+	}
+
+	async ingestPending(
+		entry: PendingDocument,
+		ingest: IngestRequest
+	): Promise<ApiDocumentIngestResult> {
+		this._ingestProgress.set(entry.key, { percent: 0, label: 'Ingesting', message: 'Starting' });
+		try {
+			const result = await ingest((progress) => this._ingestProgress.set(entry.key, progress));
+			// Dropping the entry only after the refresh hands the row straight to the
+			// stored document instead of blinking out between the two.
+			await this.refresh();
+			return result;
+		} finally {
+			this.dropPending([entry]);
+		}
+	}
+
+	dropPending(entries: PendingDocument[]): void {
+		const keys = new Set(entries.map(({ key }) => key));
+		for (const key of keys) this._ingestProgress.delete(key);
+		if (!this._pending.some(({ key }) => keys.has(key))) return;
+		this._pending = this._pending.filter(({ key }) => !keys.has(key));
+	}
+
+	private async ingestSingle(
+		group: LooseDocumentGroup,
+		title: string,
+		ingest: IngestRequest
+	): Promise<ApiDocumentIngestResult> {
+		const [entry] = this.enqueueDocuments(group, [title]);
+		const result = await this.ingestPending(entry, ingest);
 		this._selectedIds.add(result.documentId);
-		this.progress = null;
-		await this.refresh();
 		return result;
 	}
 
@@ -328,23 +366,32 @@ class DocumentsStore {
 		};
 	}
 
-	private async fetchList(limit: number): Promise<void> {
+	private async fetchList(limitFor: (group: string) => number): Promise<void> {
 		const request = ++this.listRequest;
+		const query = this.listQuery();
 		this.loading = true;
 		this.error = null;
 		try {
-			const [result, folderResult] = await Promise.all([
-				DocumentsService.list({ ...this.listQuery(), offset: 0, limit }),
-				DocumentsService.listFolders()
+			const [{ folders }, { tags }] = await Promise.all([
+				DocumentsService.listFolders(),
+				DocumentsService.listTags()
 			]);
+			const groups = [...folders.map(({ id }) => id), ...LOOSE_DOCUMENT_GROUPS];
+			const results = await Promise.all(
+				groups.map((group) =>
+					DocumentsService.list({ ...query, group, offset: 0, limit: limitFor(group) })
+				)
+			);
 			if (request !== this.listRequest) return;
-			this._documents = result.documents;
-			this._tags = result.tags;
-			this._folders = folderResult.folders;
-			this._total = result.total;
-			this._manualTotal = result.manualTotal;
-			this._folderCounts = result.folderCounts;
-			this._tagFilters = this._tagFilters.filter((tag) => result.tags.includes(tag));
+			this._folders = folders;
+			this._tags = tags;
+			this._pages = Object.fromEntries(
+				groups.map((group, index) => [
+					group,
+					{ ...results[index], offset: results[index].documents.length }
+				])
+			);
+			this._tagFilters = this._tagFilters.filter((tag) => tags.includes(tag));
 			this.pruneSelection();
 		} catch (error) {
 			if (request === this.listRequest) this.error = message(error);
@@ -354,63 +401,10 @@ class DocumentsStore {
 	}
 
 	private pruneSelection(): void {
-		if (this.filtered || this.hasMore) return;
-		const validIds = new Set(this._documents.map(({ id }) => id));
+		const pages = Object.values(this._pages);
+		if (this.filtered || pages.some(({ offset, total }) => offset < total)) return;
+		const validIds = new Set(pages.flatMap(({ documents }) => documents.map(({ id }) => id)));
 		for (const id of this._selectedIds) if (!validIds.has(id)) this._selectedIds.delete(id);
-	}
-
-	beginFolderSync(total: number): void {
-		this.syncing = true;
-		this._syncFiles = [];
-		this._syncTotal = total;
-		this._syncSettled = 0;
-		this.syncFileIndex.clear();
-		this.syncProgress = { percent: 0, label: 'Syncing folder', message: 'Scanning folder' };
-	}
-
-	reportSyncFile(progress: ApiDocumentSyncFileProgress): void {
-		const existingIndex = this.syncFileIndex.get(progress.sourcePath);
-		// Entries are written in place: rebuilding the array on every ingest tick is
-		// what makes a large sync crawl once the log holds thousands of files.
-		if (existingIndex === undefined) {
-			this.syncFileIndex.set(progress.sourcePath, this._syncFiles.length);
-			this._syncFiles.push(progress);
-			this.trimSyncLog();
-		} else {
-			this._syncFiles[existingIndex] = progress;
-		}
-
-		const ingesting = progress.status === 'ingesting';
-		if (!ingesting) this._syncSettled += 1;
-		this.syncProgress = {
-			percent: this.overallSyncPercent(ingesting ? (progress.percent ?? 0) : 0),
-			label: progress.label ?? 'Syncing folder',
-			message: progress.message ?? progress.sourcePath
-		};
-	}
-
-	endFolderSync(): void {
-		this.syncing = false;
-		this.syncProgress = null;
-		this._syncTotal = 0;
-		this._syncSettled = 0;
-	}
-
-	// A per-file percentage restarts at zero once per file, so on a folder of any
-	// size the bar has to read as files settled plus how far the current one is.
-	private overallSyncPercent(filePercent: number): number {
-		if (this._syncTotal <= 0) return filePercent;
-		const settled = Math.min(this._syncSettled, this._syncTotal);
-		return ((settled + Math.min(Math.max(filePercent, 0), 100) / 100) / this._syncTotal) * 100;
-	}
-
-	private trimSyncLog(): void {
-		if (this._syncFiles.length <= SYNC_LOG_LIMIT) return;
-		this._syncFiles.splice(0, SYNC_LOG_TRIM);
-		this.syncFileIndex.clear();
-		for (let index = 0; index < this._syncFiles.length; index += 1) {
-			this.syncFileIndex.set(this._syncFiles[index].sourcePath, index);
-		}
 	}
 }
 

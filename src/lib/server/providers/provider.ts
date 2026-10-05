@@ -7,10 +7,6 @@ export type ProviderChatOptions = {
 	reasoningBudget?: number;
 	gpuMode?: LlamaGpuMode;
 	tools?: ProviderToolDefinition[];
-	toolChoice?: 'auto' | 'none';
-	parallelToolCalls?: boolean;
-	// Aborting stops the underlying generation, not just the response stream.
-	// Without it an abandoned request keeps generating and blocks later ones.
 	signal?: AbortSignal;
 };
 
@@ -28,8 +24,6 @@ export type ProviderToolCall = {
 	type: 'function';
 	function: {
 		name: string;
-		// Provider wire protocols usually use a JSON string here. Some local
-		// servers return an object, so providers normalize it before the agent.
 		arguments: string;
 	};
 };
@@ -37,25 +31,22 @@ export type ProviderToolCall = {
 export type ProviderChatMessage = {
 	role: 'system' | 'user' | 'assistant' | 'tool';
 	content: string | null;
-	reasoningContent?: string;
-	toolCalls?: ProviderToolCall[];
-	toolCallId?: string;
+	reasoning_content?: string;
+	tool_calls?: ProviderToolCall[];
+	tool_call_id?: string;
 	name?: string;
 };
 
 export type ProviderToolCallDelta = {
-	index: number;
+	index?: number;
 	id?: string;
-	nameDelta?: string;
-	nameSnapshot?: string;
-	argumentsDelta?: string;
-	argumentsSnapshot?: unknown;
+	function?: { name?: string; arguments?: string };
 };
 
 export type ProviderChatChunk = {
-	content?: string;
-	reasoningContent?: string;
-	toolCalls?: ProviderToolCallDelta[];
+	content?: string | null;
+	reasoning_content?: string | null;
+	tool_calls?: ProviderToolCallDelta[];
 };
 
 export abstract class Provider {

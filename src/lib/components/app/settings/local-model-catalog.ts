@@ -1,4 +1,5 @@
 import type { Component } from 'svelte';
+import type { DownloadableModel } from '$lib/constants';
 import GemmaIcon from './icons/GemmaIcon.svelte';
 
 export const LOCAL_MODEL_ICONS: Record<string, Component<{ class?: string }>> = {
@@ -18,4 +19,22 @@ export interface LocalModelCardData {
 	minRamGiB: number | null;
 	license: string | null;
 	licenseUrl: string | null;
+}
+
+export function catalogModelCard(
+	model: DownloadableModel,
+	minRamGiB: number | null
+): LocalModelCardData {
+	return {
+		fileName: model.fileName,
+		name: model.name,
+		vendor: model.vendor,
+		icon: LOCAL_MODEL_ICONS[model.fileName] ?? null,
+		description: model.description,
+		downloadable: true,
+		downloadSizeBytes: model.sizeBytes,
+		minRamGiB,
+		license: model.license,
+		licenseUrl: model.licenseUrl
+	};
 }

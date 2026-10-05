@@ -1,3 +1,4 @@
+import { isNotNull } from 'drizzle-orm';
 import {
 	blob,
 	index,
@@ -11,7 +12,9 @@ import {
 import {
 	CUSTOM_PROVIDER_TYPES,
 	DEFAULT_ASSISTANT_CONFIG,
+	DEFAULT_EMBEDDING_SETTINGS,
 	DEFAULT_THEME,
+	EMBEDDING_DEVICES,
 	LAYOUT_NAME_MAX_LENGTH,
 	PROVIDER_NAME_MAX_LENGTH,
 	SYNCED_FILE_STATES,
@@ -25,7 +28,14 @@ export const appState = sqliteTable('app_state', {
 	activeProfileId: text('active_profile_id'),
 	activeLayoutId: text('active_layout_id'),
 	themeColor: text('theme_color', { enum: THEME_COLORS }).notNull().default(DEFAULT_THEME.color),
-	themeMode: text('theme_mode', { enum: THEME_MODES }).notNull().default(DEFAULT_THEME.mode)
+	themeMode: text('theme_mode', { enum: THEME_MODES }).notNull().default(DEFAULT_THEME.mode),
+	embeddingProvider: text('embedding_provider')
+		.notNull()
+		.default(DEFAULT_EMBEDDING_SETTINGS.provider),
+	embeddingModel: text('embedding_model').notNull().default(DEFAULT_EMBEDDING_SETTINGS.model),
+	embeddingDevice: text('embedding_device', { enum: EMBEDDING_DEVICES })
+		.notNull()
+		.default(DEFAULT_EMBEDDING_SETTINGS.device)
 });
 
 // Workspace layout tabs. The snapshot is opaque UI state that is always read and
@@ -260,13 +270,18 @@ export const documentChunks = sqliteTable(
 		startMs: integer('start_ms'),
 		endMs: integer('end_ms'),
 		embedding: blob('embedding', { mode: 'buffer' }),
+		// Vectors are only comparable with vectors from the same model.
+		embeddingModel: text('embedding_model'),
 		createdAt: text('created_at').notNull()
 	},
 	(table) => [
 		index('document_chunks_document_id_idx').on(table.documentId),
 		index('document_chunks_chunk_type_idx').on(table.chunkType),
 		index('document_chunks_page_idx').on(table.pageIndex),
-		index('document_chunks_document_chunk_idx').on(table.documentId, table.chunkIndex)
+		index('document_chunks_document_chunk_idx').on(table.documentId, table.chunkIndex),
+		index('document_chunks_embedding_model_idx')
+			.on(table.embeddingModel, table.id, table.documentId)
+			.where(isNotNull(table.embedding))
 	]
 );
 

@@ -7,12 +7,14 @@
 	import Layers from '@lucide/svelte/icons/layers';
 	import MessageSquareQuote from '@lucide/svelte/icons/message-square-quote';
 	import Palette from '@lucide/svelte/icons/palette';
+	import ScanSearch from '@lucide/svelte/icons/scan-search';
 	import Search from '@lucide/svelte/icons/search';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import Wrench from '@lucide/svelte/icons/wrench';
 	import type { Component } from 'svelte';
 	import SettingsAppearance from './SettingsAppearance.svelte';
+	import SettingsEmbeddingSection from './SettingsEmbeddingSection.svelte';
 	import SettingsFieldGroup from './SettingsFieldGroup.svelte';
 	import SettingsGenerationFields from './SettingsGenerationFields.svelte';
 	import SettingsLocalModels from './SettingsLocalModels.svelte';
@@ -104,6 +106,28 @@
 			]
 		},
 		{
+			id: 'embeddings',
+			label: 'Embeddings',
+			description: 'The model that turns documents and queries into vectors for semantic search.',
+			icon: ScanSearch,
+			keywords: [
+				'embedding model',
+				'semantic search',
+				'vectors',
+				're-embed',
+				'nomic',
+				'gguf',
+				'llama.cpp',
+				'openai',
+				'download',
+				'compute device',
+				'gpu',
+				'cpu',
+				'vulkan',
+				'cuda'
+			]
+		},
+		{
 			id: 'appearance',
 			label: 'Appearance',
 			description: 'Choose how the workspace looks. Changes are applied immediately.',
@@ -167,7 +191,7 @@
 		class="flex h-[min(46rem,88dvh)] w-[min(70rem,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
 	>
 		<Dialog.Description class="sr-only">
-			Configure the assistant, tools, models, appearance, and diagnostics.
+			Configure the assistant, tools, models, embeddings, appearance, and diagnostics.
 		</Dialog.Description>
 
 		<aside
@@ -316,6 +340,8 @@
 							<SettingsLocalRuntimeSection />
 							<SettingsProviders />
 						</div>
+					{:else if activeSection.id === 'embeddings'}
+						<SettingsEmbeddingSection />
 					{:else if activeSection.id === 'diagnostics'}
 						<DiagnosticsConsole />
 					{:else}

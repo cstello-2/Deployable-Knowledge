@@ -33,6 +33,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		throw error(400, 'Unsupported document sort mode.');
 
 	const query: ApiDocumentListQuery = {
+		group: url.searchParams.get('group') ?? undefined,
 		limit: parseCount(url.searchParams.get('limit'), 'limit', MAX_PAGE_SIZE),
 		mode: mode as DocumentListMode,
 		offset: parseCount(url.searchParams.get('offset'), 'offset', Number.MAX_SAFE_INTEGER),

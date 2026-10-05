@@ -2,22 +2,14 @@ import { mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
-import type {
-	ChatHistoryItem,
-	ChatModelFunctions,
-	Llama,
-	LlamaChat,
-	LlamaContext,
-	LlamaModel,
-	ModelDownloader
-} from 'node-llama-cpp';
+import type { Llama, LlamaChat, LlamaContext, LlamaModel, ModelDownloader } from 'node-llama-cpp';
 
-import type { LocalModel } from '$lib/constants/local-models';
+import type { DownloadableModel, LocalModel } from '$lib/constants/local-models';
 import type { LlamaGpuMode } from '$lib/types';
 
 export type SupportedGpuType = Exclude<LlamaGpuMode, 'auto' | 'cpu'>;
 
-export const MODELS_DIR = resolve(process.cwd(), 'models');
+const MODELS_DIR = resolve(process.cwd(), 'models');
 
 const MODEL_FILE_PATTERN = /^[\w][\w.-]*\.gguf$/i;
 
@@ -30,9 +22,6 @@ type LlamaModuleState = {
 	activeDownload: { fileName: string; downloader: ModelDownloader | null } | null;
 };
 
-// Dev hot reloads re-instantiate this module. Keeping the state on globalThis
-// (same pattern as hooks.server.ts) makes a reloaded module reuse the already
-// loaded model instead of leaking a full model copy per reload.
 const state = ((
 	globalThis as typeof globalThis & { deployableKnowledgeLlamaState?: LlamaModuleState }
 ).deployableKnowledgeLlamaState ??= {
@@ -41,8 +30,6 @@ const state = ((
 	activeDownload: null
 });
 
-// The native binary must only load on demand (chat/download/hardware probe),
-// never when the provider registry is merely listed.
 const loadNlc = () => (state.nlc ??= import('node-llama-cpp'));
 
 async function createLlama(gpu: LlamaGpuMode): Promise<Llama> {
@@ -95,23 +82,34 @@ export async function listLocalModelFiles(): Promise<string[]> {
 }
 
 export function resolveLocalModelPath(fileName: string): string {
-	if (!MODEL_FILE_PATTERN.test(fileName) || basename(fileName) !== fileName) {
-		throw new Error(`Invalid model file name: ${fileName}`);
-	}
-
-	const path = resolve(join(MODELS_DIR, fileName));
-
-	if (!path.startsWith(MODELS_DIR)) throw new Error(`Invalid model file name: ${fileName}`);
-
-	return path;
+	if (!MODEL_FILE_PATTERN.test(fileName)) throw new Error(`Invalid model file name: ${fileName}`);
+	return join(MODELS_DIR, fileName);
 }
 
 export const getActiveDownloadFile = (): string | null => state.activeDownload?.fileName ?? null;
 
+export async function createGgufDownloader(
+	model: Pick<DownloadableModel, 'repo' | 'fileName'>,
+	dirPath: string,
+	onProgress: (loaded: number, total: number) => void
+): Promise<ModelDownloader> {
+	await mkdir(dirPath, { recursive: true });
+
+	const { createModelDownloader } = await loadNlc();
+	return createModelDownloader({
+		modelUri: `hf:${model.repo}/${model.fileName}`,
+		dirPath,
+		fileName: model.fileName,
+		skipExisting: true,
+		deleteTempFileOnCancel: false,
+		onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
+	});
+}
+
 export async function downloadLocalModel(
 	model: LocalModel,
 	onProgress: (loaded: number, total: number) => void
-): Promise<string> {
+): Promise<void> {
 	if (state.activeDownload) {
 		throw new Error(`A model download is already in progress (${state.activeDownload.fileName}).`);
 	}
@@ -119,22 +117,9 @@ export async function downloadLocalModel(
 	state.activeDownload = { fileName: model.fileName, downloader: null };
 
 	try {
-		await mkdir(MODELS_DIR, { recursive: true });
-
-		const { createModelDownloader } = await loadNlc();
-		const downloader = await createModelDownloader({
-			modelUri: `hf:${model.repo}/${model.fileName}`,
-			dirPath: MODELS_DIR,
-			fileName: model.fileName,
-			skipExisting: true,
-			deleteTempFileOnCancel: false,
-			onProgress: ({ totalSize, downloadedSize }) => onProgress(downloadedSize, totalSize)
-		});
-
+		const downloader = await createGgufDownloader(model, MODELS_DIR, onProgress);
 		state.activeDownload.downloader = downloader;
 		await downloader.download();
-
-		return model.fileName;
 	} finally {
 		state.activeDownload = null;
 	}
@@ -145,7 +130,6 @@ export function cancelActiveDownload(): void {
 }
 
 type Runtime = {
-	llama: Llama;
 	model: LlamaModel;
 	context: LlamaContext;
 	chat: LlamaChat;
@@ -153,7 +137,6 @@ type Runtime = {
 	gpu: LlamaGpuMode;
 };
 
-// All model operations share one context sequence, so they must never overlap.
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
 	const run = state.opQueue.then(fn, fn);
 	state.opQueue = run.catch(() => undefined);
@@ -189,78 +172,21 @@ async function getRuntime(modelPath: string, gpu: LlamaGpuMode): Promise<Runtime
 		autoDisposeSequence: false
 	});
 
-	state.runtime = { llama, model, context, chat, modelPath, gpu };
+	state.runtime = { model, context, chat, modelPath, gpu };
 
 	return state.runtime;
 }
 
-export interface LocalFunctionCall {
-	functionName: string;
-	params: unknown;
-}
-
-function resolveThoughtTokens(reasoningBudget: number | undefined): number | undefined {
-	if (reasoningBudget === undefined) return undefined;
-	if (reasoningBudget < 0) return Infinity;
-	return reasoningBudget;
-}
-
-export function generateChatResponse(params: {
-	modelPath: string;
-	history: ChatHistoryItem[];
-	functions?: ChatModelFunctions;
-	temperature?: number;
-	topK?: number;
-	maxTokens?: number;
-	reasoningBudget?: number;
-	gpuMode?: LlamaGpuMode;
-	signal?: AbortSignal;
-	onText: (text: string) => void;
-	onReasoning: (text: string) => void;
-}): Promise<{ functionCalls: LocalFunctionCall[] }> {
+export function withChat<T>(
+	modelPath: string,
+	gpu: LlamaGpuMode,
+	signal: AbortSignal | undefined,
+	run: (chat: LlamaChat) => Promise<T>
+): Promise<T> {
 	return withLock(async () => {
-		params.signal?.throwIfAborted();
-		const { chat } = await getRuntime(params.modelPath, params.gpuMode ?? 'auto');
-
-		const thoughtTokens = resolveThoughtTokens(params.reasoningBudget);
-		// generateResponse counts thought tokens against maxTokens, so a thinking
-		// model can burn the whole response budget mid-thought and end the turn
-		// with no visible answer. Mirror llama.cpp's --reasoning-budget semantics
-		// instead: thinking gets its own headroom on top of the response budget.
-		const maxTokens =
-			params.maxTokens !== undefined && thoughtTokens !== undefined && thoughtTokens !== Infinity
-				? params.maxTokens + thoughtTokens
-				: params.maxTokens;
-
-		const result = await chat.generateResponse(params.history, {
-			...(params.functions ? { functions: params.functions, documentFunctionParams: true } : {}),
-			...(thoughtTokens === undefined ? {} : { budgets: { thoughtTokens } }),
-			temperature: params.temperature,
-			topK: params.topK,
-			maxTokens,
-			signal: params.signal,
-			onResponseChunk(chunk) {
-				if (chunk.type === 'segment') {
-					// Thought and comment segments both belong in the reasoning
-					// trace; dropping segment text makes the model look stuck.
-					if (chunk.text) params.onReasoning(chunk.text);
-				} else if (chunk.type == null && chunk.text) {
-					params.onText(chunk.text);
-				}
-			}
-		});
-
-		return {
-			functionCalls: (result.functionCalls ?? []).map((call) => ({
-				functionName: call.functionName,
-				params: call.params
-			}))
-		};
+		signal?.throwIfAborted();
+		return run((await getRuntime(modelPath, gpu)).chat);
 	});
-}
-
-export function disposeRuntime(): Promise<void> {
-	return withLock(disposeRuntimeUnlocked);
 }
 
 export function deleteLocalModel(fileName: string): Promise<void> {

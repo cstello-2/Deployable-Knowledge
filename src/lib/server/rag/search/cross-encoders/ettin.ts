@@ -1,13 +1,12 @@
-import { resolve } from 'node:path';
 import { AutoModel, AutoTokenizer, type Tensor } from '@huggingface/transformers';
-import { INFERENCE_THREADS } from '../../embedding-model';
+import { INFERENCE_THREADS } from '$lib/server/utils/inference-threads';
+import { TRANSFORMERS_CACHE_DIR } from '$lib/server/utils/transformers-env';
 import { loadEttinHeadWeights, scoreEttinHiddenStates, type EttinHeadWeights } from './ettin-head';
 import { sigmoidScore, type CrossEncoder } from './cross-encoder';
 
 const MODEL_ID = 'cross-encoder/ettin-reranker-32m-v1';
 const MODEL_REVISION = 'b33e5ceb5110773ea9cf5e00c9bedc83a8c2afdd';
 const MODEL_FILE_NAME = 'model_quint8_avx2';
-const MODEL_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
 const MAX_LENGTH = 512;
 const BATCH_SIZE = 8;
 
@@ -63,11 +62,11 @@ export class Ettin implements CrossEncoder {
 			this.runtimePromise = Promise.all([
 				AutoTokenizer.from_pretrained(MODEL_ID, {
 					revision: MODEL_REVISION,
-					cache_dir: MODEL_CACHE_DIR
+					cache_dir: TRANSFORMERS_CACHE_DIR
 				}),
 				AutoModel.from_pretrained(MODEL_ID, {
 					revision: MODEL_REVISION,
-					cache_dir: MODEL_CACHE_DIR,
+					cache_dir: TRANSFORMERS_CACHE_DIR,
 					model_file_name: MODEL_FILE_NAME,
 					dtype: 'fp32',
 					device: 'cpu',

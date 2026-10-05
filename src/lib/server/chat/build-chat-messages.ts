@@ -1,6 +1,7 @@
-import { CHAT_HISTORY_MESSAGE_LIMIT, DEFAULT_PROMPT_TEMPLATE } from '$lib/constants';
+import { CHAT_HISTORY_MESSAGE_LIMIT } from '$lib/constants';
 import type { SessionMessage } from '$lib/server/database/schema';
 import type { ProviderChatMessage } from '$lib/server/providers/provider';
+import { toolRegistry } from '$lib/server/tools';
 import {
 	AGENT_SYSTEM_PROMPT,
 	CONVERSATIONAL_SYSTEM_PROMPT,
@@ -8,88 +9,74 @@ import {
 	REFERENCE_MATERIAL_INSTRUCTION
 } from '$lib/server/agent/prompts';
 
-export function createConversationalMessages({
-	messages,
-	userMessage,
-	context = '',
-	toolsEnabled = true,
-	toolInstructions = []
-}: {
-	messages: SessionMessage[];
+type ChatInput = {
+	history: SessionMessage[];
 	userMessage: string;
-	context?: string;
-	toolsEnabled?: boolean;
-	toolInstructions?: readonly string[];
-}): ProviderChatMessage[] {
-	const output: ProviderChatMessage[] = [
-		{
-			role: 'system',
-			content: joinPrompts([
-				CONVERSATIONAL_SYSTEM_PROMPT,
-				...(toolsEnabled ? [AGENT_SYSTEM_PROMPT, ...toolInstructions] : [])
-			])
-		}
-	];
-	appendRecentHistory(output, messages);
+	context: string;
+	toolNames: readonly string[];
+};
 
-	output.push({
-		role: 'user',
-		content: context
-			? `Reference material (background knowledge — do not reprint it):\n\n${context}\n\n${REFERENCE_MATERIAL_INSTRUCTION}\n\nRequest: ${userMessage}`
-			: userMessage
-	});
-	return output;
+export function createNotebookMessages({
+	history,
+	userMessage,
+	context,
+	toolNames
+}: ChatInput): ProviderChatMessage[] {
+	const request = context
+		? `Reference material (background knowledge — do not reprint it):\n\n${context}\n\n${REFERENCE_MATERIAL_INSTRUCTION}\n\nRequest: ${userMessage}`
+		: userMessage;
+	return chatMessages([CONVERSATIONAL_SYSTEM_PROMPT, ...toolPrompts(toolNames)], history, request);
 }
 
+// When the search already ran for this prompt (auto-search), the model works
+// from the retrieved context instead of being told to search.
 export function createDocumentMessages({
-	messages,
+	history,
 	userMessage,
-	systemPrompt = DEFAULT_PROMPT_TEMPLATE.systemPrompt,
-	persona = '',
-	context = '',
-	toolsEnabled = true,
-	toolInstructions = [],
-	autoSearchEnabled = false
-}: {
-	messages: SessionMessage[];
-	userMessage: string;
-	systemPrompt?: string;
-	persona?: string;
-	context?: string;
-	toolsEnabled?: boolean;
-	toolInstructions?: readonly string[];
-	autoSearchEnabled?: boolean;
+	context,
+	toolNames,
+	systemPrompt,
+	persona,
+	autoSearch
+}: ChatInput & {
+	systemPrompt: string;
+	persona: string;
+	autoSearch: boolean;
 }): ProviderChatMessage[] {
-	const personaBlock = persona.trim() ? `Persona: ${persona.trim()}` : '';
-	// Each enabled tool contributes its own policy block. When the search already
-	// ran for this prompt, the model works from the retrieved context instead of
-	// being told to search.
-	const retrievalPolicy = [
-		...(toolsEnabled ? [AGENT_SYSTEM_PROMPT, ...toolInstructions] : []),
-		...(autoSearchEnabled ? [DOCUMENT_CONTEXT_SYSTEM_PROMPT] : [])
+	const system = [
+		systemPrompt,
+		persona.trim() ? `Persona: ${persona.trim()}` : '',
+		...toolPrompts(toolNames),
+		autoSearch ? DOCUMENT_CONTEXT_SYSTEM_PROMPT : ''
 	];
-	const systemContent = joinPrompts([systemPrompt, personaBlock, ...retrievalPolicy]);
-	const output: ProviderChatMessage[] = [];
-	if (systemContent) output.push({ role: 'system', content: systemContent });
-	appendRecentHistory(output, messages);
-	output.push({
-		role: 'user',
-		content: context ? `${context}\n\nRequest: ${userMessage}` : userMessage
-	});
-	return output;
+	return chatMessages(
+		system,
+		history,
+		context ? `${context}\n\nRequest: ${userMessage}` : userMessage
+	);
 }
 
-function joinPrompts(parts: string[]): string {
-	return parts
+function toolPrompts(toolNames: readonly string[]): string[] {
+	return toolNames.length ? [AGENT_SYSTEM_PROMPT, ...toolRegistry.instructions(toolNames)] : [];
+}
+
+function chatMessages(
+	system: string[],
+	history: SessionMessage[],
+	request: string
+): ProviderChatMessage[] {
+	const systemContent = system
 		.map((part) => part.trim())
 		.filter(Boolean)
 		.join('\n\n');
-}
 
-function appendRecentHistory(output: ProviderChatMessage[], messages: SessionMessage[]): void {
-	for (const message of messages.slice(-CHAT_HISTORY_MESSAGE_LIMIT)) {
-		if (message.role === 'user' || message.role === 'assistant') {
-			output.push({ role: message.role, content: message.content });
-		}
-	}
+	return [
+		...(systemContent ? [{ role: 'system' as const, content: systemContent }] : []),
+		...history
+			.slice(-CHAT_HISTORY_MESSAGE_LIMIT)
+			.flatMap(({ role, content }) =>
+				role === 'user' || role === 'assistant' ? [{ role, content }] : []
+			),
+		{ role: 'user', content: request }
+	];
 }

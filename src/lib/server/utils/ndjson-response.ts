@@ -1,7 +1,8 @@
 export function ndjsonTaskResponse<TEvent>(
 	name: string,
 	run: (send: (event: TEvent) => void) => Promise<void>,
-	errorEvent: (cause: unknown) => TEvent
+	errorEvent: (cause: unknown) => TEvent,
+	onCancel?: () => void
 ): Response {
 	let closed = false;
 
@@ -38,6 +39,7 @@ export function ndjsonTaskResponse<TEvent>(
 		},
 		cancel() {
 			closed = true;
+			onCancel?.();
 		}
 	});
 

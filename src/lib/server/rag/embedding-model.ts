@@ -1,94 +1,72 @@
-import { availableParallelism } from 'node:os';
-import { resolve } from 'node:path';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
-import {
-	env,
-	ModelRegistry,
-	pipeline,
-	type FeatureExtractionPipeline,
-	type ProgressCallback
-} from '@huggingface/transformers';
-import { diagnosticEvents } from '$lib/server/diagnostics/events';
-
-export const EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
-export const EMBEDDING_DTYPE = 'q8';
+import { DEFAULT_EMBEDDING_SETTINGS, type EmbeddingTask } from '$lib/constants';
+import type { EmbeddingSettings } from '$lib/types';
+import { getEmbeddingSettings, setEmbeddingSettings } from '$lib/server/database/app-state';
+import type { EmbeddingProvider } from '$lib/server/embeddings/provider';
+import { findEmbeddingProvider } from '$lib/server/embeddings/registry';
 
 const EMBEDDING_BATCH_SIZE = 16;
-const EMBEDDING_CACHE_DIR = resolve(process.cwd(), '.cache', 'transformersjs');
 
-export const INFERENCE_THREADS = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 4)));
+type ActiveEmbedding = {
+	provider: EmbeddingProvider;
+	settings: EmbeddingSettings;
+	key: string;
+};
 
-type EmbeddingType = 'search_document' | 'search_query';
+export type EmbeddingBatch = {
+	key: string;
+	vectors: Float32Array[];
+};
 
-env.cacheDir = EMBEDDING_CACHE_DIR;
-env.localModelPath = EMBEDDING_CACHE_DIR;
-env.allowRemoteModels = true;
+let cachedSettings: Promise<EmbeddingSettings> | undefined;
 
-let embeddingPipeline: Promise<FeatureExtractionPipeline> | undefined;
-
-export function isEmbeddingModelInstalled() {
-	return ModelRegistry.is_pipeline_cached('feature-extraction', EMBEDDING_MODEL, {
-		cache_dir: EMBEDDING_CACHE_DIR,
-		dtype: EMBEDDING_DTYPE
+export function getCurrentEmbeddingSettings(): Promise<EmbeddingSettings> {
+	cachedSettings ??= getEmbeddingSettings().catch((error) => {
+		cachedSettings = undefined;
+		throw error;
 	});
+	return cachedSettings;
 }
 
-export function installEmbeddingModel(onProgress: ProgressCallback) {
-	return getEmbeddingPipeline(onProgress);
+export async function getActiveEmbedding(): Promise<ActiveEmbedding> {
+	const current = await getCurrentEmbeddingSettings();
+	const provider = await findEmbeddingProvider(current.provider);
+	if (!provider) throw new Error('The embedding provider no longer exists.');
+
+	return { provider, settings: current, key: `${provider.id}/${current.model}` };
 }
 
-async function getEmbeddingPipeline(onProgress?: ProgressCallback) {
-	if (!embeddingPipeline) {
-		const started = Date.now();
-		console.log(`[Embedding] Loading ${EMBEDDING_MODEL} on ${INFERENCE_THREADS} thread(s)...`);
-		embeddingPipeline = pipeline('feature-extraction', EMBEDDING_MODEL, {
-			dtype: EMBEDDING_DTYPE,
-			cache_dir: EMBEDDING_CACHE_DIR,
-			session_options: { intraOpNumThreads: INFERENCE_THREADS, interOpNumThreads: 1 },
-			progress_callback: onProgress
-		})
-			.then((loaded) => {
-				console.log(`[Embedding] Model ready in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
-				diagnosticEvents.embeddingReady(Date.now() - started);
-				return loaded;
-			})
-			.catch((error) => {
-				console.error('[Embedding] Model failed to load.');
-				diagnosticEvents.embeddingFailed();
-				embeddingPipeline = undefined;
-				throw error;
-			});
-	}
+export async function updateEmbeddingSettings(next: EmbeddingSettings): Promise<void> {
+	const previous = await getCurrentEmbeddingSettings();
+	await setEmbeddingSettings(next);
+	cachedSettings = Promise.resolve(next);
+	await (await findEmbeddingProvider(previous.provider))?.unload();
+}
 
-	return embeddingPipeline;
+export async function resetEmbeddingProvider(providerId: string): Promise<void> {
+	const current = await getCurrentEmbeddingSettings();
+	if (current.provider === providerId) await updateEmbeddingSettings(DEFAULT_EMBEDDING_SETTINGS);
+}
+
+export async function isEmbeddingModelInstalled(): Promise<boolean> {
+	const { provider, settings } = await getActiveEmbedding();
+	return provider.isInstalled(settings.model);
 }
 
 export async function embedTexts(
 	texts: string[],
-	type: EmbeddingType,
+	task: EmbeddingTask,
 	onProgress?: (current: number, total: number) => void
-): Promise<Float32Array[]> {
-	if (texts.length === 0) return [];
-
-	const extractor = await getEmbeddingPipeline();
-	const embeddings: Float32Array[] = [];
+): Promise<EmbeddingBatch> {
+	const { provider, settings, key } = await getActiveEmbedding();
+	const vectors: Float32Array[] = [];
 
 	for (let index = 0; index < texts.length; index += EMBEDDING_BATCH_SIZE) {
-		const batch = texts
-			.slice(index, index + EMBEDDING_BATCH_SIZE)
-			.map((text) => `${type}: ${text}`);
-
-		const output = await extractor(batch, { pooling: 'mean', normalize: true });
-		const values = output.data as Float32Array;
-		const [rows, dims] = output.dims as [number, number];
-		for (let row = 0; row < rows; row += 1) {
-			embeddings.push(Float32Array.from(values.subarray(row * dims, (row + 1) * dims)));
-		}
-		output.dispose();
-
+		const batch = texts.slice(index, index + EMBEDDING_BATCH_SIZE);
+		vectors.push(...(await provider.embed(batch, task, settings.model, settings.device)));
 		onProgress?.(Math.min(index + EMBEDDING_BATCH_SIZE, texts.length), texts.length);
 		await yieldEventLoop();
 	}
 
-	return embeddings;
+	return { key, vectors };
 }

@@ -4,7 +4,7 @@ import type { SQL } from 'drizzle-orm';
 import { DEFAULT_ASSISTANT_CONFIG } from '$lib/constants';
 import { db } from '../../database/database';
 import { documentChunks, documents } from '../../database/schema';
-import { embedTexts } from '../embedding-model';
+import { embedTexts, getActiveEmbedding } from '../embedding-model';
 import { getVectorIndex } from './vector-index';
 import {
 	cleanFilterValues,
@@ -41,10 +41,8 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 		return { query, results: [] };
 	}
 
-	const index = await getVectorIndex();
-	if (index.count === 0) {
-		return { query, results: [] };
-	}
+	const { key } = await getActiveEmbedding();
+	const index = await getVectorIndex(key);
 
 	// Deactivated documents never surface in retrieval, even when explicitly requested
 	const documentFilters: SQL[] = [eq(documents.active, true)];
@@ -56,22 +54,25 @@ export async function searchSemantic(options: SearchOptionsBase): Promise<Semant
 		.where(and(...documentFilters));
 	const allowedDocuments = new Set(allowedRows.map(({ id }) => id));
 	const allowedTypes = chunkTypes.length > 0 ? new Set(chunkTypes) : null;
-	const hasSearchableChunks = index.documentIds.some((documentId, row) => {
-		if (!allowedDocuments.has(documentId)) return false;
-		return !allowedTypes || allowedTypes.has(index.chunkTypes[row]);
-	});
-	if (!hasSearchableChunks) return { query, results: [] };
+	const isSearchable = (row: number) =>
+		allowedDocuments.has(index.documentIds[row]) &&
+		(!allowedTypes || allowedTypes.has(index.chunkTypes[row]));
+	if (!index.rows().some(isSearchable)) return { query, results: [] };
 
-	const [queryEmbedding] = await embedTexts([query], 'search_query');
-	if (queryEmbedding.length !== index.dimensions) return { query, results: [] };
+	const embedded = await embedTexts([query], 'search_query');
+	const [queryEmbedding] = embedded.vectors;
+	if (embedded.key !== key || queryEmbedding.length !== index.dimensions) {
+		return { query, results: [] };
+	}
 
 	const { matrix, dimensions } = index;
 	const top: TopCandidate[] = [];
+	let scanned = 0;
 
-	for (let row = 0; row < index.count; row += 1) {
-		if (row > 0 && row % SCORE_BLOCK_SIZE === 0) await yieldEventLoop();
-		if (!allowedDocuments.has(index.documentIds[row])) continue;
-		if (allowedTypes && !allowedTypes.has(index.chunkTypes[row])) continue;
+	for (const row of index.rows()) {
+		scanned += 1;
+		if (scanned % SCORE_BLOCK_SIZE === 0) await yieldEventLoop();
+		if (!isSearchable(row)) continue;
 
 		// Embeddings are normalized, so dot product is the cosine score
 		let score = 0;

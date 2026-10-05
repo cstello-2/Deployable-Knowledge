@@ -1,20 +1,15 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 
-import type { ChatHistoryItem, ChatModelFunctions, ChatModelResponse } from 'node-llama-cpp';
+import type { ChatHistoryItem, ChatModelFunctions } from 'node-llama-cpp';
 
 import {
 	Provider,
 	type ProviderChatChunk,
 	type ProviderChatMessage,
-	type ProviderChatOptions,
-	type ProviderToolDefinition
+	type ProviderChatOptions
 } from './provider';
-import {
-	generateChatResponse,
-	listLocalModelFiles,
-	resolveLocalModelPath
-} from './llamacpp-runtime';
+import { listLocalModelFiles, resolveLocalModelPath, withChat } from './llamacpp-runtime';
 
 export class LlamaCpp extends Provider {
 	override id = 'llamacpp';
@@ -31,41 +26,47 @@ export class LlamaCpp extends Provider {
 			throw new Error(`Local model "${model}" is not downloaded.`);
 		}
 
-		const tools = options.toolChoice === 'none' ? undefined : options.tools;
-		const functions = toChatModelFunctions(tools);
-		const queue = createChunkQueue<ProviderChatChunk>();
+		const budget = options.reasoningBudget;
+		const thoughtTokens = budget !== undefined && budget < 0 ? Infinity : budget;
+		const functions =
+			options.tools &&
+			(Object.fromEntries(
+				options.tools.map(({ function: fn }) => [
+					fn.name,
+					{ description: fn.description, params: fn.parameters }
+				])
+			) as ChatModelFunctions);
+		const chunks = new PassThrough({ objectMode: true });
 
-		const run = generateChatResponse({
-			modelPath,
-			history: toChatHistory(messages),
-			functions,
-			temperature: options.temperature,
-			topK: options.topK,
-			maxTokens: options.maxTokens,
-			reasoningBudget: options.reasoningBudget,
-			gpuMode: options.gpuMode,
-			signal: options.signal,
-			onText: (text) => queue.push({ content: text }),
-			onReasoning: (text) => queue.push({ reasoningContent: text })
-		}).then(
-			(result) => {
-				if (result.functionCalls.length) {
-					queue.push({
-						toolCalls: result.functionCalls.map((call, index) => ({
-							index,
-							id: `call_${randomUUID().slice(0, 8)}`,
-							nameSnapshot: call.functionName,
-							argumentsSnapshot: call.params ?? {}
-						}))
-					});
+		withChat(modelPath, options.gpuMode ?? 'auto', options.signal, (chat) =>
+			chat.generateResponse(toChatHistory(messages), {
+				functions,
+				budgets: thoughtTokens === undefined ? undefined : { thoughtTokens },
+				maxTokens:
+					options.maxTokens === undefined
+						? undefined
+						: options.maxTokens + Math.max(0, budget ?? 0),
+				temperature: options.temperature,
+				topK: options.topK,
+				signal: options.signal,
+				onResponseChunk(chunk) {
+					if (chunk.type === 'segment') chunks.write({ reasoning_content: chunk.text });
+					else if (chunk.type == null) chunks.write({ content: chunk.text });
 				}
-				queue.close();
+			})
+		).then(
+			({ functionCalls = [] }) => {
+				chunks.end({
+					tool_calls: functionCalls.map((call, index) => ({
+						index,
+						function: { name: call.functionName, arguments: JSON.stringify(call.params ?? {}) }
+					}))
+				});
 			},
-			(error) => queue.fail(error)
+			(error) => chunks.destroy(error)
 		);
 
-		yield* queue;
-		await run;
+		yield* chunks;
 	}
 
 	override async listModels(): Promise<string[]> {
@@ -73,160 +74,37 @@ export class LlamaCpp extends Provider {
 	}
 }
 
-function createChunkQueue<T>() {
-	const items: T[] = [];
-	let done = false;
-	let error: unknown = null;
-	let notify: (() => void) | null = null;
-
-	const wake = () => {
-		notify?.();
-		notify = null;
-	};
-
-	return {
-		push(item: T) {
-			items.push(item);
-			wake();
-		},
-		close() {
-			done = true;
-			wake();
-		},
-		fail(err: unknown) {
-			error = err;
-			done = true;
-			wake();
-		},
-		async *[Symbol.asyncIterator]() {
-			while (true) {
-				const item = items.shift();
-
-				if (item !== undefined) {
-					yield item;
-					continue;
-				}
-
-				if (done) {
-					if (error) throw error;
-					return;
-				}
-
-				await new Promise<void>((resolve) => (notify = resolve));
-			}
-		}
-	};
-}
-
 function toChatHistory(messages: ProviderChatMessage[]): ChatHistoryItem[] {
-	const history: ChatHistoryItem[] = [];
+	const toolResults = new Map(
+		messages
+			.filter((message) => message.role === 'tool')
+			.map((message) => [message.tool_call_id, message.content])
+	);
 
-	messages.forEach((message, index) => {
+	return messages.flatMap((message): ChatHistoryItem[] => {
 		switch (message.role) {
 			case 'system':
-				history.push({ type: 'system', text: message.content ?? '' });
-				break;
+				return [{ type: 'system', text: message.content ?? '' }];
 			case 'user':
-				history.push({ type: 'user', text: message.content ?? '' });
-				break;
+				return [{ type: 'user', text: message.content ?? '' }];
 			case 'assistant':
-				history.push(toModelResponse(message, messages.slice(index + 1)));
-				break;
+				return [
+					{
+						type: 'model',
+						response: [
+							...(message.content ? [message.content] : []),
+							...(message.tool_calls ?? []).map((call, index) => ({
+								type: 'functionCall' as const,
+								name: call.function.name,
+								params: JSON.parse(call.function.arguments) as unknown,
+								result: toolResults.get(call.id) ?? '',
+								startsNewChunk: index === 0
+							}))
+						]
+					}
+				];
 			case 'tool':
-				// Consumed by the preceding assistant message's tool-call mapping.
-				break;
+				return [];
 		}
 	});
-
-	return history;
-}
-
-function toModelResponse(
-	message: ProviderChatMessage,
-	followingMessages: ProviderChatMessage[]
-): ChatModelResponse {
-	const response: ChatModelResponse['response'] = [];
-
-	if (message.content) response.push(message.content);
-
-	const results = followingMessages.filter((candidate) => candidate.role === 'tool');
-
-	(message.toolCalls ?? []).forEach((call, index) => {
-		const result = results.find((candidate) => candidate.toolCallId === call.id) ?? results[index];
-
-		response.push({
-			type: 'functionCall',
-			name: call.function.name,
-			params: parseJsonSafe(call.function.arguments),
-			result: result?.content ?? '',
-			...(index === 0 ? { startsNewChunk: true } : {})
-		});
-	});
-
-	return { type: 'model', response };
-}
-
-function parseJsonSafe(value: string): unknown {
-	if (!value) return {};
-
-	try {
-		return JSON.parse(value) as unknown;
-	} catch {
-		return {};
-	}
-}
-
-function toChatModelFunctions(
-	tools: ProviderToolDefinition[] | undefined
-): ChatModelFunctions | undefined {
-	if (!tools?.length) return undefined;
-
-	const functions: Record<string, { description?: string; params?: unknown }> = {};
-
-	for (const tool of tools) {
-		functions[tool.function.name] = {
-			description: tool.function.description,
-			params: sanitizeGbnfSchema(tool.function.parameters)
-		};
-	}
-
-	return functions as ChatModelFunctions;
-}
-
-// node-llama-cpp enforces params with a GBNF grammar that supports only a
-// subset of JSON Schema; unknown keywords throw at generation time.
-const GBNF_SCHEMA_KEYS = new Set([
-	'type',
-	'description',
-	'enum',
-	'const',
-	'properties',
-	'items',
-	'prefixItems',
-	'oneOf',
-	'minItems',
-	'maxItems'
-]);
-
-function sanitizeGbnfSchema(schema: unknown): unknown {
-	if (Array.isArray(schema)) return schema.map(sanitizeGbnfSchema);
-	if (schema === null || typeof schema !== 'object') return schema;
-
-	const result: Record<string, unknown> = {};
-
-	for (const [key, value] of Object.entries(schema)) {
-		if (!GBNF_SCHEMA_KEYS.has(key)) continue;
-
-		if (key === 'properties' && value !== null && typeof value === 'object') {
-			result[key] = Object.fromEntries(
-				Object.entries(value).map(([name, child]) => [name, sanitizeGbnfSchema(child)])
-			);
-		} else if (key === 'items' || key === 'prefixItems' || key === 'oneOf') {
-			result[key] = sanitizeGbnfSchema(value);
-		} else {
-			result[key] = value;
-		}
-	}
-
-	return result;
 }
