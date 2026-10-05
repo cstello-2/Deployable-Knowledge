@@ -205,13 +205,6 @@ export interface ApiDocumentFolderFileDeleteResponse {
 	removedDocumentIds: string[];
 }
 
-export type ApiDocumentSyncFileStatus = 'ingesting' | 'added' | 'unchanged' | 'removed' | 'failed';
-
-export interface ApiDocumentSyncFileProgress extends Partial<ApiDocumentIngestProgress> {
-	sourcePath: string;
-	status: ApiDocumentSyncFileStatus;
-}
-
 export interface ApiDocumentSyncResult {
 	added: number;
 	failed: number;

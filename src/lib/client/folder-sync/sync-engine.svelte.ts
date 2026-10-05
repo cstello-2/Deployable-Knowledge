@@ -3,7 +3,7 @@ import { browser } from '$app/environment';
 import { isIngestableFileName } from '$lib/constants/ingest-formats';
 import { DocumentsService } from '$lib/services';
 import { documentsStore } from '$lib/stores/documents.svelte';
-import type { ApiDocumentSyncResult, ApiSyncFileStat } from '$lib/types';
+import type { ApiDocumentSyncResult, ApiSyncFileStat, PendingDocument } from '$lib/types';
 import { supportsFileObserver, supportsFolderSync } from '$lib/utils/fs-access';
 import { deleteFolder, listFolders, putFolder } from './handle-store';
 import { matchRenames } from './rename-plan';
@@ -85,6 +85,8 @@ class FolderSyncEngine {
 		await putFolder({ id, name: handle.name, handle });
 		await DocumentsService.registerFolder(id, handle.name);
 		this.handles.set(id, handle);
+		// The folder's group has to be listed before its queued files can appear in it.
+		await documentsStore.refresh();
 		const result = await this.runSync(id);
 		this.startWatching(id);
 		await documentsStore.refresh();
@@ -99,6 +101,7 @@ class FolderSyncEngine {
 		if (!(await this.ensurePermission(id, true))) return null;
 		const result = await this.runSync(id);
 		if (!this.observers.has(id) && !this.rescanTimers.has(id)) this.startWatching(id);
+		await documentsStore.refresh();
 		return result;
 	}
 
@@ -188,6 +191,7 @@ class FolderSyncEngine {
 			failed: 0,
 			heldBack: 0
 		};
+		let pending: PendingDocument[] = [];
 
 		try {
 			const walked = await collectFiles(handle, isIngestableFileName);
@@ -208,26 +212,27 @@ class FolderSyncEngine {
 			}
 
 			const { replaces, stale } = matchRenames(plan.upload, plan.stale);
-			documentsStore.beginFolderSync(plan.upload.length + stale.length);
-
-			for (const entry of plan.upload) {
+			const uploads = plan.upload.flatMap((entry) => {
 				const walkedFile = byPath.get(entry.path);
-				if (!walkedFile) continue;
+				return walkedFile ? [{ entry, file: walkedFile.file }] : [];
+			});
+			documentsStore.syncing = true;
+			pending = documentsStore.enqueueDocuments(
+				id,
+				uploads.map(({ entry }) => entry.path)
+			);
+
+			for (const [index, { entry, file }] of uploads.entries()) {
 				try {
-					documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'ingesting' });
-					await DocumentsService.uploadFolderFile(
-						id,
-						{ ...entry, replacesPath: replaces.get(entry.path) },
-						walkedFile.file,
-						(progress) =>
-							documentsStore.reportSyncFile({
-								...progress,
-								sourcePath: entry.path,
-								status: 'ingesting'
-							})
+					await documentsStore.ingestPending(pending[index], (onProgress) =>
+						DocumentsService.uploadFolderFile(
+							id,
+							{ ...entry, replacesPath: replaces.get(entry.path) },
+							file,
+							onProgress
+						)
 					);
 					result.added += 1;
-					documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'added' });
 				} catch (cause) {
 					result.failed += 1;
 					const message = cause instanceof Error ? cause.message : String(cause);
@@ -237,7 +242,6 @@ class FolderSyncEngine {
 					await DocumentsService.markFolderFileMalformed(id, { ...entry, message }).catch(
 						(reportError) => console.error(`[Folder Sync] ${entry.path}:`, reportError)
 					);
-					documentsStore.reportSyncFile({ sourcePath: entry.path, status: 'failed', message });
 				}
 			}
 
@@ -246,9 +250,6 @@ class FolderSyncEngine {
 				result.removed = removedResult.removed;
 				for (const documentId of removedResult.removedDocumentIds) {
 					documentsStore.setSelection([documentId], false);
-				}
-				for (const path of stale) {
-					documentsStore.reportSyncFile({ sourcePath: path, status: 'removed' });
 				}
 			}
 
@@ -260,7 +261,8 @@ class FolderSyncEngine {
 			return result;
 		} finally {
 			this.running.delete(id);
-			documentsStore.endFolderSync();
+			documentsStore.dropPending(pending);
+			documentsStore.syncing = false;
 			if (this.rerun.delete(id)) void this.runSync(id).then(() => documentsStore.refresh());
 		}
 	}

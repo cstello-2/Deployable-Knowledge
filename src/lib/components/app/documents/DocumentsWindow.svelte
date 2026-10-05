@@ -2,7 +2,6 @@
 	import ClipboardPen from '@lucide/svelte/icons/clipboard-pen';
 	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
-	import Loader2 from '@lucide/svelte/icons/loader-2';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Video from '@lucide/svelte/icons/video';
 	import { onDestroy, onMount } from 'svelte';
@@ -11,11 +10,9 @@
 	import {
 		DialogConfirmation,
 		DialogDocumentAutotagProgress,
-		DialogDocumentSyncProgress,
 		DialogDocumentTagPicker,
 		DialogDocumentTextEntry,
-		DialogDocumentYoutubeEntry,
-		DialogProgress
+		DialogDocumentYoutubeEntry
 	} from '$lib/components/app/dialogs';
 	import { WorkspaceWindow } from '$lib/components/app/workspace/WorkspaceWindow';
 	import { Button } from '$lib/components/ui/button';
@@ -67,9 +64,6 @@
 	let textEntryOpen = $state(false);
 	let youtubeEntryOpen = $state(false);
 	let uploading = $state(false);
-	// The ingest progress dialog can be hidden while a job keeps running; a
-	// reopen button appears in its place until the job finishes.
-	let progressDialogOpen = $state(true);
 	let pendingDeleteTag = $state<string | null>(null);
 	let pendingDeleteDocument = $state<DocumentRow | null>(null);
 	let pendingFolderRemoval = $state<PendingFolderRemoval | null>(null);
@@ -101,31 +95,21 @@
 		});
 		if (!files.length) return;
 		uploading = true;
-		progressDialogOpen = true;
-		let succeeded = 0;
-		let failed = 0;
 		try {
-			for (const file of files) {
-				try {
-					await documentsStore.ingestFile(file);
-					succeeded += 1;
-				} catch (error) {
-					failed += 1;
-					toast.error(error instanceof Error ? error.message : String(error));
-				}
-			}
+			const succeeded = await documentsStore.ingestFiles(files, (error) =>
+				toast.error(error instanceof Error ? error.message : String(error))
+			);
+			const failed = files.length - succeeded;
 			status = `Added ${succeeded} file${succeeded === 1 ? '' : 's'}${failed ? `; ${failed} failed` : ''}.`;
 			if (succeeded) toast.success(`${succeeded} file${succeeded === 1 ? '' : 's'} ingested`);
 		} finally {
 			uploading = false;
-			documentsStore.progress = null;
 		}
 	}
 
 	async function ingestText(title: string, text: string): Promise<void> {
 		textEntryOpen = false;
 		uploading = true;
-		progressDialogOpen = true;
 		try {
 			await documentsStore.ingestText(title, text);
 			status = 'Text embedded into the corpus.';
@@ -134,14 +118,12 @@
 			toast.error(error instanceof Error ? error.message : String(error));
 		} finally {
 			uploading = false;
-			documentsStore.progress = null;
 		}
 	}
 
 	async function ingestYoutube(url: string): Promise<void> {
 		youtubeEntryOpen = false;
 		uploading = true;
-		progressDialogOpen = true;
 		try {
 			const result = await documentsStore.ingestYoutube(url);
 			status = `Imported the transcript for “${result.title}”.`;
@@ -150,7 +132,6 @@
 			toast.error(error instanceof Error ? error.message : String(error));
 		} finally {
 			uploading = false;
-			documentsStore.progress = null;
 		}
 	}
 
@@ -414,6 +395,7 @@
 			<DocumentList
 				{busy}
 				folders={documentsStore.folders}
+				ingestProgress={documentsStore.ingestProgress}
 				loadingGroups={documentsStore.loadingGroups}
 				onAutotagDocument={(document) => void autotagDocument(document)}
 				onAutotagGroup={(group) => void autotagGroup(group)}
@@ -431,16 +413,12 @@
 				onToggleGroup={(group, selected) => void documentsStore.selectGroup(group, selected)}
 				onToggleTag={(document, tag) => void toggleDocumentTag(document, tag)}
 				pages={documentsStore.pages}
+				pendingDocuments={documentsStore.pendingDocuments}
 				selectedIds={documentsStore.selectedIds}
 				tags={documentsStore.tags}
 			/>
 		</div>
 		<div class="grid gap-2 border-t pt-3">
-			{#if uploading && !progressDialogOpen}
-				<Button class="w-full" variant="outline" onclick={() => (progressDialogOpen = true)}>
-					<Loader2 class="animate-spin" /> Show ingest progress
-				</Button>
-			{/if}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
 					{#snippet child({ props })}
@@ -502,26 +480,12 @@
 	onSubmit={(url) => void ingestYoutube(url)}
 	open={youtubeEntryOpen}
 />
-<DialogProgress
-	dismissible
-	onClose={() => (progressDialogOpen = false)}
-	open={uploading && progressDialogOpen}
-	progress={documentsStore.progress}
-	title="Ingesting file"
-/>
 <DialogDocumentAutotagProgress
 	entries={documentsStore.autotagEntries}
 	open={documentsStore.autotagging}
 	progress={documentsStore.autotagProgress}
 	settled={documentsStore.autotagSettled}
 	total={documentsStore.autotagTotal}
-/>
-<DialogDocumentSyncProgress
-	files={documentsStore.syncFiles}
-	open={documentsStore.syncing}
-	progress={documentsStore.syncProgress}
-	settled={documentsStore.syncSettled}
-	total={documentsStore.syncTotal}
 />
 
 <DialogConfirmation

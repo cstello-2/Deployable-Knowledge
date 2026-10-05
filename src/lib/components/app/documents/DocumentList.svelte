@@ -18,8 +18,15 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { cn } from '$lib/components/ui/utils';
 	import { LOOSE_DOCUMENT_GROUPS, type LooseDocumentGroup } from '$lib/constants';
-	import type { ApiDocumentListResponse, ApiSyncedFolder, DocumentRow } from '$lib/types';
+	import type {
+		ApiDocumentIngestProgress,
+		ApiDocumentListResponse,
+		ApiSyncedFolder,
+		DocumentRow,
+		PendingDocument
+	} from '$lib/types';
 	import DocumentListItem from './DocumentListItem.svelte';
+	import DocumentPendingItem from './DocumentPendingItem.svelte';
 
 	const SYNC_STATUS_LABELS: Record<FolderSyncStatus, string> = {
 		unsupported: 'not supported here',
@@ -42,12 +49,14 @@
 		key: string;
 		kind: 'folder' | LooseDocumentGroup;
 		label: string;
+		pending: PendingDocument[];
 		total: number;
 	}
 
 	interface Props {
 		busy?: boolean;
 		folders: ApiSyncedFolder[];
+		ingestProgress: ReadonlyMap<string, ApiDocumentIngestProgress>;
 		loadingGroups: ReadonlySet<string>;
 		onAutotagDocument: (document: DocumentRow) => void;
 		onAutotagGroup: (group: string) => void;
@@ -64,6 +73,7 @@
 		onToggleGroup: (group: string, selected: boolean) => void;
 		onToggleTag: (document: DocumentRow, tag: string) => void;
 		pages: Record<string, ApiDocumentListResponse>;
+		pendingDocuments: PendingDocument[];
 		selectedIds: ReadonlySet<string>;
 		tags: string[];
 	}
@@ -71,6 +81,7 @@
 	let {
 		busy = false,
 		folders,
+		ingestProgress,
 		loadingGroups,
 		onAutotagDocument,
 		onAutotagGroup,
@@ -87,6 +98,7 @@
 		onToggleGroup,
 		onToggleTag,
 		pages,
+		pendingDocuments,
 		selectedIds,
 		tags
 	}: Props = $props();
@@ -94,24 +106,28 @@
 	let viewport = $state<HTMLDivElement | null>(null);
 
 	const groups = $derived.by(() => {
+		const pendingByGroup = Map.groupBy(pendingDocuments, ({ group }) => group);
 		const values: DocumentGroup[] = folders.map((folder) => ({
 			key: folder.id,
 			kind: 'folder' as const,
 			label: folder.name,
 			documents: pages[folder.id]?.documents ?? [],
 			folder,
+			pending: pendingByGroup.get(folder.id) ?? [],
 			total: pages[folder.id]?.total ?? 0
 		}));
 		for (const kind of LOOSE_DOCUMENT_GROUPS) {
 			const page = pages[kind];
-			if (!page?.total) continue;
+			const pending = pendingByGroup.get(kind) ?? [];
+			if (!page?.total && !pending.length) continue;
 			values.push({
 				key: kind,
 				kind,
 				label: LOOSE_GROUP_LABELS[kind],
-				documents: page.documents,
+				documents: page?.documents ?? [],
 				folder: null,
-				total: page.total
+				pending,
+				total: page?.total ?? 0
 			});
 		}
 		return values;
@@ -157,6 +173,8 @@
 						</div>
 						<div class="shrink-0 text-[11px] text-muted-foreground">
 							{group.total} document{group.total === 1 ? '' : 's'}
+							{#if group.pending.length}
+								· {group.pending.length} pending{/if}
 							{#if group.folder && syncStatuses.has(group.folder.id)}
 								· {SYNC_STATUS_LABELS[syncStatuses.get(group.folder.id)!]}{/if}
 							{#if group.folder && group.folder.malformedCount > 0}
@@ -247,6 +265,9 @@
 				{/if}
 				{#if !collapsed.has(group.key)}
 					<div class="grid divide-y divide-border/70">
+						{#each group.pending as entry (entry.key)}
+							<DocumentPendingItem progress={ingestProgress.get(entry.key)} title={entry.title} />
+						{/each}
 						{#each group.documents as document (document.id)}
 							<DocumentListItem
 								{busy}
@@ -261,7 +282,9 @@
 								selected={selectedIds.has(document.id)}
 							/>
 						{:else}
-							<p class="px-2 py-3 text-xs text-muted-foreground">No matching documents.</p>
+							{#if !group.pending.length}
+								<p class="px-2 py-3 text-xs text-muted-foreground">No matching documents.</p>
+							{/if}
 						{/each}
 					</div>
 					{#if group.documents.length < group.total}
