@@ -5,7 +5,10 @@
 	import { settingsDialogStore } from '$lib/stores';
 </script>
 
-<div class="ml-1 flex shrink-0 items-center gap-1 border-l pl-1" aria-label="Application controls">
+<div
+	class="dk-no-drag ml-1 flex shrink-0 items-center gap-1 border-l pl-1"
+	aria-label="Application controls"
+>
 	<Tooltip.Root>
 		<Tooltip.Trigger>
 			{#snippet child({ props })}

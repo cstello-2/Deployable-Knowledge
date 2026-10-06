@@ -40,6 +40,11 @@ export default ts.config(
 		}
 	},
 	{
+		files: ['**/*.cjs'],
+		languageOptions: { sourceType: 'commonjs' },
+		rules: { '@typescript-eslint/no-require-imports': 'off' }
+	},
+	{
 		ignores: ['dist/**', 'build/**', '.svelte-kit/**']
 	}
 );

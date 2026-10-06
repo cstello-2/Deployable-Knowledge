@@ -78,7 +78,7 @@ demand, from settings.
 ### Desktop app
 
 ```bash
-npm run electron         # Run the desktop shell against an existing build
+npm run electron         # Run the desktop shell against the Vite dev server
 npm run electron:pack    # Build and package without an installer
 npm run electron:win     # Build the Windows installer
 ```

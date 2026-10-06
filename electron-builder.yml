@@ -12,38 +12,27 @@ directories:
 # for a class of runtime path bugs that only appear on an end user's machine.
 asar: false
 
+# electron-builder adds package.json and the production node_modules on its own,
+# so this only names the app's files. An allowlist keeps editor, lint, and
+# environment dotfiles from leaking into the installer.
 files:
-  - '**/*'
-  - '!src/**'
-  - '!scripts/**'
-  - '!docs/**'
-  - '!release/**'
-  - '!.svelte-kit/**'
-  - '!.direnv/**'
-  - '!.cache/**'
-  - '!documents/**'
-  - '!models/**'
-  - '!app.db'
-  - '!app.db-*'
-  - '!*.md'
+  - build/**
+  - drizzle/**
+  - electron/*.{cjs,ts}
+  - eng.traineddata
+  - LICENSE
   # The GPL-3 FFmpeg binary and the other copyleft payloads are conveyed by the
   # installer, so their notices have to travel with it.
-  - 'THIRD-PARTY-NOTICES.md'
-  - '!*.config.{js,ts}'
-  - '!components.json'
-  - '!shell.nix'
-  - '!electron/build/**'
-  # onnxruntime-node is a direct dependency only to pin the execution provider that
-  # @huggingface/transformers loads; nothing in src/ imports it. It ships every
-  # platform's binaries in a single package, which
-  # is ~450 MB of payload the Windows x64 build will never load. Revisit this
-  # when another platform target is added.
-  - '!node_modules/onnxruntime-node/bin/napi-v6/linux/**'
-  - '!node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
-  - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+  - THIRD-PARTY-NOTICES.md
 
 win:
   icon: electron/build/icon.png
+  files:
+    # onnxruntime-node is a direct dependency only to pin the execution provider
+    # that @huggingface/transformers loads. It ships every platform's binaries in
+    # one package, ~450 MB the x64 installer will never load.
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
   target:
     - target: nsis
       arch:

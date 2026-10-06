@@ -67,7 +67,7 @@ jobs:
         run: npm run check
 
       - name: Build application
-        run: npm run build:electron
+        run: npm run build
 
       - name: Build installer
         run: npx electron-builder --win --publish never --config.extraMetadata.version=${{ steps.version.outputs.version }}

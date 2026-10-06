@@ -9,16 +9,24 @@
 	import { SettingsDialog } from '$lib/components/app/settings';
 	import EngineHeartbeat from '$lib/components/app/navigation/EngineHeartbeat.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { embeddingStore, settingsStore, themeStore, workspaceStore } from '$lib/stores';
+	import {
+		desktopWindowStore,
+		embeddingStore,
+		settingsStore,
+		themeStore,
+		workspaceStore
+	} from '$lib/stores';
 
 	let { children } = $props();
 	let framesPainted = $state(false);
+
 	// The workspace layout arrives from the database, so the overlay has to cover
 	// that fetch or the tab strip renders empty first.
 	const layoutReady = $derived(framesPainted && workspaceStore.ready);
 
 	onMount(() => {
 		themeStore.init();
+		void desktopWindowStore.init();
 		void workspaceStore.init();
 		void settingsStore.init();
 		void embeddingStore.init();

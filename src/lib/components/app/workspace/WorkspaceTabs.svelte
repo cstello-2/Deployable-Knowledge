@@ -8,7 +8,11 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
 	import { ActionIcon } from '$lib/components/app/actions';
-	import { WorkspaceToolbarActions, WorkspaceToolsMenu } from '$lib/components/app/navigation';
+	import {
+		WorkspaceToolbarActions,
+		WorkspaceToolsMenu,
+		WorkspaceWindowControls
+	} from '$lib/components/app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -165,9 +169,9 @@
 
 <nav
 	aria-label="Workspace layouts"
-	class="flex h-10 shrink-0 items-center border-b bg-elevated px-1 py-0.5"
+	class="dk-drag-region flex h-10 shrink-0 items-center border-b bg-elevated px-1 py-0.5"
 >
-	<div class="mr-1 flex shrink-0 items-center gap-1 border-r pr-1">
+	<div class="dk-no-drag mr-1 flex shrink-0 items-center gap-1 border-r pr-1">
 		<ActionIcon
 			class="size-7 rounded-md"
 			label={workspaceStore.leftPaneCollapsed ? 'Expand left column' : 'Collapse left column'}
@@ -180,7 +184,7 @@
 		<WorkspaceToolsMenu />
 	</div>
 	<div
-		class="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden"
+		class="dk-no-drag flex h-full min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden"
 		role="tablist"
 	>
 		{#each workspaceStore.layouts as layout, index (layout.id)}
@@ -263,7 +267,10 @@
 			<Plus />
 		</ActionIcon>
 	</div>
+	<!-- Keeps part of the strip draggable when the tabs overflow. -->
+	<div aria-hidden="true" class="h-full min-w-10 flex-1"></div>
 	<WorkspaceToolbarActions />
+	<WorkspaceWindowControls />
 </nav>
 
 <Dialog.Root

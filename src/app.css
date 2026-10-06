@@ -319,6 +319,15 @@
 }
 
 @layer utilities {
+	/* The desktop window is frameless, so these mark where it can be dragged. */
+	.dk-drag-region {
+		-webkit-app-region: drag;
+	}
+
+	.dk-no-drag {
+		-webkit-app-region: no-drag;
+	}
+
 	.columns.windows-locked .workspace-titlebar {
 		display: none;
 	}

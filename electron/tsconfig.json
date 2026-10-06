@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"module": "nodenext",
+		"noEmit": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"target": "es2024",
+		"types": ["node"],
+		"verbatimModuleSyntax": true
+	},
+	"include": ["*.ts"]
+}

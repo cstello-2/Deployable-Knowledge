@@ -1,10 +1,4 @@
-import adapterAuto from '@sveltejs/adapter-auto';
-import adapterNode from '@sveltejs/adapter-node';
-
-// The Electron desktop build needs a self-contained Node server it can spawn as
-// a child process, so it opts into adapter-node. Every other build keeps the
-// auto adapter and its platform detection.
-const adapter = process.env.DK_TARGET === 'electron' ? adapterNode : adapterAuto;
+import adapter from '@sveltejs/adapter-node';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {

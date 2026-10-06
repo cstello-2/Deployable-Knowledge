@@ -1,18 +1,17 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { constants, createWriteStream } from 'node:fs';
 import { copyFile, mkdir } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createServer, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import type { ServerMessage } from './server.ts';
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const SERVER_ENTRY = join(APP_ROOT, 'electron', 'server.mjs');
+const SERVER_ENTRY = join(APP_ROOT, 'electron', 'server.ts');
+const PRELOAD_ENTRY = join(APP_ROOT, 'electron', 'preload.cjs');
 const SERVER_START_TIMEOUT_MS = 120_000;
 
-// Runtime files the SvelteKit server resolves against its working directory.
-// In a packaged app that directory is per-user and starts empty, so the shipped
-// copies have to be seeded on first launch.
 const SEEDED_RUNTIME_FILES = ['eng.traineddata'];
 const RUNTIME_DIRECTORIES = [
 	'documents',
@@ -22,10 +21,8 @@ const RUNTIME_DIRECTORIES = [
 	'logs'
 ];
 
-/** @type {import('node:child_process').ChildProcess | null} */
-let serverProcess = null;
-/** @type {BrowserWindow | null} */
-let mainWindow = null;
+let serverProcess: ChildProcess | null = null;
+let mainWindow: BrowserWindow | null = null;
 let quitting = false;
 
 if (!app.requestSingleInstanceLock()) {
@@ -40,44 +37,39 @@ if (!app.requestSingleInstanceLock()) {
 	app.whenReady().then(start).catch(reportFatal);
 }
 
-async function start() {
+async function start(): Promise<void> {
 	installMenu();
+	registerWindowControls();
 
 	const url = app.isPackaged ? await startPackagedServer() : await startDevServer();
 
 	createWindow(url);
 }
 
-async function prepareDataDirectory(dataDirectory) {
+async function prepareDataDirectory(dataDirectory: string): Promise<void> {
 	for (const directory of RUNTIME_DIRECTORIES) {
 		await mkdir(join(dataDirectory, directory), { recursive: true });
 	}
 
 	for (const fileName of SEEDED_RUNTIME_FILES) {
-		// COPYFILE_EXCL keeps an existing user copy untouched.
 		await copyFile(
 			join(APP_ROOT, fileName),
 			join(dataDirectory, fileName),
 			constants.COPYFILE_EXCL
-		).catch((error) => {
-			if (error.code === 'EEXIST') return;
-			throw error;
+		).catch((error: NodeJS.ErrnoException) => {
+			if (error.code !== 'EEXIST') throw error;
 		});
 	}
 }
 
-/**
- * Boots the adapter-node build in a child process so model inference, OCR, and
- * transcription never block the UI process. The child reports the port it bound.
- */
-async function startPackagedServer() {
+async function startPackagedServer(): Promise<string> {
 	const dataDirectory = app.getPath('userData');
 	await prepareDataDirectory(dataDirectory);
 
 	const log = createWriteStream(join(dataDirectory, 'logs', 'server.log'), { flags: 'a' });
-	const recentOutput = [];
+	const recentOutput: string[] = [];
 
-	serverProcess = spawn(process.execPath, [SERVER_ENTRY], {
+	const child = spawn(process.execPath, [SERVER_ENTRY], {
 		cwd: dataDirectory,
 		stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
 		env: {
@@ -86,13 +78,20 @@ async function startPackagedServer() {
 			DK_APP_ROOT: APP_ROOT,
 			DK_MIGRATIONS_DIR: join(APP_ROOT, 'drizzle'),
 			BODY_SIZE_LIMIT: 'Infinity',
-			FFMPEG_PATH: ffmpegPath()
+			// ffmpeg-static locates its binary through `__dirname`, which packaging breaks.
+			FFMPEG_PATH: join(
+				APP_ROOT,
+				'node_modules',
+				'ffmpeg-static',
+				process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+			)
 		}
 	});
+	serverProcess = child;
 
-	for (const stream of [serverProcess.stdout, serverProcess.stderr]) {
-		stream.setEncoding('utf8');
-		stream.on('data', (chunk) => {
+	for (const stream of [child.stdout, child.stderr]) {
+		stream?.setEncoding('utf8');
+		stream?.on('data', (chunk: string) => {
 			recentOutput.push(chunk);
 			if (recentOutput.length > 100) recentOutput.shift();
 			log.write(chunk);
@@ -107,45 +106,32 @@ async function startPackagedServer() {
 			reject(new Error(`The local server did not start within ${SERVER_START_TIMEOUT_MS}ms.`));
 		}, SERVER_START_TIMEOUT_MS);
 
-		serverProcess.on('message', (message) => {
-			if (message?.type !== 'listening') return;
+		child.on('message', (message) => {
+			const { type, port } = message as ServerMessage;
+			if (type !== 'listening') return;
 			clearTimeout(timer);
 			listening = true;
-			resolve(`http://127.0.0.1:${message.port}`);
+			resolve(`http://127.0.0.1:${port}`);
 		});
 
-		serverProcess.on('exit', (code) => {
+		child.on('exit', (code) => {
 			clearTimeout(timer);
 			if (quitting) return;
 			const error = new Error(
 				`The local server exited with code ${code}.\n\n${recentOutput.join('')}`
 			);
-			// A crash after startup leaves the window pointed at a dead port, so
-			// surface it instead of letting the app sit there half alive.
 			if (listening) reportFatal(error, 'The local server stopped');
 			else reject(error);
 		});
 
-		serverProcess.on('error', (error) => {
+		child.on('error', (error) => {
 			clearTimeout(timer);
 			reject(error);
 		});
 	});
 }
 
-function ffmpegPath() {
-	// `audio-decoder.ts` prefers `FFMPEG_PATH` over ffmpeg-static's own lookup, so
-	// point it at the copy that shipped with the app instead of relying on that
-	// package's `__dirname` resolution surviving packaging.
-	const binary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
-	return join(APP_ROOT, 'node_modules', 'ffmpeg-static', binary);
-}
-
-/**
- * Development runs the real Vite dev server so HMR keeps working inside the
- * Electron window. `DK_DEV_SERVER_URL` attaches to an already running one.
- */
-async function startDevServer() {
+async function startDevServer(): Promise<string> {
 	const existing = process.env.DK_DEV_SERVER_URL?.trim();
 	if (existing) {
 		await waitForServer(existing);
@@ -167,18 +153,18 @@ async function startDevServer() {
 	return url;
 }
 
-function findFreePort() {
+function findFreePort(): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const probe = createServer();
 		probe.on('error', reject);
 		probe.listen(0, '127.0.0.1', () => {
-			const { port } = probe.address();
+			const { port } = probe.address() as AddressInfo;
 			probe.close(() => resolve(port));
 		});
 	});
 }
 
-async function waitForServer(url) {
+async function waitForServer(url: string): Promise<void> {
 	const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
 
 	while (Date.now() < deadline) {
@@ -193,43 +179,66 @@ async function waitForServer(url) {
 	throw new Error(`The dev server at ${url} did not respond within ${SERVER_START_TIMEOUT_MS}ms.`);
 }
 
-function createWindow(url) {
-	mainWindow = new BrowserWindow({
+function createWindow(url: string): void {
+	const window = new BrowserWindow({
 		width: 1440,
 		height: 900,
 		minWidth: 960,
 		minHeight: 600,
 		backgroundColor: '#101014',
+		frame: false,
 		show: false,
-		autoHideMenuBar: true,
 		webPreferences: {
 			contextIsolation: true,
 			nodeIntegration: false,
+			preload: PRELOAD_ENTRY,
 			sandbox: true,
 			spellcheck: false
 		}
 	});
+	mainWindow = window;
 
-	mainWindow.once('ready-to-show', () => mainWindow?.show());
-	mainWindow.on('closed', () => (mainWindow = null));
+	window.once('ready-to-show', () => window.show());
+	window.on('closed', () => (mainWindow = null));
+	window.on('maximize', () => window.webContents.send('window:maximized-changed', true));
+	window.on('unmaximize', () => window.webContents.send('window:maximized-changed', false));
 
-	// Keep every off-app destination in the user's browser; the window itself is
-	// the workspace and must not become a general purpose browser.
-	mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
+	window.webContents.setWindowOpenHandler(({ url: target }) => {
 		void shell.openExternal(target);
 		return { action: 'deny' };
 	});
 
-	mainWindow.webContents.on('will-navigate', (event, target) => {
+	window.webContents.on('will-navigate', (event, target) => {
 		if (new URL(target).origin === new URL(url).origin) return;
 		event.preventDefault();
 		void shell.openExternal(target);
 	});
 
-	void mainWindow.loadURL(url);
+	void window.loadURL(url);
 }
 
-function installMenu() {
+function registerWindowControls(): void {
+	ipcMain.on('window:minimize', (event) => {
+		BrowserWindow.fromWebContents(event.sender)?.minimize();
+	});
+
+	ipcMain.on('window:toggle-maximize', (event) => {
+		const window = BrowserWindow.fromWebContents(event.sender);
+		if (window?.isMaximized()) window.unmaximize();
+		else window?.maximize();
+	});
+
+	ipcMain.on('window:close', (event) => {
+		BrowserWindow.fromWebContents(event.sender)?.close();
+	});
+
+	ipcMain.handle(
+		'window:is-maximized',
+		(event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+	);
+}
+
+function installMenu(): void {
 	Menu.setApplicationMenu(
 		Menu.buildFromTemplate([
 			{ role: 'fileMenu' },
@@ -247,9 +256,12 @@ app.on('before-quit', () => {
 	serverProcess?.kill();
 });
 
-function reportFatal(error, title = 'Deployable Knowledge failed to start') {
+function reportFatal(error: unknown, title = 'Deployable Knowledge failed to start'): void {
 	quitting = true;
 	serverProcess?.kill();
-	dialog.showErrorBox(title, String(error?.stack ?? error));
+	dialog.showErrorBox(
+		title,
+		error instanceof Error ? (error.stack ?? error.message) : String(error)
+	);
 	app.exit(1);
 }
