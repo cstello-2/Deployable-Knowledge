@@ -4,7 +4,7 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { createServer, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron';
 import type { ServerMessage } from './server.ts';
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -40,6 +40,21 @@ if (!app.requestSingleInstanceLock()) {
 async function start(): Promise<void> {
 	installMenu();
 	registerWindowControls();
+
+	// Chromium blocks picking home, Documents, Desktop, and system folders. Chrome
+	// explains that and reopens the picker, but Electron rejects it silently, which
+	// the app cannot tell apart from a cancel.
+	session.defaultSession.on('file-system-access-restricted', async (_event, details, callback) => {
+		const { response } = await dialog.showMessageBox({
+			type: 'warning',
+			message: `“${details.path}” can't be opened`,
+			detail: 'It is a protected location. Choose a folder inside it instead.',
+			buttons: ['Choose another folder', 'Cancel'],
+			defaultId: 0,
+			cancelId: 1
+		});
+		callback(response === 0 ? 'tryAgain' : 'deny');
+	});
 
 	const url = app.isPackaged ? await startPackagedServer() : await startDevServer();
 
