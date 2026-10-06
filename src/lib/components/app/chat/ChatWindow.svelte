@@ -10,13 +10,6 @@
 		settingsStore
 	} from '$lib/stores';
 	import type { ApiChatMessageRequest, SessionMessage } from '$lib/types';
-	import { CONTEXT_OVERHEAD_TOKENS, CONTEXT_WINDOW_TOKENS_MAX } from '$lib/constants';
-	import {
-		estimateHistoryTokens,
-		estimateMessageTokens,
-		estimateSystemPromptTokens,
-		estimateTokens
-	} from '$lib/utils';
 	import ChatForm from './ChatForm.svelte';
 	import ChatGoalsBar from './ChatGoalsBar.svelte';
 	import ChatMessageList from './ChatMessageList.svelte';
@@ -53,40 +46,12 @@
 		void notebooksStore.load();
 	});
 
-	let notebookContextTokens = $derived(
-		notebookMode
-			? estimateTokens(
-					notebooksStore.activeNotebook?.pages
-						.map(({ content }) => content)
-						.filter(Boolean)
-						.join('\n\n') ?? ''
-				)
-			: 0
-	);
-
 	let toolsSupported = $derived(settingsStore.modelToolSupport !== 'unsupported');
 	let effectiveToolsEnabled = $derived(chatStore.toolsEnabled && toolsSupported);
 	let searchToolActive = $derived(
 		!notebookMode && effectiveToolsEnabled && settingsStore.config.enabledTools.includes('search')
 	);
 	let autoSearchEnabled = $derived(!notebookMode && !searchToolActive && chatStore.searchEnabled);
-
-	let contextUsed = $derived(
-		estimateSystemPromptTokens({
-			autoSearchEnabled,
-			notebookMode,
-			toolsEnabled: effectiveToolsEnabled
-		}) +
-			estimateHistoryTokens(chatStore.current.messages) +
-			notebookContextTokens +
-			estimateMessageTokens(draft)
-	);
-
-	let contextReserved = $derived(
-		settingsStore.config.maxTokens +
-			Math.max(0, settingsStore.config.reasoningBudget) +
-			CONTEXT_OVERHEAD_TOKENS
-	);
 
 	async function notebookContext(): Promise<string> {
 		await notebooksStore.load();
@@ -213,9 +178,6 @@
 		<ChatForm
 			bind:draft
 			busy={chatStore.current.isStreaming}
-			contextLimit={CONTEXT_WINDOW_TOKENS_MAX}
-			{contextReserved}
-			{contextUsed}
 			{notebookMode}
 			onNewChat={() => void startNewChat()}
 			onNotebookModeChange={(enabled) => (notebookMode = enabled)}

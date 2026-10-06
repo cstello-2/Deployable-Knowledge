@@ -9,14 +9,11 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { REASONING_PRESETS, type ReasoningEffort } from '$lib/constants';
-	import ChatContextMeter from './ChatContextMeter.svelte';
 	import ChatModeMenu from './ChatModeMenu.svelte';
+	import ChatModelMenu from './ChatModelMenu.svelte';
 
 	interface Props {
 		busy?: boolean;
-		contextLimit: number;
-		contextReserved: number;
-		contextUsed: number;
 		draft: string;
 		notebookMode?: boolean;
 		onNewChat: () => void;
@@ -35,9 +32,6 @@
 
 	let {
 		busy = false,
-		contextLimit,
-		contextReserved,
-		contextUsed,
 		draft = $bindable(),
 		notebookMode = false,
 		onNewChat,
@@ -132,13 +126,8 @@
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
 			</div>
-			<div class="flex items-center gap-2">
-				<ChatContextMeter
-					limit={contextLimit}
-					reserved={contextReserved}
-					retrievalPending={searchEnabled}
-					used={contextUsed}
-				/>
+			<div class="flex min-w-0 items-center gap-2">
+				<ChatModelMenu disabled={busy} />
 				<ActionIcon
 					class="size-8 rounded-full shadow-sm"
 					disabled={!busy && !draft.trim()}
