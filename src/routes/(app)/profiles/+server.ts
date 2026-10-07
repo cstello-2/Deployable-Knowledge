@@ -4,8 +4,8 @@ import { error, json } from '@sveltejs/kit';
 
 import { toolRegistry } from '$lib/server/tools';
 import { db } from '$lib/server/database/database';
-import { ensureActiveProfileId } from '$lib/server/database/app-state';
 import { profiles, type AssistantProfileCreateValues } from '$lib/server/database/schema';
+import { ensureActiveProfileId } from '$lib/server/profiles/active-profile';
 import { sanitizeGpuMode } from '$lib/server/utils/profile-values';
 import { ProfilesRepository } from '$lib/server/repositories';
 import type { RequestHandler } from './$types';

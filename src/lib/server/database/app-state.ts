@@ -1,40 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { DEFAULT_EMBEDDING_SETTINGS, parseThemeColor, parseThemeMode } from '$lib/constants';
 import type { EmbeddingSettings, ThemeSettings } from '$lib/types';
 import { db } from '$lib/server/database/database';
-import { appState, profiles } from '$lib/server/database/schema';
-import { toolRegistry } from '$lib/server/tools';
+import { appState } from '$lib/server/database/schema';
 
 const APP_STATE_ID = 'app';
 
-export async function ensureActiveProfileId(): Promise<string> {
+export async function getActiveProfileId(): Promise<string | null> {
 	const state = await db.select().from(appState).where(eq(appState.id, APP_STATE_ID)).get();
-	if (state?.activeProfileId) return state.activeProfileId;
-
-	let profile = await db
-		.select({ id: profiles.id })
-		.from(profiles)
-		.orderBy(asc(profiles.name))
-		.get();
-
-	if (!profile) {
-		const timestamp = new Date();
-		[profile] = await db
-			.insert(profiles)
-			.values({
-				id: randomUUID(),
-				name: 'Default',
-				enabledTools: toolRegistry.defaultIds(),
-				createdAt: timestamp,
-				updatedAt: timestamp
-			})
-			.returning({ id: profiles.id });
-	}
-
-	await setActiveProfileId(profile.id);
-	return profile.id;
+	return state?.activeProfileId ?? null;
 }
 
 export async function setActiveProfileId(activeProfileId: string | null): Promise<void> {

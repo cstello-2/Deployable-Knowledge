@@ -20,9 +20,10 @@ import { getNotebookSourceExcerpts } from '$lib/server/chat/notebook-context';
 import { db } from '$lib/server/database/database';
 import { promptTemplates } from '$lib/server/database/schema';
 import { diagnosticEvents } from '$lib/server/diagnostics/events';
+import { getActiveProfile } from '$lib/server/profiles/active-profile';
 import { findProvider } from '$lib/server/providers/registry';
 import type { Provider, ProviderChatOptions } from '$lib/server/providers/provider';
-import { ProfilesRepository, SessionsRepository } from '$lib/server/repositories';
+import { SessionsRepository } from '$lib/server/repositories';
 import { toolRegistry } from '$lib/server/tools';
 import { readGoals } from '$lib/server/tools/goals';
 import type { ToolExecutionContext } from '$lib/server/tools/types';
@@ -46,7 +47,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		);
 	}
 
-	const profile = await ProfilesRepository.getActive();
+	const profile = await getActiveProfile();
 	const session = await SessionsRepository.find(params.id);
 	if (!session) await SessionsRepository.create(params.id);
 	const history = await SessionsRepository.listMessages(params.id);
