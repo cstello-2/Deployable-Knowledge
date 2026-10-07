@@ -6,33 +6,21 @@ directories:
   buildResources: electron/build
   output: release
 
-# The app ships llama.cpp, ONNX Runtime, Sharp, libSQL, ffmpeg, Pyodide, and the
-# Tesseract WASM core. Several of those resolve data files and executables by
-# real filesystem path, so packing them into an archive trades a smaller install
-# for a class of runtime path bugs that only appear on an end user's machine.
 asar: false
+npmRebuild: false
+publish: null
 
-# electron-builder adds package.json and the production node_modules on its own,
-# so this only names the app's files. An allowlist keeps editor, lint, and
-# environment dotfiles from leaking into the installer.
 files:
   - build/**
   - drizzle/**
   - electron/*.{cjs,ts}
   - eng.traineddata
   - LICENSE
-  # The GPL-3 FFmpeg binary and the other copyleft payloads are conveyed by the
-  # installer, so their notices have to travel with it.
   - THIRD-PARTY-NOTICES.md
+  - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
 
 win:
-  icon: electron/build/icon.png
-  files:
-    # onnxruntime-node is a direct dependency only to pin the execution provider
-    # that @huggingface/transformers loads. It ships every platform's binaries in
-    # one package, ~450 MB the x64 installer will never load.
-    - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**'
-    - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
   target:
     - target: nsis
       arch:
@@ -40,12 +28,6 @@ win:
 
 nsis:
   oneClick: false
-  perMachine: false
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-  shortcutName: Deployable Knowledge
-  # A multi-hundred-megabyte payload makes delta blockmaps expensive to build
-  # and useless without an auto-update feed.
   differentialPackage: false
   artifactName: ${productName}-${version}-windows-x64-setup.${ext}

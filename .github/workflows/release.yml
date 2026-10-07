@@ -16,8 +16,6 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      # Git for Windows rewrites line endings on checkout by default, which makes
-      # the Prettier gate fail on every file.
       - name: Preserve committed line endings
         run: |
           git config --global core.autocrlf false
@@ -42,14 +40,9 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building version $version"
 
-      # Pulls the Windows builds of llama.cpp, ONNX Runtime, Sharp, libSQL, and
-      # ffmpeg that the installer has to carry.
       - name: Install dependencies
         run: npm ci
 
-      # The desktop app ships drizzle/ and replays it at startup, so a schema
-      # change that only ever went through `drizzle-kit push` would install an
-      # out-of-date database.
       - name: Verify migrations match the schema
         shell: bash
         run: |
@@ -70,15 +63,11 @@ jobs:
         run: npm run build
 
       - name: Build installer
-        run: npx electron-builder --win --publish never --config.extraMetadata.version=${{ steps.version.outputs.version }}
+        run: npx electron-builder --win --config.extraMetadata.version=${{ steps.version.outputs.version }}
         env:
-          # Unset when the signing secrets are absent, which produces an unsigned
-          # installer that Windows SmartScreen will warn about.
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
-      # Manual runs have no release to attach to, and uploading half a gigabyte
-      # twice would double the runtime of a tagged build.
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch'
         with:
