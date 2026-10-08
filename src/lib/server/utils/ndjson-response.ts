@@ -22,7 +22,7 @@ export function ndjsonTaskResponse<TEvent>(
 				try {
 					await run(send);
 				} catch (cause) {
-					console.error(`${name} failed.`);
+					console.error(`${name} failed:`, cause);
 					send(errorEvent(cause));
 				} finally {
 					if (!closed) {

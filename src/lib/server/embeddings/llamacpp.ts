@@ -111,7 +111,8 @@ export class LlamaCppEmbeddingProvider extends EmbeddingProvider {
 		try {
 			runtime = await this.createRuntime(fileName, device);
 		} catch (error) {
-			diagnosticEvents.embeddingFailed();
+			console.error(`[Embedding] ${fileName} failed to load:`, error);
+			diagnosticEvents.embeddingFailed(error);
 			throw error;
 		}
 

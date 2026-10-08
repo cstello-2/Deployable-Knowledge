@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { createServer, type RequestListener } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,19 +11,23 @@ export interface ServerMessage {
 const appRoot = process.env.DK_APP_ROOT;
 if (!appRoot) throw new Error('DK_APP_ROOT is required to locate the SvelteKit build.');
 
+const server = createServer();
+server.listen(0, '127.0.0.1');
+await once(server, 'listening');
+
+const address = server.address();
+if (typeof address !== 'object' || address === null) {
+	throw new Error('The local server did not bind to a TCP port.');
+}
+
+process.env.ORIGIN = `http://127.0.0.1:${address.port}`;
+
 const { handler }: { handler: RequestListener } = await import(
 	pathToFileURL(join(appRoot, 'build', 'handler.js')).href
 );
+server.on('request', handler);
 
-const server = createServer(handler);
-
-server.listen(0, '127.0.0.1', () => {
-	const address = server.address();
-	if (typeof address !== 'object' || address === null) {
-		throw new Error('The local server did not bind to a TCP port.');
-	}
-	process.send?.({ type: 'listening', port: address.port } satisfies ServerMessage);
-});
+process.send?.({ type: 'listening', port: address.port } satisfies ServerMessage);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 	process.once(signal, () => server.close());

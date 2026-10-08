@@ -97,8 +97,10 @@ export const diagnosticEvents = {
 		});
 	},
 
-	embeddingFailed(): void {
-		append('error', 'embedding', 'EMBEDDING_MODEL_FAILED', 'Embedding model failed to load');
+	embeddingFailed(cause: unknown): void {
+		append('error', 'embedding', 'EMBEDDING_MODEL_FAILED', 'Embedding model failed to load', {
+			error: cause instanceof Error ? cause.message : String(cause)
+		});
 	},
 
 	embeddingReady(input: { backend: EmbeddingBackend; durationMs: number; model: string }): void {
